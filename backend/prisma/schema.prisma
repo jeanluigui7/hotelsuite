@@ -40,6 +40,9 @@ model Branch {
   schedules      Schedule[]
   rooms          Room[]
   stays          Stay[]
+  reservations   Reservation[]
+  observations   Observation[]
+  conciergeRequests ConciergeRequest[]
 
   @@index([status])
 }
@@ -165,9 +168,10 @@ model RoomType {
 
   branch      Branch             @relation(fields: [branchId], references: [id], onDelete: Cascade)
   attributes  RoomTypeAttribute[]
-  rates       Rate[]
-  customRates CustomRate[]
-  rooms       Room[]
+  rates        Rate[]
+  customRates  CustomRate[]
+  rooms        Room[]
+  reservations Reservation[]
 
   @@index([branchId])
   @@index([status])
@@ -237,6 +241,7 @@ model Guest {
 
   stays           Stay[]
   additionalStays StayGuest[]
+  reservations    Reservation[]
 
   @@unique([documentType, documentNumber])
   @@index([documentNumber])
@@ -375,6 +380,9 @@ model Room {
   branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
   roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   stays    Stay[]
+  reservations      Reservation[]
+  observations      Observation[]
+  conciergeRequests ConciergeRequest[]
 
   @@unique([branchId, number])
   @@index([branchId])
@@ -427,4 +435,76 @@ model StayGuest {
   @@unique([stayId, guestId])
   @@index([stayId])
   @@index([guestId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FASE 3 — Operaciones (Tanda 3B): Reservas, Observaciones, Conserjería
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Reserva por tipo de habitación (opcionalmente una habitación concreta).
+model Reservation {
+  id                String   @id @default(uuid())
+  branchId          String
+  roomTypeId        String
+  roomId            String?
+  guestId           String?
+  guestName         String? // si no hay Guest registrado aún
+  phone             String?
+  expectedCheckInAt DateTime
+  durationMinutes   Int      @default(1440)
+  adults            Int      @default(1)
+  children          Int      @default(0)
+  status            String   @default("PENDING") // PENDING | CONFIRMED | CANCELLED | FULFILLED
+  notes             String?
+  createdByUserId   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  room     Room?    @relation(fields: [roomId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  guest    Guest?   @relation(fields: [guestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([branchId])
+  @@index([status])
+  @@index([roomTypeId])
+}
+
+/// Observación operativa (general o asociada a una habitación).
+model Observation {
+  id              String   @id @default(uuid())
+  branchId        String
+  roomId          String?
+  title           String?
+  body            String
+  status          String   @default("OPEN") // OPEN | RESOLVED
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  room   Room?  @relation(fields: [roomId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([branchId])
+  @@index([status])
+}
+
+/// Solicitud de conserjería.
+model ConciergeRequest {
+  id              String   @id @default(uuid())
+  branchId        String
+  roomId          String?
+  guestName       String?
+  category        String? // taxi | comida | despertador | otros
+  description     String
+  status          String   @default("PENDING") // PENDING | IN_PROGRESS | DONE | CANCELLED
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  room   Room?  @relation(fields: [roomId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([branchId])
+  @@index([status])
 }

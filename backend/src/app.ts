@@ -22,6 +22,9 @@ import { itemsRouter } from './modules/items/items.routes';
 import { schedulesRouter } from './modules/schedules/schedules.routes';
 import { roomsRouter } from './modules/rooms/rooms.routes';
 import { staysRouter } from './modules/stays/stays.routes';
+import { reservationsRouter } from './modules/reservations/reservations.routes';
+import { observationsRouter } from './modules/observations/observations.routes';
+import { conciergeRouter } from './modules/concierge/concierge.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -50,6 +53,9 @@ export function createApp(): Application {
   app.use('/api', schedulesRouter);
   app.use('/api', roomsRouter);
   app.use('/api', staysRouter);
+  app.use('/api', reservationsRouter);
+  app.use('/api', observationsRouter);
+  app.use('/api', conciergeRouter);
 
   // Fallbacks
   app.use(notFoundHandler);
