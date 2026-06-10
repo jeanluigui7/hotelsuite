@@ -69,8 +69,15 @@ en español. Detalle completo en `PROMPT_SISTEMA_HOTELERO.md`.
 
 > Actualiza esta sección al cerrar cada fase. Así sabes (y yo sé) dónde retomamos.
 
-- **Fase actual:** FASE 1 — Auth, Roles y Multi-sucursal (pendiente de iniciar; esperar "OK fase 0")
-- **Fases completadas:** FASE 0 — Scaffolding e infraestructura ✅
+- **Fase actual:** FASE 2 — Configuración del Hotel y Catálogos (pendiente; esperar "OK fase 1")
+- **Fases completadas:** FASE 0 — Scaffolding ✅ · FASE 1 — Auth, Roles y Multi-sucursal ✅
+- **Implementado en FASE 1:**
+  - Backend: modelos Prisma (Branch/User/Role/Permission/RolePermission/UserBranch/RefreshToken) + seed idempotente.
+  - Auth JWT (access en memoria + refresh opaco hasheado en cookie httpOnly con rotación), bcryptjs.
+  - Middlewares `authenticate`/`tenant` (req.scope)/`requirePermission` (RBAC módulo×acción).
+  - Módulos en capas: `users`, `roles`, `branches` (paginación/filtro/orden, Zod, envelope).
+  - Frontend: login + selección de sucursal, interceptor con refresh, guards, switcher de sucursal, sidebar por permisos, pantallas Usuarios (CRUD) y Autenticación por Roles (matriz).
+  - **Pendiente de validación manual con DB:** falta correr `prisma migrate dev` + seed contra el SQL Server del usuario y probar login E2E.
 - **Decisiones tomadas en FASE 0:**
   - UI: **PrimeNG 18** (tema dark Aura), no Angular Material.
   - **Angular 18.2.x** (cumple "17+"), monorepo con **npm workspaces**.
