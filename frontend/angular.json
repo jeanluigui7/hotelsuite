@@ -27,6 +27,7 @@
               "zone.js"
             ],
             "tsConfig": "tsconfig.app.json",
+            "allowedCommonJsDependencies": ["qz-tray"],
             "inlineStyleLanguage": "scss",
             "assets": [
               {

@@ -23,6 +23,10 @@ const routes: Routes = [
     path: 'panel-fiscal',
     loadComponent: () => import('./panel-fiscal/fiscal-panel.component').then((m) => m.FiscalPanelComponent),
   },
+  {
+    path: 'tickets',
+    loadComponent: () => import('./tickets/tickets.component').then((m) => m.TicketsComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 
