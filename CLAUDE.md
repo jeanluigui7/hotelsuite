@@ -69,13 +69,14 @@ en español. Detalle completo en `PROMPT_SISTEMA_HOTELERO.md`.
 
 > Actualiza esta sección al cerrar cada fase. Así sabes (y yo sé) dónde retomamos.
 
-- **Fase actual:** FASE 2 — Configuración del Hotel y Catálogos (Tanda 2A ✅; **pendiente Tanda 2B**: Áreas, Categorías de Inventario, Items, Horarios)
-- **Fases completadas:** FASE 0 — Scaffolding ✅ · FASE 1 — Auth, Roles y Multi-sucursal ✅
+- **Fase actual:** FASE 3 — Operaciones: Habitaciones y Estancias (pendiente; esperar "OK fase 2")
+- **Fases completadas:** FASE 0 ✅ · FASE 1 ✅ · FASE 2 (Catálogos 2A + 2B) ✅
 - **Implementado en FASE 2A:**
   - Prisma: RoomType, RoomAttribute, RoomTypeAttribute (N:M), ClientTier, Guest (global), Rate (por duración), CustomRate, Setting; campos de hotel en Branch. Cascadas secundarias en `NoAction` (SQL Server) con limpieza de hijos en repos. Seed con catálogos demo.
   - Backend: módulos room-attributes, room-types (con atributos), client-tiers, guests, rates+custom-rates (en capas, scope multi-sucursal, RBAC `settings`).
   - Frontend: `CrudApi` genérico + `CatalogApiService`; pantallas Hotel, Tipos de Habitación (atributos + tarifas base), Atributos, Tiers, Clientes, Tarifa Personalizada.
-  - **Pendiente validación con DB:** correr `prisma migrate dev` + seed y probar los CRUD.
+  - **2B:** backend areas, inventory-categories, items (filtro por kind), schedules. Frontend: Inventario › Áreas/Categorías, Configuraciones › Items/Horarios.
+  - **Pendiente validación con DB:** correr `prisma migrate dev` + seed y probar todos los CRUD de catálogos.
 - **Implementado en FASE 1:**
   - Backend: modelos Prisma (Branch/User/Role/Permission/RolePermission/UserBranch/RefreshToken) + seed idempotente.
   - Auth JWT (access en memoria + refresh opaco hasheado en cookie httpOnly con rotación), bcryptjs.
