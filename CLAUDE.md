@@ -69,12 +69,12 @@ en español. Detalle completo en `PROMPT_SISTEMA_HOTELERO.md`.
 
 > Actualiza esta sección al cerrar cada fase. Así sabes (y yo sé) dónde retomamos.
 
-- **Fase actual:** FASE 7 (Tanda 7A ✅; **pendiente Tanda 7B**: Mantenimientos, Revisiones, Lavandería + Máquinas)
-- **Fases completadas:** FASE 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ✅ · 6 ✅
-- **Implementado en FASE 7A:**
-  - Prisma: ChecklistItem, HousekeepingTask, TaskInspection.
-  - Backend: `checklist` (CRUD, RBAC settings), `housekeeping` (asignar/iniciar/completar con consumo de amenities vía Kardex/inspeccionar; aprobar libera la habitación). RBAC operations.
-  - Frontend: Configuraciones › Inspección de Limpieza; Operaciones › Historial de Limpiezas (ciclo completo).
+- **Fase actual:** FASE 8 — RRHH, Biometría (ZKTeco) y Reportería (pendiente; esperar "OK fase 7")
+- **Fases completadas:** FASE 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ✅ · 6 ✅ · 7 (7A + 7B) ✅
+- **Implementado en FASE 7:**
+  - Prisma: ChecklistItem, HousekeepingTask, TaskInspection, Maintenance, Revision, LaundryMachine, LaundryTask.
+  - Backend: `checklist`+`housekeeping` (ciclo de limpieza con consumo de amenities vía Kardex e inspección que libera la habitación), `maintenance`, `revisions`, `laundry-machines` (settings), `laundry-tasks` (reports).
+  - Frontend: Configuraciones › Inspección de Limpieza / Máquinas de Lavandería; Operaciones › Historial de Limpiezas / Mantenimientos / Revisiones; Reportes › Reporte Lavandería.
 - **Implementado en FASE 6:**
   - Prisma: InventoryMovement (Kardex signed), Product.reorderPoint, SaleItem.unitCost, Supplier, PurchaseInvoice(+Item).
   - Backend: `warehouses`, `movements` (Kardex/ajuste/transferencia; la venta escribe SALE + unitCost), `suppliers`, `purchases` (ingreso → stock + último costo + PURCHASE), `logistics` (valorización, reponer, ganancias). RBAC inventory/logistics.
