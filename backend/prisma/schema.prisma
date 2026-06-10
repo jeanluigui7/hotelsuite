@@ -59,6 +59,7 @@ model Branch {
   revisions        Revision[]
   laundryMachines  LaundryMachine[]
   laundryTasks     LaundryTask[]
+  biometricDevices BiometricDevice[]
 
   @@index([status])
 }
@@ -924,6 +925,45 @@ model LaundryMachine {
   branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@index([branchId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FASE 8 — Biometría ZKTeco (Tanda 8B)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Lector de huella ZKTeco (equipo de red, TCP puerto 4370).
+model BiometricDevice {
+  id         String    @id @default(uuid())
+  branchId   String
+  name       String
+  ip         String
+  port       Int       @default(4370)
+  status     String    @default("offline") // offline | online | error
+  lastSyncAt DateTime?
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  branch      Branch             @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  enrollments DeviceEnrollment[]
+
+  @@index([branchId])
+}
+
+/// Enrolamiento: mapea el usuario del huellero (deviceUserId) con un User.
+model DeviceEnrollment {
+  id           String   @id @default(uuid())
+  deviceId     String
+  userId       String
+  deviceUserId String
+  name         String?
+  createdAt    DateTime @default(now())
+
+  device BiometricDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, deviceUserId])
+  @@index([deviceId])
+  @@index([userId])
 }
 
 /// Carga de lavandería.
