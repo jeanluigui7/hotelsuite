@@ -1,6 +1,6 @@
 // HotelSuite — Prisma schema
 // Datasource: SQL Server (código agnóstico para migrar a PostgreSQL si hiciera falta).
-// FASE 0: solo datasource + generator. Los modelos se agregan desde la FASE 1.
+// FASE 1: Auth, Roles y Multi-sucursal.
 
 generator client {
   provider = "prisma-client-js"
@@ -9,4 +9,109 @@ generator client {
 datasource db {
   provider = "sqlserver"
   url      = env("DATABASE_URL")
+}
+
+/// Sucursal (tenant). Toda entidad operativa se relaciona con una Branch.
+model Branch {
+  id         String   @id @default(uuid())
+  name       String
+  address    String?
+  taxId      String? // RUC / identificación fiscal
+  currency   String   @default("PEN")
+  cutoffHour Int      @default(0) // hora de corte de turno (0-23)
+  status     String   @default("active") // active | inactive
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  users UserBranch[]
+
+  @@index([status])
+}
+
+/// Usuario del sistema. Pertenece a un rol y opera una o varias sucursales.
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  status       String   @default("active") // active | inactive
+  roleId       String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  role          Role           @relation(fields: [roleId], references: [id])
+  branches      UserBranch[]
+  refreshTokens RefreshToken[]
+
+  @@index([roleId])
+  @@index([status])
+}
+
+/// Rol con un conjunto de permisos (RBAC granular).
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  isSystem    Boolean  @default(false) // roles protegidos (ej. Super Admin)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  permissions RolePermission[]
+}
+
+/// Catálogo de permisos: combinación módulo × acción.
+model Permission {
+  id          String   @id @default(uuid())
+  module      String // dashboard | operations | finance | ...
+  action      String // view | create | edit | delete | approve
+  description String?
+  createdAt   DateTime @default(now())
+
+  roles RolePermission[]
+
+  @@unique([module, action])
+  @@index([module])
+}
+
+/// Tabla puente Role ↔ Permission.
+model RolePermission {
+  id           String @id @default(uuid())
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+}
+
+/// Tabla puente User ↔ Branch (un usuario puede operar varias sucursales).
+model UserBranch {
+  id       String @id @default(uuid())
+  userId   String
+  branchId String
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, branchId])
+  @@index([userId])
+  @@index([branchId])
+}
+
+/// Refresh tokens emitidos (hash), para rotación y logout/revocación real.
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

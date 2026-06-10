@@ -12,7 +12,12 @@
       "PowerShell(npm install 2>&1)",
       "PowerShell(npm run build -w backend 2>&1)",
       "PowerShell(npm run build -w frontend 2>&1)",
-      "PowerShell(git add -A; git status --short | Select-Object -First 60; Write-Output \"---COUNT---\"; \\(git status --short | Measure-Object -Line\\).Lines)"
+      "PowerShell(git add -A; git status --short | Select-Object -First 60; Write-Output \"---COUNT---\"; \\(git status --short | Measure-Object -Line\\).Lines)",
+      "PowerShell(npm run prisma:generate -w backend 2>&1)",
+      "Bash(sed -i 's/ConflictableError/ConflictError/g' src/modules/roles/roles.service.ts)",
+      "Read(//d/d/Repositorio/hotelsuite/backend/src/modules/roles/**)",
+      "PowerShell(Get-Location; Write-Output \"---\"; Test-Path 'd:\\\\Repositorio\\\\hotelsuite\\\\package.json'; \\(Get-Content 'd:\\\\Repositorio\\\\hotelsuite\\\\package.json' -Raw | ConvertFrom-Json\\).workspaces)",
+      "PowerShell(npm --prefix 'd:\\\\Repositorio\\\\hotelsuite\\\\backend' run build 2>&1)"
     ]
   }
 }

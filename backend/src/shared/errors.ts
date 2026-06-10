@@ -36,3 +36,9 @@ export class ForbiddenError extends AppError {
     super('FORBIDDEN', message, 403, details);
   }
 }
+
+export class ConflictError extends AppError {
+  constructor(message = 'Conflicto con el estado actual del recurso', details?: unknown) {
+    super('CONFLICT', message, 409, details);
+  }
+}
