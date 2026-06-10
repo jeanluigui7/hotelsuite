@@ -3,6 +3,10 @@ import { PlaceholderPageComponent } from '../../shared/components/placeholder-pa
 
 const routes: Routes = [
   { path: '', component: PlaceholderPageComponent },
+  {
+    path: 'cuadro-turno',
+    loadComponent: () => import('./cuadro-turno/turn-report.component').then((m) => m.TurnReportComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 

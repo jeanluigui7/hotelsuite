@@ -5,6 +5,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { InputTextModule } from 'primeng/inputtext';
+import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
@@ -21,7 +22,7 @@ const METHOD_LABEL: Record<string, string> = {
 @Component({
   selector: 'app-cash',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, InputNumberModule, InputTextModule, TagModule],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, InputNumberModule, InputTextModule, SelectModule, TagModule],
   template: `
     <section>
       <header class="head">
@@ -67,6 +68,20 @@ const METHOD_LABEL: Record<string, string> = {
             }
           </div>
 
+          <h4>Movimientos de efectivo</h4>
+          <div class="methods">
+            <div class="method"><span>Ingresos</span><strong>{{ current()!.summary?.movementsIn ?? 0 | number: '1.2-2' }}</strong></div>
+            <div class="method"><span>Egresos</span><strong>{{ current()!.summary?.movementsOut ?? 0 | number: '1.2-2' }}</strong></div>
+          </div>
+          @if (canCreate) {
+            <div class="mov-form">
+              <p-select [options]="movTypes" optionLabel="label" optionValue="value" [(ngModel)]="movType" styleClass="mov-type" />
+              <p-inputNumber [(ngModel)]="movAmount" mode="currency" currency="PEN" locale="es-PE" [min]="0" placeholder="Monto" styleClass="mov-amount" />
+              <input pInputText [(ngModel)]="movConcept" placeholder="Concepto" class="mov-concept" />
+              <p-button icon="pi pi-plus" label="Registrar" (onClick)="addMovement()" [loading]="movBusy()" />
+            </div>
+          }
+
           <h3 class="mt">Cerrar turno (arqueo)</h3>
           <label>Efectivo contado</label>
           <p-inputNumber [(ngModel)]="closingAmount" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w-full" />
@@ -101,6 +116,10 @@ const METHOD_LABEL: Record<string, string> = {
       .methods { display: flex; flex-direction: column; gap: 0.4rem; }
       .diff { margin-top: 0.6rem; }
       .diff.neg strong { color: #f87171; }
+      .mov-form { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.75rem; flex-wrap: wrap; }
+      .mov-concept { flex: 1; min-width: 140px; }
+      :host ::ng-deep .mov-type { width: 120px; }
+      :host ::ng-deep .mov-amount { width: 130px; }
       :host ::ng-deep .w-full { width: 100%; }
     `,
   ],
@@ -118,6 +137,15 @@ export class CashComponent implements OnInit {
   openNotes = '';
   closingAmount: number | null = null;
   closeNotes = '';
+
+  readonly movBusy = signal(false);
+  readonly movTypes = [
+    { label: 'Ingreso', value: 'IN' },
+    { label: 'Egreso', value: 'OUT' },
+  ];
+  movType: 'IN' | 'OUT' = 'IN';
+  movAmount: number | null = null;
+  movConcept = '';
 
   readonly canCreate = this.auth.can('finance', 'create');
   readonly canEdit = this.auth.can('finance', 'edit');
@@ -160,6 +188,27 @@ export class CashComponent implements OnInit {
       error: (err: HttpErrorResponse) => {
         this.busy.set(false);
         this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo abrir.' });
+      },
+    });
+  }
+
+  addMovement(): void {
+    if (this.movAmount == null || this.movAmount <= 0 || !this.movConcept) {
+      this.messages.add({ severity: 'warn', summary: 'Datos incompletos', detail: 'Monto y concepto requeridos.' });
+      return;
+    }
+    this.movBusy.set(true);
+    this.finance.addMovement({ type: this.movType, amount: this.movAmount, concept: this.movConcept }).subscribe({
+      next: () => {
+        this.movBusy.set(false);
+        this.movAmount = null;
+        this.movConcept = '';
+        this.messages.add({ severity: 'success', summary: 'Movimiento registrado', detail: 'Caja actualizada.' });
+        this.reload();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.movBusy.set(false);
+        this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo registrar.' });
       },
     });
   }

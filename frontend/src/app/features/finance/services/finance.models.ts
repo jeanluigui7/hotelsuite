@@ -14,8 +14,27 @@ export interface CashSession {
 export interface CashSummary {
   byMethod: Record<string, number>;
   totalCollected: number;
+  movementsIn?: number;
+  movementsOut?: number;
   expectedCash: number;
   salesCount: number;
+}
+
+export interface CashMovement {
+  id: string;
+  type: 'IN' | 'OUT';
+  amount: string | number;
+  concept: string;
+  createdAt: string;
+}
+
+export interface SessionReport {
+  session: CashSession;
+  summary: CashSummary;
+  movements: CashMovement[];
+  byItem: { description: string; quantity: number; total: number }[];
+  countedAmount?: string | number | null;
+  difference: number | null;
 }
 
 export interface CashCurrent {
