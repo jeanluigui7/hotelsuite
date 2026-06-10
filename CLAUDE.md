@@ -69,8 +69,12 @@ en español. Detalle completo en `PROMPT_SISTEMA_HOTELERO.md`.
 
 > Actualiza esta sección al cerrar cada fase. Así sabes (y yo sé) dónde retomamos.
 
-- **Fase actual:** FASE 6 — Inventario, Almacenes y Logística (pendiente; esperar "OK fase 5")
-- **Fases completadas:** FASE 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 (5A + 5B) ✅
+- **Fase actual:** FASE 6 (Tanda 6A ✅; **pendiente Tanda 6B**: Proveedores, Ingresos con Factura, Valorización, Productos a Reponer, Reporte de Ganancias)
+- **Fases completadas:** FASE 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ✅
+- **Implementado en FASE 6A:**
+  - Prisma: InventoryMovement (Kardex, quantity signed), Product.reorderPoint, SaleItem.unitCost.
+  - Backend: `warehouses` (CRUD 6 tipos), `movements` (Kardex + ajuste + transferencia, helpers applyStockTx/createMovementTx). La venta escribe movimiento SALE y guarda unitCost.
+  - Frontend: Inventario › Almacenes, Movimientos (Kardex); Artículos con punto de reposición.
 - **Implementado en FASE 5:**
   - 5A: FolioSeries, Invoice (Boleta/Factura, IGV 18% incluido), CreditDebitNote; capa `InvoicingProvider` mock; módulos folios/invoices/notes/fiscal; UI Comprobantes/Folios Maestros/Panel Fiscal.
   - 5B: backend `printing` (GET /printing/certificate, POST /printing/sign RSA-SHA512, config `QZ_*`); frontend `PrintingService` (qz-tray) + Finanzas › Tickets (estado QZ + imprimir ventas/comprobantes). README con setup de QZ Tray + certificados.
