@@ -1,0 +1,67 @@
+.cat-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.muted {
+  color: var(--p-text-muted-color, #a1a1aa);
+  font-size: 0.9rem;
+  margin: 0.25rem 0 0;
+}
+
+.center {
+  text-align: center;
+}
+
+.cat-actions {
+  display: flex;
+  gap: 0.2rem;
+}
+
+.cat-toolbar {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.cat-toolbar input {
+  width: 320px;
+  max-width: 100%;
+}
+
+.cat-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.cat-form label {
+  margin: 0.85rem 0 0.35rem;
+  font-size: 0.85rem;
+  color: var(--p-text-muted-color, #a1a1aa);
+}
+
+.cat-form input[pInputText] {
+  width: 100%;
+}
+
+.cat-form .row {
+  display: flex;
+  gap: 1rem;
+}
+
+.cat-form .row > .col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+:host ::ng-deep .w-full {
+  width: 100%;
+}
