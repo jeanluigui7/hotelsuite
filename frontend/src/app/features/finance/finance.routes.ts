@@ -11,6 +11,18 @@ const routes: Routes = [
     path: 'pagos',
     loadComponent: () => import('./pagos/sales.component').then((m) => m.SalesComponent),
   },
+  {
+    path: 'comprobantes',
+    loadComponent: () => import('./comprobantes/invoices.component').then((m) => m.InvoicesComponent),
+  },
+  {
+    path: 'folios',
+    loadComponent: () => import('./folios/folios.component').then((m) => m.FoliosComponent),
+  },
+  {
+    path: 'panel-fiscal',
+    loadComponent: () => import('./panel-fiscal/fiscal-panel.component').then((m) => m.FiscalPanelComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 

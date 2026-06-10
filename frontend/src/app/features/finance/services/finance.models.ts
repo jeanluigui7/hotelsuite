@@ -69,6 +69,50 @@ export interface CreateSaleInput {
   payments: PaymentInput[];
 }
 
+export interface FolioSeries {
+  id: string;
+  documentType: 'BOLETA' | 'FACTURA' | 'NOTE';
+  series: string;
+  currentNumber: number;
+  status: string;
+}
+
+export interface Invoice {
+  id: string;
+  type: 'BOLETA' | 'FACTURA';
+  folio: string;
+  saleId?: string | null;
+  customerName: string;
+  customerDoc?: string | null;
+  subtotal: string | number;
+  taxAmount: string | number;
+  total: string | number;
+  status: 'ISSUED' | 'VOIDED';
+  providerStatus?: string | null;
+  providerRef?: string | null;
+  issuedAt: string;
+  notesCount: number;
+}
+
+export interface CreditDebitNote {
+  id: string;
+  type: 'CREDIT' | 'DEBIT';
+  folio: string;
+  reason: string;
+  total: string | number;
+  status: string;
+  issuedAt: string;
+  invoice?: { id: string; folio: string; type: string } | null;
+}
+
+export interface FiscalPanel {
+  byType: { type: string; count: number; total: number; tax: number; base: number }[];
+  notesByType: { type: string; count: number; total: number }[];
+  issuedCount: number;
+  voidedCount: number;
+  totals: { total: number; tax: number; base: number };
+}
+
 export interface Sale {
   id: string;
   stayId?: string | null;

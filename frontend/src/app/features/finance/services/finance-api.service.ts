@@ -2,13 +2,17 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
-import { toHttpParams, type ListParams } from '../../../core/http/crud-api';
+import { CrudApi, toHttpParams, type ListParams } from '../../../core/http/crud-api';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import type {
   CashCurrent,
   CashSession,
   CloseResult,
   CreateSaleInput,
+  CreditDebitNote,
+  FiscalPanel,
+  FolioSeries,
+  Invoice,
   Sale,
   SessionReport,
 } from './finance.models';
@@ -17,6 +21,9 @@ import type {
 export class FinanceApiService {
   private readonly http = inject(HttpClient);
   private readonly api = environment.apiUrl;
+
+  /** Folios Maestros (CRUD). */
+  readonly folios = new CrudApi<FolioSeries>(this.http, 'folios');
 
   cashCurrent(): Observable<ApiResponse<CashCurrent>> {
     return this.http.get<ApiResponse<CashCurrent>>(`${this.api}/cash/current`);
@@ -45,5 +52,40 @@ export class FinanceApiService {
   }
   cancelSale(id: string): Observable<ApiResponse<Sale>> {
     return this.http.post<ApiResponse<Sale>>(`${this.api}/sales/${id}/cancel`, {});
+  }
+
+  // ── Comprobantes ──
+  listInvoices(params: ListParams = {}): Observable<ApiResponse<Invoice[]>> {
+    return this.http.get<ApiResponse<Invoice[]>>(`${this.api}/invoices`, { params: toHttpParams(params) });
+  }
+  issueInvoice(dto: {
+    saleId?: string | null;
+    type: 'BOLETA' | 'FACTURA';
+    customerName: string;
+    customerDoc?: string;
+    total?: number;
+  }): Observable<ApiResponse<Invoice>> {
+    return this.http.post<ApiResponse<Invoice>>(`${this.api}/invoices`, dto);
+  }
+  voidInvoice(id: string): Observable<ApiResponse<Invoice>> {
+    return this.http.post<ApiResponse<Invoice>>(`${this.api}/invoices/${id}/void`, {});
+  }
+
+  // ── Notas ──
+  listNotes(params: ListParams = {}): Observable<ApiResponse<CreditDebitNote[]>> {
+    return this.http.get<ApiResponse<CreditDebitNote[]>>(`${this.api}/notes`, { params: toHttpParams(params) });
+  }
+  createNote(dto: {
+    invoiceId: string;
+    type: 'CREDIT' | 'DEBIT';
+    reason: string;
+    total: number;
+  }): Observable<ApiResponse<CreditDebitNote>> {
+    return this.http.post<ApiResponse<CreditDebitNote>>(`${this.api}/notes`, dto);
+  }
+
+  // ── Panel Fiscal ──
+  fiscalPanel(): Observable<ApiResponse<FiscalPanel>> {
+    return this.http.get<ApiResponse<FiscalPanel>>(`${this.api}/fiscal/panel`);
   }
 }
