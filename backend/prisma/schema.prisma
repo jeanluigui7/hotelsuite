@@ -43,6 +43,10 @@ model Branch {
   reservations   Reservation[]
   observations   Observation[]
   conciergeRequests ConciergeRequest[]
+  warehouses     Warehouse[]
+  products       Product[]
+  cashSessions   CashSession[]
+  sales          Sale[]
 
   @@index([status])
 }
@@ -321,7 +325,8 @@ model InventoryCategory {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch   Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  products Product[]
 
   @@index([branchId])
 }
@@ -507,4 +512,140 @@ model ConciergeRequest {
 
   @@index([branchId])
   @@index([status])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FASE 4 — Ventas, Pagos y Caja (Tanda 4A)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Almacén. En FASE 4 se usa uno por defecto ("Productos"); FASE 6 amplía tipos.
+model Warehouse {
+  id        String   @id @default(uuid())
+  branchId  String
+  name      String
+  type      String   @default("PRODUCTS") // PRODUCTS | CLOTHING | RECEPTION | CLEANING | LAUNDRY | AMENITIES
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branch Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  stock  Stock[]
+
+  @@index([branchId])
+}
+
+/// Producto vendible (por sucursal).
+model Product {
+  id         String   @id @default(uuid())
+  branchId   String
+  categoryId String?
+  name       String
+  sku        String?
+  salePrice  Decimal  @db.Decimal(10, 2)
+  cost       Decimal? @db.Decimal(10, 2)
+  status     String   @default("active")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  branch   Branch             @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  category InventoryCategory? @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  stock    Stock[]
+
+  @@index([branchId])
+  @@index([categoryId])
+}
+
+/// Stock de un producto en un almacén.
+model Stock {
+  id          String   @id @default(uuid())
+  productId   String
+  warehouseId String
+  quantity    Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([productId, warehouseId])
+  @@index([productId])
+  @@index([warehouseId])
+}
+
+/// Turno de caja. Las ventas/pagos se ligan al turno abierto.
+model CashSession {
+  id             String    @id @default(uuid())
+  branchId       String
+  openedByUserId String
+  status         String    @default("OPEN") // OPEN | CLOSED
+  openingAmount  Decimal   @db.Decimal(10, 2)
+  closingAmount  Decimal?  @db.Decimal(10, 2)
+  expectedAmount Decimal?  @db.Decimal(10, 2)
+  notes          String?
+  openedAt       DateTime  @default(now())
+  closedAt       DateTime?
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  sales  Sale[]
+
+  @@index([branchId])
+  @@index([status])
+}
+
+/// Venta a una estancia o a un cliente externo.
+model Sale {
+  id              String   @id @default(uuid())
+  branchId        String
+  stayId          String?
+  guestId         String?
+  customerName    String?
+  cashSessionId   String?
+  total           Decimal  @db.Decimal(10, 2)
+  status          String   @default("OPEN") // OPEN | PAID | CANCELLED
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  branch      Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  cashSession CashSession? @relation(fields: [cashSessionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  items       SaleItem[]
+  payments    Payment[]
+
+  @@index([branchId])
+  @@index([cashSessionId])
+  @@index([status])
+}
+
+/// Línea de venta (snapshot del producto/servicio).
+model SaleItem {
+  id          String  @id @default(uuid())
+  saleId      String
+  productId   String?
+  itemId      String?
+  description String
+  quantity    Int
+  unitPrice   Decimal @db.Decimal(10, 2)
+  subtotal    Decimal @db.Decimal(10, 2)
+
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([saleId])
+}
+
+/// Pago de una venta (pueden ser múltiples por venta).
+model Payment {
+  id              String   @id @default(uuid())
+  branchId        String
+  saleId          String
+  cashSessionId   String?
+  method          String // CASH | CARD | TRANSFER | WALLET
+  amount          Decimal  @db.Decimal(10, 2)
+  reference       String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([saleId])
+  @@index([cashSessionId])
+  @@index([branchId])
 }

@@ -25,6 +25,9 @@ import { staysRouter } from './modules/stays/stays.routes';
 import { reservationsRouter } from './modules/reservations/reservations.routes';
 import { observationsRouter } from './modules/observations/observations.routes';
 import { conciergeRouter } from './modules/concierge/concierge.routes';
+import { productsRouter } from './modules/products/products.routes';
+import { cashRouter } from './modules/cash/cash.routes';
+import { salesRouter } from './modules/sales/sales.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -56,6 +59,9 @@ export function createApp(): Application {
   app.use('/api', reservationsRouter);
   app.use('/api', observationsRouter);
   app.use('/api', conciergeRouter);
+  app.use('/api', productsRouter);
+  app.use('/api', cashRouter);
+  app.use('/api', salesRouter);
 
   // Fallbacks
   app.use(notFoundHandler);

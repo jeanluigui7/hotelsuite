@@ -248,12 +248,38 @@ async function main(): Promise<void> {
     });
   }
 
+  // 9. Default warehouse + demo products with stock (FASE 4)
+  const warehouseId = '00000000-0000-0000-0000-0000000wh001';
+  const warehouse = await prisma.warehouse.upsert({
+    where: { id: warehouseId },
+    update: { name: 'Productos' },
+    create: { id: warehouseId, branchId: branch.id, name: 'Productos', type: 'PRODUCTS' },
+  });
+
+  const productDefs = [
+    { id: '00000000-0000-0000-0000-000000prd01', name: 'Agua mineral', salePrice: 3, cost: 1.2, qty: 50 },
+    { id: '00000000-0000-0000-0000-000000prd02', name: 'Gaseosa', salePrice: 5, cost: 2.5, qty: 40 },
+  ];
+  for (const p of productDefs) {
+    await prisma.product.upsert({
+      where: { id: p.id },
+      update: { name: p.name, salePrice: p.salePrice, cost: p.cost },
+      create: { id: p.id, branchId: branch.id, name: p.name, salePrice: p.salePrice, cost: p.cost },
+    });
+    await prisma.stock.upsert({
+      where: { productId_warehouseId: { productId: p.id, warehouseId: warehouse.id } },
+      update: {},
+      create: { productId: p.id, warehouseId: warehouse.id, quantity: p.qty },
+    });
+  }
+
   // eslint-disable-next-line no-console
   console.log(`✅ Seed completo.
    Sucursal:  ${branch.name} (${branch.id})
    Catálogos: 1 tipo de habitación, ${attributeDefs.length} atributos, 1 tier, ${rateDefs.length} tarifas
    2B:        1 área, 1 categoría, ${itemDefs.length} items, 1 horario
    3A:        ${roomDefs.length} habitaciones
+   4A:        almacén "Productos" + ${productDefs.length} productos con stock
    Permisos:  ${allPerms.length} (${MODULES.length} módulos × ${ACTIONS.length} acciones)
    Roles:     ${SUPER_ADMIN} + ${BASE_ROLES.length} base
    Usuario:   ${email}  /  contraseña: ${process.env.SEED_ADMIN_PASSWORD ? '(de SEED_ADMIN_PASSWORD)' : password}`);

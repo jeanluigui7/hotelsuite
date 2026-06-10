@@ -1,0 +1,57 @@
+import type { RequestScope } from '../../shared/context';
+import { ConflictError, NotFoundError } from '../../shared/errors';
+import { requireActiveBranch } from '../../shared/scope';
+import { cashRepository } from './cash.repository';
+import { PAYMENT_METHODS } from '../../shared/payments';
+import type { CloseCashDto, OpenCashDto } from './cash.schema';
+
+async function sessionSummary(id: string, opening: number) {
+  const byMethod: Record<string, number> = {};
+  for (const m of PAYMENT_METHODS) {
+    byMethod[m] = await cashRepository.paymentsTotal(id, m);
+  }
+  const totalCollected = Object.values(byMethod).reduce((a, b) => a + b, 0);
+  const cash = byMethod['CASH'] ?? 0;
+  const expectedCash = opening + cash;
+  const salesCount = await cashRepository.salesCount(id);
+  return { byMethod, totalCollected, expectedCash, salesCount };
+}
+
+export const cashService = {
+  async current(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const session = await cashRepository.findOpen(branchId);
+    if (!session) return { session: null };
+    const summary = await sessionSummary(session.id, Number(session.openingAmount));
+    return { session, summary };
+  },
+
+  async open(scope: RequestScope, dto: OpenCashDto) {
+    const branchId = requireActiveBranch(scope);
+    const existing = await cashRepository.findOpen(branchId);
+    if (existing) throw new ConflictError('Ya hay un turno de caja abierto en la sucursal');
+    return cashRepository.open({
+      branchId,
+      openedByUserId: scope.userId,
+      openingAmount: dto.openingAmount,
+      notes: dto.notes || null,
+    });
+  },
+
+  async close(scope: RequestScope, dto: CloseCashDto) {
+    const branchId = requireActiveBranch(scope);
+    const session = await cashRepository.findOpen(branchId);
+    if (!session) throw new NotFoundError('No hay un turno abierto');
+    const summary = await sessionSummary(session.id, Number(session.openingAmount));
+    const closed = await cashRepository.close(session.id, {
+      closingAmount: dto.closingAmount,
+      expectedAmount: summary.expectedCash,
+      notes: dto.notes || null,
+    });
+    return {
+      session: closed,
+      summary,
+      difference: Math.round((dto.closingAmount - summary.expectedCash) * 100) / 100,
+    };
+  },
+};
