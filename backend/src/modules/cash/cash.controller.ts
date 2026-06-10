@@ -1,8 +1,9 @@
 import type { Request, Response } from 'express';
 import { ok } from '../../shared/response';
+import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { cashService } from './cash.service';
-import { closeCashSchema, openCashSchema } from './cash.schema';
+import { closeCashSchema, movementSchema, openCashSchema } from './cash.schema';
 
 export const cashController = {
   async current(req: Request, res: Response): Promise<void> {
@@ -18,5 +19,20 @@ export const cashController = {
     if (!req.scope) throw new UnauthorizedError();
     const dto = closeCashSchema.parse(req.body);
     res.status(200).json(ok(await cashService.close(req.scope, dto)));
+  },
+  async addMovement(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = movementSchema.parse(req.body);
+    res.status(201).json(ok(await cashService.addMovement(req.scope, dto)));
+  },
+  async sessions(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const params = paginationSchema.parse(req.query);
+    const { items, meta } = await cashService.listSessions(req.scope, params);
+    res.status(200).json(ok(items, meta));
+  },
+  async report(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await cashService.report(req.scope, req.params.id)));
   },
 };

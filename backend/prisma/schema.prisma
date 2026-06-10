@@ -584,11 +584,29 @@ model CashSession {
   openedAt       DateTime  @default(now())
   closedAt       DateTime?
 
-  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  sales  Sale[]
+  branch    Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  sales     Sale[]
+  movements CashMovement[]
 
   @@index([branchId])
   @@index([status])
+}
+
+/// Movimiento manual de caja (ingreso/egreso en efectivo) dentro de un turno.
+model CashMovement {
+  id              String   @id @default(uuid())
+  cashSessionId   String
+  branchId        String
+  type            String // IN | OUT
+  amount          Decimal  @db.Decimal(10, 2)
+  concept         String
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  session CashSession @relation(fields: [cashSessionId], references: [id], onDelete: Cascade)
+
+  @@index([cashSessionId])
+  @@index([branchId])
 }
 
 /// Venta a una estancia o a un cliente externo.

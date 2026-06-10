@@ -38,4 +38,47 @@ export const cashRepository = {
   salesCount(cashSessionId: string) {
     return prisma.sale.count({ where: { cashSessionId } });
   },
+
+  addMovement(data: {
+    cashSessionId: string;
+    branchId: string;
+    type: string;
+    amount: number;
+    concept: string;
+    createdByUserId: string;
+  }) {
+    return prisma.cashMovement.create({ data });
+  },
+
+  listMovements(cashSessionId: string) {
+    return prisma.cashMovement.findMany({ where: { cashSessionId }, orderBy: { createdAt: 'asc' } });
+  },
+
+  async movementsTotal(cashSessionId: string, type: string) {
+    const result = await prisma.cashMovement.aggregate({
+      where: { cashSessionId, type },
+      _sum: { amount: true },
+    });
+    return Number(result._sum.amount ?? 0);
+  },
+
+  listSessions(args: { branchId: string; skip: number; take: number }) {
+    return prisma.cashSession.findMany({
+      where: { branchId: args.branchId },
+      skip: args.skip,
+      take: args.take,
+      orderBy: { openedAt: 'desc' },
+    });
+  },
+
+  countSessions(branchId: string) {
+    return prisma.cashSession.count({ where: { branchId } });
+  },
+
+  /** Sale line items of a session (excluding cancelled sales) for the per-item breakdown. */
+  saleItems(cashSessionId: string) {
+    return prisma.saleItem.findMany({
+      where: { sale: { cashSessionId, status: { not: 'CANCELLED' } } },
+    });
+  },
 };

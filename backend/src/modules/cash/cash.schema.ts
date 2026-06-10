@@ -10,5 +10,12 @@ export const closeCashSchema = z.object({
   notes: z.string().max(300).optional().or(z.literal('')),
 });
 
+export const movementSchema = z.object({
+  type: z.enum(['IN', 'OUT']),
+  amount: z.coerce.number().positive(),
+  concept: z.string().min(1).max(200),
+});
+
 export type OpenCashDto = z.infer<typeof openCashSchema>;
 export type CloseCashDto = z.infer<typeof closeCashSchema>;
+export type MovementDto = z.infer<typeof movementSchema>;
