@@ -7,6 +7,14 @@ const routes: Routes = [
     path: 'usuarios',
     loadComponent: () => import('./usuarios/usuarios.component').then((m) => m.UsuariosComponent),
   },
+  {
+    path: 'asistencias',
+    loadComponent: () => import('./asistencias/attendance.component').then((m) => m.AttendanceComponent),
+  },
+  {
+    path: 'actividades',
+    loadComponent: () => import('./actividades/activity-log.component').then((m) => m.ActivityLogComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 

@@ -11,6 +11,10 @@ const routes: Routes = [
     path: 'lavanderia',
     loadComponent: () => import('./lavanderia/laundry.component').then((m) => m.LaundryComponent),
   },
+  {
+    path: 'rendimiento',
+    loadComponent: () => import('./rendimiento/performance.component').then((m) => m.PerformanceComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 
