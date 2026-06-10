@@ -24,6 +24,7 @@ function serialize(p: ProductWithRelations, warehouseId: string) {
     categoryId: p.categoryId,
     salePrice: p.salePrice,
     cost: p.cost,
+    reorderPoint: p.reorderPoint,
     status: p.status,
     stock: stockRow?.quantity ?? 0,
   };
@@ -67,6 +68,7 @@ export const productsService = {
         sku: dto.sku || null,
         salePrice: dto.salePrice,
         cost: dto.cost ?? null,
+        reorderPoint: dto.reorderPoint,
         status: dto.status,
       },
       wh.id,
@@ -87,6 +89,7 @@ export const productsService = {
         sku: dto.sku === '' ? null : dto.sku,
         salePrice: dto.salePrice,
         cost: dto.cost,
+        reorderPoint: dto.reorderPoint,
         status: dto.status,
         ...(dto.categoryId !== undefined
           ? dto.categoryId

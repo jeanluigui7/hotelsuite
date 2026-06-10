@@ -50,6 +50,7 @@ model Branch {
   folioSeries    FolioSeries[]
   invoices       Invoice[]
   creditDebitNotes CreditDebitNote[]
+  inventoryMovements InventoryMovement[]
 
   @@index([status])
 }
@@ -542,13 +543,14 @@ model Product {
   id         String   @id @default(uuid())
   branchId   String
   categoryId String?
-  name       String
-  sku        String?
-  salePrice  Decimal  @db.Decimal(10, 2)
-  cost       Decimal? @db.Decimal(10, 2)
-  status     String   @default("active")
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  name         String
+  sku          String?
+  salePrice    Decimal  @db.Decimal(10, 2)
+  cost         Decimal? @db.Decimal(10, 2)
+  reorderPoint Int      @default(0)
+  status       String   @default("active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   branch   Branch             @relation(fields: [branchId], references: [id], onDelete: Cascade)
   category InventoryCategory? @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -683,6 +685,32 @@ model CreditDebitNote {
   @@index([invoiceId])
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FASE 6 — Inventario / Kardex (Tanda 6A)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Movimiento de inventario (Kardex). quantity es signed (− para salidas).
+model InventoryMovement {
+  id                String   @id @default(uuid())
+  branchId          String
+  productId         String
+  warehouseId       String
+  type              String // IN | OUT | ADJUST | SALE | TRANSFER | PURCHASE
+  quantity          Int
+  unitCost          Decimal? @db.Decimal(10, 2)
+  reference         String?
+  relatedWarehouseId String?
+  createdByUserId   String?
+  createdAt         DateTime @default(now())
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+  @@index([productId])
+  @@index([warehouseId])
+  @@index([type])
+}
+
 /// Venta a una estancia o a un cliente externo.
 model Sale {
   id              String   @id @default(uuid())
@@ -715,8 +743,9 @@ model SaleItem {
   itemId      String?
   description String
   quantity    Int
-  unitPrice   Decimal @db.Decimal(10, 2)
-  subtotal    Decimal @db.Decimal(10, 2)
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  unitCost    Decimal? @db.Decimal(10, 2)
+  subtotal    Decimal  @db.Decimal(10, 2)
 
   sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
 

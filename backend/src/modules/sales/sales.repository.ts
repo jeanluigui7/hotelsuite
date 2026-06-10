@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma';
+import { applyStockTx, createMovementTx } from '../movements/movements.repository';
 
 const include = {
   items: true,
@@ -14,6 +15,7 @@ export interface SaleLineInput {
   description: string;
   quantity: number;
   unitPrice: number;
+  unitCost: number | null;
   subtotal: number;
 }
 
@@ -51,20 +53,21 @@ export const salesRepository = {
     createdByUserId: string;
     items: SaleLineInput[];
     payments: SalePaymentInput[];
-    stockDecrements: { productId: string; warehouseId: string; quantity: number }[];
+    stockDecrements: { productId: string; warehouseId: string; quantity: number; unitCost: number | null }[];
   }) {
     return prisma.$transaction(async (tx) => {
-      // Guarded stock decrements (fail if insufficient).
+      // Guarded stock decrements + Kardex SALE movements (fail if insufficient).
       for (const dec of data.stockDecrements) {
-        const stock = await tx.stock.findUnique({
-          where: { productId_warehouseId: { productId: dec.productId, warehouseId: dec.warehouseId } },
-        });
-        if (!stock || stock.quantity < dec.quantity) {
-          throw new Error(`STOCK_INSUFFICIENT:${dec.productId}`);
-        }
-        await tx.stock.update({
-          where: { productId_warehouseId: { productId: dec.productId, warehouseId: dec.warehouseId } },
-          data: { quantity: { decrement: dec.quantity } },
+        await applyStockTx(tx, dec.productId, dec.warehouseId, -dec.quantity);
+        await createMovementTx(tx, {
+          branchId: data.branchId,
+          productId: dec.productId,
+          warehouseId: dec.warehouseId,
+          type: 'SALE',
+          quantity: -dec.quantity,
+          unitCost: dec.unitCost,
+          reference: 'Venta',
+          createdByUserId: data.createdByUserId,
         });
       }
 

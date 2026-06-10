@@ -33,6 +33,8 @@ import { invoicesRouter } from './modules/invoices/invoices.routes';
 import { notesRouter } from './modules/notes/notes.routes';
 import { fiscalRouter } from './modules/fiscal/fiscal.routes';
 import { printingRouter } from './modules/printing/printing.routes';
+import { warehousesRouter } from './modules/warehouses/warehouses.routes';
+import { movementsRouter } from './modules/movements/movements.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -72,6 +74,8 @@ export function createApp(): Application {
   app.use('/api', notesRouter);
   app.use('/api', fiscalRouter);
   app.use('/api', printingRouter);
+  app.use('/api', warehousesRouter);
+  app.use('/api', movementsRouter);
 
   // Fallbacks
   app.use(notFoundHandler);

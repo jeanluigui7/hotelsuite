@@ -41,6 +41,7 @@ export const productsRepository = {
       sku: string | null;
       salePrice: number;
       cost: number | null;
+      reorderPoint: number;
       status: string;
     },
     warehouseId: string,

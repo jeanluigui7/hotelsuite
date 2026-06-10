@@ -73,7 +73,7 @@ export const salesService = {
     const wh = await productsRepository.defaultWarehouse(branchId);
 
     const lines: SaleLineInput[] = [];
-    const stockDecrements: { productId: string; warehouseId: string; quantity: number }[] = [];
+    const stockDecrements: { productId: string; warehouseId: string; quantity: number; unitCost: number | null }[] = [];
 
     for (const item of dto.items) {
       if (item.productId) {
@@ -82,6 +82,7 @@ export const salesService = {
           throw new ValidationError('Producto inválido en la venta');
         }
         const unitPrice = item.unitPrice ?? Number(product.salePrice);
+        const unitCost = product.cost != null ? Number(product.cost) : null;
         const subtotal = round(unitPrice * item.quantity);
         lines.push({
           productId: product.id,
@@ -89,9 +90,10 @@ export const salesService = {
           description: item.description || product.name,
           quantity: item.quantity,
           unitPrice,
+          unitCost,
           subtotal,
         });
-        stockDecrements.push({ productId: product.id, warehouseId: wh.id, quantity: item.quantity });
+        stockDecrements.push({ productId: product.id, warehouseId: wh.id, quantity: item.quantity, unitCost });
       } else {
         const unitPrice = item.unitPrice ?? 0;
         lines.push({
@@ -100,6 +102,7 @@ export const salesService = {
           description: item.description as string,
           quantity: item.quantity,
           unitPrice,
+          unitCost: null,
           subtotal: round(unitPrice * item.quantity),
         });
       }

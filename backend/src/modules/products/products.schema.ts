@@ -6,6 +6,7 @@ export const createProductSchema = z.object({
   sku: z.string().max(60).optional().or(z.literal('')),
   salePrice: z.coerce.number().min(0),
   cost: z.coerce.number().min(0).optional(),
+  reorderPoint: z.coerce.number().int().min(0).default(0),
   status: z.enum(['active', 'inactive']).default('active'),
   stock: z.coerce.number().int().min(0).default(0),
 });
