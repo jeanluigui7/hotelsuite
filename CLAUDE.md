@@ -69,8 +69,13 @@ en español. Detalle completo en `PROMPT_SISTEMA_HOTELERO.md`.
 
 > Actualiza esta sección al cerrar cada fase. Así sabes (y yo sé) dónde retomamos.
 
-- **Fase actual:** FASE 8 — RRHH, Biometría (ZKTeco) y Reportería (pendiente; esperar "OK fase 7")
-- **Fases completadas:** FASE 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ✅ · 6 ✅ · 7 (7A + 7B) ✅
+- **Fase actual:** FASE 8 (Tanda 8A ✅; **pendiente 8B ZKTeco** y **8C Reportería+export**)
+- **Fases completadas:** FASE 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ✅ · 6 ✅ · 7 ✅
+- **Implementado en FASE 8A:**
+  - Prisma: Attendance, ActivityLog. Middleware de auditoría automático (registra escrituras exitosas).
+  - Backend: `attendance` (manual + helper recordAttendance), `activity-log` (lectura), `performance` (rendimiento por usuario). RBAC hr/reports.
+  - Frontend: RRHH › Asistencias / Historial de Actividades; Reportes › Rendimiento General.
+  - **Pendiente:** 8B (BiometricDevice + bridge zkteco-js + admin/enrolamiento) y 8C (reportes Habitaciones/Limpiezas/Ventas Detalladas/Simulador + export Excel/PDF).
 - **Implementado en FASE 7:**
   - Prisma: ChecklistItem, HousekeepingTask, TaskInspection, Maintenance, Revision, LaundryMachine, LaundryTask.
   - Backend: `checklist`+`housekeeping` (ciclo de limpieza con consumo de amenities vía Kardex e inspección que libera la habitación), `maintenance`, `revisions`, `laundry-machines` (settings), `laundry-tasks` (reports).
