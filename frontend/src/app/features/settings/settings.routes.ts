@@ -44,6 +44,10 @@ const routes: Routes = [
     loadComponent: () => import('./lavanderia/laundry-machines.component').then((m) => m.LaundryMachinesComponent),
   },
   {
+    path: 'huella',
+    loadComponent: () => import('./huella/biometrics.component').then((m) => m.BiometricsComponent),
+  },
+  {
     path: 'roles',
     loadComponent: () => import('./roles/roles.component').then((m) => m.RolesComponent),
   },
