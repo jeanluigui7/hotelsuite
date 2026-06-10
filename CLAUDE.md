@@ -69,8 +69,12 @@ en español. Detalle completo en `PROMPT_SISTEMA_HOTELERO.md`.
 
 > Actualiza esta sección al cerrar cada fase. Así sabes (y yo sé) dónde retomamos.
 
-- **Fase actual:** FASE 7 — Limpieza y Mantenimiento (pendiente; esperar "OK fase 6")
-- **Fases completadas:** FASE 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ✅ · 6 (6A + 6B) ✅
+- **Fase actual:** FASE 7 (Tanda 7A ✅; **pendiente Tanda 7B**: Mantenimientos, Revisiones, Lavandería + Máquinas)
+- **Fases completadas:** FASE 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ✅ · 6 ✅
+- **Implementado en FASE 7A:**
+  - Prisma: ChecklistItem, HousekeepingTask, TaskInspection.
+  - Backend: `checklist` (CRUD, RBAC settings), `housekeeping` (asignar/iniciar/completar con consumo de amenities vía Kardex/inspeccionar; aprobar libera la habitación). RBAC operations.
+  - Frontend: Configuraciones › Inspección de Limpieza; Operaciones › Historial de Limpiezas (ciclo completo).
 - **Implementado en FASE 6:**
   - Prisma: InventoryMovement (Kardex signed), Product.reorderPoint, SaleItem.unitCost, Supplier, PurchaseInvoice(+Item).
   - Backend: `warehouses`, `movements` (Kardex/ajuste/transferencia; la venta escribe SALE + unitCost), `suppliers`, `purchases` (ingreso → stock + último costo + PURCHASE), `logistics` (valorización, reponer, ganancias). RBAC inventory/logistics.
