@@ -128,9 +128,77 @@ async function main(): Promise<void> {
     create: { userId: admin.id, branchId: branch.id },
   });
 
+  // 6. Demo catalogs (Tanda 2A)
+  const attributeDefs = [
+    { id: '00000000-0000-0000-0000-0000000000a1', name: 'TV', icon: 'pi pi-desktop' },
+    { id: '00000000-0000-0000-0000-0000000000a2', name: 'Aire acondicionado', icon: 'pi pi-cloud' },
+    { id: '00000000-0000-0000-0000-0000000000a3', name: 'Jacuzzi', icon: 'pi pi-star' },
+  ];
+  for (const attr of attributeDefs) {
+    await prisma.roomAttribute.upsert({
+      where: { id: attr.id },
+      update: { name: attr.name, icon: attr.icon },
+      create: { id: attr.id, branchId: branch.id, name: attr.name, icon: attr.icon },
+    });
+  }
+
+  const roomTypeId = '00000000-0000-0000-0000-0000000000b1';
+  await prisma.roomType.upsert({
+    where: { id: roomTypeId },
+    update: { name: 'Matrimonial', capacity: 2, basePrice: 60 },
+    create: {
+      id: roomTypeId,
+      branchId: branch.id,
+      name: 'Matrimonial',
+      description: 'Habitación matrimonial estándar',
+      capacity: 2,
+      basePrice: 60,
+    },
+  });
+
+  for (const attr of attributeDefs.slice(0, 2)) {
+    await prisma.roomTypeAttribute.upsert({
+      where: { roomTypeId_attributeId: { roomTypeId, attributeId: attr.id } },
+      update: {},
+      create: { roomTypeId, attributeId: attr.id },
+    });
+  }
+
+  await prisma.clientTier.upsert({
+    where: { id: '00000000-0000-0000-0000-0000000000c1' },
+    update: { name: 'VIP', discountPercent: 10 },
+    create: {
+      id: '00000000-0000-0000-0000-0000000000c1',
+      branchId: branch.id,
+      name: 'VIP',
+      discountPercent: 10,
+      description: 'Cliente frecuente',
+    },
+  });
+
+  const rateDefs = [
+    { label: '3 horas', durationMinutes: 180, price: 35 },
+    { label: '12 horas', durationMinutes: 720, price: 50 },
+    { label: 'Noche (24h)', durationMinutes: 1440, price: 60 },
+  ];
+  for (const rate of rateDefs) {
+    await prisma.rate.upsert({
+      where: {
+        branchId_roomTypeId_durationMinutes: {
+          branchId: branch.id,
+          roomTypeId,
+          durationMinutes: rate.durationMinutes,
+        },
+      },
+      update: { label: rate.label, price: rate.price },
+      create: { branchId: branch.id, roomTypeId, ...rate },
+    });
+  }
+
   // eslint-disable-next-line no-console
   console.log(`✅ Seed completo.
    Sucursal:  ${branch.name} (${branch.id})
+   Catálogos: 1 tipo de habitación, ${attributeDefs.length} atributos, 1 tier, ${rateDefs.length} tarifas
    Permisos:  ${allPerms.length} (${MODULES.length} módulos × ${ACTIONS.length} acciones)
    Roles:     ${SUPER_ADMIN} + ${BASE_ROLES.length} base
    Usuario:   ${email}  /  contraseña: ${process.env.SEED_ADMIN_PASSWORD ? '(de SEED_ADMIN_PASSWORD)' : password}`);

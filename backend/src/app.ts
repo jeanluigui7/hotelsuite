@@ -11,6 +11,11 @@ import { authRouter } from './modules/auth/auth.routes';
 import { branchesRouter } from './modules/branches/branches.routes';
 import { rolesRouter } from './modules/roles/roles.routes';
 import { usersRouter } from './modules/users/users.routes';
+import { roomAttributesRouter } from './modules/room-attributes/room-attributes.routes';
+import { roomTypesRouter } from './modules/room-types/room-types.routes';
+import { clientTiersRouter } from './modules/client-tiers/client-tiers.routes';
+import { guestsRouter } from './modules/guests/guests.routes';
+import { ratesRouter } from './modules/rates/rates.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -28,6 +33,11 @@ export function createApp(): Application {
   app.use('/api', branchesRouter);
   app.use('/api', rolesRouter);
   app.use('/api', usersRouter);
+  app.use('/api', roomAttributesRouter);
+  app.use('/api', roomTypesRouter);
+  app.use('/api', clientTiersRouter);
+  app.use('/api', guestsRouter);
+  app.use('/api', ratesRouter);
 
   // Fallbacks
   app.use(notFoundHandler);

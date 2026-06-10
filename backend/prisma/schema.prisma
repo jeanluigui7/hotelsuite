@@ -17,13 +17,23 @@ model Branch {
   name       String
   address    String?
   taxId      String? // RUC / identificación fiscal
+  legalName  String? // razón social
+  phone      String?
+  email      String?
+  logoUrl    String?
   currency   String   @default("PEN")
   cutoffHour Int      @default(0) // hora de corte de turno (0-23)
   status     String   @default("active") // active | inactive
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  users UserBranch[]
+  users          UserBranch[]
+  roomTypes      RoomType[]
+  roomAttributes RoomAttribute[]
+  clientTiers    ClientTier[]
+  rates          Rate[]
+  customRates    CustomRate[]
+  settings       Setting[]
 
   @@index([status])
 }
@@ -114,4 +124,153 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FASE 2 — Catálogos (Tanda 2A)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Configuración flexible clave/valor. branchId nulo = ajuste global.
+model Setting {
+  id        String   @id @default(uuid())
+  branchId  String?
+  key       String
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, key])
+  @@index([branchId])
+}
+
+/// Tipo de habitación (por sucursal). Agrupa atributos y tarifas.
+model RoomType {
+  id          String   @id @default(uuid())
+  branchId    String
+  name        String
+  description String?
+  capacity    Int      @default(2)
+  basePrice   Decimal? @db.Decimal(10, 2)
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  branch      Branch             @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  attributes  RoomTypeAttribute[]
+  rates       Rate[]
+  customRates CustomRate[]
+
+  @@index([branchId])
+  @@index([status])
+}
+
+/// Atributo de habitación (por sucursal): TV, A/C, jacuzzi, etc.
+model RoomAttribute {
+  id        String   @id @default(uuid())
+  branchId  String
+  name      String
+  icon      String?
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branch    Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  roomTypes RoomTypeAttribute[]
+
+  @@index([branchId])
+}
+
+/// Tabla puente RoomType ↔ RoomAttribute.
+model RoomTypeAttribute {
+  id          String @id @default(uuid())
+  roomTypeId  String
+  attributeId String
+
+  roomType  RoomType      @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  attribute RoomAttribute @relation(fields: [attributeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([roomTypeId, attributeId])
+  @@index([roomTypeId])
+  @@index([attributeId])
+}
+
+/// Tier de cliente (por sucursal): aplica un descuento porcentual.
+model ClientTier {
+  id              String   @id @default(uuid())
+  branchId        String
+  name            String
+  discountPercent Decimal  @default(0) @db.Decimal(5, 2)
+  description     String?
+  status          String   @default("active")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  branch      Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  customRates CustomRate[]
+
+  @@index([branchId])
+}
+
+/// Cliente / huésped. GLOBAL: compartido entre sucursales.
+model Guest {
+  id             String   @id @default(uuid())
+  documentType   String   @default("DNI") // DNI | CE | PASAPORTE | RUC
+  documentNumber String
+  firstName      String
+  lastName       String?
+  phone          String?
+  email          String?
+  notes          String?
+  status         String   @default("active")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([documentType, documentNumber])
+  @@index([documentNumber])
+}
+
+/// Tarifa base por tipo de habitación y duración (en minutos).
+model Rate {
+  id              String   @id @default(uuid())
+  branchId        String
+  roomTypeId      String
+  label           String // "3 horas", "12 horas", "Noche", etc.
+  durationMinutes Int
+  price           Decimal  @db.Decimal(10, 2)
+  status          String   @default("active")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([branchId, roomTypeId, durationMinutes])
+  @@index([branchId])
+  @@index([roomTypeId])
+}
+
+/// Tarifa personalizada: override por tier y/o vigencia para un tipo y duración.
+model CustomRate {
+  id              String    @id @default(uuid())
+  branchId        String
+  roomTypeId      String
+  tierId          String?
+  label           String
+  durationMinutes Int
+  price           Decimal   @db.Decimal(10, 2)
+  validFrom       DateTime?
+  validTo         DateTime?
+  status          String    @default("active")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  branch   Branch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  roomType RoomType    @relation(fields: [roomTypeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tier     ClientTier? @relation(fields: [tierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([branchId])
+  @@index([roomTypeId])
+  @@index([tierId])
 }
