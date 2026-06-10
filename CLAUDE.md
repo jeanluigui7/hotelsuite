@@ -69,13 +69,13 @@ en español. Detalle completo en `PROMPT_SISTEMA_HOTELERO.md`.
 
 > Actualiza esta sección al cerrar cada fase. Así sabes (y yo sé) dónde retomamos.
 
-- **Fase actual:** FASE 3 — Operaciones (Tanda 3A ✅; **pendiente Tanda 3B**: Reservas, Observaciones, Conserjería)
-- **Fases completadas:** FASE 0 ✅ · FASE 1 ✅ · FASE 2 (2A + 2B) ✅
-- **Implementado en FASE 3A:**
-  - Prisma: Room (FREE/OCCUPIED/CLEANING/MAINTENANCE), Stay (precio congelado en priceAgreed), StayGuest. Seed con 3 habitaciones.
-  - Backend: módulo `rooms` (CRUD + `/rooms/map` + PATCH status) y `stays` (check-in transaccional con resolución/creación de huésped + descuento de tier, check-out, historial). RBAC `operations`.
-  - Frontend: Operaciones › Habitaciones (mapa con polling 15s, acciones por tarjeta, admin de habitaciones, diálogo de check-in) e Historial de Estancias.
-  - **Pendiente validación con DB:** migrar + seed y probar check-in/out end to end.
+- **Fase actual:** FASE 4 — Ventas, Pagos y Caja (pendiente; esperar "OK fase 3")
+- **Fases completadas:** FASE 0 ✅ · FASE 1 ✅ · FASE 2 ✅ · FASE 3 (3A + 3B) ✅
+- **Implementado en FASE 3:**
+  - Prisma: Room, Stay (precio congelado en priceAgreed), StayGuest, Reservation, Observation, ConciergeRequest. Seed con 3 habitaciones.
+  - Backend (RBAC `operations`): `rooms` (CRUD + `/rooms/map` + PATCH status), `stays` (check-in transaccional + check-out + historial), `reservations` (por tipo, estados), `observations`, `concierge`.
+  - Frontend Operaciones: Habitaciones (mapa polling 15s + check-in/out + admin), Historial de Estancias, Reservas (con "convertir a check-in"), Observaciones, Conserjería.
+  - **Pendiente validación con DB:** migrar + seed y probar el ciclo completo.
 - **Implementado en FASE 2A:**
   - Prisma: RoomType, RoomAttribute, RoomTypeAttribute (N:M), ClientTier, Guest (global), Rate (por duración), CustomRate, Setting; campos de hotel en Branch. Cascadas secundarias en `NoAction` (SQL Server) con limpieza de hijos en repos. Seed con catálogos demo.
   - Backend: módulos room-attributes, room-types (con atributos), client-tiers, guests, rates+custom-rates (en capas, scope multi-sucursal, RBAC `settings`).
