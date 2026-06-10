@@ -32,6 +32,7 @@ import { foliosRouter } from './modules/folios/folios.routes';
 import { invoicesRouter } from './modules/invoices/invoices.routes';
 import { notesRouter } from './modules/notes/notes.routes';
 import { fiscalRouter } from './modules/fiscal/fiscal.routes';
+import { printingRouter } from './modules/printing/printing.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -70,6 +71,7 @@ export function createApp(): Application {
   app.use('/api', invoicesRouter);
   app.use('/api', notesRouter);
   app.use('/api', fiscalRouter);
+  app.use('/api', printingRouter);
 
   // Fallbacks
   app.use(notFoundHandler);

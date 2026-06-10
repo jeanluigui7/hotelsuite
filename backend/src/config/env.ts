@@ -20,6 +20,10 @@ const envSchema = z
     JWT_ACCESS_TTL: z.string().default('15m'),
     JWT_REFRESH_TTL: z.string().default('7d'),
     REFRESH_COOKIE_NAME: z.string().default('hs_refresh'),
+
+    // QZ Tray (impresión) — rutas a la clave privada y al certificado público.
+    QZ_PRIVATE_KEY_PATH: z.string().optional(),
+    QZ_CERT_PATH: z.string().optional(),
   })
   .superRefine((val, ctx) => {
     if (val.NODE_ENV === 'production') {

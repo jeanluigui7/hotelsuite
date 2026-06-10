@@ -68,6 +68,29 @@ npm run prisma:studio             # explorador visual
 
 > El modelo de datos (`schema.prisma`) se completa a partir de la **FASE 1**.
 
+## Impresión con QZ Tray (FASE 5)
+
+Para imprimir tickets/comprobantes directo a la impresora desde el navegador:
+
+1. **Instala QZ Tray** desde [qz.io/download](https://qz.io/download/) en la PC de caja/recepción y déjalo corriendo (corre de fondo y abre un WebSocket local).
+2. **Genera el par de certificados** (la clave privada vive solo en el backend, **nunca se commitea**):
+   ```bash
+   mkdir -p backend/certs
+   openssl req -x509 -newkey rsa:2048 -days 3650 -nodes \
+     -keyout backend/certs/private-key.pem \
+     -out backend/certs/cert.pem \
+     -subj "/CN=HotelSuite"
+   ```
+3. **Configura el `.env`** del backend:
+   ```bash
+   QZ_PRIVATE_KEY_PATH=./certs/private-key.pem
+   QZ_CERT_PATH=./certs/cert.pem
+   ```
+4. El backend expone `GET /api/printing/certificate` y `POST /api/printing/sign` (firma RSA-SHA512). El frontend (`PrintingService` con `qz-tray`) se conecta al WebSocket de QZ, usa esos endpoints para firmar y envía el ticket a la impresora.
+5. En **Finanzas › Tickets** verás el indicador de conexión y el botón **Imprimir**. Para evitar el prompt de "sitio no confiable" de QZ, instala el `cert.pem` como certificado confiable de QZ Tray (Advanced → Site Manager).
+
+> `backend/certs/`, `*.pem` y `*.key` están en `.gitignore`. Si `QZ_*` no está configurado, el endpoint responde 503 y la UI muestra "QZ no configurado".
+
 ## Convenciones
 
 - Commits: **Conventional Commits** (`feat:`, `fix:`, `refactor:`, `chore:`, `docs:`…), validados por commitlint vía Husky.
