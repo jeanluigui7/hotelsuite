@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { CrudApi } from '../../../core/http/crud-api';
 import type {
   Area,
+  ChecklistItem,
   ClientTier,
   CustomRate,
   Guest,
@@ -29,4 +30,5 @@ export class CatalogApiService {
   readonly inventoryCategories = new CrudApi<InventoryCategory>(this.http, 'inventory-categories');
   readonly items = new CrudApi<Item>(this.http, 'items');
   readonly schedules = new CrudApi<Schedule>(this.http, 'schedules');
+  readonly checklistItems = new CrudApi<ChecklistItem>(this.http, 'checklist-items');
 }

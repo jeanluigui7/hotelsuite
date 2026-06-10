@@ -23,6 +23,10 @@ const routes: Routes = [
     path: 'conserjeria',
     loadComponent: () => import('./conserjeria/concierge.component').then((m) => m.ConciergeComponent),
   },
+  {
+    path: 'limpiezas',
+    loadComponent: () => import('./limpiezas/housekeeping.component').then((m) => m.HousekeepingComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 

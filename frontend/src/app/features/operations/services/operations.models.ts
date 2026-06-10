@@ -92,6 +92,32 @@ export interface ConciergeRequest {
   createdAt: string;
 }
 
+export interface HousekeepingTask {
+  id: string;
+  roomId: string;
+  roomNumber: string;
+  assignedToUserId?: string | null;
+  assignedToName?: string | null;
+  status: 'PENDING' | 'IN_PROGRESS' | 'DONE' | 'INSPECTED';
+  result: 'PENDING' | 'APPROVED' | 'REJECTED';
+  notes?: string | null;
+  completedAt?: string | null;
+  inspectedAt?: string | null;
+  createdAt: string;
+  inspections: { checklistItemId: string; passed: boolean; note?: string | null }[];
+}
+
+export interface ConsumptionInput {
+  productId: string;
+  warehouseId: string;
+  quantity: number;
+}
+
+export interface InspectInput {
+  approved: boolean;
+  items: { checklistItemId: string; passed: boolean; note?: string }[];
+}
+
 export interface Stay {
   id: string;
   status: 'OPEN' | 'CLOSED' | 'CANCELLED';

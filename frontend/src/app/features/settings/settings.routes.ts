@@ -36,6 +36,10 @@ const routes: Routes = [
     loadComponent: () => import('./horarios/schedules.component').then((m) => m.SchedulesComponent),
   },
   {
+    path: 'inspeccion',
+    loadComponent: () => import('./inspeccion/checklist.component').then((m) => m.ChecklistComponent),
+  },
+  {
     path: 'roles',
     loadComponent: () => import('./roles/roles.component').then((m) => m.RolesComponent),
   },

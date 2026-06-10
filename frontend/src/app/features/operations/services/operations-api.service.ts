@@ -7,6 +7,9 @@ import type { ApiResponse } from '../../../core/models/api-response.model';
 import type {
   CheckInInput,
   ConciergeRequest,
+  ConsumptionInput,
+  HousekeepingTask,
+  InspectInput,
   Observation,
   Reservation,
   Room,
@@ -44,5 +47,24 @@ export class OperationsApiService {
 
   stays(params: ListParams = {}): Observable<ApiResponse<Stay[]>> {
     return this.http.get<ApiResponse<Stay[]>>(`${this.api}/stays`, { params: toHttpParams(params) });
+  }
+
+  // ── Housekeeping ──
+  tasks(params: ListParams = {}): Observable<ApiResponse<HousekeepingTask[]>> {
+    return this.http.get<ApiResponse<HousekeepingTask[]>>(`${this.api}/housekeeping-tasks`, {
+      params: toHttpParams(params),
+    });
+  }
+  createTask(dto: { roomId: string; assignedToUserId?: string | null; notes?: string }): Observable<ApiResponse<HousekeepingTask>> {
+    return this.http.post<ApiResponse<HousekeepingTask>>(`${this.api}/housekeeping-tasks`, dto);
+  }
+  startTask(id: string): Observable<ApiResponse<HousekeepingTask>> {
+    return this.http.post<ApiResponse<HousekeepingTask>>(`${this.api}/housekeeping-tasks/${id}/start`, {});
+  }
+  completeTask(id: string, consumption: ConsumptionInput[]): Observable<ApiResponse<HousekeepingTask>> {
+    return this.http.post<ApiResponse<HousekeepingTask>>(`${this.api}/housekeeping-tasks/${id}/complete`, { consumption });
+  }
+  inspectTask(id: string, input: InspectInput): Observable<ApiResponse<HousekeepingTask>> {
+    return this.http.post<ApiResponse<HousekeepingTask>>(`${this.api}/housekeeping-tasks/${id}/inspect`, input);
   }
 }

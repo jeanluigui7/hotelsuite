@@ -102,3 +102,9 @@ export interface Schedule {
   daysOfWeek: number[];
   status: string;
 }
+
+export interface ChecklistItem {
+  id: string;
+  name: string;
+  status: string;
+}
