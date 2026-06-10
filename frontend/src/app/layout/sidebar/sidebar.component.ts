@@ -1,6 +1,7 @@
-import { Component, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { RouterModule } from '@angular/router';
 import { APP_MENU, type MenuItem } from '../menu';
+import { AuthService } from '../../core/auth/auth.service';
 
 @Component({
   selector: 'app-sidebar',
@@ -14,7 +15,7 @@ import { APP_MENU, type MenuItem } from '../menu';
       </div>
 
       <ul class="menu">
-        @for (item of menu; track item.route) {
+        @for (item of visibleMenu(); track item.route) {
           <li class="menu-group">
             <button
               type="button"
@@ -119,8 +120,17 @@ import { APP_MENU, type MenuItem } from '../menu';
   ],
 })
 export class SidebarComponent {
-  readonly menu: MenuItem[] = APP_MENU;
+  private readonly auth = inject(AuthService);
   private readonly openGroups = signal<Set<string>>(new Set(['/dashboard']));
+
+  /** Only show modules the user can view (dashboard is always visible to any session). */
+  readonly visibleMenu = computed<MenuItem[]>(() => {
+    void this.auth.user(); // re-evaluate when the session changes
+    return APP_MENU.filter((item) => {
+      const module = item.route.replace('/', '');
+      return module === 'dashboard' || this.auth.can(module, 'view');
+    });
+  });
 
   isOpen(route: string): boolean {
     return this.openGroups().has(route);

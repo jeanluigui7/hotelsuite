@@ -3,6 +3,10 @@ import { PlaceholderPageComponent } from '../../shared/components/placeholder-pa
 
 const routes: Routes = [
   { path: '', component: PlaceholderPageComponent },
+  {
+    path: 'usuarios',
+    loadComponent: () => import('./usuarios/usuarios.component').then((m) => m.UsuariosComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 
