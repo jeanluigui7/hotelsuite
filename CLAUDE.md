@@ -69,7 +69,8 @@ en español. Detalle completo en `PROMPT_SISTEMA_HOTELERO.md`.
 
 > Actualiza esta sección al cerrar cada fase. Así sabes (y yo sé) dónde retomamos.
 
-- **Fase actual:** FASE 8 (Tanda 8A ✅; **pendiente 8B ZKTeco** y **8C Reportería+export**)
+- **Fase actual:** FASE 8 (8A ✅ · 8B ✅; **pendiente 8C Reportería + export**)
+- **Implementado en 8B:** Prisma BiometricDevice + DeviceEnrollment; bridge `zkteco-js` (test/enroll/realtime guardados), módulo biometrics (RBAC settings: CRUD + probar + conectar/desconectar + enrolamiento; marca → Attendance BIOMETRIC). Frontend: Configuraciones › Huella Digital. zkteco-js 1.7.1.
 - **Fases completadas:** FASE 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ✅ · 6 ✅ · 7 ✅
 - **Implementado en FASE 8A:**
   - Prisma: Attendance, ActivityLog. Middleware de auditoría automático (registra escrituras exitosas).
