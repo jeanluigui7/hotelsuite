@@ -6,6 +6,7 @@ export interface Product {
   categoryId?: string | null;
   salePrice: string | number;
   cost?: string | number | null;
+  reorderPoint: number;
   status: string;
   stock: number;
 }
@@ -16,6 +17,28 @@ export interface ProductUpsert {
   categoryId?: string | null;
   salePrice: number;
   cost?: number;
+  reorderPoint?: number;
   status: 'active' | 'inactive';
   stock?: number;
+}
+
+export type WarehouseType = 'PRODUCTS' | 'CLOTHING' | 'RECEPTION' | 'CLEANING' | 'LAUNDRY' | 'AMENITIES';
+
+export interface Warehouse {
+  id: string;
+  name: string;
+  type: WarehouseType;
+  status: string;
+}
+
+export interface InventoryMovement {
+  id: string;
+  type: string;
+  productName: string;
+  warehouseName: string;
+  relatedWarehouseName?: string | null;
+  quantity: number;
+  unitCost?: string | number | null;
+  reference?: string | null;
+  createdAt: string;
 }

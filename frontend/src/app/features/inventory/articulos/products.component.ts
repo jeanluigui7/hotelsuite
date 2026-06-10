@@ -23,12 +23,13 @@ interface Form {
   categoryId: string | null;
   salePrice: number | null;
   cost: number | null;
+  reorderPoint: number;
   status: 'active' | 'inactive';
   stock: number;
 }
 
 function emptyForm(): Form {
-  return { name: '', sku: '', categoryId: null, salePrice: null, cost: null, status: 'active', stock: 0 };
+  return { name: '', sku: '', categoryId: null, salePrice: null, cost: null, reorderPoint: 0, status: 'active', stock: 0 };
 }
 
 @Component({
@@ -93,11 +94,10 @@ function emptyForm(): Form {
         </div>
         <div class="row">
           <div class="col"><label>Stock</label><p-inputNumber [(ngModel)]="form.stock" [min]="0" styleClass="w-full" /></div>
-          <div class="col">
-            <label>Estado</label>
-            <p-select [options]="statusOptions" optionLabel="label" optionValue="value" [(ngModel)]="form.status" styleClass="w-full" />
-          </div>
+          <div class="col"><label>Punto de reposición</label><p-inputNumber [(ngModel)]="form.reorderPoint" [min]="0" styleClass="w-full" /></div>
         </div>
+        <label>Estado</label>
+        <p-select [options]="statusOptions" optionLabel="label" optionValue="value" [(ngModel)]="form.status" styleClass="w-full" />
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="dialogVisible = false" />
@@ -154,6 +154,7 @@ export class ProductsComponent implements OnInit {
       categoryId: row.categoryId ?? null,
       salePrice: Number(row.salePrice),
       cost: row.cost != null ? Number(row.cost) : null,
+      reorderPoint: row.reorderPoint,
       status: row.status as 'active' | 'inactive',
       stock: row.stock,
     };
@@ -171,6 +172,7 @@ export class ProductsComponent implements OnInit {
       categoryId: this.form.categoryId ?? null,
       salePrice: this.form.salePrice,
       cost: this.form.cost ?? undefined,
+      reorderPoint: this.form.reorderPoint,
       status: this.form.status,
       stock: this.form.stock,
     };

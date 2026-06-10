@@ -16,6 +16,14 @@ const routes: Routes = [
     path: 'articulos',
     loadComponent: () => import('./articulos/products.component').then((m) => m.ProductsComponent),
   },
+  {
+    path: 'almacenes',
+    loadComponent: () => import('./almacenes/warehouses.component').then((m) => m.WarehousesComponent),
+  },
+  {
+    path: 'movimientos',
+    loadComponent: () => import('./movimientos/movements.component').then((m) => m.MovementsComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 
