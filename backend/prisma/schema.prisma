@@ -34,6 +34,10 @@ model Branch {
   rates          Rate[]
   customRates    CustomRate[]
   settings       Setting[]
+  areas          Area[]
+  inventoryCategories InventoryCategory[]
+  items          Item[]
+  schedules      Schedule[]
 
   @@index([status])
 }
@@ -273,4 +277,73 @@ model CustomRate {
   @@index([branchId])
   @@index([roomTypeId])
   @@index([tierId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FASE 2 — Catálogos (Tanda 2B)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Área operativa / física (por sucursal). Usada por inventario y limpieza.
+model Area {
+  id          String   @id @default(uuid())
+  branchId    String
+  name        String
+  description String?
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+}
+
+/// Categoría de inventario (por sucursal).
+model InventoryCategory {
+  id          String   @id @default(uuid())
+  branchId    String
+  name        String
+  description String?
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+}
+
+/// Item configurable. `kind` clasifica su uso en el sistema.
+model Item {
+  id          String   @id @default(uuid())
+  branchId    String
+  kind        String // CHECKIN | RATE | SERVICE_PENALTY | MAINTENANCE
+  name        String
+  description String?
+  price       Decimal? @db.Decimal(10, 2)
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+  @@index([kind])
+}
+
+/// Horario / turno (por sucursal). daysOfWeek como CSV "1,2,3" (1=lunes…7=domingo).
+model Schedule {
+  id         String   @id @default(uuid())
+  branchId   String
+  name       String
+  startTime  String // "HH:mm"
+  endTime    String // "HH:mm"
+  daysOfWeek String   @default("") // CSV de días
+  status     String   @default("active")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
 }

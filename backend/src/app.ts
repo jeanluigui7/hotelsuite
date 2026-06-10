@@ -16,6 +16,10 @@ import { roomTypesRouter } from './modules/room-types/room-types.routes';
 import { clientTiersRouter } from './modules/client-tiers/client-tiers.routes';
 import { guestsRouter } from './modules/guests/guests.routes';
 import { ratesRouter } from './modules/rates/rates.routes';
+import { areasRouter } from './modules/areas/areas.routes';
+import { inventoryCategoriesRouter } from './modules/inventory-categories/inventory-categories.routes';
+import { itemsRouter } from './modules/items/items.routes';
+import { schedulesRouter } from './modules/schedules/schedules.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -38,6 +42,10 @@ export function createApp(): Application {
   app.use('/api', clientTiersRouter);
   app.use('/api', guestsRouter);
   app.use('/api', ratesRouter);
+  app.use('/api', areasRouter);
+  app.use('/api', inventoryCategoriesRouter);
+  app.use('/api', itemsRouter);
+  app.use('/api', schedulesRouter);
 
   // Fallbacks
   app.use(notFoundHandler);

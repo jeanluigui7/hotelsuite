@@ -195,10 +195,50 @@ async function main(): Promise<void> {
     });
   }
 
+  // 7. Demo catalogs (Tanda 2B)
+  await prisma.area.upsert({
+    where: { id: '00000000-0000-0000-0000-0000000000d1' },
+    update: { name: 'Recepción' },
+    create: { id: '00000000-0000-0000-0000-0000000000d1', branchId: branch.id, name: 'Recepción' },
+  });
+  await prisma.inventoryCategory.upsert({
+    where: { id: '00000000-0000-0000-0000-0000000000e1' },
+    update: { name: 'Bebidas' },
+    create: { id: '00000000-0000-0000-0000-0000000000e1', branchId: branch.id, name: 'Bebidas' },
+  });
+
+  const itemDefs = [
+    { id: '00000000-0000-0000-0000-0000000000f1', kind: 'CHECKIN', name: 'Toalla extra', price: 5 },
+    { id: '00000000-0000-0000-0000-0000000000f2', kind: 'RATE', name: 'Hora adicional', price: 15 },
+    { id: '00000000-0000-0000-0000-0000000000f3', kind: 'SERVICE_PENALTY', name: 'Penalidad por daño', price: 50 },
+    { id: '00000000-0000-0000-0000-0000000000f4', kind: 'MAINTENANCE', name: 'Cambio de foco', price: 0 },
+  ];
+  for (const item of itemDefs) {
+    await prisma.item.upsert({
+      where: { id: item.id },
+      update: { name: item.name, price: item.price },
+      create: { id: item.id, branchId: branch.id, kind: item.kind, name: item.name, price: item.price },
+    });
+  }
+
+  await prisma.schedule.upsert({
+    where: { id: '00000000-0000-0000-0000-0000000000aa' },
+    update: { name: 'Turno Mañana' },
+    create: {
+      id: '00000000-0000-0000-0000-0000000000aa',
+      branchId: branch.id,
+      name: 'Turno Mañana',
+      startTime: '07:00',
+      endTime: '15:00',
+      daysOfWeek: '1,2,3,4,5,6,7',
+    },
+  });
+
   // eslint-disable-next-line no-console
   console.log(`✅ Seed completo.
    Sucursal:  ${branch.name} (${branch.id})
    Catálogos: 1 tipo de habitación, ${attributeDefs.length} atributos, 1 tier, ${rateDefs.length} tarifas
+   2B:        1 área, 1 categoría, ${itemDefs.length} items, 1 horario
    Permisos:  ${allPerms.length} (${MODULES.length} módulos × ${ACTIONS.length} acciones)
    Roles:     ${SUPER_ADMIN} + ${BASE_ROLES.length} base
    Usuario:   ${email}  /  contraseña: ${process.env.SEED_ADMIN_PASSWORD ? '(de SEED_ADMIN_PASSWORD)' : password}`);
