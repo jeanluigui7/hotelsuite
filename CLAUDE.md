@@ -69,8 +69,13 @@ en español. Detalle completo en `PROMPT_SISTEMA_HOTELERO.md`.
 
 > Actualiza esta sección al cerrar cada fase. Así sabes (y yo sé) dónde retomamos.
 
-- **Fase actual:** FASE 4 — Ventas, Pagos y Caja (pendiente; esperar "OK fase 3")
-- **Fases completadas:** FASE 0 ✅ · FASE 1 ✅ · FASE 2 ✅ · FASE 3 (3A + 3B) ✅
+- **Fase actual:** FASE 4 — Ventas, Pagos y Caja (Tanda 4A ✅; **pendiente Tanda 4B**: movimientos de caja, arqueo detallado, Cuadro de Turno)
+- **Fases completadas:** FASE 0 ✅ · FASE 1 ✅ · FASE 2 ✅ · FASE 3 ✅
+- **Implementado en FASE 4A:**
+  - Prisma: Warehouse (defecto), Product, Stock, CashSession, Sale, SaleItem, Payment. Seed con almacén "Productos" + 2 productos con stock.
+  - Backend: `products` (CRUD + stock, RBAC inventory), `cash` (abrir/cerrar/actual con resumen por método y arqueo, RBAC finance), `sales` (venta a estancia/externo, exige turno abierto, descuenta stock transaccional, pagos múltiples, RBAC finance). Métodos de pago fijos.
+  - Frontend: Inventario › Artículos; Finanzas › Cajas (turno + arqueo) y Pagos (punto de venta).
+  - **Pendiente validación con DB:** migrar + probar venta que descuenta stock y aparece en el cierre de caja.
 - **Implementado en FASE 3:**
   - Prisma: Room, Stay (precio congelado en priceAgreed), StayGuest, Reservation, Observation, ConciergeRequest. Seed con 3 habitaciones.
   - Backend (RBAC `operations`): `rooms` (CRUD + `/rooms/map` + PATCH status), `stays` (check-in transaccional + check-out + historial), `reservations` (por tipo, estados), `observations`, `concierge`.
