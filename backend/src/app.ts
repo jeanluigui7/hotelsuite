@@ -35,6 +35,9 @@ import { fiscalRouter } from './modules/fiscal/fiscal.routes';
 import { printingRouter } from './modules/printing/printing.routes';
 import { warehousesRouter } from './modules/warehouses/warehouses.routes';
 import { movementsRouter } from './modules/movements/movements.routes';
+import { suppliersRouter } from './modules/suppliers/suppliers.routes';
+import { purchasesRouter } from './modules/purchases/purchases.routes';
+import { logisticsRouter } from './modules/logistics/logistics.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -76,6 +79,9 @@ export function createApp(): Application {
   app.use('/api', printingRouter);
   app.use('/api', warehousesRouter);
   app.use('/api', movementsRouter);
+  app.use('/api', suppliersRouter);
+  app.use('/api', purchasesRouter);
+  app.use('/api', logisticsRouter);
 
   // Fallbacks
   app.use(notFoundHandler);

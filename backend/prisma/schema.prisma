@@ -51,6 +51,8 @@ model Branch {
   invoices       Invoice[]
   creditDebitNotes CreditDebitNote[]
   inventoryMovements InventoryMovement[]
+  suppliers        Supplier[]
+  purchaseInvoices PurchaseInvoice[]
 
   @@index([status])
 }
@@ -709,6 +711,64 @@ model InventoryMovement {
   @@index([productId])
   @@index([warehouseId])
   @@index([type])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FASE 6 — Logística (Tanda 6B)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Proveedor (por sucursal).
+model Supplier {
+  id        String   @id @default(uuid())
+  branchId  String
+  name      String
+  taxId     String?
+  contact   String?
+  phone     String?
+  email     String?
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branch    Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  purchases PurchaseInvoice[]
+
+  @@index([branchId])
+}
+
+/// Ingreso con factura (compra): suma stock y actualiza el costo de los productos.
+model PurchaseInvoice {
+  id              String   @id @default(uuid())
+  branchId        String
+  supplierId      String
+  warehouseId     String
+  documentNumber  String? // nro de factura del proveedor
+  total           Decimal  @db.Decimal(10, 2)
+  status          String   @default("RECEIVED") // RECEIVED | CANCELLED
+  notes           String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  branch   Branch                @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  supplier Supplier              @relation(fields: [supplierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  items    PurchaseInvoiceItem[]
+
+  @@index([branchId])
+  @@index([supplierId])
+}
+
+/// Línea de un ingreso con factura.
+model PurchaseInvoiceItem {
+  id         String  @id @default(uuid())
+  purchaseId String
+  productId  String
+  quantity   Int
+  unitCost   Decimal @db.Decimal(10, 2)
+  subtotal   Decimal @db.Decimal(10, 2)
+
+  purchase PurchaseInvoice @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseId])
 }
 
 /// Venta a una estancia o a un cliente externo.
