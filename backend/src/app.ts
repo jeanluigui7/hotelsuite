@@ -38,6 +38,8 @@ import { movementsRouter } from './modules/movements/movements.routes';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 import { purchasesRouter } from './modules/purchases/purchases.routes';
 import { logisticsRouter } from './modules/logistics/logistics.routes';
+import { checklistRouter } from './modules/checklist/checklist.routes';
+import { housekeepingRouter } from './modules/housekeeping/housekeeping.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -82,6 +84,8 @@ export function createApp(): Application {
   app.use('/api', suppliersRouter);
   app.use('/api', purchasesRouter);
   app.use('/api', logisticsRouter);
+  app.use('/api', checklistRouter);
+  app.use('/api', housekeepingRouter);
 
   // Fallbacks
   app.use(notFoundHandler);

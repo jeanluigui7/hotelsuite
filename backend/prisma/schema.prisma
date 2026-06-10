@@ -53,6 +53,8 @@ model Branch {
   inventoryMovements InventoryMovement[]
   suppliers        Supplier[]
   purchaseInvoices PurchaseInvoice[]
+  checklistItems   ChecklistItem[]
+  housekeepingTasks HousekeepingTask[]
 
   @@index([status])
 }
@@ -769,6 +771,60 @@ model PurchaseInvoiceItem {
   purchase PurchaseInvoice @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
 
   @@index([purchaseId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FASE 7 — Limpieza (Tanda 7A)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Ítem de checklist de inspección (plantilla por sucursal).
+model ChecklistItem {
+  id        String   @id @default(uuid())
+  branchId  String
+  name      String
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+}
+
+/// Tarea de limpieza de una habitación.
+model HousekeepingTask {
+  id                String    @id @default(uuid())
+  branchId          String
+  roomId            String
+  assignedToUserId  String?
+  status            String    @default("PENDING") // PENDING | IN_PROGRESS | DONE | INSPECTED
+  result            String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  notes             String?
+  completedAt       DateTime?
+  inspectedAt       DateTime?
+  inspectedByUserId String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  branch      Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  inspections TaskInspection[]
+
+  @@index([branchId])
+  @@index([roomId])
+  @@index([status])
+}
+
+/// Resultado de un ítem de checklist en una inspección de tarea.
+model TaskInspection {
+  id              String  @id @default(uuid())
+  taskId          String
+  checklistItemId String
+  passed          Boolean
+  note            String?
+
+  task HousekeepingTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
 }
 
 /// Venta a una estancia o a un cliente externo.
