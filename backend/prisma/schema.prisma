@@ -38,6 +38,8 @@ model Branch {
   inventoryCategories InventoryCategory[]
   items          Item[]
   schedules      Schedule[]
+  rooms          Room[]
+  stays          Stay[]
 
   @@index([status])
 }
@@ -165,6 +167,7 @@ model RoomType {
   attributes  RoomTypeAttribute[]
   rates       Rate[]
   customRates CustomRate[]
+  rooms       Room[]
 
   @@index([branchId])
   @@index([status])
@@ -213,6 +216,7 @@ model ClientTier {
 
   branch      Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
   customRates CustomRate[]
+  stays       Stay[]
 
   @@index([branchId])
 }
@@ -230,6 +234,9 @@ model Guest {
   status         String   @default("active")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+
+  stays           Stay[]
+  additionalStays StayGuest[]
 
   @@unique([documentType, documentNumber])
   @@index([documentNumber])
@@ -249,6 +256,7 @@ model Rate {
 
   branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
   roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  stays    Stay[]
 
   @@unique([branchId, roomTypeId, durationMinutes])
   @@index([branchId])
@@ -346,4 +354,77 @@ model Schedule {
   branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@index([branchId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FASE 3 — Operaciones: Habitaciones y Estancias (Tanda 3A)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Habitación física. Estado conduce el mapa en tiempo real.
+model Room {
+  id         String   @id @default(uuid())
+  branchId   String
+  roomTypeId String
+  number     String
+  floor      String?
+  status     String   @default("FREE") // FREE | OCCUPIED | CLEANING | MAINTENANCE
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  stays    Stay[]
+
+  @@unique([branchId, number])
+  @@index([branchId])
+  @@index([roomTypeId])
+  @@index([status])
+}
+
+/// Estancia: ocupación de una habitación por un huésped, con tarifa congelada.
+model Stay {
+  id                String    @id @default(uuid())
+  branchId          String
+  roomId            String
+  guestId           String
+  rateId            String?
+  tierId            String?
+  status            String    @default("OPEN") // OPEN | CLOSED | CANCELLED
+  checkInAt         DateTime  @default(now())
+  plannedCheckoutAt DateTime
+  checkOutAt        DateTime?
+  durationMinutes   Int
+  priceAgreed       Decimal   @db.Decimal(10, 2)
+  adults            Int       @default(1)
+  children          Int       @default(0)
+  notes             String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  branch           Branch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  room             Room        @relation(fields: [roomId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  guest            Guest       @relation(fields: [guestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  rate             Rate?       @relation(fields: [rateId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tier             ClientTier? @relation(fields: [tierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  additionalGuests StayGuest[]
+
+  @@index([branchId])
+  @@index([roomId])
+  @@index([guestId])
+  @@index([status])
+}
+
+/// Huéspedes adicionales de una estancia.
+model StayGuest {
+  id      String @id @default(uuid())
+  stayId  String
+  guestId String
+
+  stay  Stay  @relation(fields: [stayId], references: [id], onDelete: Cascade)
+  guest Guest @relation(fields: [guestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([stayId, guestId])
+  @@index([stayId])
+  @@index([guestId])
 }

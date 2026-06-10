@@ -20,6 +20,8 @@ import { areasRouter } from './modules/areas/areas.routes';
 import { inventoryCategoriesRouter } from './modules/inventory-categories/inventory-categories.routes';
 import { itemsRouter } from './modules/items/items.routes';
 import { schedulesRouter } from './modules/schedules/schedules.routes';
+import { roomsRouter } from './modules/rooms/rooms.routes';
+import { staysRouter } from './modules/stays/stays.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -46,6 +48,8 @@ export function createApp(): Application {
   app.use('/api', inventoryCategoriesRouter);
   app.use('/api', itemsRouter);
   app.use('/api', schedulesRouter);
+  app.use('/api', roomsRouter);
+  app.use('/api', staysRouter);
 
   // Fallbacks
   app.use(notFoundHandler);

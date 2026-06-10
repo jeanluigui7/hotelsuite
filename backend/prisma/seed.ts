@@ -234,11 +234,26 @@ async function main(): Promise<void> {
     },
   });
 
+  // 8. Demo rooms (FASE 3)
+  const roomDefs = [
+    { id: '00000000-0000-0000-0000-0000000bb101', number: '101', floor: '1' },
+    { id: '00000000-0000-0000-0000-0000000bb102', number: '102', floor: '1' },
+    { id: '00000000-0000-0000-0000-0000000bb201', number: '201', floor: '2' },
+  ];
+  for (const room of roomDefs) {
+    await prisma.room.upsert({
+      where: { id: room.id },
+      update: { number: room.number, floor: room.floor },
+      create: { id: room.id, branchId: branch.id, roomTypeId, number: room.number, floor: room.floor },
+    });
+  }
+
   // eslint-disable-next-line no-console
   console.log(`✅ Seed completo.
    Sucursal:  ${branch.name} (${branch.id})
    Catálogos: 1 tipo de habitación, ${attributeDefs.length} atributos, 1 tier, ${rateDefs.length} tarifas
    2B:        1 área, 1 categoría, ${itemDefs.length} items, 1 horario
+   3A:        ${roomDefs.length} habitaciones
    Permisos:  ${allPerms.length} (${MODULES.length} módulos × ${ACTIONS.length} acciones)
    Roles:     ${SUPER_ADMIN} + ${BASE_ROLES.length} base
    Usuario:   ${email}  /  contraseña: ${process.env.SEED_ADMIN_PASSWORD ? '(de SEED_ADMIN_PASSWORD)' : password}`);
