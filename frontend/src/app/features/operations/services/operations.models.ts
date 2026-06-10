@@ -92,6 +92,42 @@ export interface ConciergeRequest {
   createdAt: string;
 }
 
+export interface Maintenance {
+  id: string;
+  roomId?: string | null;
+  roomNumber?: string | null;
+  title: string;
+  description?: string | null;
+  status: 'OPEN' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
+  cost?: string | number | null;
+  scheduledAt?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+}
+
+export interface MaintenanceUpsert {
+  roomId?: string | null;
+  title: string;
+  description?: string;
+  status: 'OPEN' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
+  cost?: number;
+}
+
+export interface Revision {
+  id: string;
+  roomId: string;
+  roomNumber: string;
+  notes?: string | null;
+  status: 'PENDING' | 'OK' | 'ISSUE';
+  createdAt: string;
+}
+
+export interface RevisionUpsert {
+  roomId: string;
+  notes?: string;
+  status: 'PENDING' | 'OK' | 'ISSUE';
+}
+
 export interface HousekeepingTask {
   id: string;
   roomId: string;

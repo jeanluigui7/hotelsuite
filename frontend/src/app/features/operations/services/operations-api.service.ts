@@ -10,8 +10,12 @@ import type {
   ConsumptionInput,
   HousekeepingTask,
   InspectInput,
+  Maintenance,
+  MaintenanceUpsert,
   Observation,
   Reservation,
+  Revision,
+  RevisionUpsert,
   Room,
   RoomMapItem,
   RoomStatus,
@@ -28,6 +32,8 @@ export class OperationsApiService {
   readonly reservations = new CrudApi<Reservation>(this.http, 'reservations');
   readonly observations = new CrudApi<Observation>(this.http, 'observations');
   readonly concierge = new CrudApi<ConciergeRequest>(this.http, 'concierge-requests');
+  readonly maintenances = new CrudApi<Maintenance, MaintenanceUpsert>(this.http, 'maintenances');
+  readonly revisions = new CrudApi<Revision, RevisionUpsert>(this.http, 'revisions');
 
   map(): Observable<ApiResponse<RoomMapItem[]>> {
     return this.http.get<ApiResponse<RoomMapItem[]>>(`${this.api}/rooms/map`);

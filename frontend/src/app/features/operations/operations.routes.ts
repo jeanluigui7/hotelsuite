@@ -27,6 +27,14 @@ const routes: Routes = [
     path: 'limpiezas',
     loadComponent: () => import('./limpiezas/housekeeping.component').then((m) => m.HousekeepingComponent),
   },
+  {
+    path: 'mantenimientos',
+    loadComponent: () => import('./mantenimientos/maintenance.component').then((m) => m.MaintenanceComponent),
+  },
+  {
+    path: 'revisiones',
+    loadComponent: () => import('./revisiones/revisions.component').then((m) => m.RevisionsComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 

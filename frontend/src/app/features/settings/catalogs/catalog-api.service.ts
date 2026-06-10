@@ -9,6 +9,7 @@ import type {
   Guest,
   InventoryCategory,
   Item,
+  LaundryMachine,
   Rate,
   RoomAttribute,
   RoomType,
@@ -31,4 +32,5 @@ export class CatalogApiService {
   readonly items = new CrudApi<Item>(this.http, 'items');
   readonly schedules = new CrudApi<Schedule>(this.http, 'schedules');
   readonly checklistItems = new CrudApi<ChecklistItem>(this.http, 'checklist-items');
+  readonly laundryMachines = new CrudApi<LaundryMachine>(this.http, 'laundry-machines');
 }

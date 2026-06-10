@@ -108,3 +108,10 @@ export interface ChecklistItem {
   name: string;
   status: string;
 }
+
+export interface LaundryMachine {
+  id: string;
+  name: string;
+  capacity?: string | null;
+  status: 'available' | 'busy' | 'maintenance';
+}

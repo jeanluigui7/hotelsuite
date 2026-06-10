@@ -40,6 +40,10 @@ const routes: Routes = [
     loadComponent: () => import('./inspeccion/checklist.component').then((m) => m.ChecklistComponent),
   },
   {
+    path: 'lavanderia',
+    loadComponent: () => import('./lavanderia/laundry-machines.component').then((m) => m.LaundryMachinesComponent),
+  },
+  {
     path: 'roles',
     loadComponent: () => import('./roles/roles.component').then((m) => m.RolesComponent),
   },

@@ -7,6 +7,10 @@ const routes: Routes = [
     path: 'cuadro-turno',
     loadComponent: () => import('./cuadro-turno/turn-report.component').then((m) => m.TurnReportComponent),
   },
+  {
+    path: 'lavanderia',
+    loadComponent: () => import('./lavanderia/laundry.component').then((m) => m.LaundryComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 
