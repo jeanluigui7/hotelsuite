@@ -56,6 +56,42 @@ export interface CheckInInput {
   notes?: string;
 }
 
+export type ReservationStatus = 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'FULFILLED';
+
+export interface Reservation {
+  id: string;
+  roomType: { id: string; name: string };
+  room?: { id: string; number: string } | null;
+  guestId?: string | null;
+  guestName?: string | null;
+  phone?: string | null;
+  expectedCheckInAt: string;
+  durationMinutes: number;
+  adults: number;
+  children: number;
+  status: ReservationStatus;
+  notes?: string | null;
+}
+
+export interface Observation {
+  id: string;
+  room?: { id: string; number: string } | null;
+  title?: string | null;
+  body: string;
+  status: 'OPEN' | 'RESOLVED';
+  createdAt: string;
+}
+
+export interface ConciergeRequest {
+  id: string;
+  room?: { id: string; number: string } | null;
+  guestName?: string | null;
+  category?: string | null;
+  description: string;
+  status: 'PENDING' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
+  createdAt: string;
+}
+
 export interface Stay {
   id: string;
   status: 'OPEN' | 'CLOSED' | 'CANCELLED';

@@ -4,7 +4,16 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import { CrudApi, toHttpParams, type ListParams } from '../../../core/http/crud-api';
 import type { ApiResponse } from '../../../core/models/api-response.model';
-import type { CheckInInput, Room, RoomMapItem, RoomStatus, Stay } from './operations.models';
+import type {
+  CheckInInput,
+  ConciergeRequest,
+  Observation,
+  Reservation,
+  Room,
+  RoomMapItem,
+  RoomStatus,
+  Stay,
+} from './operations.models';
 
 @Injectable({ providedIn: 'root' })
 export class OperationsApiService {
@@ -13,6 +22,9 @@ export class OperationsApiService {
 
   /** Rooms CRUD (admin). */
   readonly rooms = new CrudApi<Room, Room>(this.http, 'rooms');
+  readonly reservations = new CrudApi<Reservation>(this.http, 'reservations');
+  readonly observations = new CrudApi<Observation>(this.http, 'observations');
+  readonly concierge = new CrudApi<ConciergeRequest>(this.http, 'concierge-requests');
 
   map(): Observable<ApiResponse<RoomMapItem[]>> {
     return this.http.get<ApiResponse<RoomMapItem[]>>(`${this.api}/rooms/map`);

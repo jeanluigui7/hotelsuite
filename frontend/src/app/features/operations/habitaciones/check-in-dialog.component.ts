@@ -155,6 +155,9 @@ export class CheckInDialogComponent {
     return this._room;
   }
 
+  /** Optional guest to preselect (used when converting a reservation to check-in). */
+  @Input() prefillGuestId: string | null = null;
+
   readonly docTypes = DOCUMENT_TYPE_OPTIONS;
   readonly guestModeOptions = [
     { label: 'Cliente existente', value: 'existing' },
@@ -194,6 +197,18 @@ export class CheckInDialogComponent {
     this.catalog.rates.list({ roomTypeId: room.roomType.id }).subscribe((res) => this.rates.set(res.data ?? []));
     this.catalog.clientTiers.list({ pageSize: 100, sortBy: 'name' }).subscribe((res) => this.tiers.set(res.data ?? []));
     this.searchGuests();
+
+    // Preselect a guest when converting a reservation.
+    if (this.prefillGuestId) {
+      this.guestMode = 'existing';
+      const id = this.prefillGuestId;
+      this.catalog.guests.get(id).subscribe((res) => {
+        if (res.data) {
+          this.guestResults.set([res.data, ...this.guestResults().filter((g) => g.id !== id)]);
+          this.selectedGuestId = id;
+        }
+      });
+    }
   }
 
   searchGuests(): void {

@@ -11,6 +11,18 @@ const routes: Routes = [
     path: 'estancias',
     loadComponent: () => import('./estancias/stay-history.component').then((m) => m.StayHistoryComponent),
   },
+  {
+    path: 'reservas',
+    loadComponent: () => import('./reservas/reservations.component').then((m) => m.ReservationsComponent),
+  },
+  {
+    path: 'observaciones',
+    loadComponent: () => import('./observaciones/observations.component').then((m) => m.ObservationsComponent),
+  },
+  {
+    path: 'conserjeria',
+    loadComponent: () => import('./conserjeria/concierge.component').then((m) => m.ConciergeComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 
