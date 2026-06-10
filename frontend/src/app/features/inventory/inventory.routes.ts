@@ -12,6 +12,10 @@ const routes: Routes = [
     loadComponent: () =>
       import('./categorias/inventory-categories.component').then((m) => m.InventoryCategoriesComponent),
   },
+  {
+    path: 'articulos',
+    loadComponent: () => import('./articulos/products.component').then((m) => m.ProductsComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 
