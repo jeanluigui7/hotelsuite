@@ -1,0 +1,12 @@
+// HotelSuite — Prisma schema
+// Datasource: SQL Server (código agnóstico para migrar a PostgreSQL si hiciera falta).
+// FASE 0: solo datasource + generator. Los modelos se agregan desde la FASE 1.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}

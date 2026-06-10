@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Force -Name; Write-Output \"---NODE---\"; node --version; Write-Output \"---NPM---\"; npm --version; Write-Output \"---NG---\"; \\(Get-Command ng -ErrorAction SilentlyContinue\\).Source; Write-Output \"---DOCKER---\"; docker --version; Write-Output \"---GIT---\"; git --version)",
+      "PowerShell(ng version 2>$null)",
+      "PowerShell(docker compose version)",
+      "PowerShell(git init)",
+      "PowerShell(git config core.autocrlf true)",
+      "PowerShell(git symbolic-ref HEAD refs/heads/main)",
+      "PowerShell(ng analytics disable --global 2>$null)",
+      "PowerShell(ng new frontend --style=scss --routing=true --ssr=false --skip-git --skip-install --package-manager=npm)",
+      "PowerShell(npm install 2>&1)",
+      "PowerShell(npm run build -w backend 2>&1)",
+      "PowerShell(npm run build -w frontend 2>&1)",
+      "PowerShell(git add -A; git status --short | Select-Object -First 60; Write-Output \"---COUNT---\"; \\(git status --short | Measure-Object -Line\\).Lines)"
+    ]
+  }
+}
