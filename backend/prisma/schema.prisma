@@ -818,6 +818,43 @@ model HousekeepingTask {
   @@index([status])
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FASE 8 — RRHH (Tanda 8A)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Marca de asistencia (entrada/salida), manual o por biometría.
+model Attendance {
+  id       String   @id @default(uuid())
+  branchId String
+  userId   String
+  type     String // IN | OUT
+  source   String   @default("MANUAL") // MANUAL | BIOMETRIC
+  at       DateTime @default(now())
+  note     String?
+  deviceId String?
+
+  @@index([branchId])
+  @@index([userId])
+  @@index([at])
+}
+
+/// Registro de auditoría de operaciones.
+model ActivityLog {
+  id        String   @id @default(uuid())
+  branchId  String?
+  userId    String?
+  userEmail String?
+  action    String // POST | PUT | PATCH | DELETE
+  module    String
+  entityId  String?
+  summary   String
+  createdAt DateTime @default(now())
+
+  @@index([branchId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
 /// Resultado de un ítem de checklist en una inspección de tarea.
 model TaskInspection {
   id              String  @id @default(uuid())

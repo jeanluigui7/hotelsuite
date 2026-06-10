@@ -6,6 +6,7 @@ import { pinoHttp } from 'pino-http';
 import { env } from './config/env';
 import { logger } from './config/logger';
 import { errorHandler, notFoundHandler } from './middlewares/error-handler';
+import { auditLogger } from './middlewares/audit.middleware';
 import { healthRouter } from './modules/health/health.routes';
 import { authRouter } from './modules/auth/auth.routes';
 import { branchesRouter } from './modules/branches/branches.routes';
@@ -44,6 +45,9 @@ import { maintenanceRouter } from './modules/maintenance/maintenance.routes';
 import { revisionsRouter } from './modules/revisions/revisions.routes';
 import { laundryMachinesRouter } from './modules/laundry-machines/laundry-machines.routes';
 import { laundryTasksRouter } from './modules/laundry-tasks/laundry-tasks.routes';
+import { attendanceRouter } from './modules/attendance/attendance.routes';
+import { activityLogRouter } from './modules/activity-log/activity-log.routes';
+import { performanceRouter } from './modules/performance/performance.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -54,6 +58,7 @@ export function createApp(): Application {
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
   app.use(pinoHttp({ logger }));
+  app.use(auditLogger());
 
   // Routes (mounted under /api). New module routers are added here per phase.
   app.use('/api', healthRouter);
@@ -94,6 +99,9 @@ export function createApp(): Application {
   app.use('/api', revisionsRouter);
   app.use('/api', laundryMachinesRouter);
   app.use('/api', laundryTasksRouter);
+  app.use('/api', attendanceRouter);
+  app.use('/api', activityLogRouter);
+  app.use('/api', performanceRouter);
 
   // Fallbacks
   app.use(notFoundHandler);
