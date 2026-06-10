@@ -69,8 +69,13 @@ en español. Detalle completo en `PROMPT_SISTEMA_HOTELERO.md`.
 
 > Actualiza esta sección al cerrar cada fase. Así sabes (y yo sé) dónde retomamos.
 
-- **Fase actual:** FASE 5 — Comprobantes electrónicos, Notas e Impresión QZ Tray (pendiente; esperar "OK fase 4")
-- **Fases completadas:** FASE 0 ✅ · FASE 1 ✅ · FASE 2 ✅ · FASE 3 ✅ · FASE 4 (4A + 4B) ✅
+- **Fase actual:** FASE 5 (Tanda 5A ✅; **pendiente Tanda 5B**: QZ Tray + Tickets)
+- **Fases completadas:** FASE 0 ✅ · FASE 1 ✅ · FASE 2 ✅ · FASE 3 ✅ · FASE 4 ✅
+- **Implementado en FASE 5A:**
+  - Prisma: FolioSeries, Invoice (Boleta/Factura con desglose IGV), CreditDebitNote. Seed: series B001/F001/NC01.
+  - Backend: capa `InvoicingProvider` (mock local), módulos `folios`, `invoices` (IGV 18% incluido), `notes`, `fiscal` (RBAC finance).
+  - Frontend: Finanzas › Comprobantes, Folios Maestros, Panel Fiscal.
+  - **Pendiente 5B:** integración QZ Tray (firma backend + servicio Angular + cert) y pantalla Tickets.
 - **Implementado en FASE 4:**
   - Prisma: Warehouse, Product, Stock, CashSession, Sale, SaleItem, Payment, CashMovement. Seed: almacén "Productos" + 2 productos con stock.
   - Backend: `products` (RBAC inventory), `cash` (turno + movimientos + historial + cuadro de turno; RBAC finance/reports), `sales` (venta atada a turno, descuenta stock, pagos múltiples; RBAC finance). Métodos de pago fijos (CASH/CARD/TRANSFER/WALLET).
