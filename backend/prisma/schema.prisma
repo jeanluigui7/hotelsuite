@@ -55,6 +55,10 @@ model Branch {
   purchaseInvoices PurchaseInvoice[]
   checklistItems   ChecklistItem[]
   housekeepingTasks HousekeepingTask[]
+  maintenances     Maintenance[]
+  revisions        Revision[]
+  laundryMachines  LaundryMachine[]
+  laundryTasks     LaundryTask[]
 
   @@index([status])
 }
@@ -825,6 +829,81 @@ model TaskInspection {
   task HousekeepingTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([taskId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FASE 7 — Mantenimiento y Lavandería (Tanda 7B)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Mantenimiento (puede asociarse a una habitación).
+model Maintenance {
+  id               String    @id @default(uuid())
+  branchId         String
+  roomId           String?
+  title            String
+  description      String?
+  status           String    @default("OPEN") // OPEN | IN_PROGRESS | DONE | CANCELLED
+  cost             Decimal?  @db.Decimal(10, 2)
+  assignedToUserId String?
+  scheduledAt      DateTime?
+  completedAt      DateTime?
+  createdByUserId  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+  @@index([status])
+}
+
+/// Revisión de habitación.
+model Revision {
+  id              String   @id @default(uuid())
+  branchId        String
+  roomId          String
+  notes           String?
+  status          String   @default("PENDING") // PENDING | OK | ISSUE
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+  @@index([roomId])
+}
+
+/// Máquina de lavandería.
+model LaundryMachine {
+  id        String   @id @default(uuid())
+  branchId  String
+  name      String
+  capacity  String?
+  status    String   @default("available") // available | busy | maintenance
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+}
+
+/// Carga de lavandería.
+model LaundryTask {
+  id              String    @id @default(uuid())
+  branchId        String
+  machineId       String?
+  description     String
+  status          String    @default("PENDING") // PENDING | WASHING | DONE
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  completedAt     DateTime?
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+  @@index([status])
 }
 
 /// Venta a una estancia o a un cliente externo.

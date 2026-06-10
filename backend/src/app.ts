@@ -40,6 +40,10 @@ import { purchasesRouter } from './modules/purchases/purchases.routes';
 import { logisticsRouter } from './modules/logistics/logistics.routes';
 import { checklistRouter } from './modules/checklist/checklist.routes';
 import { housekeepingRouter } from './modules/housekeeping/housekeeping.routes';
+import { maintenanceRouter } from './modules/maintenance/maintenance.routes';
+import { revisionsRouter } from './modules/revisions/revisions.routes';
+import { laundryMachinesRouter } from './modules/laundry-machines/laundry-machines.routes';
+import { laundryTasksRouter } from './modules/laundry-tasks/laundry-tasks.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -86,6 +90,10 @@ export function createApp(): Application {
   app.use('/api', logisticsRouter);
   app.use('/api', checklistRouter);
   app.use('/api', housekeepingRouter);
+  app.use('/api', maintenanceRouter);
+  app.use('/api', revisionsRouter);
+  app.use('/api', laundryMachinesRouter);
+  app.use('/api', laundryTasksRouter);
 
   // Fallbacks
   app.use(notFoundHandler);

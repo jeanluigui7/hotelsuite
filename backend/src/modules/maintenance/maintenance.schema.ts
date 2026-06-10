@@ -1,0 +1,16 @@
+import { z } from 'zod';
+
+export const createMaintenanceSchema = z.object({
+  roomId: z.string().uuid().optional().nullable(),
+  title: z.string().min(1).max(150),
+  description: z.string().max(500).optional().or(z.literal('')),
+  status: z.enum(['OPEN', 'IN_PROGRESS', 'DONE', 'CANCELLED']).default('OPEN'),
+  cost: z.coerce.number().min(0).optional(),
+  assignedToUserId: z.string().uuid().optional().nullable(),
+  scheduledAt: z.coerce.date().optional().nullable(),
+});
+
+export const updateMaintenanceSchema = createMaintenanceSchema.partial();
+
+export type CreateMaintenanceDto = z.infer<typeof createMaintenanceSchema>;
+export type UpdateMaintenanceDto = z.infer<typeof updateMaintenanceSchema>;
