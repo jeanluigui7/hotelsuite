@@ -68,3 +68,37 @@ export interface CustomRate {
   validTo?: string | null;
   status: string;
 }
+
+export interface Area {
+  id: string;
+  name: string;
+  description?: string | null;
+  status: string;
+}
+
+export interface InventoryCategory {
+  id: string;
+  name: string;
+  description?: string | null;
+  status: string;
+}
+
+export type ItemKind = 'CHECKIN' | 'RATE' | 'SERVICE_PENALTY' | 'MAINTENANCE';
+
+export interface Item {
+  id: string;
+  kind: ItemKind;
+  name: string;
+  description?: string | null;
+  price?: string | number | null;
+  status: string;
+}
+
+export interface Schedule {
+  id: string;
+  name: string;
+  startTime: string;
+  endTime: string;
+  daysOfWeek: number[];
+  status: string;
+}

@@ -10,6 +10,23 @@ export const DOCUMENT_TYPE_OPTIONS = [
   { label: 'RUC', value: 'RUC' },
 ];
 
+export const ITEM_KIND_OPTIONS = [
+  { label: 'Check-In', value: 'CHECKIN' },
+  { label: 'Por Tarifa', value: 'RATE' },
+  { label: 'Servicios / Penalidades', value: 'SERVICE_PENALTY' },
+  { label: 'Mantenimiento', value: 'MAINTENANCE' },
+];
+
+export const DAY_OPTIONS = [
+  { label: 'Lun', value: 1 },
+  { label: 'Mar', value: 2 },
+  { label: 'Mié', value: 3 },
+  { label: 'Jue', value: 4 },
+  { label: 'Vie', value: 5 },
+  { label: 'Sáb', value: 6 },
+  { label: 'Dom', value: 7 },
+];
+
 /** Common duration presets (minutes) for rate creation. */
 export const DURATION_PRESETS = [
   { label: '1 hora', value: 60 },

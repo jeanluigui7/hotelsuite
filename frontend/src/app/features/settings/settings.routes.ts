@@ -28,6 +28,14 @@ const routes: Routes = [
     loadComponent: () => import('./tarifas/custom-rates.component').then((m) => m.CustomRatesComponent),
   },
   {
+    path: 'items',
+    loadComponent: () => import('./items/items.component').then((m) => m.ItemsComponent),
+  },
+  {
+    path: 'horarios',
+    loadComponent: () => import('./horarios/schedules.component').then((m) => m.SchedulesComponent),
+  },
+  {
     path: 'roles',
     loadComponent: () => import('./roles/roles.component').then((m) => m.RolesComponent),
   },

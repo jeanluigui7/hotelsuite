@@ -3,6 +3,15 @@ import { PlaceholderPageComponent } from '../../shared/components/placeholder-pa
 
 const routes: Routes = [
   { path: '', component: PlaceholderPageComponent },
+  {
+    path: 'areas',
+    loadComponent: () => import('./areas/areas.component').then((m) => m.AreasComponent),
+  },
+  {
+    path: 'categorias',
+    loadComponent: () =>
+      import('./categorias/inventory-categories.component').then((m) => m.InventoryCategoriesComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 
