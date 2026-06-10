@@ -47,6 +47,9 @@ model Branch {
   products       Product[]
   cashSessions   CashSession[]
   sales          Sale[]
+  folioSeries    FolioSeries[]
+  invoices       Invoice[]
+  creditDebitNotes CreditDebitNote[]
 
   @@index([status])
 }
@@ -607,6 +610,77 @@ model CashMovement {
 
   @@index([cashSessionId])
   @@index([branchId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FASE 5 — Comprobantes electrónicos y Notas (Tanda 5A)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Serie de folios (Folios Maestros): correlativo por sucursal y tipo de documento.
+model FolioSeries {
+  id            String   @id @default(uuid())
+  branchId      String
+  documentType  String // BOLETA | FACTURA | NOTE
+  series        String // "B001", "F001", "NC01"
+  currentNumber Int      @default(0)
+  status        String   @default("active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, documentType, series])
+  @@index([branchId])
+}
+
+/// Comprobante electrónico (Boleta/Factura) emitido a partir de una venta.
+model Invoice {
+  id             String   @id @default(uuid())
+  branchId       String
+  saleId         String?
+  type           String // BOLETA | FACTURA
+  series         String
+  number         Int
+  customerDoc    String?
+  customerName   String
+  subtotal       Decimal  @db.Decimal(10, 2) // base imponible
+  taxAmount      Decimal  @db.Decimal(10, 2) // IGV
+  total          Decimal  @db.Decimal(10, 2)
+  status         String   @default("ISSUED") // ISSUED | VOIDED
+  providerStatus String? // estado del PSE (mock)
+  providerRef    String? // referencia del PSE (mock)
+  issuedAt       DateTime @default(now())
+  createdByUserId String?
+
+  branch Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  notes  CreditDebitNote[]
+
+  @@unique([branchId, series, number])
+  @@index([branchId])
+  @@index([status])
+  @@index([type])
+}
+
+/// Nota de Crédito/Débito sobre un comprobante.
+model CreditDebitNote {
+  id              String   @id @default(uuid())
+  branchId        String
+  invoiceId       String
+  type            String // CREDIT | DEBIT
+  series          String
+  number          Int
+  reason          String
+  total           Decimal  @db.Decimal(10, 2)
+  status          String   @default("ISSUED")
+  issuedAt        DateTime @default(now())
+  createdByUserId String?
+
+  branch  Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([branchId, series, number])
+  @@index([branchId])
+  @@index([invoiceId])
 }
 
 /// Venta a una estancia o a un cliente externo.

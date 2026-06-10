@@ -273,6 +273,26 @@ async function main(): Promise<void> {
     });
   }
 
+  // 10. Folio series (FASE 5)
+  const folioDefs = [
+    { documentType: 'BOLETA', series: 'B001' },
+    { documentType: 'FACTURA', series: 'F001' },
+    { documentType: 'NOTE', series: 'NC01' },
+  ];
+  for (const f of folioDefs) {
+    await prisma.folioSeries.upsert({
+      where: {
+        branchId_documentType_series: {
+          branchId: branch.id,
+          documentType: f.documentType,
+          series: f.series,
+        },
+      },
+      update: {},
+      create: { branchId: branch.id, documentType: f.documentType, series: f.series },
+    });
+  }
+
   // eslint-disable-next-line no-console
   console.log(`✅ Seed completo.
    Sucursal:  ${branch.name} (${branch.id})
@@ -280,6 +300,7 @@ async function main(): Promise<void> {
    2B:        1 área, 1 categoría, ${itemDefs.length} items, 1 horario
    3A:        ${roomDefs.length} habitaciones
    4A:        almacén "Productos" + ${productDefs.length} productos con stock
+   5A:        ${folioDefs.length} series de folios (B001, F001, NC01)
    Permisos:  ${allPerms.length} (${MODULES.length} módulos × ${ACTIONS.length} acciones)
    Roles:     ${SUPER_ADMIN} + ${BASE_ROLES.length} base
    Usuario:   ${email}  /  contraseña: ${process.env.SEED_ADMIN_PASSWORD ? '(de SEED_ADMIN_PASSWORD)' : password}`);

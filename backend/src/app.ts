@@ -28,6 +28,10 @@ import { conciergeRouter } from './modules/concierge/concierge.routes';
 import { productsRouter } from './modules/products/products.routes';
 import { cashRouter } from './modules/cash/cash.routes';
 import { salesRouter } from './modules/sales/sales.routes';
+import { foliosRouter } from './modules/folios/folios.routes';
+import { invoicesRouter } from './modules/invoices/invoices.routes';
+import { notesRouter } from './modules/notes/notes.routes';
+import { fiscalRouter } from './modules/fiscal/fiscal.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -62,6 +66,10 @@ export function createApp(): Application {
   app.use('/api', productsRouter);
   app.use('/api', cashRouter);
   app.use('/api', salesRouter);
+  app.use('/api', foliosRouter);
+  app.use('/api', invoicesRouter);
+  app.use('/api', notesRouter);
+  app.use('/api', fiscalRouter);
 
   // Fallbacks
   app.use(notFoundHandler);
