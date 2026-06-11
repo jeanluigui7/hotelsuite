@@ -77,6 +77,10 @@ export function createApp(): Application {
   // Routes (mounted under /api). New module routers are added here per phase.
   app.use('/api', healthRouter);
   app.use('/api', authRouter);
+  // Público (sin auth) ANTES de los routers protegidos: como todos se montan en
+  // /api y los protegidos aplican authenticate() a nivel de router, si el público
+  // fuera después, /api/public/* chocaría con un authenticate() y devolvería 401.
+  app.use('/api', publicRouter);
   app.use('/api', branchesRouter);
   app.use('/api', rolesRouter);
   app.use('/api', usersRouter);
@@ -123,7 +127,6 @@ export function createApp(): Application {
   app.use('/api', whatsappRouter);
   app.use('/api', remindersRouter);
   app.use('/api', wifiRouter);
-  app.use('/api', publicRouter);
   app.use('/api', landingRouter);
 
   // Fallbacks
