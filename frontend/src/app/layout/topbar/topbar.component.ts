@@ -87,7 +87,12 @@ export class TopbarComponent {
   private readonly router = inject(Router);
 
   onBranchChange(branchId: string): void {
+    if (!branchId || branchId === this.auth.activeBranchId()) return;
     this.auth.setActiveBranch(branchId);
+    // Recarga la app para que todas las pantallas reflejen la nueva sucursal
+    // (el interceptor adjunta el branchId activo; la sesión se restaura por la
+    // cookie de refresh y la sucursal activa persiste en localStorage).
+    window.location.reload();
   }
 
   logout(): void {
