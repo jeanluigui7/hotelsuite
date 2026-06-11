@@ -86,4 +86,44 @@ export const reportsService = {
       }),
     };
   },
+
+  /** Inspecciones de Limpieza: detalle por ítem de checklist en un rango. */
+  async inspections(scope: RequestScope, from?: Date, to?: Date) {
+    const branchId = requireActiveBranch(scope);
+    const rows = await prisma.taskInspection.findMany({
+      where: {
+        task: {
+          branchId,
+          ...(from || to ? { inspectedAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
+        },
+      },
+      include: { task: { select: { roomId: true, inspectedAt: true, inspectedByUserId: true, result: true } } },
+      orderBy: { task: { inspectedAt: 'desc' } },
+    });
+
+    // Resolve checklist item names, room numbers and inspector names via maps.
+    const checklistIds = [...new Set(rows.map((r) => r.checklistItemId))];
+    const roomIds = [...new Set(rows.map((r) => r.task.roomId))];
+    const userIds = [...new Set(rows.map((r) => r.task.inspectedByUserId).filter((x): x is string => !!x))];
+    const [checklist, rooms, users] = await Promise.all([
+      prisma.checklistItem.findMany({ where: { id: { in: checklistIds } }, select: { id: true, name: true } }),
+      prisma.room.findMany({ where: { id: { in: roomIds } }, select: { id: true, number: true } }),
+      prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }),
+    ]);
+    const checklistMap = new Map(checklist.map((c) => [c.id, c.name]));
+    const roomMap = new Map(rooms.map((r) => [r.id, r.number]));
+    const userMap = new Map(users.map((u) => [u.id, u.name]));
+
+    return {
+      items: rows.map((r) => ({
+        id: r.id,
+        date: r.task.inspectedAt,
+        room: roomMap.get(r.task.roomId) ?? '—',
+        checklistItem: checklistMap.get(r.checklistItemId) ?? '—',
+        passed: r.passed,
+        note: r.note,
+        inspector: r.task.inspectedByUserId ? (userMap.get(r.task.inspectedByUserId) ?? '—') : '—',
+      })),
+    };
+  },
 };

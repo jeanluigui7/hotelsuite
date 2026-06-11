@@ -47,3 +47,19 @@ export interface ProfitReport {
   profit: number;
   lineCount: number;
 }
+
+export interface KardexEntry {
+  id: string;
+  date: string;
+  type: string;
+  quantity: number;
+  balance: number;
+  unitCost?: number | null;
+  reference?: string | null;
+}
+
+export interface Kardex {
+  product: { id: string; name: string } | null;
+  balance: number;
+  items: KardexEntry[];
+}

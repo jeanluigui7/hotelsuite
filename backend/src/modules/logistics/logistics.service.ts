@@ -39,6 +39,33 @@ export const logisticsService = {
     return { items };
   },
 
+  /** Kardex de un producto: movimientos con saldo corrido (opcionalmente por almacén). */
+  async kardex(scope: RequestScope, productId: string, warehouseId?: string) {
+    const branchId = requireActiveBranch(scope);
+    const product = await prisma.product.findUnique({ where: { id: productId } });
+    if (!product || product.branchId !== branchId) {
+      return { product: null, balance: 0, items: [] };
+    }
+    const movements = await prisma.inventoryMovement.findMany({
+      where: { branchId, productId, ...(warehouseId ? { warehouseId } : {}) },
+      orderBy: { createdAt: 'asc' },
+    });
+    let balance = 0;
+    const items = movements.map((m) => {
+      balance += m.quantity;
+      return {
+        id: m.id,
+        date: m.createdAt,
+        type: m.type,
+        quantity: m.quantity,
+        balance,
+        unitCost: m.unitCost != null ? Number(m.unitCost) : null,
+        reference: m.reference,
+      };
+    });
+    return { product: { id: product.id, name: product.name }, balance, items };
+  },
+
   /** Reporte de ganancias: ventas − costo en un rango de fechas. */
   async profit(scope: RequestScope, from?: Date, to?: Date) {
     const branchId = requireActiveBranch(scope);

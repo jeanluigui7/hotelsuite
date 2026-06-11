@@ -12,6 +12,12 @@ export const logisticsController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await logisticsService.reorder(req.scope)));
   },
+  async kardex(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const productId = typeof req.query.productId === 'string' ? req.query.productId : '';
+    const warehouseId = typeof req.query.warehouseId === 'string' ? req.query.warehouseId : undefined;
+    res.status(200).json(ok(await logisticsService.kardex(req.scope, productId, warehouseId)));
+  },
   async profit(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const from = typeof req.query.from === 'string' ? new Date(req.query.from) : undefined;

@@ -11,4 +11,5 @@ logisticsRouter.use(authenticate(), tenant());
 
 logisticsRouter.get('/logistics/valuation', requirePermission('logistics', 'view'), asyncHandler(logisticsController.valuation));
 logisticsRouter.get('/logistics/reorder', requirePermission('logistics', 'view'), asyncHandler(logisticsController.reorder));
+logisticsRouter.get('/logistics/kardex', requirePermission('logistics', 'view'), asyncHandler(logisticsController.kardex));
 logisticsRouter.get('/logistics/profit', requirePermission('logistics', 'view'), asyncHandler(logisticsController.profit));

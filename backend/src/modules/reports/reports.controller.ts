@@ -22,4 +22,10 @@ export const reportsController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await reportsService.productLimit(req.scope)));
   },
+  async inspections(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const from = typeof req.query.from === 'string' ? new Date(req.query.from) : undefined;
+    const to = typeof req.query.to === 'string' ? new Date(req.query.to) : undefined;
+    res.status(200).json(ok(await reportsService.inspections(req.scope, from, to)));
+  },
 };

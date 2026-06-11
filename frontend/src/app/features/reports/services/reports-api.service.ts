@@ -60,6 +60,16 @@ export interface LaundryTaskUpsert {
   status: 'PENDING' | 'WASHING' | 'DONE';
 }
 
+export interface InspectionItem {
+  id: string;
+  date: string | null;
+  room: string;
+  checklistItem: string;
+  passed: boolean;
+  note?: string | null;
+  inspector: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ReportsApiService {
   private readonly http = inject(HttpClient);
@@ -83,5 +93,10 @@ export class ReportsApiService {
   }
   productLimit(): Observable<ApiResponse<{ items: ProductLimitItem[] }>> {
     return this.http.get<ApiResponse<{ items: ProductLimitItem[] }>>(`${this.api}/reports/product-limit`);
+  }
+  inspections(from?: string, to?: string): Observable<ApiResponse<{ items: InspectionItem[] }>> {
+    return this.http.get<ApiResponse<{ items: InspectionItem[] }>>(`${this.api}/reports/inspections`, {
+      params: toHttpParams({ from, to }),
+    });
   }
 }

@@ -6,6 +6,7 @@ import { CrudApi, toHttpParams, type ListParams } from '../../../core/http/crud-
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import type {
   CreatePurchaseInput,
+  Kardex,
   ProfitReport,
   Purchase,
   ReorderReport,
@@ -36,6 +37,11 @@ export class LogisticsApiService {
   profit(from?: string, to?: string): Observable<ApiResponse<ProfitReport>> {
     return this.http.get<ApiResponse<ProfitReport>>(`${this.api}/logistics/profit`, {
       params: toHttpParams({ from, to }),
+    });
+  }
+  kardex(productId: string): Observable<ApiResponse<Kardex>> {
+    return this.http.get<ApiResponse<Kardex>>(`${this.api}/logistics/kardex`, {
+      params: toHttpParams({ productId }),
     });
   }
 }

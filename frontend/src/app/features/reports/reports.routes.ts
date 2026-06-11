@@ -31,6 +31,10 @@ const routes: Routes = [
     path: 'simulador',
     loadComponent: () => import('./simulador/product-limit.component').then((m) => m.ProductLimitComponent),
   },
+  {
+    path: 'inspecciones',
+    loadComponent: () => import('./inspecciones/inspections.component').then((m) => m.InspectionsReportComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 

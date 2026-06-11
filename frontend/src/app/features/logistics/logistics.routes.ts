@@ -4,6 +4,10 @@ import { PlaceholderPageComponent } from '../../shared/components/placeholder-pa
 const routes: Routes = [
   { path: '', component: PlaceholderPageComponent },
   {
+    path: 'kardex',
+    loadComponent: () => import('./kardex/kardex.component').then((m) => m.KardexComponent),
+  },
+  {
     path: 'proveedores',
     loadComponent: () => import('./proveedores/suppliers.component').then((m) => m.SuppliersComponent),
   },

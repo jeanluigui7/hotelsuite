@@ -13,3 +13,4 @@ reportsRouter.get('/reports/rooms', requirePermission('reports', 'view'), asyncH
 reportsRouter.get('/reports/housekeeping', requirePermission('reports', 'view'), asyncHandler(reportsController.housekeeping));
 reportsRouter.get('/reports/sales-detailed', requirePermission('reports', 'view'), asyncHandler(reportsController.salesDetailed));
 reportsRouter.get('/reports/product-limit', requirePermission('reports', 'view'), asyncHandler(reportsController.productLimit));
+reportsRouter.get('/reports/inspections', requirePermission('reports', 'view'), asyncHandler(reportsController.inspections));
