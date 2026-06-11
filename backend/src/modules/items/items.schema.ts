@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const ITEM_KINDS = ['CHECKIN', 'RATE', 'SERVICE_PENALTY', 'MAINTENANCE'] as const;
+export const ITEM_KINDS = ['CHECKIN', 'RATE', 'SERVICE_PENALTY', 'MAINTENANCE', 'SERVICE'] as const;
 
 export const createItemSchema = z.object({
   kind: z.enum(ITEM_KINDS),

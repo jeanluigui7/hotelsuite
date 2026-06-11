@@ -35,6 +35,18 @@ const routes: Routes = [
     path: 'revisiones',
     loadComponent: () => import('./revisiones/revisions.component').then((m) => m.RevisionsComponent),
   },
+  {
+    path: 'checkouts',
+    loadComponent: () => import('./checkouts/checkouts.component').then((m) => m.CheckoutsComponent),
+  },
+  {
+    path: 'frigobar',
+    loadComponent: () => import('./frigobar/frigobar.component').then((m) => m.FrigobarComponent),
+  },
+  {
+    path: 'productos',
+    loadComponent: () => import('./productos/productos-servicios.component').then((m) => m.ProductosServiciosComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 
