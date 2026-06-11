@@ -246,6 +246,53 @@ async function main(): Promise<void> {
     create: { id: 'dm-task-3', branchId: BRANCH, roomId: ROOM_101, status: 'PENDING', result: 'PENDING', createdAt: ago(1 * HOUR) },
   });
 
+  // ── Proceso de limpieza: almacén de amenities + productos + Kardex + tarea en progreso ──
+  const WH_AMENITIES = 'dm-wh-amenities';
+  await prisma.warehouse.upsert({
+    where: { id: WH_AMENITIES },
+    update: { name: 'Amenities', type: 'AMENITIES' },
+    create: { id: WH_AMENITIES, branchId: BRANCH, name: 'Amenities', type: 'AMENITIES' },
+  });
+  const amenities = [
+    { id: 'dm-am-sh', name: 'Shampoo sachet', cost: 0.8, reorder: 10, purchased: 40, consumed: 10 },
+    { id: 'dm-am-jb', name: 'Jabón', cost: 0.5, reorder: 10, purchased: 20, consumed: 12 }, // queda 8 → bajo reorder
+    { id: 'dm-am-pp', name: 'Papel higiénico', cost: 0.6, reorder: 20, purchased: 60, consumed: 10 },
+  ];
+  let imSeq = 10;
+  for (const a of amenities) {
+    await prisma.product.upsert({
+      where: { id: a.id },
+      update: { name: a.name, cost: a.cost, reorderPoint: a.reorder },
+      create: { id: a.id, branchId: BRANCH, name: a.name, salePrice: 0, cost: a.cost, reorderPoint: a.reorder },
+    });
+    const finalQty = a.purchased - a.consumed;
+    await prisma.stock.upsert({
+      where: { productId_warehouseId: { productId: a.id, warehouseId: WH_AMENITIES } },
+      update: { quantity: finalQty },
+      create: { productId: a.id, warehouseId: WH_AMENITIES, quantity: finalQty },
+    });
+    // Kardex: ingreso por compra + consumo por limpieza
+    await prisma.inventoryMovement.upsert({
+      where: { id: `dm-am-im-${imSeq}` },
+      update: {},
+      create: { id: `dm-am-im-${imSeq}`, branchId: BRANCH, productId: a.id, warehouseId: WH_AMENITIES, type: 'PURCHASE', quantity: a.purchased, unitCost: a.cost, reference: 'Ingreso amenities', createdByUserId: adminId, createdAt: ago(5 * DAY) },
+    });
+    imSeq += 1;
+    await prisma.inventoryMovement.upsert({
+      where: { id: `dm-am-im-${imSeq}` },
+      update: {},
+      create: { id: `dm-am-im-${imSeq}`, branchId: BRANCH, productId: a.id, warehouseId: WH_AMENITIES, type: 'OUT', quantity: -a.consumed, unitCost: a.cost, reference: 'Consumo limpieza hab. 102', createdByUserId: adminId, createdAt: ago(1 * HOUR) },
+    });
+    imSeq += 1;
+  }
+
+  // task4: en progreso (102) — lista para completar consumiendo amenities
+  await prisma.housekeepingTask.upsert({
+    where: { id: 'dm-task-4' },
+    update: {},
+    create: { id: 'dm-task-4', branchId: BRANCH, roomId: ROOM_102, assignedToUserId: adminId, status: 'IN_PROGRESS', result: 'PENDING', createdAt: ago(40 * 60_000) },
+  });
+
   // ── Maintenance + Revision ──
   await prisma.maintenance.upsert({
     where: { id: 'dm-mnt-1' },
@@ -332,7 +379,7 @@ async function main(): Promise<void> {
    Reservas:  2 (1 confirmada, 1 pendiente)
    Caja:      turno abierto + 2 ventas (frigobar a 101, mostrador) + 2 movimientos
    Inventario: compra F001-0001 + Kardex (agua 48, gaseosa 39)
-   Limpieza:  3 ítems checklist + 3 tareas (1 inspeccionada, 1 por inspeccionar, 1 pendiente)
+   Limpieza:  3 ítems checklist + 4 tareas (inspeccionada, por inspeccionar, pendiente, en progreso) + almacén Amenities (3 productos, Kardex; jabón bajo reposición)
    Otros:     2 proveedores, 1 boleta, mantenimiento, revisión, lavandería, observación, conserjería
    Catálogos: 2 servicios, 2 WiFi, WhatsApp (instancia+plantilla+mensaje+recordatorio)`);
 }
