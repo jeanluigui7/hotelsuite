@@ -60,6 +60,10 @@ model Branch {
   laundryMachines  LaundryMachine[]
   laundryTasks     LaundryTask[]
   biometricDevices BiometricDevice[]
+  whatsappInstances WhatsAppInstance[]
+  messageTemplates MessageTemplate[]
+  messageLogs      MessageLog[]
+  reminders        Reminder[]
 
   @@index([status])
 }
@@ -946,6 +950,73 @@ model BiometricDevice {
 
   branch      Branch             @relation(fields: [branchId], references: [id], onDelete: Cascade)
   enrollments DeviceEnrollment[]
+
+  @@index([branchId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FASE 9 — WhatsApp (Tanda 9A)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Instancia/conexión de WhatsApp.
+model WhatsAppInstance {
+  id          String   @id @default(uuid())
+  branchId    String
+  name        String
+  provider    String   @default("mock") // mock | cloud | twilio
+  phoneNumber String?
+  status      String   @default("disconnected") // disconnected | connected
+  config      String? // credenciales/config (JSON serializado)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+}
+
+/// Plantilla de mensaje con variables tipo {cliente}, {habitacion}, etc.
+model MessageTemplate {
+  id        String   @id @default(uuid())
+  branchId  String
+  name      String
+  body      String
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+}
+
+/// Registro de mensajes enviados (renderizados).
+model MessageLog {
+  id         String   @id @default(uuid())
+  branchId   String
+  templateId String?
+  to         String
+  body       String
+  status     String   @default("SENT") // SENT | FAILED
+  createdAt  DateTime @default(now())
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+}
+
+/// Recordatorio: plantilla + disparador.
+model Reminder {
+  id         String   @id @default(uuid())
+  branchId   String
+  name       String
+  templateId String?
+  trigger    String? // texto libre del disparador (ej. "1h antes del checkout")
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@index([branchId])
 }

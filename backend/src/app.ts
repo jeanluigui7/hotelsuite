@@ -50,6 +50,8 @@ import { activityLogRouter } from './modules/activity-log/activity-log.routes';
 import { performanceRouter } from './modules/performance/performance.routes';
 import { biometricsRouter } from './modules/biometrics/biometrics.routes';
 import { reportsRouter } from './modules/reports/reports.routes';
+import { whatsappRouter } from './modules/whatsapp/whatsapp.routes';
+import { remindersRouter } from './modules/reminders/reminders.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -106,6 +108,8 @@ export function createApp(): Application {
   app.use('/api', performanceRouter);
   app.use('/api', biometricsRouter);
   app.use('/api', reportsRouter);
+  app.use('/api', whatsappRouter);
+  app.use('/api', remindersRouter);
 
   // Fallbacks
   app.use(notFoundHandler);
