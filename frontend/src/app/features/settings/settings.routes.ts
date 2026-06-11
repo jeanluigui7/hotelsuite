@@ -48,6 +48,10 @@ const routes: Routes = [
     loadComponent: () => import('./huella/biometrics.component').then((m) => m.BiometricsComponent),
   },
   {
+    path: 'recordatorios',
+    loadComponent: () => import('./recordatorios/reminders.component').then((m) => m.RemindersComponent),
+  },
+  {
     path: 'roles',
     loadComponent: () => import('./roles/roles.component').then((m) => m.RolesComponent),
   },
