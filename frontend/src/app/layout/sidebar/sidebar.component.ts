@@ -2,13 +2,14 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { RouterModule } from '@angular/router';
 import { APP_MENU, type MenuItem } from '../menu';
 import { AuthService } from '../../core/auth/auth.service';
+import { LayoutService } from '../layout.service';
 
 @Component({
   selector: 'app-sidebar',
   standalone: true,
   imports: [RouterModule],
   template: `
-    <nav class="sidebar">
+    <nav class="sidebar" [class.open]="layout.sidebarOpen()">
       <div class="brand">
         <i class="pi pi-bookmark-fill"></i>
         <span>HotelSuite</span>
@@ -35,7 +36,7 @@ import { AuthService } from '../../core/auth/auth.service';
               <ul class="submenu">
                 @for (child of item.children; track child.route) {
                   <li>
-                    <a [routerLink]="child.route" routerLinkActive="active">{{ child.label }}</a>
+                    <a [routerLink]="child.route" routerLinkActive="active" (click)="layout.closeSidebar()">{{ child.label }}</a>
                   </li>
                 }
               </ul>
@@ -56,6 +57,21 @@ import { AuthService } from '../../core/auth/auth.service';
         border-right: 1px solid var(--p-content-border-color, #2b2b30);
         display: flex;
         flex-direction: column;
+      }
+      /* En móvil: drawer deslizable sobre el contenido */
+      @media (max-width: 880px) {
+        .sidebar {
+          position: fixed;
+          top: 0;
+          left: 0;
+          z-index: 1000;
+          transform: translateX(-100%);
+          transition: transform 0.22s ease;
+          box-shadow: 2px 0 16px rgba(0, 0, 0, 0.25);
+        }
+        .sidebar.open {
+          transform: translateX(0);
+        }
       }
       .brand {
         display: flex;
@@ -121,6 +137,7 @@ import { AuthService } from '../../core/auth/auth.service';
 })
 export class SidebarComponent {
   private readonly auth = inject(AuthService);
+  readonly layout = inject(LayoutService);
   private readonly openGroups = signal<Set<string>>(new Set(['/dashboard']));
 
   /** Only show modules the user can view (dashboard is always visible to any session). */

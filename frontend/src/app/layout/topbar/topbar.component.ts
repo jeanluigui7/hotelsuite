@@ -5,6 +5,7 @@ import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { TooltipModule } from 'primeng/tooltip';
 import { AuthService } from '../../core/auth/auth.service';
+import { LayoutService } from '../layout.service';
 
 @Component({
   selector: 'app-topbar',
@@ -13,6 +14,9 @@ import { AuthService } from '../../core/auth/auth.service';
   template: `
     <header class="topbar">
       <div class="left">
+        <button type="button" class="hamburger" (click)="layout.toggleSidebar()" aria-label="Menú">
+          <i class="pi pi-bars"></i>
+        </button>
         @if (auth.branches().length > 0) {
           <p-select
             [options]="auth.branches()"
@@ -56,10 +60,37 @@ import { AuthService } from '../../core/auth/auth.service';
         background: var(--p-content-background, #1f1f23);
         border-bottom: 1px solid var(--p-content-border-color, #2b2b30);
       }
+      .left {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+      .hamburger {
+        display: none;
+        background: transparent;
+        border: 0;
+        color: var(--p-text-color, #1f2937);
+        font-size: 1.25rem;
+        cursor: pointer;
+        padding: 0.3rem 0.4rem;
+        border-radius: 8px;
+      }
+      .hamburger:hover {
+        background: var(--p-content-hover-background, #f1f5f9);
+      }
       .right {
         display: flex;
         align-items: center;
         gap: 1.1rem;
+      }
+      /* En móvil: mostrar hamburguesa y compactar el correo del usuario */
+      @media (max-width: 880px) {
+        .hamburger {
+          display: inline-flex;
+        }
+        .user .meta {
+          display: none;
+        }
       }
       .right .pi-bell {
         cursor: pointer;
@@ -84,6 +115,7 @@ import { AuthService } from '../../core/auth/auth.service';
 })
 export class TopbarComponent {
   readonly auth = inject(AuthService);
+  readonly layout = inject(LayoutService);
   private readonly router = inject(Router);
 
   onBranchChange(branchId: string): void {

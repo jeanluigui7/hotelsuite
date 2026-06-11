@@ -36,6 +36,11 @@ export const appConfig: ApplicationConfig = {
           cssLayer: false,
         },
       },
+      // Los overlays (selects, dropdowns, datepickers) se montan en <body> para que
+      // no los recorte/oculte el contenedor con scroll y se reposicionen al hacer scroll.
+      overlayOptions: {
+        appendTo: 'body',
+      },
     }),
     MessageService,
     ConfirmationService,

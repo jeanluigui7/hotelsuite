@@ -244,6 +244,24 @@ import { AuthService } from '../../../core/auth/auth.service';
       input[pInputText] {
         width: 100%;
       }
+      /* El campo de contraseña ocupa todo el ancho y deja aire debajo */
+      :host ::ng-deep p-password,
+      :host ::ng-deep .p-password {
+        display: block;
+        width: 100%;
+      }
+      :host ::ng-deep .p-password input {
+        width: 100%;
+      }
+      /* El botón siempre separado de los campos */
+      form ::ng-deep p-button {
+        display: block;
+        margin-top: 1.75rem;
+      }
+      form ::ng-deep p-button .p-button {
+        width: 100%;
+        justify-content: center;
+      }
       /* input con icono a la izquierda */
       .field-icon {
         position: relative;
