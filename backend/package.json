@@ -14,6 +14,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "prisma db seed",
     "prisma:seed:demo": "tsx prisma/demo-seed.ts",
+    "prisma:seed:rizzos": "tsx prisma/seed-rizzos.ts",
     "prisma:studio": "prisma studio"
   },
   "prisma": {
