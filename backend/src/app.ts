@@ -57,6 +57,7 @@ import { publicRouter } from './modules/public/public.routes';
 import { landingRouter } from './modules/landing/landing.routes';
 import { dashboardRouter } from './modules/dashboard/dashboard.routes';
 import { inventoryConfigRouter } from './modules/inventory-config/inventory-config.routes';
+import { wifiRouter } from './modules/wifi/wifi.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -121,6 +122,7 @@ export function createApp(): Application {
   app.use('/api', dashboardRouter);
   app.use('/api', whatsappRouter);
   app.use('/api', remindersRouter);
+  app.use('/api', wifiRouter);
   app.use('/api', publicRouter);
   app.use('/api', landingRouter);
 

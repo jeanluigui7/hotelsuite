@@ -63,6 +63,15 @@ const routes: Routes = [
     path: 'roles',
     loadComponent: () => import('./roles/roles.component').then((m) => m.RolesComponent),
   },
+  {
+    path: 'wifi',
+    loadComponent: () => import('./wifi/wifi.component').then((m) => m.WifiPoolComponent),
+  },
+  {
+    path: 'permisos',
+    loadComponent: () =>
+      import('./permisos/permissions-by-category.component').then((m) => m.PermissionsByCategoryComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 

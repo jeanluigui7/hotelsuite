@@ -64,6 +64,7 @@ model Branch {
   messageTemplates MessageTemplate[]
   messageLogs      MessageLog[]
   reminders        Reminder[]
+  wifiCredentials  WifiCredential[]
 
   @@index([status])
 }
@@ -1111,5 +1112,22 @@ model Payment {
 
   @@index([saleId])
   @@index([cashSessionId])
+  @@index([branchId])
+}
+
+/// Pool de credenciales WiFi que recepción entrega a los huéspedes.
+model WifiCredential {
+  id        String   @id @default(uuid())
+  branchId  String
+  ssid      String
+  password  String
+  voucher   String?
+  note      String?
+  status    String   @default("active") // active | inactive
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
   @@index([branchId])
 }
