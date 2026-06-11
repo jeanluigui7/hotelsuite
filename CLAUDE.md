@@ -69,14 +69,12 @@ en español. Detalle completo en `PROMPT_SISTEMA_HOTELERO.md`.
 
 > Actualiza esta sección al cerrar cada fase. Así sabes (y yo sé) dónde retomamos.
 
-- **Fase actual:** FASE 8 (8A ✅ · 8B ✅; **pendiente 8C Reportería + export**)
-- **Implementado en 8B:** Prisma BiometricDevice + DeviceEnrollment; bridge `zkteco-js` (test/enroll/realtime guardados), módulo biometrics (RBAC settings: CRUD + probar + conectar/desconectar + enrolamiento; marca → Attendance BIOMETRIC). Frontend: Configuraciones › Huella Digital. zkteco-js 1.7.1.
-- **Fases completadas:** FASE 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ✅ · 6 ✅ · 7 ✅
-- **Implementado en FASE 8A:**
-  - Prisma: Attendance, ActivityLog. Middleware de auditoría automático (registra escrituras exitosas).
-  - Backend: `attendance` (manual + helper recordAttendance), `activity-log` (lectura), `performance` (rendimiento por usuario). RBAC hr/reports.
-  - Frontend: RRHH › Asistencias / Historial de Actividades; Reportes › Rendimiento General.
-  - **Pendiente:** 8B (BiometricDevice + bridge zkteco-js + admin/enrolamiento) y 8C (reportes Habitaciones/Limpiezas/Ventas Detalladas/Simulador + export Excel/PDF).
+- **Fase actual:** FASE 9 — WhatsApp y Landing (pendiente; esperar "OK fase 8")
+- **Fases completadas:** FASE 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ✅ · 6 ✅ · 7 ✅ · 8 (8A+8B+8C) ✅
+- **Implementado en FASE 8:**
+  - 8A: Attendance + ActivityLog + middleware de auditoría automático; módulos attendance/activity-log/performance. UI RRHH › Asistencias/Actividades, Reportes › Rendimiento.
+  - 8B: BiometricDevice + DeviceEnrollment; bridge `zkteco-js` 1.7.1 (test/enroll/realtime guardados); módulo biometrics (RBAC settings); marca → Attendance BIOMETRIC. UI Configuraciones › Huella Digital.
+  - 8C: módulo `reports` (rooms/housekeeping/sales-detailed/product-limit); UI Reportes › Habitaciones/Limpiezas/Ventas Detalladas/Simulador con export CSV.
 - **Implementado en FASE 7:**
   - Prisma: ChecklistItem, HousekeepingTask, TaskInspection, Maintenance, Revision, LaundryMachine, LaundryTask.
   - Backend: `checklist`+`housekeeping` (ciclo de limpieza con consumo de amenities vía Kardex e inspección que libera la habitación), `maintenance`, `revisions`, `laundry-machines` (settings), `laundry-tasks` (reports).
