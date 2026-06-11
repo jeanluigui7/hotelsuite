@@ -49,6 +49,7 @@ import { attendanceRouter } from './modules/attendance/attendance.routes';
 import { activityLogRouter } from './modules/activity-log/activity-log.routes';
 import { performanceRouter } from './modules/performance/performance.routes';
 import { biometricsRouter } from './modules/biometrics/biometrics.routes';
+import { reportsRouter } from './modules/reports/reports.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -104,6 +105,7 @@ export function createApp(): Application {
   app.use('/api', activityLogRouter);
   app.use('/api', performanceRouter);
   app.use('/api', biometricsRouter);
+  app.use('/api', reportsRouter);
 
   // Fallbacks
   app.use(notFoundHandler);
