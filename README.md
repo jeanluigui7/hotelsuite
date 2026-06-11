@@ -91,6 +91,55 @@ Para imprimir tickets/comprobantes directo a la impresora desde el navegador:
 
 > `backend/certs/`, `*.pem` y `*.key` están en `.gitignore`. Si `QZ_*` no está configurado, el endpoint responde 503 y la UI muestra "QZ no configurado".
 
+## Despliegue a producción (FASE 10)
+
+Build de producción con Docker (SQL Server + backend + frontend con nginx).
+
+1. **Variables de entorno** — crea `.env` en la raíz (mismas claves que `.env.example` pero con valores reales). Imprescindibles en producción:
+   ```bash
+   NODE_ENV=production
+   MSSQL_SA_PASSWORD=<clave-fuerte>
+   DATABASE_URL="sqlserver://db:1433;database=hotelsuite;user=sa;password=<clave-fuerte>;encrypt=true;trustServerCertificate=true"
+   JWT_ACCESS_SECRET=<aleatorio-largo>
+   JWT_REFRESH_SECRET=<aleatorio-largo>
+   CORS_ORIGIN=https://tu-dominio.com
+   # QZ Tray (opcional): QZ_PRIVATE_KEY_PATH / QZ_CERT_PATH
+   ```
+   > El arranque falla si `JWT_*` siguen con valores `dev_*` en `NODE_ENV=production` (validación en `config/env.ts`).
+
+2. **Levantar la stack**:
+   ```bash
+   docker compose -f docker-compose.prod.yml up -d --build
+   ```
+   - El backend ejecuta `prisma migrate deploy` al arrancar (aplica migraciones).
+   - El frontend (nginx) sirve el build de Angular en el puerto **80** y hace proxy de `/api` al backend.
+
+3. **Seed inicial** (primera vez, opcional):
+   ```bash
+   docker compose -f docker-compose.prod.yml exec backend npx prisma db seed
+   ```
+
+4. **Backups**: `./scripts/backup-db.sh` (respalda la BD del contenedor; programable por cron). Ver el script para el ejemplo de cron.
+
+### Migraciones
+
+```bash
+npm run prisma:migrate -w backend     # dev: crea y aplica migración
+npx prisma migrate deploy             # prod: aplica migraciones existentes (lo hace el contenedor)
+```
+
+### CI
+
+`.github/workflows/ci.yml` corre en cada push/PR a `main`: install + `prisma generate` + lint + build de backend y frontend.
+
+### Checklist de producción
+
+- [ ] `.env` con secretos fuertes (no `dev_*`) y `CORS_ORIGIN` real.
+- [ ] HTTPS por delante (reverse proxy/Ingress); cookie de refresh `secure` se activa con `NODE_ENV=production`.
+- [ ] Backups programados (`scripts/backup-db.sh`).
+- [ ] Rate limiting activo (global + login) — ya configurado.
+- [ ] Revisar logs (pino) y monitoreo de `/api/health`.
+
 ## Convenciones
 
 - Commits: **Conventional Commits** (`feat:`, `fix:`, `refactor:`, `chore:`, `docs:`…), validados por commitlint vía Husky.

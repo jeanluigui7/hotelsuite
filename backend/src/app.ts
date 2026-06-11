@@ -7,6 +7,7 @@ import { env } from './config/env';
 import { logger } from './config/logger';
 import { errorHandler, notFoundHandler } from './middlewares/error-handler';
 import { auditLogger } from './middlewares/audit.middleware';
+import { authLimiter, globalLimiter } from './middlewares/rate-limit.middleware';
 import { healthRouter } from './modules/health/health.routes';
 import { authRouter } from './modules/auth/auth.routes';
 import { branchesRouter } from './modules/branches/branches.routes';
@@ -65,6 +66,10 @@ export function createApp(): Application {
   app.use(cookieParser());
   app.use(pinoHttp({ logger }));
   app.use(auditLogger());
+
+  // Rate limiting: global + stricter on auth endpoints.
+  app.use('/api', globalLimiter);
+  app.use(['/api/auth/login', '/api/auth/refresh'], authLimiter);
 
   // Routes (mounted under /api). New module routers are added here per phase.
   app.use('/api', healthRouter);
