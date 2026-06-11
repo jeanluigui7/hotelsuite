@@ -52,6 +52,14 @@ const routes: Routes = [
     loadComponent: () => import('./recordatorios/reminders.component').then((m) => m.RemindersComponent),
   },
   {
+    path: 'landing',
+    loadComponent: () => import('./landing/landing-config.component').then((m) => m.LandingConfigComponent),
+  },
+  {
+    path: 'landing-habitaciones',
+    loadComponent: () => import('./landing/landing-config.component').then((m) => m.LandingConfigComponent),
+  },
+  {
     path: 'roles',
     loadComponent: () => import('./roles/roles.component').then((m) => m.RolesComponent),
   },

@@ -12,6 +12,15 @@ export const routes: Routes = [
     path: 'login',
     loadComponent: () => import('./features/auth/login/login.component').then((m) => m.LoginComponent),
   },
+  // Landing pública (sin login)
+  {
+    path: 'landing/:branchId',
+    loadComponent: () => import('./features/public/landing.component').then((m) => m.LandingComponent),
+  },
+  {
+    path: 'landing/:branchId/habitaciones',
+    loadComponent: () => import('./features/public/landing-rooms.component').then((m) => m.LandingRoomsComponent),
+  },
   {
     path: '',
     component: ShellComponent,
