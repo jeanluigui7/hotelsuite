@@ -1,9 +1,23 @@
 import { Routes } from '@angular/router';
-import { PlaceholderPageComponent } from '../../shared/components/placeholder-page/placeholder-page.component';
 
 const routes: Routes = [
-  { path: '', component: PlaceholderPageComponent },
-  { path: ':sub', component: PlaceholderPageComponent },
+  { path: '', redirectTo: 'recepcion', pathMatch: 'full' },
+  {
+    path: 'recepcion',
+    loadComponent: () => import('./recepcion/recepcion-summary.component').then((m) => m.RecepcionSummaryComponent),
+  },
+  {
+    path: 'limpieza',
+    loadComponent: () => import('./limpieza/limpieza-summary.component').then((m) => m.LimpiezaSummaryComponent),
+  },
+  {
+    path: 'caja',
+    loadComponent: () => import('./caja/caja-summary.component').then((m) => m.CajaSummaryComponent),
+  },
+  {
+    path: 'turno',
+    loadComponent: () => import('./turno/turno-summary.component').then((m) => m.TurnoSummaryComponent),
+  },
 ];
 
 export default routes;
