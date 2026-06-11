@@ -69,8 +69,12 @@ en español. Detalle completo en `PROMPT_SISTEMA_HOTELERO.md`.
 
 > Actualiza esta sección al cerrar cada fase. Así sabes (y yo sé) dónde retomamos.
 
-- **Fase actual:** FASE 10 — Hardening y despliegue (pendiente; esperar "OK fase 9")
-- **Fases completadas:** FASE 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ✅ · 6 ✅ · 7 ✅ · 8 ✅ · 9 (9A+9B) ✅
+- **Fase actual:** ✅ PROYECTO COMPLETO — FASES 0 a 10 implementadas. Pendiente: validación E2E contra SQL Server y despliegue real.
+- **Fases completadas:** FASE 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ✅ · 6 ✅ · 7 ✅ · 8 ✅ · 9 ✅ · 10 ✅
+- **Implementado en FASE 10:**
+  - Rate limiting (express-rate-limit): global + estricto en login/refresh.
+  - Dockerfiles de producción: backend multi-stage (`prisma migrate deploy` + node), frontend build + nginx (SPA + proxy /api). `docker-compose.prod.yml`.
+  - CI (GitHub Actions): lint + build backend/frontend. Script de backup SQL Server. Sección de despliegue + checklist en README.
 - **Implementado en FASE 9:**
   - 9A: WhatsAppInstance/MessageTemplate/MessageLog/Reminder; WhatsAppProvider mock + renderTemplate; módulos whatsapp/reminders; UI WhatsApp › Instancias/Mensajes (probar envío), Configuraciones › Recordatorios.
   - 9B: módulo `public` (sin auth: branch + rooms) y `landing` (config bienvenida vía Setting); páginas públicas /landing/:branchId y /habitaciones; Configuraciones › Landing Page.
