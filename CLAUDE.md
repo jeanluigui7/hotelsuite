@@ -69,8 +69,13 @@ en español. Detalle completo en `PROMPT_SISTEMA_HOTELERO.md`.
 
 > Actualiza esta sección al cerrar cada fase. Así sabes (y yo sé) dónde retomamos.
 
-- **Fase actual:** ✅ PROYECTO COMPLETO — FASES 0 a 10 implementadas. Pendiente: validación E2E contra SQL Server y despliegue real.
+- **Fase actual:** ✅ PROYECTO COMPLETO — FASES 0 a 10 implementadas y **VALIDADO E2E contra SQL Server real**. Pendiente: despliegue real (Docker prod).
 - **Fases completadas:** FASE 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ✅ · 6 ✅ · 7 ✅ · 8 ✅ · 9 ✅ · 10 ✅
+- **Validación E2E (2026-06-11):** Conectado a SQL Server 2022 en `ZAFIRUS-A-005:1433` (sa). Bloqueo resuelto: TCP/IP de SQL estaba deshabilitado → se habilitó con `reg add ... /reg:64` (el PowerShell admin del usuario corría en 32-bit y escribía en `WOW6432Node`, por eso "no existe"). `prisma migrate dev --name init` creó la BD `hotelsuite` + migración `20260611072742_init`; seed OK (admin@hotelsuite.local / Admin123!). Backend `/api/health` 200, **login `/api/auth/login` 200 con JWT + 45 permisos**; frontend `localhost:4200` 200. `backend/.env` ya existe y funciona (lo creó el usuario; el harness me impide leerlo/escribirlo).
+- **Placeholders del menú (en curso, 2026-06-11):** El menú (`menu.ts`) listaba más ítems que pantallas reales; los no implementados caían en el comodín `:sub` → "Módulo en construcción". El usuario pidió **construir todo lo que falta** (13 ítems), con criterio propio en los alcances ambiguos. Plan por tandas A–E.
+  - **TANDA A ✅ (Tablero real):** módulo backend `dashboard` (endpoints `/dashboard/recepcion|limpieza|caja|turno`, solo auth+tenant, agregaciones sin modelos nuevos) + 4 pantallas Angular; el índice `/dashboard` ahora redirige a `recepcion` (el login ya no cae en placeholder). Verificado E2E contra la BD.
+  - **Pendientes B–E:** B Operaciones (Check-Outs, Productos y Servicios, Frigobar→venta atada a `Stay`; `Sale.stayId` ya existe), C Inventario (Mov. Limpieza, Inv. Limpieza, Configuración), D Logística Kardex + Reportes Inspecciones, E Configuraciones (Pool WiFi=modelo nuevo+migración, Permisos por Categoría).
+- **Decisión UI (2026-06-11):** El usuario **NO quiere dark mode** → se cambió a **tema claro Aura** (más amigable). Se quitó `class="dark"` de `frontend/src/index.html` y se ajustaron los fallbacks de color a tonos claros en `styles.scss`, `login.component.ts` y las landings. `darkModeSelector: '.dark'` se mantiene en `app.config.ts` por si se reactiva.
 - **Implementado en FASE 10:**
   - Rate limiting (express-rate-limit): global + estricto en login/refresh.
   - Dockerfiles de producción: backend multi-stage (`prisma migrate deploy` + node), frontend build + nginx (SPA + proxy /api). `docker-compose.prod.yml`.
