@@ -45,3 +45,5 @@ backend/certs/
 
 # Guía de despliegue personal (contiene secretos del .env — NUNCA commitear)
 DESPLIEGUE.md
+DESPLIEGUE.pdf
+DESPLIEGUE.html
