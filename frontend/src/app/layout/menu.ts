@@ -119,6 +119,7 @@ export const APP_MENU: MenuItem[] = [
     icon: 'pi pi-cog',
     route: '/settings',
     children: [
+      { label: 'Sucursales', route: '/settings/sucursales' },
       { label: 'Hotel', route: '/settings/hotel' },
       { label: 'Pool WiFi', route: '/settings/wifi' },
       { label: 'Clientes', route: '/settings/clientes' },

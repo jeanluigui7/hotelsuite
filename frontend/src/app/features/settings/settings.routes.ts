@@ -4,6 +4,10 @@ import { PlaceholderPageComponent } from '../../shared/components/placeholder-pa
 const routes: Routes = [
   { path: '', component: PlaceholderPageComponent },
   {
+    path: 'sucursales',
+    loadComponent: () => import('./sucursales/branches.component').then((m) => m.BranchesComponent),
+  },
+  {
     path: 'hotel',
     loadComponent: () => import('./hotel/hotel.component').then((m) => m.HotelComponent),
   },
