@@ -1,9 +1,11 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
+import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { TooltipModule } from 'primeng/tooltip';
+import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
 import { PrintingService } from '../../../core/printing/printing.service';
@@ -14,7 +16,7 @@ import { buildInvoiceReceipt, buildSaleReceipt } from './receipt';
 @Component({
   selector: 'app-tickets',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, ButtonModule, TableModule, TagModule, TooltipModule],
+  imports: [DatePipe, DecimalPipe, ButtonModule, TableModule, TagModule, TooltipModule, DialogModule],
   template: `
     <section>
       <header class="head">
@@ -28,6 +30,13 @@ import { buildInvoiceReceipt, buildSaleReceipt } from './receipt';
                     [disabled]="printing.status() === 'connected'" (onClick)="connect()" />
         </div>
       </header>
+
+      @if (printing.status() !== 'connected') {
+        <div class="hint">
+          <i class="pi pi-info-circle"></i>
+          QZ Tray no está conectado: la impresión abrirá una <strong>vista previa</strong> y usará la impresora del navegador.
+        </div>
+      }
 
       <h3>Ventas recientes</h3>
       <p-table [value]="sales()" [loading]="loading()" [paginator]="true" [rows]="8" styleClass="p-datatable-sm">
@@ -63,6 +72,16 @@ import { buildInvoiceReceipt, buildSaleReceipt } from './receipt';
         <ng-template pTemplate="emptymessage"><tr><td colspan="5" class="muted center">Sin comprobantes.</td></tr></ng-template>
       </p-table>
     </section>
+
+    <p-dialog [(visible)]="previewVisible" [modal]="true" [header]="previewTitle()" [style]="{ width: '24rem' }" [dismissableMask]="true">
+      <div class="preview">
+        <iframe [srcdoc]="previewSrc()" title="Vista previa de impresión"></iframe>
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cerrar" [text]="true" (onClick)="previewVisible = false" />
+        <p-button label="Imprimir" icon="pi pi-print" (onClick)="printPreview()" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -72,6 +91,13 @@ import { buildInvoiceReceipt, buildSaleReceipt } from './receipt';
       .qz { display: flex; align-items: center; gap: 0.6rem; }
       .muted { color: var(--p-text-muted-color, #a1a1aa); }
       .center { text-align: center; }
+      .hint {
+        display: flex; align-items: center; gap: 0.5rem;
+        background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af;
+        padding: 0.6rem 0.85rem; border-radius: 8px; font-size: 0.85rem; margin-bottom: 1rem;
+      }
+      .preview { display: flex; justify-content: center; background: #f1f5f9; padding: 0.75rem; border-radius: 8px; }
+      .preview iframe { width: 300px; height: 420px; border: 1px solid #e5e7eb; background: #fff; }
     `,
   ],
 })
@@ -79,11 +105,18 @@ export class TicketsComponent implements OnInit {
   private readonly finance = inject(FinanceApiService);
   private readonly auth = inject(AuthService);
   private readonly messages = inject(MessageService);
+  private readonly sanitizer = inject(DomSanitizer);
   readonly printing = inject(PrintingService);
 
   readonly sales = signal<Sale[]>([]);
   readonly invoices = signal<Invoice[]>([]);
   readonly loading = signal(false);
+
+  // Vista previa (fallback sin QZ)
+  previewVisible = false;
+  readonly previewTitle = signal('Vista previa');
+  readonly previewSrc = signal<SafeHtml | string>('');
+  private previewHtml = '';
 
   ngOnInit(): void {
     this.loading.set(true);
@@ -122,20 +155,38 @@ export class TicketsComponent implements OnInit {
   }
 
   async printSale(sale: Sale): Promise<void> {
-    try {
-      await this.printing.printHtml(buildSaleReceipt(sale, this.branchName()));
-      this.messages.add({ severity: 'success', summary: 'Impresión', detail: 'Ticket enviado.' });
-    } catch {
-      this.messages.add({ severity: 'error', summary: 'Impresión', detail: 'No se pudo imprimir (verifica QZ Tray).' });
-    }
+    await this.printOrPreview(buildSaleReceipt(sale, this.branchName()), `Ticket — ${sale.customerName ?? 'Cliente'}`, 'Ticket');
   }
 
   async printInvoice(inv: Invoice): Promise<void> {
-    try {
-      await this.printing.printHtml(buildInvoiceReceipt(inv, this.branchName()));
-      this.messages.add({ severity: 'success', summary: 'Impresión', detail: 'Comprobante enviado.' });
-    } catch {
-      this.messages.add({ severity: 'error', summary: 'Impresión', detail: 'No se pudo imprimir (verifica QZ Tray).' });
+    await this.printOrPreview(buildInvoiceReceipt(inv, this.branchName()), `Comprobante — ${inv.folio}`, 'Comprobante');
+  }
+
+  /**
+   * Si QZ Tray está conectado, imprime en silencio. Si no (o si QZ falla),
+   * abre la vista previa para imprimir con la impresora del navegador.
+   */
+  private async printOrPreview(html: string, title: string, kind: string): Promise<void> {
+    if (this.printing.status() === 'connected') {
+      try {
+        await this.printing.printHtml(html);
+        this.messages.add({ severity: 'success', summary: 'Impresión', detail: `${kind} enviado a QZ Tray.` });
+        return;
+      } catch {
+        this.messages.add({ severity: 'warn', summary: 'QZ Tray', detail: 'Falló la impresión por QZ; mostrando vista previa.' });
+      }
     }
+    this.openPreview(html, title);
+  }
+
+  private openPreview(html: string, title: string): void {
+    this.previewHtml = html;
+    this.previewSrc.set(this.sanitizer.bypassSecurityTrustHtml(html));
+    this.previewTitle.set(title);
+    this.previewVisible = true;
+  }
+
+  printPreview(): void {
+    this.printing.printViaBrowser(this.previewHtml);
   }
 }
