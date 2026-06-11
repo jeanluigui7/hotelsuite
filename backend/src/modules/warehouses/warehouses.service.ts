@@ -48,4 +48,21 @@ export const warehousesService = {
     if (stock > 0) throw new ValidationError('No se puede eliminar un almacén con stock registrado');
     return warehousesRepository.delete(id);
   },
+
+  /** Stock actual (productos + cantidad) de un almacén. */
+  async stock(scope: RequestScope, id: string) {
+    const warehouse = await this.getById(scope, id);
+    const rows = await warehousesRepository.stockWithProducts(id);
+    return {
+      warehouse: { id: warehouse.id, name: warehouse.name, type: warehouse.type },
+      items: rows.map((s) => ({
+        productId: s.product.id,
+        name: s.product.name,
+        sku: s.product.sku,
+        quantity: s.quantity,
+        reorderPoint: s.product.reorderPoint,
+        belowReorder: s.quantity <= s.product.reorderPoint,
+      })),
+    };
+  },
 };

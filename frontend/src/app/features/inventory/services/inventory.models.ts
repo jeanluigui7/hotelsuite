@@ -42,3 +42,23 @@ export interface InventoryMovement {
   reference?: string | null;
   createdAt: string;
 }
+
+export interface WarehouseStockItem {
+  productId: string;
+  name: string;
+  sku?: string | null;
+  quantity: number;
+  reorderPoint: number;
+  belowReorder: boolean;
+}
+
+export interface WarehouseStock {
+  warehouse: { id: string; name: string; type: WarehouseType };
+  items: WarehouseStockItem[];
+}
+
+export interface InventoryConfig {
+  defaultWarehouseId: string | null;
+  defaultReorderPoint: number;
+  lowStockAlert: boolean;
+}

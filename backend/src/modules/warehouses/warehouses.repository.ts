@@ -25,6 +25,13 @@ export const warehousesRepository = {
   countStock(warehouseId: string) {
     return prisma.stock.count({ where: { warehouseId } });
   },
+  stockWithProducts(warehouseId: string) {
+    return prisma.stock.findMany({
+      where: { warehouseId },
+      include: { product: { select: { id: true, name: true, sku: true, reorderPoint: true } } },
+      orderBy: { product: { name: 'asc' } },
+    });
+  },
   delete(id: string) {
     return prisma.warehouse.delete({ where: { id } });
   },

@@ -24,6 +24,19 @@ const routes: Routes = [
     path: 'movimientos',
     loadComponent: () => import('./movimientos/movements.component').then((m) => m.MovementsComponent),
   },
+  {
+    path: 'configuracion',
+    loadComponent: () => import('./configuracion/inventory-config.component').then((m) => m.InventoryConfigComponent),
+  },
+  {
+    path: 'movimientos-limpieza',
+    loadComponent: () =>
+      import('./movimientos-limpieza/cleaning-movements.component').then((m) => m.CleaningMovementsComponent),
+  },
+  {
+    path: 'inventario-limpieza',
+    loadComponent: () => import('./inventario-limpieza/cleaning-stock.component').then((m) => m.CleaningStockComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 

@@ -16,6 +16,10 @@ export const warehousesController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await warehousesService.getById(req.scope, req.params.id)));
   },
+  async stock(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await warehousesService.stock(req.scope, req.params.id)));
+  },
   async create(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const dto = createWarehouseSchema.parse(req.body);

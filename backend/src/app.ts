@@ -56,6 +56,7 @@ import { remindersRouter } from './modules/reminders/reminders.routes';
 import { publicRouter } from './modules/public/public.routes';
 import { landingRouter } from './modules/landing/landing.routes';
 import { dashboardRouter } from './modules/dashboard/dashboard.routes';
+import { inventoryConfigRouter } from './modules/inventory-config/inventory-config.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -101,6 +102,7 @@ export function createApp(): Application {
   app.use('/api', fiscalRouter);
   app.use('/api', printingRouter);
   app.use('/api', warehousesRouter);
+  app.use('/api', inventoryConfigRouter);
   app.use('/api', movementsRouter);
   app.use('/api', suppliersRouter);
   app.use('/api', purchasesRouter);
