@@ -89,10 +89,13 @@ export class TopbarComponent {
   onBranchChange(branchId: string): void {
     if (!branchId || branchId === this.auth.activeBranchId()) return;
     this.auth.setActiveBranch(branchId);
-    // Recarga la app para que todas las pantallas reflejen la nueva sucursal
-    // (el interceptor adjunta el branchId activo; la sesión se restaura por la
-    // cookie de refresh y la sucursal activa persiste en localStorage).
-    window.location.reload();
+    // Reinstancia la vista actual (sin recargar la página ni desmontar el layout)
+    // pasando por una ruta vacía y volviendo: así su ngOnInit vuelve a pedir los
+    // datos con la nueva sucursal (el interceptor adjunta el branchId activo).
+    const url = this.router.url;
+    this.router.navigateByUrl('/_reload', { skipLocationChange: true }).then(() => {
+      void this.router.navigateByUrl(url);
+    });
   }
 
   logout(): void {

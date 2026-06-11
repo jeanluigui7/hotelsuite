@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { ShellComponent } from './layout/shell/shell.component';
+import { BlankComponent } from './core/blank.component';
 import { authGuard, permissionGuard } from './core/auth/auth.guard';
 
 /**
@@ -27,6 +28,8 @@ export const routes: Routes = [
     canActivate: [authGuard],
     children: [
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
+      // Ruta interna vacía para reinstanciar la vista actual (cambio de sucursal).
+      { path: '_reload', component: BlankComponent },
       {
         path: 'dashboard',
         loadChildren: () => import('./features/dashboard/dashboard.routes'),
