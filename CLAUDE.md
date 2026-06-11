@@ -69,8 +69,13 @@ en español. Detalle completo en `PROMPT_SISTEMA_HOTELERO.md`.
 
 > Actualiza esta sección al cerrar cada fase. Así sabes (y yo sé) dónde retomamos.
 
-- **Fase actual:** FASE 9 — WhatsApp y Landing (pendiente; esperar "OK fase 8")
-- **Fases completadas:** FASE 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ✅ · 6 ✅ · 7 ✅ · 8 (8A+8B+8C) ✅
+- **Fase actual:** FASE 9 (Tanda 9A ✅; **pendiente 9B Landing pública**)
+- **Fases completadas:** FASE 0 ✅ · 1 ✅ · 2 ✅ · 3 ✅ · 4 ✅ · 5 ✅ · 6 ✅ · 7 ✅ · 8 ✅
+- **Implementado en FASE 9A:**
+  - Prisma: WhatsAppInstance, MessageTemplate, MessageLog, Reminder. Capa WhatsAppProvider (mock) + renderTemplate.
+  - Backend: `whatsapp` (instancias/plantillas/envío/logs, RBAC whatsapp), `reminders` (RBAC settings).
+  - Frontend: WhatsApp › Instancias / Configuración de Mensajes (probar envío); Configuraciones › Recordatorios.
+  - **Pendiente 9B:** Landing pública (rutas /landing/:branchId sin login + endpoints públicos de solo lectura).
 - **Implementado en FASE 8:**
   - 8A: Attendance + ActivityLog + middleware de auditoría automático; módulos attendance/activity-log/performance. UI RRHH › Asistencias/Actividades, Reportes › Rendimiento.
   - 8B: BiometricDevice + DeviceEnrollment; bridge `zkteco-js` 1.7.1 (test/enroll/realtime guardados); módulo biometrics (RBAC settings); marca → Attendance BIOMETRIC. UI Configuraciones › Huella Digital.
