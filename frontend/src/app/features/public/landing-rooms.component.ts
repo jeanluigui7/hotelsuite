@@ -44,7 +44,7 @@ import { PublicApiService, type PublicRooms } from './public-api.service';
   `,
   styles: [
     `
-      :host { display: block; min-height: 100vh; background: var(--p-content-background, #18181b); color: var(--p-text-color, #e4e4e7); }
+      :host { display: block; min-height: 100vh; background: var(--p-content-background, #f8fafc); color: var(--p-text-color, #1f2937); }
       .landing { max-width: 980px; margin: 0 auto; padding: 2.5rem 1.5rem; }
       .head { margin-bottom: 1.5rem; }
       .back { color: var(--p-primary-color, #34d399); display: inline-flex; gap: 0.4rem; align-items: center; }

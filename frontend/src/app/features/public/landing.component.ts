@@ -33,7 +33,7 @@ import { PublicApiService, type PublicBranch } from './public-api.service';
   `,
   styles: [
     `
-      :host { display: block; min-height: 100vh; background: var(--p-content-background, #18181b); color: var(--p-text-color, #e4e4e7); }
+      :host { display: block; min-height: 100vh; background: var(--p-content-background, #f8fafc); color: var(--p-text-color, #1f2937); }
       .landing { max-width: 760px; margin: 0 auto; padding: 3rem 1.5rem; }
       .hero { text-align: center; padding: 2rem 0; }
       .logo { max-height: 80px; margin-bottom: 1rem; }

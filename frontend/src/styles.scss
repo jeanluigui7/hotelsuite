@@ -1,4 +1,4 @@
-/* HotelSuite — estilos globales (dark mode) */
+/* HotelSuite — estilos globales (tema claro Aura) */
 @import 'primeicons/primeicons.css';
 
 * {
@@ -11,9 +11,9 @@ body {
   margin: 0;
   font-family:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  /* Variables del preset Aura (modo dark activo via .dark en <html>) */
-  background-color: var(--p-content-background, #18181b);
-  color: var(--p-text-color, #e4e4e7);
+  /* Variables del preset Aura (tema claro por defecto) */
+  background-color: var(--p-content-background, #f8fafc);
+  color: var(--p-text-color, #1f2937);
 }
 
 a {

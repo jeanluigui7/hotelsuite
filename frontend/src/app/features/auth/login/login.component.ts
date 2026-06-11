@@ -97,9 +97,10 @@ import { AuthService } from '../../../core/auth/auth.service';
       .login-card {
         width: 100%;
         max-width: 380px;
-        background: var(--p-content-background, #1f1f23);
-        border: 1px solid var(--p-content-border-color, #2b2b30);
+        background: var(--p-content-background, #ffffff);
+        border: 1px solid var(--p-content-border-color, #e5e7eb);
         border-radius: 14px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
         padding: 2rem;
       }
       .brand {
