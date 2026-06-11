@@ -95,14 +95,18 @@ Para imprimir tickets/comprobantes directo a la impresora desde el navegador:
 
 Build de producción con Docker (SQL Server + backend + frontend con nginx).
 
-1. **Variables de entorno** — crea `.env` en la raíz (mismas claves que `.env.example` pero con valores reales). Imprescindibles en producción:
+1. **Variables de entorno** — crea `.env` en la raíz (el `docker-compose.prod.yml` lo lee). Imprescindibles en producción:
    ```bash
    NODE_ENV=production
    MSSQL_SA_PASSWORD=<clave-fuerte>
+   # OJO: el host es "db" (el servicio de SQL Server del compose), no localhost.
    DATABASE_URL="sqlserver://db:1433;database=hotelsuite;user=sa;password=<clave-fuerte>;encrypt=true;trustServerCertificate=true"
    JWT_ACCESS_SECRET=<aleatorio-largo>
    JWT_REFRESH_SECRET=<aleatorio-largo>
    CORS_ORIGIN=https://tu-dominio.com
+   # Cookie de refresh: por defecto es `secure` en producción (requiere HTTPS).
+   # Para un preview SIN HTTPS (http://IP) pon COOKIE_SECURE=false; con dominio+HTTPS, quítalo o ponlo en true.
+   COOKIE_SECURE=false
    # QZ Tray (opcional): QZ_PRIVATE_KEY_PATH / QZ_CERT_PATH
    ```
    > El arranque falla si `JWT_*` siguen con valores `dev_*` en `NODE_ENV=production` (validación en `config/env.ts`).
@@ -111,15 +115,41 @@ Build de producción con Docker (SQL Server + backend + frontend con nginx).
    ```bash
    docker compose -f docker-compose.prod.yml up -d --build
    ```
-   - El backend ejecuta `prisma migrate deploy` al arrancar (aplica migraciones).
+   - El backend ejecuta `prisma migrate deploy` **y `prisma db seed` (idempotente)** al arrancar: aplica migraciones y deja el usuario admin + permisos + catálogos base. Login: `admin@hotelsuite.local` / `Admin123!`.
    - El frontend (nginx) sirve el build de Angular en el puerto **80** y hace proxy de `/api` al backend.
 
-3. **Seed inicial** (primera vez, opcional):
+3. **Datos de demo / sucursal RIZZOS** (opcional, primera vez):
    ```bash
-   docker compose -f docker-compose.prod.yml exec backend npx prisma db seed
+   docker compose -f docker-compose.prod.yml exec backend npx tsx prisma/demo-seed.ts     # datos demo (estancias, ventas, limpieza…)
+   docker compose -f docker-compose.prod.yml exec backend npx tsx prisma/seed-rizzos.ts   # sucursal RIZZOS con catálogos
    ```
 
 4. **Backups**: `./scripts/backup-db.sh` (respalda la BD del contenedor; programable por cron). Ver el script para el ejemplo de cron.
+
+### Runbook: VPS desde cero (Ubuntu 22.04)
+
+```bash
+# 1. En el VPS, instala Docker + Compose
+curl -fsSL https://get.docker.com | sh
+
+# 2. Sube el código (desde tu PC) — opción A: git, opción B: scp
+#    A) git clone <tu-repo> hotelsuite && cd hotelsuite
+#    B) scp -r d:/Repositorio/hotelsuite usuario@IP:~/hotelsuite   (luego: cd ~/hotelsuite)
+
+# 3. Crea el .env en la raíz con los valores de arriba (nano .env)
+
+# 4. Levanta todo
+docker compose -f docker-compose.prod.yml up -d --build
+
+# 5. Abre el puerto 80 (si usas ufw)
+sudo ufw allow 80/tcp && sudo ufw allow 22/tcp
+
+# 6. (opcional) datos demo / RIZZOS — comandos del paso 3
+
+# La app queda en  http://<IP-del-VPS>/   (login admin@hotelsuite.local / Admin123!)
+```
+
+> **HTTPS (recomendado apenas tengas dominio):** apunta el dominio al VPS y pon delante un proxy con TLS automático (Caddy o Traefik + Let's Encrypt), o usa Cloudflare como proxy. Luego cambia `CORS_ORIGIN=https://tu-dominio.com`, quita `COOKIE_SECURE=false` y recrea: `docker compose -f docker-compose.prod.yml up -d`.
 
 ### Migraciones
 
@@ -135,7 +165,7 @@ npx prisma migrate deploy             # prod: aplica migraciones existentes (lo 
 ### Checklist de producción
 
 - [ ] `.env` con secretos fuertes (no `dev_*`) y `CORS_ORIGIN` real.
-- [ ] HTTPS por delante (reverse proxy/Ingress); cookie de refresh `secure` se activa con `NODE_ENV=production`.
+- [ ] HTTPS por delante (reverse proxy/Ingress). La cookie de refresh es `secure` salvo que pongas `COOKIE_SECURE=false` (solo para previews por HTTP).
 - [ ] Backups programados (`scripts/backup-db.sh`).
 - [ ] Rate limiting activo (global + login) — ya configurado.
 - [ ] Revisar logs (pino) y monitoreo de `/api/health`.

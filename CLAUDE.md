@@ -79,6 +79,11 @@ en español. Detalle completo en `PROMPT_SISTEMA_HOTELERO.md`.
   - **TANDA D ✅ (Logística/Reportes):** Kardex (`GET /logistics/kardex` con saldo corrido) + Inspecciones de Limpieza (`GET /reports/inspections`), ambas con CSV.
   - **TANDA E ✅ (Configuraciones):** Pool WiFi (modelo `WifiCredential` + migración `20260611160858_wifi_credentials` + módulo `wifi` CRUD), Permisos por Categoría (vista de `GET /permissions` agrupada por módulo).
   - **Resultado:** ningún ítem del menú queda en "Módulo en construcción". Todos los builds (backend tsc + frontend ng build) en verde y endpoints verificados contra la BD.
+- **Preparación de despliegue (2026-06-11, VPS + Docker):** Para que el cliente vea la app en un VPS.
+  - Frontend: `environment.prod.ts` con `apiUrl: '/api'` (mismo origen vía nginx) + `fileReplacements` en `angular.json` (el build de prod ya usa /api). Build de producción verificado.
+  - Backend: cookie de refresh con flag `secure` configurable por `COOKIE_SECURE` (default = NODE_ENV; `false` para preview por HTTP sin TLS). `Dockerfile.prod` ahora copia `src/` + `tsconfig.json` y al arrancar hace `migrate deploy` + `db seed` (idempotente) para que el admin exista en el primer deploy.
+  - README: runbook de VPS (Ubuntu + Docker), `.env` de prod (host de BD = `db`, COOKIE_SECURE), comandos opcionales de demo-seed/seed-rizzos, y guía de HTTPS (Caddy/Traefik/Cloudflare).
+  - **Docker no está instalado en la PC dev** → el `docker build`/compose se ejecuta en el VPS; aquí se validó por `ng build --configuration production` + `tsc`.
 - **Decisión UI (2026-06-11):** El usuario **NO quiere dark mode** → se cambió a **tema claro Aura** (más amigable). Se quitó `class="dark"` de `frontend/src/index.html` y se ajustaron los fallbacks de color a tonos claros en `styles.scss`, `login.component.ts` y las landings. `darkModeSelector: '.dark'` se mantiene en `app.config.ts` por si se reactiva.
 - **Implementado en FASE 10:**
   - Rate limiting (express-rate-limit): global + estricto en login/refresh.

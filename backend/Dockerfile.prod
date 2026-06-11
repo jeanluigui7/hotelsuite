@@ -14,7 +14,10 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
+# src y tsconfig: el seed base (prisma/seed.ts) importa desde src/shared/rbac vía tsx.
+COPY --from=build /app/src ./src
+COPY --from=build /app/tsconfig.json ./tsconfig.json
 COPY --from=build /app/package.json ./package.json
 EXPOSE 3000
-# Aplica migraciones pendientes y arranca.
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
+# Aplica migraciones pendientes, siembra datos base (idempotente) y arranca.
+CMD ["sh", "-c", "npx prisma migrate deploy && npx prisma db seed && node dist/server.js"]

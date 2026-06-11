@@ -21,6 +21,9 @@ const envSchema = z
     JWT_ACCESS_TTL: z.string().default('15m'),
     JWT_REFRESH_TTL: z.string().default('7d'),
     REFRESH_COOKIE_NAME: z.string().default('hs_refresh'),
+    // Controla el flag `secure` de la cookie de refresh. Por defecto sigue a
+    // NODE_ENV (secure en producción). Útil para previews por HTTP: COOKIE_SECURE=false.
+    COOKIE_SECURE: z.enum(['true', 'false']).optional(),
 
     // QZ Tray (impresión) — rutas a la clave privada y al certificado público.
     QZ_PRIVATE_KEY_PATH: z.string().optional(),

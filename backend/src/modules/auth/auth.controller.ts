@@ -7,9 +7,11 @@ import { authService } from './auth.service';
 import { loginSchema } from './auth.schema';
 
 function refreshCookieOptions(): CookieOptions {
+  // secure sigue a NODE_ENV salvo que COOKIE_SECURE lo fuerce (p. ej. preview por HTTP).
+  const secure = env.COOKIE_SECURE ? env.COOKIE_SECURE === 'true' : isProduction;
   return {
     httpOnly: true,
-    secure: isProduction,
+    secure,
     sameSite: 'lax',
     path: '/api/auth',
     maxAge: ttlToMs(env.JWT_REFRESH_TTL),
