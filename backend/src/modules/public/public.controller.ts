@@ -9,4 +9,7 @@ export const publicController = {
   async rooms(req: Request, res: Response): Promise<void> {
     res.status(200).json(ok(await publicService.rooms(req.params.id)));
   },
+  async landing(req: Request, res: Response): Promise<void> {
+    res.status(200).json(ok(await publicService.landing(req.params.id)));
+  },
 };

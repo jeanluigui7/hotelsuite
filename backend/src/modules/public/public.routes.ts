@@ -7,3 +7,4 @@ export const publicRouter = Router();
 
 publicRouter.get('/public/branches/:id', asyncHandler(publicController.branch));
 publicRouter.get('/public/branches/:id/rooms', asyncHandler(publicController.rooms));
+publicRouter.get('/public/branches/:id/landing', asyncHandler(publicController.landing));

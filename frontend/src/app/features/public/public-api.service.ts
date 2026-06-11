@@ -31,6 +31,33 @@ export interface PublicRooms {
   roomTypes: PublicRoomType[];
 }
 
+export interface PublicRate {
+  label: string;
+  durationMinutes: number;
+  price: number;
+}
+
+export interface PublicRoom {
+  id: string;
+  number: string;
+  floor?: string | null;
+  available: boolean;
+  typeId: string;
+  typeName: string;
+  description?: string | null;
+  capacity: number;
+  attributes: { name: string; icon?: string | null }[];
+  rates: PublicRate[];
+}
+
+export interface PublicLanding {
+  hotel: PublicBranch;
+  services: { name: string; icon?: string | null }[];
+  roomTypes: { id: string; name: string }[];
+  rooms: PublicRoom[];
+  counts: { total: number; available: number };
+}
+
 @Injectable({ providedIn: 'root' })
 export class PublicApiService {
   private readonly http = inject(HttpClient);
@@ -41,5 +68,8 @@ export class PublicApiService {
   }
   rooms(id: string): Observable<ApiResponse<PublicRooms>> {
     return this.http.get<ApiResponse<PublicRooms>>(`${this.api}/public/branches/${id}/rooms`);
+  }
+  landing(id: string): Observable<ApiResponse<PublicLanding>> {
+    return this.http.get<ApiResponse<PublicLanding>>(`${this.api}/public/branches/${id}/landing`);
   }
 }
