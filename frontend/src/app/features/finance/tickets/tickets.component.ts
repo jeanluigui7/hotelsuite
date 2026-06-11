@@ -49,7 +49,10 @@ import { buildInvoiceReceipt, buildSaleReceipt } from './receipt';
             <td>{{ row.total | number: '1.2-2' }}</td>
             <td>{{ row.createdAt | date: 'dd/MM/yy HH:mm' }}</td>
             <td><p-tag [value]="saleStatus(row.status)" [severity]="row.status === 'PAID' ? 'success' : row.status === 'OPEN' ? 'warn' : 'danger'" /></td>
-            <td><p-button icon="pi pi-print" [text]="true" (onClick)="printSale(row)" pTooltip="Imprimir" /></td>
+            <td class="actions">
+              <p-button icon="pi pi-eye" [text]="true" severity="secondary" (onClick)="previewSale(row)" pTooltip="Vista previa" />
+              <p-button icon="pi pi-print" [text]="true" (onClick)="printSale(row)" pTooltip="Imprimir" />
+            </td>
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage"><tr><td colspan="5" class="muted center">Sin ventas.</td></tr></ng-template>
@@ -66,7 +69,10 @@ import { buildInvoiceReceipt, buildSaleReceipt } from './receipt';
             <td>{{ row.customerName }}</td>
             <td>{{ row.total | number: '1.2-2' }}</td>
             <td><p-tag [value]="row.status === 'ISSUED' ? 'Emitido' : 'Anulado'" [severity]="row.status === 'ISSUED' ? 'success' : 'danger'" /></td>
-            <td><p-button icon="pi pi-print" [text]="true" (onClick)="printInvoice(row)" pTooltip="Imprimir" /></td>
+            <td class="actions">
+              <p-button icon="pi pi-eye" [text]="true" severity="secondary" (onClick)="previewInvoice(row)" pTooltip="Vista previa" />
+              <p-button icon="pi pi-print" [text]="true" (onClick)="printInvoice(row)" pTooltip="Imprimir" />
+            </td>
           </tr>
         </ng-template>
         <ng-template pTemplate="emptymessage"><tr><td colspan="5" class="muted center">Sin comprobantes.</td></tr></ng-template>
@@ -79,6 +85,9 @@ import { buildInvoiceReceipt, buildSaleReceipt } from './receipt';
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Cerrar" [text]="true" (onClick)="previewVisible = false" />
+        @if (printing.status() === 'connected') {
+          <p-button label="Imprimir en QZ" icon="pi pi-bolt" severity="secondary" (onClick)="printPreviewQz()" />
+        }
         <p-button label="Imprimir" icon="pi pi-print" (onClick)="printPreview()" />
       </ng-template>
     </p-dialog>
@@ -91,6 +100,7 @@ import { buildInvoiceReceipt, buildSaleReceipt } from './receipt';
       .qz { display: flex; align-items: center; gap: 0.6rem; }
       .muted { color: var(--p-text-muted-color, #a1a1aa); }
       .center { text-align: center; }
+      .actions { display: flex; gap: 0.15rem; }
       .hint {
         display: flex; align-items: center; gap: 0.5rem;
         background: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af;
@@ -154,6 +164,16 @@ export class TicketsComponent implements OnInit {
     return this.auth.activeBranch()?.name ?? 'HotelSuite';
   }
 
+  /** Vista previa del ticket (siempre disponible). */
+  previewSale(sale: Sale): void {
+    this.openPreview(buildSaleReceipt(sale, this.branchName()), `Ticket — ${sale.customerName ?? 'Cliente'}`);
+  }
+
+  /** Vista previa del comprobante (siempre disponible). */
+  previewInvoice(inv: Invoice): void {
+    this.openPreview(buildInvoiceReceipt(inv, this.branchName()), `Comprobante — ${inv.folio}`);
+  }
+
   async printSale(sale: Sale): Promise<void> {
     await this.printOrPreview(buildSaleReceipt(sale, this.branchName()), `Ticket — ${sale.customerName ?? 'Cliente'}`, 'Ticket');
   }
@@ -188,5 +208,15 @@ export class TicketsComponent implements OnInit {
 
   printPreview(): void {
     this.printing.printViaBrowser(this.previewHtml);
+  }
+
+  async printPreviewQz(): Promise<void> {
+    try {
+      await this.printing.printHtml(this.previewHtml);
+      this.messages.add({ severity: 'success', summary: 'Impresión', detail: 'Enviado a QZ Tray.' });
+      this.previewVisible = false;
+    } catch {
+      this.messages.add({ severity: 'error', summary: 'QZ Tray', detail: 'No se pudo imprimir por QZ.' });
+    }
   }
 }
