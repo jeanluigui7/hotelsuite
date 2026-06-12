@@ -46,15 +46,17 @@ export const publicService = {
     });
 
     // Servicios = atributos distintos de los tipos + items de tipo SERVICE.
+    // Se deduplica por nombre normalizado (sin distinguir mayúsculas/espacios).
     const serviceMap = new Map<string, { name: string; icon: string | null }>();
+    const norm = (s: string): string => s.trim().toLowerCase();
     for (const rt of roomTypes) {
       for (const a of rt.attributes) {
-        if (!serviceMap.has(a.attribute.name)) serviceMap.set(a.attribute.name, { name: a.attribute.name, icon: a.attribute.icon });
+        if (!serviceMap.has(norm(a.attribute.name))) serviceMap.set(norm(a.attribute.name), { name: a.attribute.name, icon: a.attribute.icon });
       }
     }
     const serviceItems = await prisma.item.findMany({ where: { branchId: id, kind: 'SERVICE', status: 'active' } });
     for (const it of serviceItems) {
-      if (!serviceMap.has(it.name)) serviceMap.set(it.name, { name: it.name, icon: 'pi pi-check-circle' });
+      if (!serviceMap.has(norm(it.name))) serviceMap.set(norm(it.name), { name: it.name, icon: 'pi pi-check-circle' });
     }
 
     const mapRates = (rtId: string) =>

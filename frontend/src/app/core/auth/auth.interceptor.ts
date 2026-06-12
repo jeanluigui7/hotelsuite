@@ -27,7 +27,13 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
       updated = updated.clone({ setHeaders: { Authorization: `Bearer ${token}` } });
     }
     // Tag data requests with the active branch (read by the tenant middleware).
-    if (branchId && !isAuthEndpoint(request.url) && !request.params.has('branchId')) {
+    // Las rutas públicas no llevan token ni branch (son sin sesión).
+    if (
+      branchId &&
+      !isAuthEndpoint(request.url) &&
+      !request.url.includes('/public/') &&
+      !request.params.has('branchId')
+    ) {
       updated = updated.clone({ setParams: { branchId } });
     }
     return updated;

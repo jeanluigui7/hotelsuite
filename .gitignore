@@ -47,3 +47,8 @@ backend/certs/
 DESPLIEGUE.md
 DESPLIEGUE.pdf
 DESPLIEGUE.html
+
+# PDFs/HTML generados de documentación (regenerables; el .md sí se versiona)
+MANUAL_USUARIO.pdf
+MANUAL_USUARIO.html
+_md2html.cjs
