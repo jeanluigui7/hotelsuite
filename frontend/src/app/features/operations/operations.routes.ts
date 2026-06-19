@@ -56,6 +56,10 @@ const routes: Routes = [
     loadComponent: () => import('./board/turno-limpieza.component').then((m) => m.TurnoLimpiezaComponent),
   },
   {
+    path: 'transferencia-ropa',
+    loadComponent: () => import('./board/transferencia-ropa.component').then((m) => m.TransferenciaRopaComponent),
+  },
+  {
     path: 'inventario-recepcion',
     loadComponent: () => import('./board/inventario-recepcion.component').then((m) => m.InventarioRecepcionComponent),
   },

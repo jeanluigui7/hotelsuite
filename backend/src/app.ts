@@ -62,6 +62,7 @@ import { pernoctaRouter } from './modules/pernocta/pernocta.routes';
 import { servicesRouter } from './modules/services/services.routes';
 import { receptionInventoryRouter } from './modules/reception-inventory/reception-inventory.routes';
 import { cleaningRouter } from './modules/cleaning/cleaning.routes';
+import { linenAdminRouter } from './modules/linen-admin/linen-admin.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -135,6 +136,7 @@ export function createApp(): Application {
   app.use('/api', servicesRouter);
   app.use('/api', receptionInventoryRouter);
   app.use('/api', cleaningRouter);
+  app.use('/api', linenAdminRouter);
   app.use('/api', landingRouter);
 
   // Fallbacks
