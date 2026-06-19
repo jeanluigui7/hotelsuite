@@ -60,6 +60,10 @@ export class OperationsApiService {
     return this.http.post<ApiResponse<Stay>>(`${this.api}/stays/${stayId}/renew`, {});
   }
 
+  receptionPermissions(): Observable<ApiResponse<{ allowChangeRoom: boolean; allowWriteOff: boolean; allowViewCash: boolean }>> {
+    return this.http.get<ApiResponse<{ allowChangeRoom: boolean; allowWriteOff: boolean; allowViewCash: boolean }>>(`${this.api}/reception/permissions`);
+  }
+
   stays(params: ListParams = {}): Observable<ApiResponse<Stay[]>> {
     return this.http.get<ApiResponse<Stay[]>>(`${this.api}/stays`, { params: toHttpParams(params) });
   }

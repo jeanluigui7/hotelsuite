@@ -10,6 +10,7 @@ import { MessageService } from 'primeng/api';
 import { Router } from '@angular/router';
 import { AuthService } from '../../../core/auth/auth.service';
 import { PrintingService } from '../../../core/printing/printing.service';
+import { profileForRole } from '../../../layout/menu';
 import { OperationsApiService } from '../services/operations-api.service';
 import type { ActiveStay, CheckoutSummary, RoomMapItem } from '../services/operations.models';
 import { CheckInDialogComponent } from '../habitaciones/check-in-dialog.component';
@@ -71,7 +72,7 @@ type ViewMode = 'normal' | 'compacta' | 'real';
                 <span class="spacer"></span>
                 <button class="mini" (click)="renew(r)" [disabled]="busyStay() === r.activeStay.id"><i class="pi pi-refresh"></i> Renovar</button>
                 <button class="mini" (click)="ticket(r)"><i class="pi pi-dollar"></i> Ticket</button>
-                <button class="mini" (click)="openChange(r)"><i class="pi pi-arrow-right-arrow-left"></i> Cambiar</button>
+                @if (canChangeRoom()) { <button class="mini" (click)="openChange(r)"><i class="pi pi-arrow-right-arrow-left"></i> Cambiar</button> }
               </div>
               <div class="oc-guest">
                 <div class="g-top"><span class="g-name">{{ r.activeStay.guestName }}</span><span class="g-count"><i class="pi pi-users"></i> {{ r.activeStay.guestCount || 1 }}</span></div>
@@ -201,7 +202,11 @@ type ViewMode = 'normal' | 'compacta' | 'real';
     <p-dialog [(visible)]="estadoVisible" [modal]="true" [header]="'Cambiar Estado · Hab. ' + (estadoRoom?.number || '')" [style]="{ width: '24rem' }" styleClass="dk-dialog">
       <p class="muted" style="margin:0 0 0.6rem">Selecciona el nuevo estado para la habitación.</p>
       <div class="est-opts">
-        <button [class.on]="estadoValue === 'FREE'" (click)="estadoValue = 'FREE'"><i class="pi pi-check-circle"></i> Disponible</button>
+        @if (canSetFree(estadoRoom?.status || 'FREE')) {
+          <button [class.on]="estadoValue === 'FREE'" (click)="estadoValue = 'FREE'"><i class="pi pi-check-circle"></i> Disponible</button>
+        } @else {
+          <p class="est-note"><i class="pi pi-info-circle"></i> Una habitación en limpieza solo puede pasar a Disponible por Limpieza o el Administrador.</p>
+        }
         <button [class.on]="estadoValue === 'CLEANING'" (click)="estadoValue = 'CLEANING'"><i class="pi pi-sparkles"></i> Limpieza</button>
         <button [class.on]="estadoValue === 'MAINTENANCE'" (click)="estadoValue = 'MAINTENANCE'"><i class="pi pi-wrench"></i> Mantenimiento</button>
       </div>
@@ -323,6 +328,7 @@ type ViewMode = 'normal' | 'compacta' | 'real';
       .est-opts { display: flex; flex-direction: column; gap: 0.5rem; }
       .est-opts button { display: flex; align-items: center; gap: 0.5rem; background: #131b27; border: 1px solid #243245; color: #e6e9ef; border-radius: 10px; padding: 0.7rem 0.9rem; cursor: pointer; font-size: 0.9rem; }
       .est-opts button.on { border-color: #10b981; color: #34d399; }
+      .est-note { background: #2a1d12; border: 1px solid #6b4f2a; color: #fbbf24; border-radius: 8px; padding: 0.5rem 0.7rem; font-size: 0.8rem; margin: 0; }
     `,
   ],
 })
@@ -334,7 +340,22 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   private readonly auth = inject(AuthService);
   readonly nowTick = signal(Date.now());
   readonly busyStay = signal<string | null>(null);
+  readonly receptionPerms = signal<{ allowChangeRoom: boolean; allowWriteOff: boolean; allowViewCash: boolean }>({ allowChangeRoom: false, allowWriteOff: false, allowViewCash: true });
   private clock?: ReturnType<typeof setInterval>;
+
+  /** Perfil del usuario (admin pasa todas las restricciones de recepción). */
+  isAdminProfile(): boolean {
+    const u = this.auth.user();
+    return profileForRole(u?.roleName, u?.isSuperAdmin ?? false) === 'admin';
+  }
+  /** "El recepcionista puede cambiar de habitación si el admin habilita esa opción". */
+  canChangeRoom(): boolean {
+    return this.isAdminProfile() || this.receptionPerms().allowChangeRoom;
+  }
+  /** Recepción NO puede pasar una habitación en limpieza a Disponible (solo limpieza/admin). */
+  canSetFree(status: string): boolean {
+    return this.isAdminProfile() || status !== 'CLEANING';
+  }
 
   readonly rooms = signal<RoomMapItem[]>([]);
   readonly view = signal<ViewMode>('normal');
@@ -490,6 +511,7 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
 
   reload(): void {
     this.ops.map().subscribe((res) => this.rooms.set(res.data ?? []));
+    this.ops.receptionPermissions().subscribe((res) => { if (res.data) this.receptionPerms.set(res.data); });
   }
 
   openCheckIn(r: RoomMapItem): void {

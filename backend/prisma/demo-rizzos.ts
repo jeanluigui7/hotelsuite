@@ -211,6 +211,15 @@ async function main(): Promise<void> {
     });
   }
 
+  // 10. Permisos de recepción habilitados por el admin (para el flujo demo)
+  for (const key of ['reception.allowChangeRoom', 'reception.allowWriteOff', 'reception.allowViewCash']) {
+    await prisma.setting.upsert({
+      where: { branchId_key: { branchId: RZ, key } },
+      update: { value: 'true' },
+      create: { branchId: RZ, key, value: 'true' },
+    });
+  }
+
   // eslint-disable-next-line no-console
   console.log(`✅ Demo RIZZOS por perfil lista.
    Usuarios (contraseña Rizzos123!):

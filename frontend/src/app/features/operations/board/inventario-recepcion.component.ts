@@ -222,9 +222,10 @@ export class InventarioRecepcionComponent implements OnInit {
   shiftTurno(dir: number): void { this.turnoOffset = Math.min(0, this.turnoOffset + dir); }
   turnoDate(): Date { const d = new Date(); d.setDate(d.getDate() + Math.floor(this.turnoOffset / 3)); return d; }
   turnoLabel(): string {
-    const turnos = ['Turno Mañana - 06:30 - 14:30', 'Turno Tarde - 14:30 - 22:30', 'Turno Noche - 22:30 - 06:30'];
+    // Horario hotelero RIZZOS: Mañana 07:00-15:00, Tarde 15:00-23:00, Noche 23:00-07:00.
+    const turnos = ['Turno Mañana - 07:00 - 15:00', 'Turno Tarde - 15:00 - 23:00', 'Turno Noche - 23:00 - 07:00'];
     const h = new Date().getHours();
-    const cur = h >= 6 && h < 14 ? 0 : h >= 14 && h < 22 ? 1 : 2;
+    const cur = h >= 7 && h < 15 ? 0 : h >= 15 && h < 23 ? 1 : 2;
     const idx = ((cur + (this.turnoOffset % 3)) % 3 + 3) % 3;
     return turnos[idx];
   }
