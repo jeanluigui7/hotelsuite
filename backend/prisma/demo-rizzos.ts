@@ -35,8 +35,11 @@ async function main(): Promise<void> {
     throw new Error('Faltan roles base. Corre primero `npx prisma db seed`.');
   }
 
-  // El recepcionista necesita ver inventario (menú "Inventario de Limpieza").
-  await ensureRolePermission(recepRole.id, 'inventory', 'view');
+  // El recepcionista usa el Inventario de Recepción: ver + solicitar (create) +
+  // recepcionar/enviar (edit) + dar de baja (delete).
+  for (const action of ['view', 'create', 'edit', 'delete']) {
+    await ensureRolePermission(recepRole.id, 'inventory', action);
+  }
 
   // 2. Usuarios por perfil (contraseña Rizzos123!)
   const passwordHash = await bcrypt.hash('Rizzos123!', 10);
