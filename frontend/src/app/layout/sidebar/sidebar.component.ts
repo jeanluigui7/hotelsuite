@@ -42,19 +42,26 @@ import { LayoutService } from '../layout.service';
       <ul class="menu">
         @for (item of filteredMenu(); track item.route) {
           <li class="menu-group">
-            <button type="button" class="menu-header" [class.active]="isOpen(item.route)" (click)="toggle(item.route)">
-              <i [class]="item.icon"></i>
-              <span class="label">{{ item.label }}</span>
-              @if (item.children?.length) {
+            @if (item.children?.length) {
+              <!-- Grupo expandible -->
+              <button type="button" class="menu-header" [class.active]="isOpen(item.route)" (click)="toggle(item.route)">
+                <i [class]="item.icon"></i>
+                <span class="label">{{ item.label }}</span>
                 <i class="chevron pi" [class.pi-chevron-down]="isOpen(item.route)" [class.pi-chevron-right]="!isOpen(item.route)"></i>
+              </button>
+              @if (isOpen(item.route)) {
+                <ul class="submenu">
+                  @for (child of item.children; track child.route) {
+                    <li><a [routerLink]="child.route" routerLinkActive="active" (click)="layout.closeSidebar()">{{ child.label }}</a></li>
+                  }
+                </ul>
               }
-            </button>
-            @if (item.children?.length && isOpen(item.route)) {
-              <ul class="submenu">
-                @for (child of item.children; track child.route) {
-                  <li><a [routerLink]="child.route" routerLinkActive="active" (click)="layout.closeSidebar()">{{ child.label }}</a></li>
-                }
-              </ul>
+            } @else {
+              <!-- Ítem plano: navega directo -->
+              <a class="menu-header link" [routerLink]="item.route" routerLinkActive="active" (click)="layout.closeSidebar()">
+                <i [class]="item.icon"></i>
+                <span class="label">{{ item.label }}</span>
+              </a>
             }
           </li>
         }
@@ -125,6 +132,12 @@ import { LayoutService } from '../layout.service';
       }
       .menu-header:hover { background: var(--p-content-hover-background, #142339); }
       .menu-header.active { background: var(--p-content-hover-background, #142339); }
+      .menu-header.link { text-decoration: none; }
+      .menu-header.link.active {
+        color: #04130d; font-weight: 600;
+        background: linear-gradient(90deg, var(--rz-accent, #10b981), color-mix(in srgb, var(--rz-accent, #10b981) 60%, #ffffff));
+      }
+      .menu-header.link.active i { color: #04130d; }
       .menu-header .label { flex: 1; }
       .chevron { font-size: 0.7rem; opacity: 0.7; }
       .submenu { list-style: none; margin: 0 0 0.3rem; padding: 0; }
