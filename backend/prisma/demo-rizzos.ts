@@ -192,6 +192,22 @@ async function main(): Promise<void> {
     });
   }
 
+  // 9. Stock en el almacén de RECEPCIÓN (inventario de recepción por turno)
+  let recWh = await prisma.warehouse.findFirst({ where: { branchId: RZ, type: 'RECEPTION' } });
+  if (!recWh) recWh = await prisma.warehouse.create({ data: { id: 'rz-wh-rec', branchId: RZ, name: 'Recepción', type: 'RECEPTION' } });
+  const recStock: Record<string, number> = {
+    'rz-p-sanluis-sg': 9, 'rz-p-sanluis-cg': 19, 'rz-p-coca': 20, 'rz-p-inka': 20, 'rz-p-fanta': 9,
+    'rz-p-frugos': 2, 'rz-p-sporade': 8, 'rz-p-gatorade': 14, 'rz-p-volt': 27, 'rz-p-morochas': 30,
+    'rz-p-oreo': 25, 'rz-p-bonbon': 40, 'rz-p-triangulo': 18, 'rz-p-jabon': 12,
+  };
+  for (const [pid, q] of Object.entries(recStock)) {
+    await prisma.stock.upsert({
+      where: { productId_warehouseId: { productId: pid, warehouseId: recWh.id } },
+      update: { quantity: q },
+      create: { productId: pid, warehouseId: recWh.id, quantity: q },
+    });
+  }
+
   // eslint-disable-next-line no-console
   console.log(`✅ Demo RIZZOS por perfil lista.
    Usuarios (contraseña Rizzos123!):

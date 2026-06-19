@@ -31,7 +31,7 @@ export const receptionInventoryService = {
     const branchId = requireActiveBranch(scope);
     const whId = await receptionWarehouseId(branchId);
     const [products, stocks, ins, outs] = await Promise.all([
-      prisma.product.findMany({ where: { branchId, status: 'active' }, orderBy: { name: 'asc' } }),
+      prisma.product.findMany({ where: { branchId, status: 'active' }, include: { category: { select: { name: true } } }, orderBy: { name: 'asc' } }),
       prisma.stock.findMany({ where: { warehouseId: whId } }),
       prisma.inventoryMovement.groupBy({ by: ['productId'], where: { branchId, warehouseId: whId, quantity: { gt: 0 } }, _sum: { quantity: true } }),
       prisma.inventoryMovement.groupBy({ by: ['productId'], where: { branchId, warehouseId: whId, quantity: { lt: 0 } }, _sum: { quantity: true } }),
@@ -45,6 +45,8 @@ export const receptionInventoryService = {
         productId: p.id,
         name: p.name,
         sku: p.sku,
+        categoryId: p.categoryId,
+        categoryName: p.category?.name ?? null,
         stock: stockMap.get(p.id) ?? 0,
         min: p.reorderPoint,
         ingresos: inMap.get(p.id) ?? 0,

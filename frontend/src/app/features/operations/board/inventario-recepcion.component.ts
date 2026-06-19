@@ -6,45 +6,68 @@ import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { InputTextModule } from 'primeng/inputtext';
+import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { PrintingService } from '../../../core/printing/printing.service';
+import { printPdf } from '../../../core/utils/export';
 
-interface InvItem { productId: string; name: string; sku?: string | null; stock: number; min: number; ingresos: number; salidas: number; belowMin: boolean; }
+interface InvItem { productId: string; name: string; sku?: string | null; categoryId?: string | null; categoryName?: string | null; stock: number; min: number; ingresos: number; salidas: number; belowMin: boolean; }
 interface Req { id: string; status: string; createdAt: string; items: { productId: string; name: string; quantity: number }[]; }
 interface PrintJob { id: string; type: string; title: string; status: string; createdAt: string; payload?: string | null; }
 
 @Component({
   selector: 'app-inventario-recepcion',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, TagModule],
+  imports: [DatePipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule, TagModule],
   template: `
     <section class="inv">
       <header class="top">
         <h1>Inventario de Recepción</h1>
         <div class="acts">
-          @if (sentRequests().length) {
-            <p-button [label]="'Recepcionar productos (' + sentRequests().length + ')'" icon="pi pi-inbox" (onClick)="recVisible = true" />
-          }
-          <p-button label="Solicitar seleccionados" icon="pi pi-send" severity="secondary" [disabled]="selected().size === 0" (onClick)="openRequest()" />
-          <p-button label="Dar de baja" icon="pi pi-minus-circle" severity="danger" [outlined]="true" [disabled]="selected().size === 0" (onClick)="openWriteOff()" />
+          <button class="btn blue" (click)="recVisible = true"><i class="pi pi-inbox"></i> Recepcionar Productos @if (sentRequests().length) { <span class="b">{{ sentRequests().length }}</span> }</button>
+          <button class="btn green" [disabled]="selected().size === 0" (click)="openRequest()"><i class="pi pi-plus"></i> Solicitar Seleccionados</button>
+          <button class="btn red" [disabled]="selected().size === 0" (click)="openWriteOff()"><i class="pi pi-minus"></i> Dar de Baja Seleccionados</button>
+          <button class="btn ghost" (click)="report(false)"><i class="pi pi-print"></i> Previsualizar Reporte</button>
+          <button class="btn ghost" (click)="report(true)"><i class="pi pi-print"></i> Reporte Verificado</button>
         </div>
       </header>
 
+      <div class="bar">
+        <span class="search"><i class="pi pi-search"></i><input pInputText placeholder="Buscar artículos por nombre..." [(ngModel)]="search" /></span>
+        <p-select [options]="categoryOptions()" optionLabel="label" optionValue="value" [(ngModel)]="categoryFilter" placeholder="Todas las Categorías" [showClear]="true" styleClass="dk" />
+      </div>
+
+      <div class="turno">
+        <button class="t-nav" (click)="shiftTurno(-1)"><i class="pi pi-chevron-left"></i> Turno Anterior</button>
+        <div class="t-info">
+          <strong>{{ turnoDate() | date: 'EEEE, d \\'De\\' MMMM \\'De\\' y' }}</strong>
+          <span class="muted">{{ turnoLabel() }} @if (turnoOffset === 0) { <span class="t-act">ACTUAL</span> }</span>
+        </div>
+        <button class="t-nav" (click)="shiftTurno(1)" [disabled]="turnoOffset >= 0">Siguiente Turno <i class="pi pi-chevron-right"></i></button>
+        <span class="spacer"></span>
+        <span class="counts"><i class="pi pi-box"></i> {{ filtered().length }} productos | <span class="low-c"><i class="pi pi-exclamation-triangle"></i> {{ lowStockCount() }} bajo stock</span></span>
+      </div>
+
       <table class="tbl">
-        <thead><tr><th class="ck"></th><th>Producto</th><th>SKU</th><th class="n">Stock</th><th class="n">Mín</th><th class="n">Ingresos</th><th class="n">Salidas</th><th>Estado</th></tr></thead>
+        <thead><tr>
+          <th class="ck"><input type="checkbox" [checked]="allSelected()" (change)="toggleAll()" /></th>
+          <th>NOMBRE</th><th class="n">STOCK INICIAL</th><th class="n">INGRESOS</th><th class="n">SALIDAS</th><th class="n">STOCK ACT./MÍN.</th><th class="g"><i class="pi pi-cog"></i></th>
+        </tr></thead>
         <tbody>
-          @for (it of items(); track it.productId) {
+          @for (it of filtered(); track it.productId) {
             <tr [class.low]="it.belowMin">
               <td class="ck"><input type="checkbox" [checked]="selected().has(it.productId)" (change)="toggle(it.productId)" /></td>
-              <td>{{ it.name }}</td><td class="muted">{{ it.sku || '—' }}</td>
-              <td class="n"><strong>{{ it.stock }}</strong></td><td class="n">{{ it.min }}</td>
-              <td class="n pos">+{{ it.ingresos }}</td><td class="n neg">-{{ it.salidas }}</td>
-              <td>@if (it.belowMin) { <p-tag value="Reponer" severity="warn" /> } @else { <p-tag value="OK" severity="success" /> }</td>
+              <td class="name"><span class="ico"><i class="pi pi-box"></i></span><div><div>{{ it.name }}</div><small class="muted">{{ it.sku || '—' }}</small></div></td>
+              <td class="n init">{{ stockInicial(it) }}</td>
+              <td class="n pos">{{ it.ingresos }}</td>
+              <td class="n neg">{{ it.salidas }}</td>
+              <td class="n">@if (it.belowMin) { <span class="warn"><i class="pi pi-exclamation-triangle"></i> {{ it.stock }} u.</span> } @else { <span>{{ it.stock }} u.</span> }</td>
+              <td class="g"><button class="gear" (click)="openRowMenu(it)"><i class="pi pi-cog"></i></button></td>
             </tr>
-          } @empty { <tr><td colspan="8" class="muted center">Sin productos.</td></tr> }
+          } @empty { <tr><td colspan="7" class="muted center">Sin productos.</td></tr> }
         </tbody>
       </table>
 
@@ -109,6 +132,25 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       h1 { margin: 0; color: #fff; } h3.sec { margin: 1.5rem 0 0.6rem; }
       .top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
       .acts { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .btn { border: 0; border-radius: 8px; padding: 0.55rem 0.9rem; cursor: pointer; font-weight: 700; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.4rem; color: #fff; }
+      .btn.blue { background: #2563eb; } .btn.green { background: #10b981; color: #04130d; } .btn.red { background: #dc2626; }
+      .btn.ghost { background: #131d2b; border: 1px solid #243245; color: #cdd8e6; }
+      .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+      .btn .b { background: rgba(0,0,0,0.3); border-radius: 999px; padding: 0 0.4rem; font-size: 0.72rem; }
+      .bar { display: flex; gap: 0.6rem; margin-bottom: 0.8rem; flex-wrap: wrap; }
+      .search { position: relative; flex: 1; min-width: 240px; } .search i { position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%); color: #6b7a90; }
+      .search input { width: 100%; background: #131d2b; border: 1px solid #243245; color: #e6e9ef; border-radius: 8px; padding: 0.6rem 0.7rem 0.6rem 2rem; }
+      :host ::ng-deep .dk .p-select { background: #131d2b; border-color: #243245; min-width: 220px; }
+      .turno { display: flex; align-items: center; gap: 1rem; background: #0e1622; border: 1px solid #1f2a3a; border-radius: 12px; padding: 0.8rem 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+      .t-nav { background: #131d2b; border: 1px solid #243245; color: #cdd8e6; border-radius: 8px; padding: 0.5rem 0.8rem; cursor: pointer; font-size: 0.82rem; }
+      .t-nav:disabled { opacity: 0.4; cursor: not-allowed; }
+      .t-info { text-align: center; } .t-info strong { display: block; text-transform: capitalize; }
+      .t-act { background: #10b981; color: #04130d; font-size: 0.66rem; font-weight: 700; padding: 0.05rem 0.4rem; border-radius: 999px; margin-left: 0.3rem; }
+      .spacer { flex: 1; } .counts { color: #cdd8e6; font-size: 0.85rem; } .low-c { color: #fbbf24; }
+      .name { display: flex; align-items: center; gap: 0.6rem; } .name .ico { background: #1a2333; padding: 0.35rem; border-radius: 7px; color: #8b97a8; }
+      .init { color: #60a5fa; font-weight: 700; }
+      .warn { color: #fbbf24; font-weight: 700; display: inline-flex; align-items: center; gap: 0.3rem; }
+      .g { text-align: center; width: 3rem; } .gear { background: transparent; border: 0; color: #8b97a8; cursor: pointer; } .gear:hover { color: #fff; }
       .muted { color: #8b97a8; } .center { text-align: center; } .n { text-align: right; } .pos { color: #34d399; } .neg { color: #f87171; }
       .tbl { width: 100%; border-collapse: collapse; background: #131d2b; border: 1px solid #243245; border-radius: 10px; overflow: hidden; }
       .tbl th { text-align: left; padding: 0.6rem 0.8rem; background: #0e1622; color: #9fb0c3; font-size: 0.8rem; }
@@ -145,8 +187,62 @@ export class InventarioRecepcionComponent implements OnInit {
   woReason = '';
   reqVisible = false; woVisible = false; recVisible = false;
 
+  search = '';
+  categoryFilter: string | null = null;
+  turnoOffset = 0;
+
   readonly sentRequests = computed(() => this.requests().filter((r) => r.status === 'SENT'));
   readonly selectedItems = computed(() => this.items().filter((i) => this.selected().has(i.productId)));
+
+  categoryOptions(): { label: string; value: string }[] {
+    const map = new Map<string, string>();
+    for (const it of this.items()) if (it.categoryId && it.categoryName) map.set(it.categoryId, it.categoryName);
+    return [...map].map(([value, label]) => ({ label, value }));
+  }
+
+  filtered(): InvItem[] {
+    const q = this.search.toLowerCase();
+    return this.items().filter((it) => {
+      if (q && !(it.name.toLowerCase().includes(q) || (it.sku ?? '').toLowerCase().includes(q))) return false;
+      if (this.categoryFilter && it.categoryId !== this.categoryFilter) return false;
+      return true;
+    });
+  }
+
+  lowStockCount(): number { return this.filtered().filter((it) => it.belowMin).length; }
+  stockInicial(it: InvItem): number { return it.stock - it.ingresos + it.salidas; }
+
+  allSelected(): boolean { const f = this.filtered(); return f.length > 0 && f.every((it) => this.selected().has(it.productId)); }
+  toggleAll(): void {
+    if (this.allSelected()) this.selected.set(new Set());
+    else { const s = new Set<string>(); for (const it of this.filtered()) { s.add(it.productId); this.qty[it.productId] = this.qty[it.productId] || 1; } this.selected.set(s); }
+  }
+
+  // Turno (display): Mañana 06:30–14:30 · Tarde 14:30–22:30 · Noche 22:30–06:30
+  shiftTurno(dir: number): void { this.turnoOffset = Math.min(0, this.turnoOffset + dir); }
+  turnoDate(): Date { const d = new Date(); d.setDate(d.getDate() + Math.floor(this.turnoOffset / 3)); return d; }
+  turnoLabel(): string {
+    const turnos = ['Turno Mañana - 06:30 - 14:30', 'Turno Tarde - 14:30 - 22:30', 'Turno Noche - 22:30 - 06:30'];
+    const h = new Date().getHours();
+    const cur = h >= 6 && h < 14 ? 0 : h >= 14 && h < 22 ? 1 : 2;
+    const idx = ((cur + (this.turnoOffset % 3)) % 3 + 3) % 3;
+    return turnos[idx];
+  }
+
+  report(verified: boolean): void {
+    const rows = this.filtered().map((it) =>
+      `<tr><td>${it.sku ?? ''}</td><td>${it.name}</td><td class="num">${this.stockInicial(it)}</td><td class="num">${it.ingresos}</td><td class="num">${it.salidas}</td><td class="num">${it.stock}/${it.min}</td></tr>`,
+    ).join('');
+    const body = `<div class="meta">${this.turnoLabel()} · ${verified ? 'VERIFICADO' : 'Previsualización'}</div>
+      <table><thead><tr><th>Código</th><th>Artículo</th><th class="num">Inicial</th><th class="num">Ingresos</th><th class="num">Salidas</th><th class="num">Act./Mín</th></tr></thead><tbody>${rows}</tbody></table>`;
+    printPdf('Inventario de Recepción · RIZZOS', body);
+  }
+
+  openRowMenu(it: InvItem): void {
+    this.selected.set(new Set([it.productId]));
+    this.qty[it.productId] = this.qty[it.productId] || 1;
+    this.toast.add({ severity: 'info', summary: it.name, detail: 'Seleccionado. Usa Solicitar o Dar de Baja arriba.' });
+  }
 
   ngOnInit(): void { this.reload(); }
 
