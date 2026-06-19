@@ -73,12 +73,14 @@ interface StatCard {
                 </div>
                 <div class="money-col">
                   <span class="mc-title virtual">Virtuales</span>
-                  <div class="kv"><span>Yape/Plin</span><strong>S/.{{ (c.paymentsByMethod?.['WALLET'] ?? 0) | number: '1.2-2' }}</strong></div>
-                  <div class="kv"><span>Tarjetas</span><strong>S/.{{ (c.paymentsByMethod?.['CARD'] ?? 0) | number: '1.2-2' }}</strong></div>
-                  <div class="kv"><span>Transferencias</span><strong>S/.{{ (c.paymentsByMethod?.['TRANSFER'] ?? 0) | number: '1.2-2' }}</strong></div>
+                  <div class="kv"><span>Total:</span><strong>S/.{{ virtuales(c) | number: '1.2-2' }}</strong></div>
+                  <div class="kv"><span>Yape:</span><strong>S/.{{ (c.paymentsByMethod?.['WALLET'] ?? 0) | number: '1.2-2' }}</strong></div>
+                  <div class="kv"><span>Tarjetas:</span><strong>S/.{{ (c.paymentsByMethod?.['CARD'] ?? 0) | number: '1.2-2' }}</strong></div>
+                  <div class="kv"><span>Transferencias:</span><strong>S/.{{ (c.paymentsByMethod?.['TRANSFER'] ?? 0) | number: '1.2-2' }}</strong></div>
                 </div>
               </div>
-              <div class="total-row">Total: <strong>S/.{{ c.totalIncome | number: '1.2-2' }}</strong></div>
+              <div class="total-row big">Total: <strong>S/.{{ c.totalIncome | number: '1.2-2' }}</strong></div>
+              <p class="cash-note">Incluye todo lo recaudado por habitaciones, productos y servicios adicionales.</p>
             } @else {
               <p class="muted">No hay caja abierta en este momento.</p>
             }
@@ -95,6 +97,7 @@ interface StatCard {
               </div>
             }
           </div>
+          <p class="turno-note">(Habitaciones limpias al inicio + Limpiezas hechas) - Habitaciones alquiladas</p>
         </div>
       </div>
 
@@ -106,7 +109,7 @@ interface StatCard {
     `
       .dash { color: var(--p-text-color, #e6edf5); }
       h1 { margin: 0 0 1rem; font-size: 1.7rem; font-weight: 800; }
-      .pills { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 1.25rem; }
+      .pills { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.6rem; margin-bottom: 1.25rem; }
       .pill {
         display: inline-flex; align-items: center; gap: 0.45rem; border: 0; cursor: pointer;
         color: #fff; font-weight: 700; font-size: 0.82rem; padding: 0.5rem 1rem; border-radius: 999px;
@@ -115,7 +118,8 @@ interface StatCard {
       .pill.purple { background: #7c3aed; } .pill.red { background: #e5484d; }
       .pill.orange { background: #f97316; } .pill.green { background: #10b981; } .pill.blue { background: #3b82f6; }
 
-      .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1.1rem; }
+      .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; align-items: start; }
+      @media (max-width: 900px) { .panels { grid-template-columns: 1fr; } }
       .panel {
         background: var(--p-content-background, #0f1a2b); border: 1px solid var(--p-content-border-color, #1c2c44);
         border-radius: 16px; padding: 1.25rem;
@@ -137,7 +141,10 @@ interface StatCard {
       .kv { display: flex; justify-content: space-between; font-size: 0.82rem; padding: 0.2rem 0; }
       .muted { color: var(--p-text-muted-color, #8aa0bd); font-size: 0.8rem; }
       .total-row { margin-top: 0.9rem; padding-top: 0.7rem; border-top: 1px solid var(--p-content-border-color, #1c2c44); font-size: 0.95rem; }
+      .total-row.big { font-size: 1.05rem; font-weight: 700; }
       .total-row strong { color: #34d399; }
+      .cash-note { margin: 0.5rem 0 0; font-size: 0.72rem; color: var(--p-text-muted-color, #8aa0bd); }
+      .turno-note { margin: 0.8rem 0 0; font-size: 0.72rem; color: var(--p-text-muted-color, #8aa0bd); }
       .ts { margin-top: 1rem; color: var(--p-text-muted-color, #8aa0bd); font-size: 0.78rem; text-transform: capitalize; }
     `,
   ],
@@ -221,7 +228,12 @@ export class AdminDashboardComponent implements OnInit {
       { value: s['FREE'] ?? 0, label: 'Habitaciones limpias al iniciar el turno', color: '' },
       { value: r?.checkInsToday ?? 0, label: 'Habitaciones alquiladas durante el turno', color: '' },
       { value: done, label: 'Limpiezas hechas en turno', color: '' },
-      { value: r?.rooms.total ?? 0, label: 'Total de habitaciones', color: '' },
+      { value: s['FREE'] ?? 0, label: 'Habitaciones disponibles actuales', color: '' },
     ];
+  }
+
+  virtuales(c: CajaSummary): number {
+    const m = c.paymentsByMethod ?? {};
+    return Math.round(((m['WALLET'] ?? 0) + (m['CARD'] ?? 0) + (m['TRANSFER'] ?? 0)) * 100) / 100;
   }
 }
