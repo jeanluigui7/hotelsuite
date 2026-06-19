@@ -40,6 +40,10 @@ const routes: Routes = [
     loadComponent: () => import('./revisiones/revisions.component').then((m) => m.RevisionsComponent),
   },
   {
+    path: 'caja',
+    loadComponent: () => import('./board/cajas.component').then((m) => m.CajasComponent),
+  },
+  {
     path: 'checkouts',
     loadComponent: () => import('./checkouts/checkouts.component').then((m) => m.CheckoutsComponent),
   },
