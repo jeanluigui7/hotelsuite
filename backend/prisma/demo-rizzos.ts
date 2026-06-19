@@ -115,6 +115,28 @@ async function main(): Promise<void> {
     });
   }
 
+  // 6. Revisiones de mantenimiento (para poblar la tabla "Revisiones de Mantenimiento")
+  const admin = await prisma.user.findUnique({ where: { email: 'admin@hotelsuite.local' } });
+  const colab = (i: number): string | undefined => (i % 2 === 0 ? limpUser?.id : admin?.id) ?? undefined;
+  const revs = [
+    { id: 'rz-rev-1', roomId: 'rz-room-102', status: 'OK', tipoFalla: null, acciones: ['Revisión general'], obs: 'Todo conforme', at: ago(1 * HOUR) },
+    { id: 'rz-rev-2', roomId: 'rz-room-103', status: 'ISSUE', tipoFalla: 'Pintura/Paredes', acciones: ['Limpieza de paredes'], obs: 'Pared con manchas', at: ago(5 * HOUR) },
+    { id: 'rz-rev-3', roomId: 'rz-room-203', status: 'OK', tipoFalla: null, acciones: ['Revisión general'], obs: null, at: ago(20 * HOUR) },
+    { id: 'rz-rev-4', roomId: 'rz-room-303', status: 'ISSUE', tipoFalla: 'Electricidad', acciones: ['Cambio de foco'], obs: 'Foco del baño quemado', at: ago(28 * HOUR) },
+  ];
+  for (let i = 0; i < revs.length; i++) {
+    const r = revs[i];
+    await prisma.revision.upsert({
+      where: { id: r.id },
+      update: {},
+      create: {
+        id: r.id, branchId: RZ, roomId: r.roomId, status: r.status,
+        notes: JSON.stringify({ tipoFalla: r.tipoFalla, acciones: r.acciones, observaciones: r.obs, photo: null }),
+        createdByUserId: colab(i), createdAt: r.at,
+      },
+    });
+  }
+
   // eslint-disable-next-line no-console
   console.log(`✅ Demo RIZZOS por perfil lista.
    Usuarios (contraseña Rizzos123!):

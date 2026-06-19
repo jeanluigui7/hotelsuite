@@ -205,6 +205,51 @@ export const cleaningService = {
     });
   },
 
+  /** Tabla "Revisiones de Mantenimiento": una fila por habitación con su última revisión. */
+  async maintenanceRevisions(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const [rooms, revisions] = await Promise.all([
+      prisma.room.findMany({ where: { branchId }, include: { roomType: { select: { name: true } } }, orderBy: [{ floor: 'asc' }, { number: 'asc' }] }),
+      prisma.revision.findMany({ where: { branchId }, orderBy: { createdAt: 'desc' } }),
+    ]);
+    const userIds = [...new Set(revisions.map((r) => r.createdByUserId).filter((x): x is string => !!x))];
+    const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } });
+    const umap = new Map(users.map((u) => [u.id, u.name]));
+    // Última revisión por habitación.
+    const lastByRoom = new Map<string, (typeof revisions)[number]>();
+    for (const r of revisions) if (!lastByRoom.has(r.roomId)) lastByRoom.set(r.roomId, r);
+
+    const turno = (d: Date): string => {
+      const h = d.getHours();
+      if (h >= 7 && h < 15) return 'M';
+      if (h >= 15 && h < 23) return 'T';
+      return 'N';
+    };
+
+    return rooms.map((room) => {
+      const rev = lastByRoom.get(room.id);
+      let obs: string | null = null;
+      if (rev?.notes) {
+        try { obs = (JSON.parse(rev.notes) as { observaciones?: string | null }).observaciones ?? null; } catch { obs = rev.notes; }
+      }
+      const date = rev?.createdAt ?? null;
+      return {
+        roomId: room.id,
+        number: room.number,
+        floor: room.floor,
+        typeName: room.roomType.name,
+        occupied: room.status === 'OCCUPIED',
+        date,
+        turno: date ? turno(date) : '-',
+        collaborator: rev?.createdByUserId ? (umap.get(rev.createdByUserId) ?? '-') : '-',
+        minutes: date ? Math.floor((Date.now() - date.getTime()) / 60_000) : null,
+        tipo: rev ? (rev.status === 'ISSUE' ? 'Acción Periódica' : 'Preventivo') : 'Preventivo',
+        observacion: obs,
+        status: rev?.status ?? 'PENDING',
+      };
+    });
+  },
+
   /** Inventario de ropa por pisos: REM (remanente) y SUM (suministrado) por tipo/ítem. */
   async linenInventory(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);

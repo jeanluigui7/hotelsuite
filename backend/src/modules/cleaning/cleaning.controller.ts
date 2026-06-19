@@ -65,4 +65,8 @@ export const cleaningController = {
     const roomId = typeof req.query.roomId === 'string' ? req.query.roomId : undefined;
     res.status(200).json(ok(await cleaningService.revisions(req.scope, roomId)));
   },
+  async maintenanceRevisions(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await cleaningService.maintenanceRevisions(req.scope)));
+  },
 };
