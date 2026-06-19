@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const createRateSchema = z.object({
-  roomTypeId: z.string().uuid(),
+  roomTypeId: z.string().min(1),
   label: z.string().min(1).max(80),
   durationMinutes: z.coerce.number().int().min(1),
   price: z.coerce.number().min(0),
@@ -11,8 +11,8 @@ export const createRateSchema = z.object({
 export const updateRateSchema = createRateSchema.partial();
 
 export const createCustomRateSchema = z.object({
-  roomTypeId: z.string().uuid(),
-  tierId: z.string().uuid().optional().nullable(),
+  roomTypeId: z.string().min(1),
+  tierId: z.string().min(1).optional().nullable(),
   label: z.string().min(1).max(80),
   durationMinutes: z.coerce.number().int().min(1),
   price: z.coerce.number().min(0),

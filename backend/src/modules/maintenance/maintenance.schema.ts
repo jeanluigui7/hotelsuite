@@ -1,12 +1,12 @@
 import { z } from 'zod';
 
 export const createMaintenanceSchema = z.object({
-  roomId: z.string().uuid().optional().nullable(),
+  roomId: z.string().min(1).optional().nullable(),
   title: z.string().min(1).max(150),
   description: z.string().max(500).optional().or(z.literal('')),
   status: z.enum(['OPEN', 'IN_PROGRESS', 'DONE', 'CANCELLED']).default('OPEN'),
   cost: z.coerce.number().min(0).optional(),
-  assignedToUserId: z.string().uuid().optional().nullable(),
+  assignedToUserId: z.string().min(1).optional().nullable(),
   scheduledAt: z.coerce.date().optional().nullable(),
 });
 

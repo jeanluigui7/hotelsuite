@@ -10,6 +10,7 @@ import {
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { guestsRepository } from '../guests/guests.repository';
+import { pernoctaService } from '../pernocta/pernocta.service';
 import { staysRepository, type StayWithRelations } from './stays.repository';
 import type { CheckInDto, CheckOutDto } from './stays.schema';
 
@@ -28,6 +29,7 @@ function serialize(stay: StayWithRelations) {
     checkOutAt: stay.checkOutAt,
     durationMinutes: stay.durationMinutes,
     priceAgreed: stay.priceAgreed,
+    balanceDue: stay.balanceDue,
     adults: stay.adults,
     children: stay.children,
     notes: stay.notes,
@@ -89,7 +91,23 @@ export const staysService = {
     if (!guestId) throw new ValidationError('Huésped requerido');
 
     const checkInAt = new Date();
-    const plannedCheckoutAt = new Date(checkInAt.getTime() + rate.durationMinutes * 60_000);
+    // Día hotelero: tarifas de día completo (>=1440 min) o etiquetadas "hotelero/noche"
+    // usan horario fijo de pernocta (no 24h) y pueden generar cargo de early check-in.
+    const isDiaHotelero = rate.durationMinutes >= 1440 || /hotelero|noche/i.test(rate.label);
+    let plannedCheckoutAt: Date;
+    let balanceDue: number | null = null;
+    let earlyNote = '';
+    if (isDiaHotelero) {
+      const nights = Math.max(1, Math.round(rate.durationMinutes / 1440));
+      const q = await pernoctaService.quoteCheckIn(scope, checkInAt, nights);
+      plannedCheckoutAt = q.plannedCheckoutAt;
+      if (q.earlyCharge > 0) {
+        balanceDue = q.earlyCharge;
+        earlyNote = ` Early check-in: ${q.earlyHours}h = ${q.earlyCharge}.`;
+      }
+    } else {
+      plannedCheckoutAt = new Date(checkInAt.getTime() + rate.durationMinutes * 60_000);
+    }
     const priceAgreed = applyDiscount(Number(rate.price), discount);
 
     const stay = await staysRepository.checkIn({
@@ -100,11 +118,12 @@ export const staysService = {
       tierId: dto.tierId ?? null,
       durationMinutes: rate.durationMinutes,
       priceAgreed,
+      balanceDue,
       checkInAt,
       plannedCheckoutAt,
       adults: dto.adults,
       children: dto.children,
-      notes: dto.notes || null,
+      notes: ((dto.notes || '') + earlyNote).trim() || null,
       additionalGuestIds: dto.additionalGuestIds.filter((id) => id !== guestId),
     });
     return serialize(stay as StayWithRelations);

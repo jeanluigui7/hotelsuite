@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const createRoomSchema = z.object({
-  roomTypeId: z.string().uuid(),
+  roomTypeId: z.string().min(1),
   number: z.string().min(1).max(20),
   floor: z.string().max(20).optional().or(z.literal('')),
   notes: z.string().max(300).optional().or(z.literal('')),

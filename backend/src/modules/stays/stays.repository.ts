@@ -39,6 +39,7 @@ export const staysRepository = {
     tierId: string | null;
     durationMinutes: number;
     priceAgreed: number;
+    balanceDue: number | null;
     checkInAt: Date;
     plannedCheckoutAt: Date;
     adults: number;
@@ -56,6 +57,7 @@ export const staysRepository = {
           tierId: data.tierId,
           durationMinutes: data.durationMinutes,
           priceAgreed: data.priceAgreed,
+          balanceDue: data.balanceDue,
           checkInAt: data.checkInAt,
           plannedCheckoutAt: data.plannedCheckoutAt,
           adults: data.adults,

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const createRevisionSchema = z.object({
-  roomId: z.string().uuid(),
+  roomId: z.string().min(1),
   notes: z.string().max(500).optional().or(z.literal('')),
   status: z.enum(['PENDING', 'OK', 'ISSUE']).default('PENDING'),
 });

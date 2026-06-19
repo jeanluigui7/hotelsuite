@@ -6,7 +6,7 @@ export const createRoomTypeSchema = z.object({
   capacity: z.coerce.number().int().min(1).max(50).default(2),
   basePrice: z.coerce.number().min(0).optional(),
   status: z.enum(['active', 'inactive']).default('active'),
-  attributeIds: z.array(z.string().uuid()).default([]),
+  attributeIds: z.array(z.string().min(1)).default([]),
 });
 
 export const updateRoomTypeSchema = createRoomTypeSchema.partial();

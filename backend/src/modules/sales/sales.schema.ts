@@ -3,7 +3,7 @@ import { PAYMENT_METHODS } from '../../shared/payments';
 
 const saleItemSchema = z
   .object({
-    productId: z.string().uuid().optional(),
+    productId: z.string().min(1).optional(),
     description: z.string().max(200).optional(),
     quantity: z.coerce.number().int().min(1),
     unitPrice: z.coerce.number().min(0).optional(),
@@ -20,8 +20,8 @@ const paymentSchema = z.object({
 
 export const createSaleSchema = z
   .object({
-    stayId: z.string().uuid().optional().nullable(),
-    guestId: z.string().uuid().optional().nullable(),
+    stayId: z.string().min(1).optional().nullable(),
+    guestId: z.string().min(1).optional().nullable(),
     customerName: z.string().max(160).optional().or(z.literal('')),
     items: z.array(saleItemSchema).min(1, 'Agregue al menos un ítem'),
     payments: z.array(paymentSchema).default([]),

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const createAttendanceSchema = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().min(1),
   type: z.enum(['IN', 'OUT']),
   at: z.coerce.date().optional(),
   note: z.string().max(200).optional().or(z.literal('')),

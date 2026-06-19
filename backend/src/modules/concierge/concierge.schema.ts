@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const createConciergeSchema = z.object({
-  roomId: z.string().uuid().optional().nullable(),
+  roomId: z.string().min(1).optional().nullable(),
   guestName: z.string().max(160).optional().or(z.literal('')),
   category: z.string().max(60).optional().or(z.literal('')),
   description: z.string().min(1).max(500),
@@ -9,7 +9,7 @@ export const createConciergeSchema = z.object({
 });
 
 export const updateConciergeSchema = z.object({
-  roomId: z.string().uuid().optional().nullable(),
+  roomId: z.string().min(1).optional().nullable(),
   guestName: z.string().max(160).optional().or(z.literal('')),
   category: z.string().max(60).optional().or(z.literal('')),
   description: z.string().min(1).max(500).optional(),

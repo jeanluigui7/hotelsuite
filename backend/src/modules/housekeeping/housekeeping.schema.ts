@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 export const createTaskSchema = z.object({
-  roomId: z.string().uuid(),
-  assignedToUserId: z.string().uuid().optional().nullable(),
+  roomId: z.string().min(1),
+  assignedToUserId: z.string().min(1).optional().nullable(),
   notes: z.string().max(300).optional().or(z.literal('')),
 });
 
@@ -10,8 +10,8 @@ export const completeTaskSchema = z.object({
   consumption: z
     .array(
       z.object({
-        productId: z.string().uuid(),
-        warehouseId: z.string().uuid(),
+        productId: z.string().min(1),
+        warehouseId: z.string().min(1),
         quantity: z.coerce.number().int().positive(),
       }),
     )
@@ -23,7 +23,7 @@ export const inspectTaskSchema = z.object({
   items: z
     .array(
       z.object({
-        checklistItemId: z.string().uuid(),
+        checklistItemId: z.string().min(1),
         passed: z.boolean(),
         note: z.string().max(200).optional().or(z.literal('')),
       }),

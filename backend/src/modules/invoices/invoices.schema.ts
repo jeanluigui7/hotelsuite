@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const issueInvoiceSchema = z
   .object({
-    saleId: z.string().uuid().optional().nullable(),
+    saleId: z.string().min(1).optional().nullable(),
     type: z.enum(['BOLETA', 'FACTURA']),
     customerName: z.string().min(1).max(160),
     customerDoc: z.string().max(20).optional().or(z.literal('')),

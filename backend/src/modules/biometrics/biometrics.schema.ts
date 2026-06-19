@@ -10,7 +10,7 @@ export const createDeviceSchema = z.object({
 export const updateDeviceSchema = createDeviceSchema.partial();
 
 export const enrollSchema = z.object({
-  userId: z.string().uuid(),
+  userId: z.string().min(1),
   deviceUserId: z.string().min(1).max(40),
   name: z.string().max(120).optional().or(z.literal('')),
 });

@@ -16,7 +16,7 @@ export const createTemplateSchema = z.object({
 export const updateTemplateSchema = createTemplateSchema.partial();
 
 export const sendSchema = z.object({
-  templateId: z.string().uuid().optional(),
+  templateId: z.string().min(1).optional(),
   body: z.string().max(2000).optional(),
   to: z.string().min(3).max(30),
   variables: z.record(z.string(), z.string()).default({}),

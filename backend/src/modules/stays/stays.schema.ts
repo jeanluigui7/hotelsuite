@@ -11,12 +11,12 @@ const newGuestSchema = z.object({
 
 export const checkInSchema = z
   .object({
-    roomId: z.string().uuid(),
-    rateId: z.string().uuid(),
-    tierId: z.string().uuid().optional().nullable(),
-    guestId: z.string().uuid().optional(),
+    roomId: z.string().min(1),
+    rateId: z.string().min(1),
+    tierId: z.string().min(1).optional().nullable(),
+    guestId: z.string().min(1).optional(),
     newGuest: newGuestSchema.optional(),
-    additionalGuestIds: z.array(z.string().uuid()).default([]),
+    additionalGuestIds: z.array(z.string().min(1)).default([]),
     adults: z.coerce.number().int().min(1).default(1),
     children: z.coerce.number().int().min(0).default(0),
     notes: z.string().max(500).optional().or(z.literal('')),

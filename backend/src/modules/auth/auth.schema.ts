@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
-  branchId: z.string().uuid().optional(),
+  branchId: z.string().min(1).optional(),
 });
 
 export type LoginDto = z.infer<typeof loginSchema>;

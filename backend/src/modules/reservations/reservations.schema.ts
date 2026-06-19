@@ -2,9 +2,9 @@ import { z } from 'zod';
 
 export const createReservationSchema = z
   .object({
-    roomTypeId: z.string().uuid(),
-    roomId: z.string().uuid().optional().nullable(),
-    guestId: z.string().uuid().optional().nullable(),
+    roomTypeId: z.string().min(1),
+    roomId: z.string().min(1).optional().nullable(),
+    guestId: z.string().min(1).optional().nullable(),
     guestName: z.string().max(160).optional().or(z.literal('')),
     phone: z.string().max(30).optional().or(z.literal('')),
     expectedCheckInAt: z.coerce.date(),
@@ -20,9 +20,9 @@ export const createReservationSchema = z
   });
 
 export const updateReservationSchema = z.object({
-  roomTypeId: z.string().uuid().optional(),
-  roomId: z.string().uuid().optional().nullable(),
-  guestId: z.string().uuid().optional().nullable(),
+  roomTypeId: z.string().min(1).optional(),
+  roomId: z.string().min(1).optional().nullable(),
+  guestId: z.string().min(1).optional().nullable(),
   guestName: z.string().max(160).optional().or(z.literal('')),
   phone: z.string().max(30).optional().or(z.literal('')),
   expectedCheckInAt: z.coerce.date().optional(),
