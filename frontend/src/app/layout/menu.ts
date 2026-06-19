@@ -121,6 +121,7 @@ export const APP_MENU: MenuItem[] = [
     children: [
       { label: 'Sucursales', route: '/settings/sucursales' },
       { label: 'Hotel', route: '/settings/hotel' },
+      { label: 'Pernoctación (Día Hotelero)', route: '/settings/pernoctacion' },
       { label: 'Pool WiFi', route: '/settings/wifi' },
       { label: 'Clientes', route: '/settings/clientes' },
       { label: 'Tiers de Clientes', route: '/settings/tiers' },

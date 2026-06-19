@@ -12,6 +12,10 @@ const routes: Routes = [
     loadComponent: () => import('./hotel/hotel.component').then((m) => m.HotelComponent),
   },
   {
+    path: 'pernoctacion',
+    loadComponent: () => import('./pernoctacion/pernocta.component').then((m) => m.PernoctaConfigComponent),
+  },
+  {
     path: 'tipos-habitacion',
     loadComponent: () => import('./tipos-habitacion/room-types.component').then((m) => m.RoomTypesComponent),
   },
