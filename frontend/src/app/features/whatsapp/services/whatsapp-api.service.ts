@@ -78,4 +78,11 @@ export class WhatsappApiService {
   logs(): Observable<ApiResponse<MessageLog[]>> {
     return this.http.get<ApiResponse<MessageLog[]>>(`${this.api}/logs`);
   }
+
+  getNotifyConfig(): Observable<ApiResponse<{ adminPhone: string }>> {
+    return this.http.get<ApiResponse<{ adminPhone: string }>>(`${this.api}/notify-config`);
+  }
+  setNotifyConfig(adminPhone: string): Observable<ApiResponse<{ adminPhone: string }>> {
+    return this.http.put<ApiResponse<{ adminPhone: string }>>(`${this.api}/notify-config`, { adminPhone });
+  }
 }

@@ -34,6 +34,15 @@ interface Form {
         @if (canCreate) { <p-button label="Nueva plantilla" icon="pi pi-plus" (onClick)="openNew()" /> }
       </header>
 
+      <div class="notify-card">
+        <div class="nc-head"><i class="pi pi-bell"></i> <strong>Avisos al administrador</strong></div>
+        <p class="muted">Número de WhatsApp que recibe avisos cuando Limpieza solicita ropa o Recepción solicita productos. Déjalo vacío para no enviar avisos.</p>
+        <div class="nc-row">
+          <input pInputText [(ngModel)]="adminPhone" placeholder="+51 999 888 777" [disabled]="!canEdit" />
+          @if (canEdit) { <p-button label="Guardar" icon="pi pi-check" [loading]="savingNotify()" (onClick)="saveNotify()" /> }
+        </div>
+      </div>
+
       <p-table [value]="items()" [loading]="loading()" [paginator]="true" [rows]="8" styleClass="p-datatable-sm">
         <ng-template pTemplate="header">
           <tr><th>Nombre</th><th>Mensaje</th><th style="width:8rem">Estado</th><th style="width:12rem"></th></tr>
@@ -102,7 +111,11 @@ interface Form {
       </ng-template>
     </p-dialog>
   `,
-  styles: [`h3 { margin: 1.5rem 0 0.5rem; font-size: 1rem; } h4 { margin: 0.8rem 0 0.3rem; font-size: 0.9rem; color: var(--p-text-muted-color, #a1a1aa); } textarea { width: 100%; }`],
+  styles: [`h3 { margin: 1.5rem 0 0.5rem; font-size: 1rem; } h4 { margin: 0.8rem 0 0.3rem; font-size: 0.9rem; color: var(--p-text-muted-color, #a1a1aa); } textarea { width: 100%; }
+    .notify-card { border: 1px solid var(--p-content-border-color, #2a3445); border-radius: 12px; padding: 1rem 1.1rem; margin: 0.5rem 0 1.25rem; background: var(--p-content-background, rgba(0,0,0,0.02)); }
+    .nc-head { display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.3rem; }
+    .nc-row { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.6rem; max-width: 480px; }
+    .nc-row input { flex: 1; }`],
   styleUrls: ['../../settings/catalogs/catalog.styles.scss'],
 })
 export class WaTemplatesComponent implements OnInit {
@@ -130,6 +143,9 @@ export class WaTemplatesComponent implements OnInit {
   sendTo = '';
   sendVars: Record<string, string> = {};
 
+  adminPhone = '';
+  readonly savingNotify = signal(false);
+
   readonly canCreate = this.auth.can('whatsapp', 'create');
   readonly canEdit = this.auth.can('whatsapp', 'edit');
   readonly canDelete = this.auth.can('whatsapp', 'delete');
@@ -145,6 +161,22 @@ export class WaTemplatesComponent implements OnInit {
       error: () => this.loading.set(false),
     });
     this.api.logs().subscribe((res) => this.logs.set(res.data ?? []));
+    this.api.getNotifyConfig().subscribe((res) => (this.adminPhone = res.data?.adminPhone ?? ''));
+  }
+
+  saveNotify(): void {
+    this.savingNotify.set(true);
+    this.api.setNotifyConfig(this.adminPhone.trim()).subscribe({
+      next: (res) => {
+        this.savingNotify.set(false);
+        this.adminPhone = res.data?.adminPhone ?? '';
+        this.messages.add({ severity: 'success', summary: 'Guardado', detail: this.adminPhone ? 'Avisos al administrador activados.' : 'Avisos desactivados.' });
+      },
+      error: (err: HttpErrorResponse) => {
+        this.savingNotify.set(false);
+        this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo guardar.' });
+      },
+    });
   }
 
   openNew(): void {

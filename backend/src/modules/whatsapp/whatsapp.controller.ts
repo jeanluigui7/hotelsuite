@@ -5,6 +5,7 @@ import { whatsappService } from './whatsapp.service';
 import {
   createInstanceSchema,
   createTemplateSchema,
+  notifyConfigSchema,
   sendSchema,
   updateInstanceSchema,
   updateTemplateSchema,
@@ -61,5 +62,16 @@ export const whatsappController = {
   async listLogs(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await whatsappService.listLogs(req.scope)));
+  },
+
+  // Notify config
+  async getNotifyConfig(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await whatsappService.getNotifyConfig(req.scope)));
+  },
+  async setNotifyConfig(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = notifyConfigSchema.parse(req.body);
+    res.status(200).json(ok(await whatsappService.setNotifyConfig(req.scope, dto.adminPhone)));
   },
 };

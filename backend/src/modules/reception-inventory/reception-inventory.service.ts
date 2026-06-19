@@ -3,6 +3,7 @@ import type { RequestScope } from '../../shared/context';
 import { ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
+import { notifyAdmin } from '../../shared/notify';
 
 /** Inventario de Recepción: stock en el almacén de recepción, con flujo de
  *  solicitud → envío (admin) → recepción (suma stock), y baja de stock. */
@@ -55,7 +56,7 @@ export const receptionInventoryService = {
 
   async createRequest(scope: RequestScope, dto: RequestDto) {
     const branchId = requireActiveBranch(scope);
-    return prisma.productRequest.create({
+    const created = await prisma.productRequest.create({
       data: {
         branchId,
         status: 'REQUESTED',
@@ -64,6 +65,14 @@ export const receptionInventoryService = {
       },
       include: { items: true },
     });
+    // Aviso al administrador por WhatsApp (best-effort; requiere notify.adminPhone configurado).
+    const names = new Map(
+      (await prisma.product.findMany({ where: { id: { in: dto.items.map((i) => i.productId) } }, select: { id: true, name: true } }))
+        .map((x) => [x.id, x.name] as const),
+    );
+    const detail = dto.items.map((i) => `${i.quantity}× ${names.get(i.productId) ?? 'producto'}`).join(', ');
+    await notifyAdmin(branchId, `📦 RIZZOS · Solicitud de productos de Recepción: ${detail}.`);
+    return created;
   },
 
   async listRequests(scope: RequestScope, status?: string) {

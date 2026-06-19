@@ -2,6 +2,8 @@ import type { RequestScope } from '../../shared/context';
 import { NotFoundError, ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import { renderTemplate, whatsappProvider } from '../../shared/whatsapp';
+import { ADMIN_PHONE_KEY } from '../../shared/notify';
+import { prisma } from '../../config/prisma';
 import { whatsappRepository } from './whatsapp.repository';
 import type {
   CreateInstanceDto,
@@ -96,5 +98,22 @@ export const whatsappService = {
 
   listLogs(scope: RequestScope) {
     return whatsappRepository.listLogs(requireActiveBranch(scope), 100);
+  },
+
+  // ── Notify config (teléfono del admin para avisos de solicitudes, R5) ──
+  async getNotifyConfig(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const s = await prisma.setting.findUnique({ where: { branchId_key: { branchId, key: ADMIN_PHONE_KEY } } });
+    return { adminPhone: s?.value ?? '' };
+  },
+  async setNotifyConfig(scope: RequestScope, adminPhone: string) {
+    const branchId = requireActiveBranch(scope);
+    const value = adminPhone.trim();
+    await prisma.setting.upsert({
+      where: { branchId_key: { branchId, key: ADMIN_PHONE_KEY } },
+      update: { value },
+      create: { branchId, key: ADMIN_PHONE_KEY, value },
+    });
+    return { adminPhone: value };
   },
 };

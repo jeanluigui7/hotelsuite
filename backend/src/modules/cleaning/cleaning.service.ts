@@ -3,6 +3,7 @@ import type { RequestScope } from '../../shared/context';
 import { ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
+import { notifyAdmin } from '../../shared/notify';
 
 /** Flujo de limpieza RIZZOS: iniciar limpieza (recoger ropa con estado OK/ROBADA/DETERIORADA)
  *  → habitación EN CURSO → finalizar limpieza → Disponible. */
@@ -231,7 +232,13 @@ export const cleaningService = {
         data: { branchId, linenItemId: i.linenItemId, type: 'REQUEST', quantity: i.quantity, floor: i.floor, reference: 'Solicitud de limpieza', createdByUserId: scope.userId },
       });
     }
-    // Aviso al administrador (mock; se integrará con WhatsApp real cuando se configure).
+    // Aviso al administrador por WhatsApp (best-effort; requiere notify.adminPhone configurado).
+    const names = new Map(
+      (await prisma.linenItem.findMany({ where: { id: { in: dto.items.map((i) => i.linenItemId) } }, select: { id: true, name: true } }))
+        .map((x) => [x.id, x.name] as const),
+    );
+    const detail = dto.items.map((i) => `${i.quantity}× ${names.get(i.linenItemId) ?? 'ítem'} (piso ${i.floor})`).join(', ');
+    await notifyAdmin(branchId, `🧺 RIZZOS · Solicitud de ropa de Limpieza: ${detail}.`);
     return { requested: dto.items.length };
   },
 

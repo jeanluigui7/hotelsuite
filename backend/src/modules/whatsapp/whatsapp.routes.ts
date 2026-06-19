@@ -25,3 +25,7 @@ whatsappRouter.delete('/whatsapp/templates/:id', requirePermission('whatsapp', '
 // Send / Logs
 whatsappRouter.post('/whatsapp/send', requirePermission('whatsapp', 'create'), asyncHandler(whatsappController.send));
 whatsappRouter.get('/whatsapp/logs', requirePermission('whatsapp', 'view'), asyncHandler(whatsappController.listLogs));
+
+// Notify config (admin phone for request alerts, R5)
+whatsappRouter.get('/whatsapp/notify-config', requirePermission('whatsapp', 'view'), asyncHandler(whatsappController.getNotifyConfig));
+whatsappRouter.put('/whatsapp/notify-config', requirePermission('whatsapp', 'edit'), asyncHandler(whatsappController.setNotifyConfig));

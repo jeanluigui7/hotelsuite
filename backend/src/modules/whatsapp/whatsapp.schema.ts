@@ -22,6 +22,10 @@ export const sendSchema = z.object({
   variables: z.record(z.string(), z.string()).default({}),
 });
 
+export const notifyConfigSchema = z.object({
+  adminPhone: z.string().max(30).optional().or(z.literal('')).transform((v) => v ?? ''),
+});
+
 export type CreateInstanceDto = z.infer<typeof createInstanceSchema>;
 export type UpdateInstanceDto = z.infer<typeof updateInstanceSchema>;
 export type CreateTemplateDto = z.infer<typeof createTemplateSchema>;
