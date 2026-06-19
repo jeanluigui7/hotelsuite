@@ -208,7 +208,8 @@ export class AlmacenProductosComponent implements OnInit {
     return [...map].map(([value, label]) => ({ label, value }));
   });
 
-  readonly filtered = computed<Product[]>(() => {
+  // Método (no computed) para reaccionar a los filtros con props no-signal.
+  filtered(): Product[] {
     const q = this.search.toLowerCase();
     const list = this.products().filter((p) => {
       if (q && !(p.name.toLowerCase().includes(q) || (p.sku ?? '').toLowerCase().includes(q))) return false;
@@ -220,7 +221,7 @@ export class AlmacenProductosComponent implements OnInit {
     return [...list].sort((a, b) =>
       this.sortBy === 'sku' ? (a.sku ?? '').localeCompare(b.sku ?? '') : a.name.localeCompare(b.name),
     );
-  });
+  }
 
   ngOnInit(): void {
     this.reload();
