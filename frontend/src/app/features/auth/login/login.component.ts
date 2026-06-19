@@ -184,15 +184,19 @@ import { AuthService } from '../../../core/auth/auth.service';
       }
 
       :host ::ng-deep .submit { display: block; margin-top: 1.75rem; }
-      :host ::ng-deep .submit .p-button {
-        width: 100%; justify-content: center;
+      /* styleClass puede ir en el host <p-button> o en el <button> interno: cubrimos ambos */
+      :host ::ng-deep .submit .p-button,
+      :host ::ng-deep .submit.p-button,
+      :host ::ng-deep p-button.submit > button {
+        width: 100%; display: flex; align-items: center; justify-content: center;
         background: linear-gradient(135deg, #f43f8e, #d6246e);
         border: 0; border-radius: 12px; padding: 0.95rem; font-size: 1.02rem; font-weight: 600;
         box-shadow: 0 10px 24px rgba(236, 72, 153, 0.4);
       }
-      :host ::ng-deep .submit .p-button:enabled:hover { background: linear-gradient(135deg, #ec2d80, #be185d); }
-      /* Centrar el texto/ícono del botón (PrimeNG deja la etiqueta con flex:1) */
-      :host ::ng-deep .submit .p-button-label { flex: 0 0 auto; text-align: center; }
+      :host ::ng-deep .submit .p-button:enabled:hover,
+      :host ::ng-deep .submit.p-button:enabled:hover { background: linear-gradient(135deg, #ec2d80, #be185d); }
+      /* La etiqueta ocupa el ancho y centra su texto (PrimeNG la deja con flex:1 alineada a la izquierda) */
+      :host ::ng-deep .submit .p-button-label { flex: 1 1 auto; width: 100%; text-align: center; }
 
       .branch-title { color: #f5f5f7; margin: 0 0 0.35rem; font-size: 1.3rem; }
       .muted { color: #b9a3b0; margin: 0 0 1.25rem; font-size: 0.9rem; }

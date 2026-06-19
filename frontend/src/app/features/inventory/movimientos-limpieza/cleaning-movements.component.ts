@@ -131,7 +131,8 @@ export class CleaningMovementsComponent implements OnInit {
   readonly tipoOpts = computed(() => [...new Set(this.moves().map((m) => m.label))].sort());
   readonly pisoOpts = computed(() => [...new Set(this.moves().map((m) => m.floor).filter((f): f is string => !!f))].sort());
 
-  readonly filtered = computed<Mov[]>(() => {
+  // Métodos (no computed) para reaccionar a filtros con props no-signal.
+  filtered(): Mov[] {
     const q = this.search.toLowerCase();
     return this.moves().filter((m) => {
       if (this.tipoFilter && m.label !== this.tipoFilter) return false;
@@ -139,15 +140,17 @@ export class CleaningMovementsComponent implements OnInit {
       if (q && !m.article.toLowerCase().includes(q)) return false;
       return true;
     });
-  });
+  }
 
   readonly pageSize = 10;
   readonly page = signal(0);
-  readonly totalPages = computed(() => Math.max(1, Math.ceil(this.filtered().length / this.pageSize)));
-  readonly paged = computed<Mov[]>(() => {
+  totalPages(): number {
+    return Math.max(1, Math.ceil(this.filtered().length / this.pageSize));
+  }
+  paged(): Mov[] {
     const p = Math.min(this.page(), this.totalPages() - 1);
     return this.filtered().slice(p * this.pageSize, p * this.pageSize + this.pageSize);
-  });
+  }
   rangeFrom = (): number => (this.filtered().length === 0 ? 0 : this.page() * this.pageSize + 1);
   rangeTo = (): number => Math.min(this.filtered().length, (this.page() + 1) * this.pageSize);
 

@@ -2,6 +2,8 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { Router } from '@angular/router';
 import { forkJoin } from 'rxjs';
+import { AuthService } from '../../../core/auth/auth.service';
+import { profileForRole } from '../../../layout/menu';
 import {
   DashboardApiService,
   type CajaSummary,
@@ -21,14 +23,16 @@ interface StatCard {
   imports: [DatePipe, DecimalPipe],
   template: `
     <section class="dash">
-      <!-- Pills de función rápida -->
-      <div class="pills">
-        <button class="pill purple" (click)="go('/operations/almacen-productos')"><i class="pi pi-box"></i> Productos</button>
-        <button class="pill red" (click)="go('/operations/inventario-recepcion')"><i class="pi pi-inbox"></i> Recepción</button>
-        <button class="pill orange" (click)="go('/operations/transferencia-ropa')"><i class="pi pi-sync"></i> Ropa</button>
-        <button class="pill green" (click)="go('/inventory/inventario-limpieza')"><i class="pi pi-sparkles"></i> Amenidades</button>
-        <button class="pill blue" (click)="go('/operations/gestion-limpieza')"><i class="pi pi-check-circle"></i> Limpieza</button>
-      </div>
+      <!-- Pills de función rápida (solo perfil administrador, gateados por permiso) -->
+      @if (isAdmin()) {
+        <div class="pills">
+          @if (can('inventory')) { <button class="pill purple" (click)="go('/operations/almacen-productos')"><i class="pi pi-box"></i> Productos</button> }
+          @if (can('operations')) { <button class="pill red" (click)="go('/operations/inventario-recepcion')"><i class="pi pi-inbox"></i> Recepción</button> }
+          @if (can('operations')) { <button class="pill orange" (click)="go('/operations/transferencia-ropa')"><i class="pi pi-sync"></i> Ropa</button> }
+          @if (can('inventory')) { <button class="pill green" (click)="go('/inventory/inventario-limpieza')"><i class="pi pi-sparkles"></i> Amenidades</button> }
+          @if (can('operations')) { <button class="pill blue" (click)="go('/operations/gestion-limpieza')"><i class="pi pi-check-circle"></i> Limpieza</button> }
+        </div>
+      }
 
       <h1>Dashboard</h1>
 
@@ -141,6 +145,15 @@ interface StatCard {
 export class AdminDashboardComponent implements OnInit {
   private readonly api = inject(DashboardApiService);
   private readonly router = inject(Router);
+  private readonly auth = inject(AuthService);
+
+  isAdmin(): boolean {
+    const u = this.auth.user();
+    return profileForRole(u?.roleName, u?.isSuperAdmin ?? false) === 'admin';
+  }
+  can(module: string): boolean {
+    return this.auth.can(module, 'view');
+  }
 
   readonly now = new Date();
   readonly recepcion = signal<RecepcionSummary | null>(null);

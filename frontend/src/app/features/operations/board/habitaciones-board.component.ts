@@ -296,14 +296,15 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
       })),
   );
 
-  readonly filtered = computed<RoomMapItem[]>(() => {
+  // Método (no computed) para que reaccione a los filtros con ngModel (props no-signal).
+  filtered(): RoomMapItem[] {
     let list = this.rooms();
     if (this.search) list = list.filter((r) => r.number.toLowerCase().includes(this.search.toLowerCase()));
     if (this.floorFilter) list = list.filter((r) => r.floor === this.floorFilter);
     if (this.stateFilter) list = list.filter((r) => r.status === this.stateFilter);
     if (this.typeFilter) list = list.filter((r) => r.roomType.name === this.typeFilter);
     return list;
-  });
+  }
 
   ngOnInit(): void {
     this.reload();

@@ -178,21 +178,24 @@ export class RevisionsComponent implements OnInit {
   readonly floorOptions = computed(() => [...new Set(this.rows().map((r) => r.floor).filter((f): f is string => !!f))].sort());
   readonly colabOptions = computed(() => [...new Set(this.rows().map((r) => r.collaborator).filter((c) => c && c !== '-'))].sort());
 
-  readonly filtered = computed<RevRow[]>(() => {
+  // Métodos (no computed) para reaccionar a filtros con props no-signal.
+  filtered(): RevRow[] {
     let list = this.rows();
     if (this.pisoFilter) list = list.filter((r) => r.floor === this.pisoFilter);
     if (this.colabFilter) list = list.filter((r) => r.collaborator === this.colabFilter);
     if (this.estadoFilter) list = list.filter((r) => r.tipo === this.estadoFilter);
     return list;
-  });
+  }
 
   readonly pageSize = 10;
   readonly page = signal(0);
-  readonly totalPages = computed(() => Math.max(1, Math.ceil(this.filtered().length / this.pageSize)));
-  readonly paged = computed<RevRow[]>(() => {
+  totalPages(): number {
+    return Math.max(1, Math.ceil(this.filtered().length / this.pageSize));
+  }
+  paged(): RevRow[] {
     const p = Math.min(this.page(), this.totalPages() - 1);
     return this.filtered().slice(p * this.pageSize, p * this.pageSize + this.pageSize);
-  });
+  }
   rangeFrom = (): number => (this.filtered().length === 0 ? 0 : this.page() * this.pageSize + 1);
   rangeTo = (): number => Math.min(this.filtered().length, (this.page() + 1) * this.pageSize);
 

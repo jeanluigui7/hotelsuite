@@ -210,7 +210,8 @@ export class VentaProductosComponent {
 
   readonly categoryOptions = computed(() => [...new Set(this.products().map((p) => p.category?.name).filter((c): c is string => !!c))].sort());
 
-  readonly filteredProducts = computed<Product[]>(() => {
+  // Método (no computed) para que reaccione a búsqueda/categoría/bajo-stock (props no-signal).
+  filteredProducts(): Product[] {
     const q = this.search.toLowerCase();
     return this.products().filter((p) => {
       if (q && !p.name.toLowerCase().includes(q)) return false;
@@ -218,7 +219,7 @@ export class VentaProductosComponent {
       if (this.lowStockOnly && !this.isLow(p)) return false;
       return true;
     });
-  });
+  }
 
   readonly total = computed(() => {
     void this.qtyTick();
