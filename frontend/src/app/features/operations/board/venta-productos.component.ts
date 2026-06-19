@@ -7,6 +7,7 @@ import { SelectModule } from 'primeng/select';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
+import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
 import { PrintingService } from '../../../core/printing/printing.service';
@@ -17,7 +18,6 @@ import type { Product } from '../../inventory/services/inventory.models';
 import { OperationsApiService } from '../services/operations-api.service';
 import type { Stay } from '../services/operations.models';
 
-interface Line { product: Product; quantity: number; }
 interface Pay { method: 'CASH' | 'CARD' | 'TRANSFER' | 'WALLET'; amount: number; reference?: string; }
 
 const METHODS = [
@@ -26,65 +26,59 @@ const METHODS = [
   { label: 'Transferencia', value: 'TRANSFER' },
   { label: 'Yape/Plin', value: 'WALLET' },
 ];
+const DOC_TYPES = [
+  { label: 'DNI', value: 'DNI' },
+  { label: 'CE', value: 'CE' },
+  { label: 'Pasaporte', value: 'Pasaporte' },
+];
 
 @Component({
   selector: 'app-venta-productos',
   standalone: true,
-  imports: [DecimalPipe, FormsModule, DialogModule, SelectModule, InputNumberModule, InputTextModule, ButtonModule],
+  imports: [DecimalPipe, FormsModule, DialogModule, SelectModule, InputNumberModule, InputTextModule, ButtonModule, ToggleSwitchModule],
   template: `
     <p-dialog [(visible)]="visible" (visibleChange)="visibleChange.emit($event)" [modal]="true" header="Venta de Productos"
-              [style]="{ width: '60rem', maxWidth: '95vw' }" styleClass="dk-dialog" (onShow)="load()">
+              [style]="{ width: '64rem', maxWidth: '96vw' }" styleClass="dk-dialog" (onShow)="load()">
+      <p class="sub">Selecciona los productos de recepción disponibles en stock para la venta.</p>
       <div class="grid">
-        <!-- Izquierda: catálogo -->
-        <div class="catalog">
-          <span class="search"><i class="pi pi-search"></i><input pInputText placeholder="Buscar producto…" [(ngModel)]="search" /></span>
-          <div class="prods">
-            @for (p of shownProducts(); track p.id) {
-              <button class="prod" (click)="add(p)" [disabled]="p.stock <= 0">
-                <span class="pn">{{ p.name }}</span>
-                <span class="pp">{{ +p.salePrice | number: '1.2-2' }}</span>
-                <span class="ps" [class.low]="p.stock <= 0">Stock: {{ p.stock }}</span>
-              </button>
-            } @empty { <p class="muted">Sin productos.</p> }
-          </div>
-        </div>
+        <!-- Izquierda: cliente + pago -->
+        <div class="client">
+          <h4>Tipo de Cliente</h4>
+          <label class="radio"><input type="radio" name="ct" value="ROOM" [(ngModel)]="clientType" /> Asociar a habitación ocupada</label>
+          <label class="radio"><input type="radio" name="ct" value="EXTERNAL" [(ngModel)]="clientType" /> Cliente Externo</label>
 
-        <!-- Derecha: carrito + cliente + pago -->
-        <div class="cart">
-          <div class="field">
-            <label>Tipo de cliente</label>
-            <p-select [options]="clientTypes" [(ngModel)]="clientType" optionLabel="label" optionValue="value" styleClass="w" />
-          </div>
           @if (clientType === 'ROOM') {
             <div class="field">
               <label>Habitación ocupada</label>
-              <p-select [options]="stays()" [(ngModel)]="stayId" optionValue="id" [filter]="true" filterBy="label" placeholder="Selecciona habitación" styleClass="w">
+              <p-select [options]="stays()" [(ngModel)]="stayId" optionValue="id" [filter]="true" filterBy="room.number" placeholder="Selecciona habitación" styleClass="w">
                 <ng-template let-s pTemplate="item">Hab. {{ s.room.number }} · {{ s.guest.firstName }} {{ s.guest.lastName }}</ng-template>
                 <ng-template let-s pTemplate="selectedItem">Hab. {{ s.room.number }} · {{ s.guest.firstName }} {{ s.guest.lastName }}</ng-template>
               </p-select>
             </div>
           } @else {
-            <div class="field">
-              <label>Nombre del cliente (opcional)</label>
-              <input pInputText [(ngModel)]="customerName" placeholder="Cliente mostrador" />
+            <div class="ext">
+              <div class="ext-title"><i class="pi pi-id-card"></i> Venta Directa (Identificada)</div>
+              <div class="seg2">
+                <button [class.on]="idMode === 'DOC'" (click)="idMode = 'DOC'"><i class="pi pi-id-card"></i> Documento</button>
+                <button [class.on]="idMode === 'PLATE'" (click)="idMode = 'PLATE'"><i class="pi pi-car"></i> Placa Vehicular</button>
+              </div>
+              @if (idMode === 'DOC') {
+                <label>Tipo de Documento</label>
+                <p-select [options]="docTypes" [(ngModel)]="docType" optionLabel="label" optionValue="value" styleClass="w" />
+                <label>Número de Documento</label>
+                <input pInputText [(ngModel)]="docNumber" placeholder="12345678" />
+              } @else {
+                <label>Placa Vehicular</label>
+                <input pInputText [(ngModel)]="plate" placeholder="ABC-123" style="text-transform:uppercase" />
+              }
+              <label>Nombre</label>
+              <input pInputText [(ngModel)]="customerName" placeholder="Nombre del cliente" />
             </div>
           }
 
-          <div class="lines">
-            @for (l of lines(); track l.product.id; let i = $index) {
-              <div class="line">
-                <span class="ln">{{ l.product.name }}</span>
-                <p-inputNumber [(ngModel)]="l.quantity" [min]="1" [showButtons]="true" buttonLayout="horizontal" inputStyleClass="qty" (onInput)="touch()" />
-                <span class="lt">{{ +l.product.salePrice * l.quantity | number: '1.2-2' }}</span>
-                <button class="del" (click)="removeLine(i)"><i class="pi pi-times"></i></button>
-              </div>
-            } @empty { <p class="muted center">Agrega productos del catálogo.</p> }
-          </div>
-
           <div class="total">Total a cobrar <strong>{{ total() | number: '1.2-2' }}</strong></div>
-
           <div class="pays">
-            <div class="pays-head"><span>Métodos de pago</span><button class="addpay" (click)="addPay()"><i class="pi pi-plus"></i> Añadir</button></div>
+            <div class="pays-head"><span>Método de pago</span><button class="addpay" (click)="addPay()"><i class="pi pi-plus"></i> Añadir</button></div>
             @for (p of pays(); track $index; let i = $index) {
               <div class="payrow">
                 <p-select [options]="methods" [(ngModel)]="p.method" optionLabel="label" optionValue="value" styleClass="w sm" />
@@ -93,6 +87,37 @@ const METHODS = [
               </div>
             }
             <div class="paid" [class.warn]="paid() > total()">Pagado: {{ paid() | number: '1.2-2' }} · Vuelto: {{ change() | number: '1.2-2' }}</div>
+          </div>
+        </div>
+
+        <!-- Derecha: catálogo en tabla -->
+        <div class="catalog">
+          <div class="cat-filters">
+            <span class="search"><i class="pi pi-search"></i><input pInputText placeholder="Buscar por nombre o descripción" [(ngModel)]="search" /></span>
+            <p-select [options]="categoryOptions()" [(ngModel)]="categoryFilter" placeholder="Todas" [showClear]="true" styleClass="w sm" />
+          </div>
+          <label class="lowstock"><p-toggleSwitch [(ngModel)]="lowStockOnly" /> Solo productos con bajo stock</label>
+          <div class="tablewrap">
+            <table class="ptbl">
+              <thead><tr><th>Producto</th><th>Precio</th><th>Stock</th><th class="qc">Cant.</th><th>Subtotal</th></tr></thead>
+              <tbody>
+                @for (p of filteredProducts(); track p.id) {
+                  <tr [class.low]="isLow(p)">
+                    <td><div class="pn">{{ p.name }}</div>@if (p.category) { <div class="pc">Categoría: {{ p.category.name }}</div> }</td>
+                    <td class="price">S/ {{ +p.salePrice | number: '1.2-2' }}</td>
+                    <td><span class="stk" [class.low]="isLow(p)">Stock: {{ p.stock }}</span></td>
+                    <td class="qc">
+                      <div class="stepper">
+                        <button (click)="dec(p)" [disabled]="(qty[p.id]||0) <= 0">-</button>
+                        <span>{{ qty[p.id] || 0 }}</span>
+                        <button (click)="inc(p)" [disabled]="(qty[p.id]||0) >= p.stock">+</button>
+                      </div>
+                    </td>
+                    <td class="sub">S/ {{ (+p.salePrice) * (qty[p.id]||0) | number: '1.2-2' }}</td>
+                  </tr>
+                } @empty { <tr><td colspan="5" class="muted center">Sin productos.</td></tr> }
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -106,32 +131,48 @@ const METHODS = [
   styles: [
     `
       :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1622; color: #e6e9ef; }
-      .grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 1rem; min-height: 420px; }
+      .sub { color: #8b97a8; margin: 0 0 1rem; font-size: 0.85rem; }
+      .grid { display: grid; grid-template-columns: 0.85fr 1.15fr; gap: 1.1rem; min-height: 440px; }
       .muted { color: #8b97a8; } .center { text-align: center; }
-      .search { position: relative; display: block; margin-bottom: 0.6rem; }
-      .search i { position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%); color: #6b7a90; }
-      .search input { width: 100%; background: #131d2b; border: 1px solid #243245; color: #e6e9ef; border-radius: 8px; padding: 0.55rem 0.7rem 0.55rem 2rem; }
-      .prods { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px,1fr)); gap: 0.5rem; max-height: 380px; overflow-y: auto; }
-      .prod { background: #131d2b; border: 1px solid #243245; border-radius: 10px; padding: 0.7rem; cursor: pointer; display: flex; flex-direction: column; gap: 0.2rem; text-align: left; color: #e6e9ef; }
-      .prod:hover:not(:disabled) { border-color: #10b981; }
-      .prod:disabled { opacity: 0.45; cursor: default; }
-      .pn { font-weight: 600; font-size: 0.85rem; } .pp { color: #34d399; font-weight: 700; } .ps { font-size: 0.72rem; color: #8b97a8; } .ps.low { color: #f87171; }
-      .cart { display: flex; flex-direction: column; gap: 0.6rem; background: #0b1119; border: 1px solid #1c2a3a; border-radius: 12px; padding: 0.9rem; }
-      .field { display: flex; flex-direction: column; gap: 0.3rem; }
-      label { font-size: 0.8rem; color: #9fb0c3; }
-      :host ::ng-deep .w .p-select, :host ::ng-deep .cart input { width: 100%; background: #131d2b; border-color: #243245; color: #e6e9ef; }
-      .lines { display: flex; flex-direction: column; gap: 0.4rem; max-height: 160px; overflow-y: auto; margin-top: 0.3rem; }
-      .line { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 0.5rem; }
-      .ln { font-size: 0.85rem; } .lt { font-weight: 600; min-width: 4rem; text-align: right; }
-      .del { background: transparent; border: 0; color: #f87171; cursor: pointer; }
-      .total { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #1c2a3a; padding-top: 0.6rem; font-size: 1.05rem; }
+      h4 { margin: 0 0 0.6rem; color: #fff; font-size: 0.95rem; }
+      .client { background: #0b1119; border: 1px solid #1c2a3a; border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
+      .radio { display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; cursor: pointer; }
+      .field { display: flex; flex-direction: column; gap: 0.3rem; margin-top: 0.4rem; }
+      label { font-size: 0.8rem; color: #9fb0c3; margin-top: 0.3rem; }
+      .ext { border: 1px solid #1f4e8a; border-radius: 10px; padding: 0.8rem; margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.3rem; }
+      .ext-title { color: #60a5fa; font-weight: 700; font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; }
+      .seg2 { display: flex; gap: 0.4rem; margin: 0.3rem 0; }
+      .seg2 button { flex: 1; background: #131d2b; border: 1px solid #243245; color: #cdd8e6; border-radius: 8px; padding: 0.4rem; cursor: pointer; font-size: 0.8rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem; }
+      .seg2 button.on { border-color: #3b82f6; color: #93c5fd; }
+      :host ::ng-deep .w .p-select, :host ::ng-deep .client input[pInputText] { width: 100%; background: #131d2b; border-color: #243245; color: #e6e9ef; }
+      .total { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #1c2a3a; padding-top: 0.6rem; margin-top: 0.5rem; font-size: 1rem; }
       .total strong { color: #34d399; font-size: 1.2rem; }
-      .pays-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: #9fb0c3; }
+      .pays-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: #9fb0c3; margin-top: 0.4rem; }
       .addpay { background: transparent; border: 1px solid #243245; color: #cdd8e6; border-radius: 8px; padding: 0.3rem 0.7rem; cursor: pointer; font-size: 0.8rem; }
       .payrow { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.4rem; align-items: center; margin-top: 0.4rem; }
-      :host ::ng-deep .amt, :host ::ng-deep .qty { width: 100%; }
-      .paid { font-size: 0.8rem; color: #8b97a8; margin-top: 0.4rem; }
-      .paid.warn { color: #fbbf24; }
+      :host ::ng-deep .amt { width: 100%; }
+      .del { background: transparent; border: 0; color: #f87171; cursor: pointer; }
+      .paid { font-size: 0.8rem; color: #8b97a8; margin-top: 0.4rem; } .paid.warn { color: #fbbf24; }
+
+      .catalog { display: flex; flex-direction: column; gap: 0.6rem; }
+      .cat-filters { display: flex; gap: 0.5rem; }
+      .search { position: relative; flex: 1; }
+      .search i { position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%); color: #6b7a90; }
+      .search input { width: 100%; background: #131d2b; border: 1px solid #243245; color: #e6e9ef; border-radius: 8px; padding: 0.55rem 0.7rem 0.55rem 2rem; }
+      .lowstock { display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: #9fb0c3; }
+      .tablewrap { border: 1px solid #1c2a3a; border-radius: 10px; overflow: auto; max-height: 360px; }
+      .ptbl { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+      .ptbl th { text-align: left; padding: 0.6rem 0.8rem; color: #9fb0c3; font-weight: 600; border-bottom: 1px solid #1c2a3a; position: sticky; top: 0; background: #101a28; }
+      .ptbl td { padding: 0.55rem 0.8rem; border-bottom: 1px solid #16202e; }
+      .pn { font-weight: 600; } .pc { font-size: 0.72rem; color: #8b97a8; }
+      .price { color: #cdd8e6; white-space: nowrap; }
+      .stk { font-size: 0.78rem; color: #8b97a8; } .stk.low, tr.low .pn { color: #fbbf24; }
+      .qc { text-align: center; } th.qc { text-align: center; }
+      .stepper { display: inline-flex; align-items: center; gap: 0.3rem; }
+      .stepper button { width: 1.7rem; height: 1.7rem; border-radius: 6px; border: 1px solid #243245; background: #131d2b; color: #e6e9ef; cursor: pointer; font-weight: 700; }
+      .stepper button:disabled { opacity: 0.4; cursor: not-allowed; }
+      .stepper span { min-width: 1.4rem; text-align: center; }
+      .sub { color: #34d399; font-weight: 600; white-space: nowrap; }
     `,
   ],
 })
@@ -149,44 +190,65 @@ export class VentaProductosComponent {
 
   readonly products = signal<Product[]>([]);
   readonly stays = signal<(Stay & { label?: string })[]>([]);
-  readonly lines = signal<Line[]>([]);
   readonly pays = signal<Pay[]>([]);
   readonly saving = signal(false);
 
   readonly methods = METHODS;
-  readonly clientTypes = [
-    { label: 'Cliente general', value: 'GENERAL' },
-    { label: 'Asociar a habitación ocupada', value: 'ROOM' },
-  ];
-  clientType: 'GENERAL' | 'ROOM' = 'GENERAL';
+  readonly docTypes = DOC_TYPES;
+  clientType: 'EXTERNAL' | 'ROOM' = 'ROOM';
+  idMode: 'DOC' | 'PLATE' = 'DOC';
+  docType = 'DNI';
+  docNumber = '';
+  plate = '';
   stayId: string | null = null;
   customerName = '';
   search = '';
+  categoryFilter: string | null = null;
+  lowStockOnly = false;
+  qty: Record<string, number> = {};
+  private readonly qtyTick = signal(0);
 
-  readonly shownProducts = computed(() => {
+  readonly categoryOptions = computed(() => [...new Set(this.products().map((p) => p.category?.name).filter((c): c is string => !!c))].sort());
+
+  readonly filteredProducts = computed<Product[]>(() => {
     const q = this.search.toLowerCase();
-    return q ? this.products().filter((p) => p.name.toLowerCase().includes(q)) : this.products();
+    return this.products().filter((p) => {
+      if (q && !p.name.toLowerCase().includes(q)) return false;
+      if (this.categoryFilter && p.category?.name !== this.categoryFilter) return false;
+      if (this.lowStockOnly && !this.isLow(p)) return false;
+      return true;
+    });
   });
-  readonly total = computed(() => this.lines().reduce((a, l) => a + Number(l.product.salePrice) * l.quantity, 0));
+
+  readonly total = computed(() => {
+    void this.qtyTick();
+    return this.products().reduce((a, p) => a + Number(p.salePrice) * (this.qty[p.id] || 0), 0);
+  });
   readonly paid = computed(() => this.pays().reduce((a, p) => a + (p.amount || 0), 0));
-  change = () => Math.max(0, this.paid() - this.total());
+  change = (): number => Math.max(0, this.paid() - this.total());
+
+  isLow(p: Product): boolean {
+    return p.stock <= (p.reorderPoint ?? 0);
+  }
 
   load(): void {
-    this.lines.set([]); this.pays.set([]); this.customerName = ''; this.stayId = null; this.clientType = 'GENERAL'; this.search = '';
+    this.pays.set([]); this.customerName = ''; this.stayId = null; this.clientType = 'ROOM';
+    this.idMode = 'DOC'; this.docType = 'DNI'; this.docNumber = ''; this.plate = '';
+    this.search = ''; this.categoryFilter = null; this.lowStockOnly = false; this.qty = {};
     this.inventory.products.list({ pageSize: 300, status: 'active' }).subscribe((r) => this.products.set(r.data ?? []));
     this.ops.stays({ status: 'OPEN', pageSize: 200 }).subscribe((r) => this.stays.set(r.data ?? []));
   }
 
-  add(p: Product): void {
-    const ex = this.lines().find((l) => l.product.id === p.id);
-    if (ex) { ex.quantity += 1; this.lines.set([...this.lines()]); }
-    else this.lines.set([...this.lines(), { product: p, quantity: 1 }]);
-  }
-  removeLine(i: number): void { const n = [...this.lines()]; n.splice(i, 1); this.lines.set(n); }
-  touch(): void { this.lines.set([...this.lines()]); }
+  inc(p: Product): void { if ((this.qty[p.id] || 0) < p.stock) { this.qty[p.id] = (this.qty[p.id] || 0) + 1; this.qtyTick.update((v) => v + 1); } }
+  dec(p: Product): void { if ((this.qty[p.id] || 0) > 0) { this.qty[p.id] = this.qty[p.id] - 1; this.qtyTick.update((v) => v + 1); } }
+
   addPay(): void { this.pays.set([...this.pays(), { method: 'CASH', amount: this.remaining() }]); }
   removePay(i: number): void { const n = [...this.pays()]; n.splice(i, 1); this.pays.set(n); }
   private remaining(): number { return Math.max(0, Math.round((this.total() - this.paid()) * 100) / 100); }
+
+  private lines(): { productId: string; quantity: number }[] {
+    return this.products().filter((p) => (this.qty[p.id] || 0) > 0).map((p) => ({ productId: p.id, quantity: this.qty[p.id] }));
+  }
 
   canSubmit(): boolean {
     if (this.saving() || this.lines().length === 0) return false;
@@ -194,19 +256,26 @@ export class VentaProductosComponent {
     return true;
   }
 
+  private externalName(): string {
+    const name = this.customerName.trim() || 'Cliente externo';
+    if (this.idMode === 'PLATE' && this.plate.trim()) return `${name} (Placa ${this.plate.trim().toUpperCase()})`;
+    if (this.idMode === 'DOC' && this.docNumber.trim()) return `${name} (${this.docType} ${this.docNumber.trim()})`;
+    return name;
+  }
+
   submit(): void {
     if (!this.canSubmit()) return;
     this.saving.set(true);
     this.finance.createSale({
       stayId: this.clientType === 'ROOM' ? this.stayId : null,
-      customerName: this.clientType === 'GENERAL' ? this.customerName || 'Cliente mostrador' : undefined,
-      items: this.lines().map((l) => ({ productId: l.product.id, quantity: l.quantity })),
+      customerName: this.clientType === 'EXTERNAL' ? this.externalName() : undefined,
+      items: this.lines(),
       payments: this.pays().filter((p) => p.amount > 0).map((p) => ({ method: p.method, amount: p.amount })),
     }).subscribe({
       next: (res) => {
         this.saving.set(false);
         this.toast.add({ severity: 'success', summary: 'Venta registrada', detail: 'Total ' + this.total().toFixed(2) });
-        if (res.data) this.printing.printViaBrowser(buildSaleReceipt(res.data, this.auth.activeBranch()?.name ?? 'HotelSuite'));
+        if (res.data) this.printing.printViaBrowser(buildSaleReceipt(res.data, this.auth.activeBranch()?.name ?? 'RIZZOS'));
         this.done.emit();
         this.close();
       },

@@ -7,6 +7,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TooltipModule } from 'primeng/tooltip';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
+import { Router } from '@angular/router';
 import { OperationsApiService } from '../services/operations-api.service';
 import type { CheckoutSummary, RoomMapItem } from '../services/operations.models';
 import { CheckInDialogComponent } from '../habitaciones/check-in-dialog.component';
@@ -77,7 +78,10 @@ type ViewMode = 'normal' | 'compacta' | 'real';
               @if (r.status === 'FREE') {
                 <button class="cta" (click)="openCheckIn(r)"><i class="pi pi-sign-in"></i> Check-in</button>
               } @else if (r.status === 'OCCUPIED') {
-                <button class="cta ghost" (click)="confirmCheckout(r)"><i class="pi pi-sign-out"></i> Check-out</button>
+                <div class="foot-row">
+                  <button class="cta ghost" (click)="confirmCheckout(r)"><i class="pi pi-sign-out"></i> Check-out</button>
+                  <button class="cta ghost sm" (click)="openChange(r)" pTooltip="Cambiar de habitación"><i class="pi pi-arrow-right-arrow-left"></i></button>
+                </div>
               } @else {
                 <button class="cta ghost" disabled>{{ st(r).label }}</button>
               }
@@ -93,8 +97,19 @@ type ViewMode = 'normal' | 'compacta' | 'real';
     <app-venta-productos [(visible)]="ventaVisible" (done)="reload()" />
     <app-servicios-penalidades [(visible)]="serviciosVisible" (done)="reload()" />
 
-    <p-dialog [(visible)]="checkoutVisible" [modal]="true" [header]="'Check-out · Hab. ' + (checkoutRoom?.number || '')" [style]="{ width: '26rem' }" styleClass="dk-dialog">
+    <p-dialog [(visible)]="checkoutVisible" [modal]="true" [header]="'Check-out · Hab. ' + (checkoutRoom?.number || '')" [style]="{ width: '28rem' }" styleClass="dk-dialog">
       @if (checkoutData(); as d) {
+        @if (d.totalWithLate > 0) {
+          <div class="co-pend">
+            <h3><i class="pi pi-exclamation-triangle"></i> Pagos Pendientes</h3>
+            <p>La habitación tiene pagos pendientes por un total de <strong class="amt">S/ {{ d.totalWithLate | number: '1.2-2' }}</strong>.</p>
+          </div>
+        }
+        <div class="co-guest">
+          <span class="lbl">Detalles del huésped</span>
+          <strong>{{ checkoutRoom?.activeStay?.guestName }}</strong>
+          @if (checkoutRoom?.activeStay?.vehiclePlate) { <span class="muted">Placa: {{ checkoutRoom?.activeStay?.vehiclePlate }}</span> }
+        </div>
         @if (d.lateCharge > 0) {
           <div class="co-late"><i class="pi pi-clock"></i> Late check-out: {{ d.lateHours }}h = {{ d.lateCharge | number: '1.2-2' }} (se agrega al adeudo)</div>
         }
@@ -102,14 +117,21 @@ type ViewMode = 'normal' | 'compacta' | 'real';
         <div class="co-kv"><span>Consumos sin pagar</span><strong>{{ d.salesPending | number: '1.2-2' }}</strong></div>
         <div class="co-kv total" [class.debt]="d.totalWithLate > 0"><span>Total pendiente</span><strong>{{ d.totalWithLate | number: '1.2-2' }}</strong></div>
         @if (d.totalWithLate > 0) {
-          <p class="co-warn"><i class="pi pi-exclamation-triangle"></i> El cliente tiene pagos pendientes. Puedes continuar; el adeudo queda registrado.</p>
+          <div class="co-opts">
+            <strong>Opciones:</strong>
+            <p><b>Procesar Pago:</b> abre la caja para registrar el pago.</p>
+            <p><b>Continuar Checkout:</b> el monto pendiente se registra como deuda del cliente.</p>
+          </div>
         }
       } @else {
         <p class="muted">Calculando…</p>
       }
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="checkoutVisible = false" />
-        <p-button label="Continuar Check-out" icon="pi pi-sign-out" [loading]="checkingOut()" (onClick)="doCheckout()" />
+        @if ((checkoutData()?.totalWithLate || 0) > 0) {
+          <p-button label="Procesar Pago" icon="pi pi-wallet" severity="secondary" (onClick)="goProcesarPago()" />
+        }
+        <p-button label="Continuar Checkout" icon="pi pi-sign-out" [loading]="checkingOut()" (onClick)="doCheckout()" />
       </ng-template>
     </p-dialog>
 
@@ -127,6 +149,25 @@ type ViewMode = 'normal' | 'compacta' | 'real';
         <p class="muted">No hay vehículos registrados en estancias activas.</p>
       }
       <ng-template pTemplate="footer"><p-button label="Cerrar" [text]="true" (onClick)="vehiculosVisible = false" /></ng-template>
+    </p-dialog>
+
+    <p-dialog [(visible)]="changeVisible" [modal]="true" [header]="'Cambiar habitación · ' + (changeRoom?.number || '')" [style]="{ width: '26rem' }" styleClass="dk-dialog">
+      <div class="ch-form">
+        <label>Habitación de destino</label>
+        <p-select [options]="freeRooms()" [(ngModel)]="destRoomId" optionValue="id" [filter]="true" filterBy="number" placeholder="Selecciona habitación disponible" styleClass="w">
+          <ng-template let-r pTemplate="item">Hab. {{ r.number }} · {{ r.roomType.name }}</ng-template>
+          <ng-template let-r pTemplate="selectedItem">Hab. {{ r.number }} · {{ r.roomType.name }}</ng-template>
+        </p-select>
+        <label>¿Cómo debe quedar la habitación {{ changeRoom?.number }} (origen)?</label>
+        <div class="ch-opts">
+          <label class="radio"><input type="radio" name="os" value="CLEANING" [(ngModel)]="originStatus" /> Sucia para limpieza</label>
+          <label class="radio"><input type="radio" name="os" value="FREE" [(ngModel)]="originStatus" /> Disponible</label>
+        </div>
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="changeVisible = false" />
+        <p-button label="Confirmar Cambio" icon="pi pi-arrow-right-arrow-left" [disabled]="!destRoomId" [loading]="changing()" (onClick)="doChange()" />
+      </ng-template>
     </p-dialog>
   `,
   styles: [
@@ -173,8 +214,23 @@ type ViewMode = 'normal' | 'compacta' | 'real';
       .cta { width: 100%; background: rgba(255,255,255,0.92); color: #0b1018; border: 0; border-radius: 10px; padding: 0.6rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; justify-content: center; }
       .cta.ghost { background: rgba(0,0,0,0.28); color: #fff; }
       .cta:disabled { opacity: 0.6; cursor: default; }
+      .foot-row { display: flex; gap: 0.4rem; }
+      .foot-row .cta { flex: 1; }
+      .cta.sm { flex: 0 0 auto; width: auto; padding: 0.6rem 0.7rem; }
+      .ch-form { display: flex; flex-direction: column; gap: 0.4rem; }
+      .ch-form label { font-size: 0.82rem; color: #9fb0c3; margin-top: 0.3rem; }
+      :host ::ng-deep .ch-form .w .p-select { width: 100%; }
+      .ch-opts { display: flex; flex-direction: column; gap: 0.4rem; }
+      .ch-opts .radio { display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; cursor: pointer; }
       .empty { grid-column: 1/-1; text-align: center; padding: 2rem; }
       :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1622; color: #e6e9ef; }
+      .co-pend { background: #2a1410; border: 1px solid #7f1d1d; border-radius: 10px; padding: 0.8rem 0.9rem; margin-bottom: 0.8rem; }
+      .co-pend h3 { margin: 0 0 0.3rem; color: #fca5a5; font-size: 1rem; display: flex; align-items: center; gap: 0.4rem; }
+      .co-pend p { margin: 0; font-size: 0.85rem; color: #e6e9ef; } .co-pend .amt { color: #f87171; }
+      .co-guest { display: flex; flex-direction: column; gap: 0.15rem; background: #0e1622; border: 1px solid #1f2a3a; border-radius: 10px; padding: 0.7rem 0.9rem; margin-bottom: 0.7rem; }
+      .co-guest .lbl { font-size: 0.72rem; color: #8b97a8; text-transform: uppercase; letter-spacing: 0.04em; }
+      .co-opts { background: #2a1d12; border: 1px solid #6b4f2a; border-radius: 8px; padding: 0.6rem 0.8rem; margin-top: 0.7rem; font-size: 0.78rem; color: #fcd9a8; }
+      .co-opts p { margin: 0.2rem 0 0; } .co-opts b { color: #fbbf24; }
       .co-late { background: #2a1d12; border: 1px solid #6b4f2a; color: #fbbf24; padding: 0.5rem 0.7rem; border-radius: 8px; font-size: 0.82rem; margin-bottom: 0.6rem; }
       .co-kv { display: flex; justify-content: space-between; padding: 0.35rem 0; font-size: 0.95rem; }
       .co-kv.total { border-top: 1px solid #243245; margin-top: 0.4rem; padding-top: 0.55rem; }
@@ -191,6 +247,7 @@ type ViewMode = 'normal' | 'compacta' | 'real';
 export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   private readonly ops = inject(OperationsApiService);
   private readonly toast = inject(MessageService);
+  private readonly router = inject(Router);
 
   readonly rooms = signal<RoomMapItem[]>([]);
   readonly view = signal<ViewMode>('normal');
@@ -208,6 +265,11 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   checkoutRoom: RoomMapItem | null = null;
   readonly checkoutData = signal<CheckoutSummary | null>(null);
   selectedRoom: RoomMapItem | null = null;
+  changeVisible = false;
+  changeRoom: RoomMapItem | null = null;
+  destRoomId: string | null = null;
+  originStatus: 'CLEANING' | 'FREE' = 'CLEANING';
+  readonly changing = signal(false);
   private timer?: ReturnType<typeof setInterval>;
 
   readonly stateOptions = [
@@ -221,6 +283,7 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     [...new Set(this.rooms().map((r) => r.floor).filter((f): f is string => !!f))].sort(),
   );
   readonly typeOptions = computed(() => [...new Set(this.rooms().map((r) => r.roomType.name))].sort());
+  readonly freeRooms = computed(() => this.rooms().filter((r) => r.status === 'FREE'));
 
   readonly vehiculos = computed(() =>
     this.rooms()
@@ -265,6 +328,37 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
 
   checkInHint(): void {
     this.toast.add({ severity: 'info', summary: 'Check-in', detail: 'Pulsa "Check-in" en una habitación disponible (verde).' });
+  }
+
+  goProcesarPago(): void {
+    this.checkoutVisible = false;
+    void this.router.navigateByUrl('/operations/caja');
+  }
+
+  openChange(r: RoomMapItem): void {
+    if (!r.activeStay) return;
+    this.changeRoom = r;
+    this.destRoomId = null;
+    this.originStatus = 'CLEANING';
+    this.changeVisible = true;
+  }
+
+  doChange(): void {
+    const r = this.changeRoom;
+    if (!r?.activeStay || !this.destRoomId) return;
+    this.changing.set(true);
+    this.ops.changeRoom(r.activeStay.id, this.destRoomId, this.originStatus).subscribe({
+      next: () => {
+        this.changing.set(false);
+        this.changeVisible = false;
+        this.toast.add({ severity: 'success', summary: 'Cambio realizado', detail: `Hab. ${r.number} → cambio de habitación` });
+        this.reload();
+      },
+      error: (err) => {
+        this.changing.set(false);
+        this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo cambiar' });
+      },
+    });
   }
 
   confirmCheckout(r: RoomMapItem): void {

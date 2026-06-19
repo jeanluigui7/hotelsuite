@@ -32,5 +32,12 @@ export const checkOutSchema = z.object({
   roomStatus: z.enum(['CLEANING', 'FREE']).default('CLEANING'),
 });
 
+export const changeRoomSchema = z.object({
+  destRoomId: z.string().min(1),
+  // Cómo debe quedar la habitación de origen: sucia para limpieza o disponible.
+  originStatus: z.enum(['CLEANING', 'FREE']).default('CLEANING'),
+});
+
 export type CheckInDto = z.infer<typeof checkInSchema>;
 export type CheckOutDto = z.infer<typeof checkOutSchema>;
+export type ChangeRoomDto = z.infer<typeof changeRoomSchema>;

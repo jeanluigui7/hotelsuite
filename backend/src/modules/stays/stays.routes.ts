@@ -14,3 +14,4 @@ staysRouter.get('/stays/:id', requirePermission('operations', 'view'), asyncHand
 staysRouter.get('/stays/:id/checkout-summary', requirePermission('operations', 'view'), asyncHandler(staysController.checkoutSummary));
 staysRouter.post('/stays/check-in', requirePermission('operations', 'create'), asyncHandler(staysController.checkIn));
 staysRouter.post('/stays/:id/check-out', requirePermission('operations', 'edit'), asyncHandler(staysController.checkOut));
+staysRouter.post('/stays/:id/change-room', requirePermission('operations', 'edit'), asyncHandler(staysController.changeRoom));

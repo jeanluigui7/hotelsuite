@@ -12,7 +12,7 @@ import { prisma } from '../../config/prisma';
 import { guestsRepository } from '../guests/guests.repository';
 import { pernoctaService } from '../pernocta/pernocta.service';
 import { staysRepository, type StayWithRelations } from './stays.repository';
-import type { CheckInDto, CheckOutDto } from './stays.schema';
+import type { ChangeRoomDto, CheckInDto, CheckOutDto } from './stays.schema';
 
 const SORTABLE = ['checkInAt', 'plannedCheckoutAt', 'status'] as const;
 
@@ -189,6 +189,20 @@ export const staysService = {
       }
     }
     const result = await staysRepository.checkOut(id, stay.roomId, dto.roomStatus);
+    return serialize(result as StayWithRelations);
+  },
+
+  /** Cambia de habitación a una estancia activa y deja la de origen sucia o libre. */
+  async changeRoom(scope: RequestScope, id: string, dto: ChangeRoomDto) {
+    const branchId = requireActiveBranch(scope);
+    const stay = await staysRepository.findById(id);
+    if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
+    if (stay.status !== 'OPEN') throw new ConflictError('La estancia ya está cerrada');
+    if (dto.destRoomId === stay.roomId) throw new ValidationError('La habitación de destino es la misma');
+    const dest = await prisma.room.findUnique({ where: { id: dto.destRoomId } });
+    if (!dest || dest.branchId !== branchId) throw new NotFoundError('Habitación de destino no encontrada');
+    if (dest.status !== 'FREE') throw new ConflictError('La habitación de destino no está disponible');
+    const result = await staysRepository.changeRoom(id, stay.roomId, dto.destRoomId, dto.originStatus);
     return serialize(result as StayWithRelations);
   },
 

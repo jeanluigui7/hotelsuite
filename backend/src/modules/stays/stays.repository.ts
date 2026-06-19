@@ -88,4 +88,14 @@ export const staysRepository = {
       return tx.stay.findUnique({ where: { id: stayId }, include: stayInclude });
     });
   },
+
+  /** Atomic room change: move the stay to a new room and set the origin room status. */
+  changeRoom(stayId: string, originRoomId: string, destRoomId: string, originStatus: string) {
+    return prisma.$transaction(async (tx) => {
+      await tx.stay.update({ where: { id: stayId }, data: { roomId: destRoomId } });
+      await tx.room.update({ where: { id: destRoomId }, data: { status: 'OCCUPIED' } });
+      await tx.room.update({ where: { id: originRoomId }, data: { status: originStatus } });
+      return tx.stay.findUnique({ where: { id: stayId }, include: stayInclude });
+    });
+  },
 };
