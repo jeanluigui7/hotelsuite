@@ -7,6 +7,7 @@ import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { PasswordModule } from 'primeng/password';
 import { SelectModule } from 'primeng/select';
+import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
 
 @Component({
@@ -14,309 +15,194 @@ import { AuthService } from '../../../core/auth/auth.service';
   standalone: true,
   imports: [FormsModule, ButtonModule, InputTextModule, PasswordModule, SelectModule],
   template: `
-    <div class="login-page">
-      <!-- Panel de marca (hero) -->
-      <aside class="hero">
-        <div class="hero-content">
-          <div class="brand">
-            <i class="pi pi-bookmark-fill"></i>
-            <span>HotelSuite</span>
-          </div>
-          <h1>Gestión hotelera, simple y bajo control.</h1>
-          <p class="tagline">Recepción, ventas, inventario y reportes — todo en un solo lugar, multi-sucursal.</p>
-          <ul class="features">
-            <li><i class="pi pi-building"></i> Recepción y habitaciones en tiempo real</li>
-            <li><i class="pi pi-wallet"></i> Caja, ventas y comprobantes</li>
-            <li><i class="pi pi-chart-bar"></i> Inventario, logística y reportes</li>
-          </ul>
+    <div class="login-bg">
+      <!-- destellos decorativos -->
+      <span class="dot d1"></span><span class="dot d2"></span><span class="dot d3"></span>
+      <span class="dot d4"></span><span class="dot d5"></span><span class="dot d6"></span>
+
+      <div class="login-card">
+        <div class="brand">
+          <div class="logo"><i class="pi pi-bookmark-fill"></i></div>
+          <h1>HotelSuite</h1>
+          <p class="subtitle">Acceso Staff</p>
         </div>
-        <div class="hero-foot">© {{ year }} HotelSuite</div>
-      </aside>
 
-      <!-- Panel del formulario -->
-      <main class="panel">
-        <div class="login-card">
-          <div class="brand brand-mobile">
-            <i class="pi pi-bookmark-fill"></i>
-            <span>HotelSuite</span>
-          </div>
+        @if (step() === 'credentials') {
+          <!-- Huella digital (pendiente) -->
+          <button type="button" class="fingerprint" (click)="fingerprintPending()">
+            <i class="pi pi-cloud"></i> Usar huella digital
+          </button>
 
-          @if (step() === 'credentials') {
-            <h2>Bienvenido de nuevo</h2>
-            <p class="muted">Ingresa tus credenciales para continuar.</p>
+          <form (ngSubmit)="submit()">
+            <label for="email"><i class="pi pi-envelope"></i> Correo electrónico</label>
+            <input
+              pInputText
+              id="email"
+              name="email"
+              type="email"
+              placeholder="tucorreo@hotel.com"
+              [(ngModel)]="email"
+              autocomplete="username"
+              required
+            />
 
-            <form (ngSubmit)="submit()">
-              <label for="email">Correo</label>
-              <span class="field-icon">
-                <i class="pi pi-envelope"></i>
-                <input
-                  pInputText
-                  id="email"
-                  name="email"
-                  type="email"
-                  placeholder="tucorreo@hotel.com"
-                  [(ngModel)]="email"
-                  autocomplete="username"
-                  required
-                />
-              </span>
-
-              <label for="password">Contraseña</label>
-              <p-password
-                inputId="password"
-                name="password"
-                [(ngModel)]="password"
-                [feedback]="false"
-                [toggleMask]="true"
-                placeholder="••••••••"
-                styleClass="w-full"
-                [inputStyle]="{ width: '100%' }"
-                autocomplete="current-password"
-              />
-
-              @if (error()) {
-                <div class="error"><i class="pi pi-exclamation-circle"></i> {{ error() }}</div>
-              }
-
-              <p-button
-                type="submit"
-                label="Entrar"
-                icon="pi pi-sign-in"
-                [loading]="loading()"
-                styleClass="w-full submit"
-              />
-            </form>
-          } @else {
-            <h2>Selecciona la sucursal</h2>
-            <p class="muted">Tienes acceso a varias sucursales. Elige con cuál operar.</p>
-
-            <label for="branch">Sucursal</label>
-            <p-select
-              inputId="branch"
-              [options]="auth.branches()"
-              optionLabel="name"
-              optionValue="id"
-              [(ngModel)]="selectedBranchId"
-              placeholder="Seleccionar"
+            <div class="label-row">
+              <label for="password"><i class="pi pi-lock"></i> Contraseña</label>
+              <a class="forgot" (click)="forgotPending()">¿Olvidó su contraseña?</a>
+            </div>
+            <p-password
+              inputId="password"
+              name="password"
+              [(ngModel)]="password"
+              [feedback]="false"
+              [toggleMask]="true"
+              placeholder="••••••••"
               styleClass="w-full"
+              [inputStyle]="{ width: '100%' }"
+              autocomplete="current-password"
             />
 
-            <p-button
-              label="Continuar"
-              icon="pi pi-arrow-right"
-              iconPos="right"
-              [disabled]="!selectedBranchId"
-              (onClick)="confirmBranch()"
-              styleClass="w-full submit"
-            />
-          }
-        </div>
-      </main>
+            @if (error()) {
+              <div class="error"><i class="pi pi-exclamation-circle"></i> {{ error() }}</div>
+            }
+
+            <p-button type="submit" label="Iniciar sesión" [loading]="loading()" styleClass="submit" />
+          </form>
+        } @else {
+          <h2 class="branch-title">Selecciona la sucursal</h2>
+          <p class="muted">Tienes acceso a varias sucursales. Elige con cuál operar.</p>
+          <label for="branch">Sucursal</label>
+          <p-select
+            inputId="branch"
+            [options]="auth.branches()"
+            optionLabel="name"
+            optionValue="id"
+            [(ngModel)]="selectedBranchId"
+            placeholder="Seleccionar"
+            styleClass="w-full"
+          />
+          <p-button
+            label="Continuar"
+            icon="pi pi-arrow-right"
+            iconPos="right"
+            [disabled]="!selectedBranchId"
+            (onClick)="confirmBranch()"
+            styleClass="submit"
+          />
+        }
+      </div>
     </div>
   `,
   styles: [
     `
-      .login-page {
+      :host { display: block; }
+      .login-bg {
         min-height: 100vh;
-        display: flex;
-        background: #f1f5f9;
-      }
-
-      /* ── Hero (panel izquierdo) ── */
-      .hero {
-        position: relative;
-        flex: 1 1 46%;
-        max-width: 560px;
-        background: linear-gradient(150deg, #0f766e 0%, #10b981 55%, #34d399 100%);
-        color: #fff;
-        padding: 3rem;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-        overflow: hidden;
-      }
-      .hero::after {
-        content: '';
-        position: absolute;
-        right: -120px;
-        bottom: -120px;
-        width: 380px;
-        height: 380px;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.08);
-      }
-      .hero-content {
-        position: relative;
-        z-index: 1;
-        max-width: 420px;
-        margin-top: 2rem;
-      }
-      .hero h1 {
-        font-size: 2.1rem;
-        line-height: 1.2;
-        margin: 2rem 0 1rem;
-        font-weight: 700;
-      }
-      .hero .tagline {
-        font-size: 1.05rem;
-        opacity: 0.9;
-        margin: 0 0 2rem;
-      }
-      .features {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 0.85rem;
-      }
-      .features li {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        font-size: 0.98rem;
-      }
-      .features i {
-        background: rgba(255, 255, 255, 0.18);
-        width: 2.1rem;
-        height: 2.1rem;
-        border-radius: 8px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-      }
-      .hero-foot {
-        position: relative;
-        z-index: 1;
-        font-size: 0.8rem;
-        opacity: 0.8;
-      }
-
-      /* ── Panel del formulario (derecha) ── */
-      .panel {
-        flex: 1;
         display: flex;
         align-items: center;
         justify-content: center;
         padding: 1.5rem;
-      }
-      .login-card {
-        width: 100%;
-        max-width: 400px;
-        background: #ffffff;
-        border: 1px solid #e5e7eb;
-        border-radius: 16px;
-        box-shadow: 0 10px 30px rgba(2, 6, 23, 0.06);
-        padding: 2.5rem;
-      }
-      .brand {
-        display: flex;
-        align-items: center;
-        gap: 0.6rem;
-        font-size: 1.4rem;
-        font-weight: 700;
-      }
-      .hero .brand {
-        color: #fff;
-      }
-      .brand-mobile {
-        display: none;
-        color: var(--p-primary-color, #10b981);
-        margin-bottom: 1.5rem;
-      }
-      h2 {
-        margin: 0 0 0.35rem;
-        font-size: 1.5rem;
-        color: #0f172a;
-      }
-      .muted {
-        margin: 0 0 1.75rem;
-        color: #64748b;
-        font-size: 0.92rem;
-      }
-      label {
-        display: block;
-        margin: 1rem 0 0.4rem;
-        font-size: 0.85rem;
-        font-weight: 600;
-        color: #334155;
-      }
-      input[pInputText] {
-        width: 100%;
-      }
-      /* El campo de contraseña ocupa todo el ancho y deja aire debajo */
-      :host ::ng-deep p-password,
-      :host ::ng-deep .p-password {
-        display: block;
-        width: 100%;
-      }
-      :host ::ng-deep .p-password input {
-        width: 100%;
-      }
-      /* El botón siempre separado de los campos */
-      form ::ng-deep p-button {
-        display: block;
-        margin-top: 1.75rem;
-      }
-      form ::ng-deep p-button .p-button {
-        width: 100%;
-        justify-content: center;
-      }
-      /* input con icono a la izquierda */
-      .field-icon {
         position: relative;
-        display: block;
+        overflow: hidden;
+        background:
+          radial-gradient(900px circle at 75% 18%, rgba(236, 72, 153, 0.22), transparent 45%),
+          radial-gradient(700px circle at 20% 90%, rgba(190, 24, 93, 0.18), transparent 45%),
+          linear-gradient(160deg, #1c0f1a 0%, #120a14 55%, #0c0710 100%);
       }
-      .field-icon i {
-        position: absolute;
-        left: 0.85rem;
-        top: 50%;
-        transform: translateY(-50%);
-        color: #94a3b8;
-        font-size: 0.9rem;
-      }
-      .field-icon input[pInputText] {
-        padding-left: 2.4rem;
-      }
-      .error {
-        margin-top: 1rem;
-        padding: 0.65rem 0.85rem;
-        border-radius: 8px;
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #b91c1c;
-        font-size: 0.85rem;
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-      }
-      .submit {
-        margin-top: 1.75rem;
-      }
-      :host ::ng-deep .w-full {
+      /* destellos */
+      .dot { position: absolute; width: 4px; height: 4px; border-radius: 50%; background: #ec4899; opacity: 0.5; box-shadow: 0 0 8px #ec4899; }
+      .d1 { top: 12%; left: 18%; } .d2 { top: 24%; right: 14%; width: 3px; height: 3px; }
+      .d3 { bottom: 18%; left: 24%; } .d4 { bottom: 30%; right: 20%; width: 5px; height: 5px; opacity: 0.35; }
+      .d5 { top: 60%; left: 10%; width: 3px; height: 3px; } .d6 { top: 40%; right: 30%; opacity: 0.3; }
+
+      .login-card {
+        position: relative;
+        z-index: 1;
         width: 100%;
-      }
-      :host ::ng-deep .submit .p-button {
-        width: 100%;
-        justify-content: center;
+        max-width: 440px;
+        padding: 2rem 1.5rem;
+        text-align: center;
       }
 
-      @media (max-width: 880px) {
-        .hero {
-          display: none;
-        }
-        .brand-mobile {
-          display: flex;
-        }
+      .brand { margin-bottom: 1.75rem; }
+      .logo {
+        width: 56px; height: 56px; margin: 0 auto 0.85rem;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #f43f8e, #be185d);
+        display: flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 1.5rem;
+        box-shadow: 0 8px 24px rgba(236, 72, 153, 0.45);
       }
+      .brand h1 { margin: 0; font-size: 1.9rem; font-weight: 700; color: #ec4899; letter-spacing: 0.01em; }
+      .subtitle { margin: 0.25rem 0 0; font-size: 1.05rem; font-weight: 700; color: #f5f5f7; }
+
+      /* Botón huella (pendiente) */
+      .fingerprint {
+        display: inline-flex; align-items: center; gap: 0.5rem;
+        background: transparent; color: #f472b6;
+        border: 1px solid #9d3b66; border-radius: 999px;
+        padding: 0.6rem 1.4rem; font-size: 0.92rem; cursor: pointer;
+        margin: 0 auto 1.75rem;
+        transition: all 0.15s;
+      }
+      .fingerprint:hover { background: rgba(236, 72, 153, 0.12); border-color: #ec4899; }
+
+      form { text-align: left; }
+      label {
+        display: inline-flex; align-items: center; gap: 0.45rem;
+        margin: 0 0 0.5rem; font-size: 0.9rem; font-weight: 600; color: #f06ba8;
+      }
+      label i { font-size: 0.85rem; }
+      .label-row { display: flex; align-items: center; justify-content: space-between; margin-top: 1.1rem; }
+      .label-row label { margin-bottom: 0.5rem; }
+      .forgot { color: #ec4899; font-size: 0.82rem; cursor: pointer; }
+      .forgot:hover { text-decoration: underline; }
+
+      /* Inputs blancos redondeados */
+      input[pInputText] {
+        width: 100%;
+        background: #fbeef4;
+        border: 0;
+        border-radius: 10px;
+        padding: 0.9rem 1rem;
+        color: #1f2937;
+        font-size: 0.98rem;
+      }
+      input[pInputText]::placeholder { color: #b08; opacity: 0.4; }
+      :host ::ng-deep .p-password { display: block; width: 100%; }
+      :host ::ng-deep .p-password input {
+        width: 100%; background: #fbeef4; border: 0; border-radius: 10px;
+        padding: 0.9rem 2.6rem 0.9rem 1rem; color: #1f2937; font-size: 0.98rem;
+      }
+      :host ::ng-deep .p-password .p-icon,
+      :host ::ng-deep .p-password .p-password-toggle-mask-icon { color: #be185d; right: 1rem; }
+
+      .error {
+        margin-top: 1rem; padding: 0.65rem 0.85rem; border-radius: 8px;
+        background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4);
+        color: #fca5a5; font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem;
+      }
+
+      :host ::ng-deep .submit { display: block; margin-top: 1.75rem; }
+      :host ::ng-deep .submit .p-button {
+        width: 100%; justify-content: center;
+        background: linear-gradient(135deg, #f43f8e, #d6246e);
+        border: 0; border-radius: 12px; padding: 0.95rem; font-size: 1.02rem; font-weight: 600;
+        box-shadow: 0 10px 24px rgba(236, 72, 153, 0.4);
+      }
+      :host ::ng-deep .submit .p-button:enabled:hover { background: linear-gradient(135deg, #ec2d80, #be185d); }
+
+      .branch-title { color: #f5f5f7; margin: 0 0 0.35rem; font-size: 1.3rem; }
+      .muted { color: #b9a3b0; margin: 0 0 1.25rem; font-size: 0.9rem; }
+      :host ::ng-deep .w-full { width: 100%; }
     `,
   ],
 })
 export class LoginComponent {
   readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly toast = inject(MessageService);
 
-  readonly year = new Date().getFullYear();
   email = '';
   password = '';
   selectedBranchId: string | null = null;
@@ -324,6 +210,22 @@ export class LoginComponent {
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
   readonly step = signal<'credentials' | 'branch'>('credentials');
+
+  fingerprintPending(): void {
+    this.toast.add({
+      severity: 'info',
+      summary: 'Huella digital',
+      detail: 'El acceso por huella digital estará disponible próximamente.',
+    });
+  }
+
+  forgotPending(): void {
+    this.toast.add({
+      severity: 'info',
+      summary: 'Recuperar contraseña',
+      detail: 'Contacta al administrador para restablecer tu contraseña.',
+    });
+  }
 
   submit(): void {
     if (!this.email || !this.password) {

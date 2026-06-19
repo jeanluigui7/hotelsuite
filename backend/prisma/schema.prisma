@@ -65,6 +65,14 @@ model Branch {
   messageLogs      MessageLog[]
   reminders        Reminder[]
   wifiCredentials  WifiCredential[]
+  linenItems       LinenItem[]
+  linenStocks      LinenStock[]
+  linenMovements   LinenMovement[]
+  cleaningShifts   CleaningShift[]
+  roomSupplies     RoomSupply[]
+  productRequests  ProductRequest[]
+  stockWriteOffs   StockWriteOff[]
+  printJobs        PrintJob[]
 
   @@index([status])
 }
@@ -353,7 +361,8 @@ model InventoryCategory {
 model Item {
   id          String   @id @default(uuid())
   branchId    String
-  kind        String // CHECKIN | RATE | SERVICE_PENALTY | MAINTENANCE
+  kind        String // CHECKIN | RATE | SERVICE_PENALTY | MAINTENANCE | SERVICE
+  subcategory String? // agrupación para Servicios y Penalidades
   name        String
   description String?
   price       Decimal? @db.Decimal(10, 2)
@@ -395,7 +404,11 @@ model Room {
   roomTypeId String
   number     String
   floor      String?
-  status     String   @default("FREE") // FREE | OCCUPIED | CLEANING | MAINTENANCE
+  // Estados RIZZOS: DISPONIBLE | RESERVADA | OCUPADA | LIMPIEZA_SOLICITADA |
+  // LIMPIEZA_EN_ESPERA | LIMPIEZA_EN_CURSO | REQUIERE_REPASO | MANTENIMIENTO
+  // (se mantienen FREE/OCCUPIED/CLEANING/MAINTENANCE por compatibilidad)
+  status     String   @default("FREE")
+  blocked    Boolean  @default(false) // habitación crítica bloqueada hasta resolver mantenimiento
   notes      String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -429,6 +442,8 @@ model Stay {
   priceAgreed       Decimal   @db.Decimal(10, 2)
   adults            Int       @default(1)
   children          Int       @default(0)
+  vehiclePlate      String? // placa del vehículo (búsqueda por placa)
+  balanceDue        Decimal?  @db.Decimal(10, 2) // adeudo / saldo pendiente
   notes             String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -818,6 +833,7 @@ model HousekeepingTask {
 
   branch      Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
   inspections TaskInspection[]
+  linenInspections LinenInspection[]
 
   @@index([branchId])
   @@index([roomId])
@@ -1130,4 +1146,179 @@ model WifiCredential {
   branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@index([branchId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RIZZOS — FASE R1: ropa/limpieza, turnos, servicios, inventario recepción
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Catálogo de ropa/amenities de limpieza (toallas, sábanas, edredones, amenities) con variante.
+model LinenItem {
+  id        String   @id @default(uuid())
+  branchId  String
+  type      String // TOALLA | SABANA | EDREDON | AMENITY
+  name      String // p.ej. "VERDE MARGARITA", "INCAICA ROJA"
+  color     String?
+  reusable  Boolean  @default(true) // edredones van a lavandería pero NO se reponen automáticamente
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branch      Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  stocks      LinenStock[]
+  movements   LinenMovement[]
+  inspections LinenInspection[]
+
+  @@index([branchId])
+  @@index([type])
+}
+
+/// Stock de ropa por piso, con remanente (REM) y suministrado (SUM).
+model LinenStock {
+  id          String   @id @default(uuid())
+  branchId    String
+  linenItemId String
+  floor       String // "1","2","3" o "SIN PISO" para áreas
+  rem         Int      @default(0)
+  sum         Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  branch    Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  linenItem LinenItem @relation(fields: [linenItemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([linenItemId, floor])
+  @@index([branchId])
+}
+
+/// Movimientos de ropa: transferencia (admin→piso), suministro, lavandería, recojo, ajuste.
+model LinenMovement {
+  id              String   @id @default(uuid())
+  branchId        String
+  linenItemId     String
+  type            String // TRANSFER | SUPPLY | LAUNDRY | PICKUP | ADJUST
+  quantity        Int // con signo
+  floor           String?
+  roomId          String?
+  areaFrom        String?
+  areaTo          String?
+  reference       String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  branch    Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  linenItem LinenItem @relation(fields: [linenItemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([branchId])
+  @@index([linenItemId])
+}
+
+/// Turno del personal de limpieza (con reglas de cierre).
+model CleaningShift {
+  id          String    @id @default(uuid())
+  branchId    String
+  userId      String
+  shiftType   String // MANANA | TARDE
+  status      String    @default("OPEN") // OPEN | CLOSED
+  laundrySent Boolean   @default(false)
+  openedAt    DateTime  @default(now())
+  closedAt    DateTime?
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+  @@index([userId])
+}
+
+/// Inspección de prendas dentro de una tarea de limpieza (recoger ropa/amenities).
+model LinenInspection {
+  id          String  @id @default(uuid())
+  taskId      String
+  linenItemId String?
+  description String // nombre del item mostrado
+  state       String  @default("OK") // OK | ROBADA | DETERIORADA
+  pickup      Boolean @default(false)
+  note        String?
+
+  task      HousekeepingTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  linenItem LinenItem?       @relation(fields: [linenItemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([taskId])
+}
+
+/// Suministro pendiente de entrega a una habitación (servicios y penalidades).
+model RoomSupply {
+  id              String    @id @default(uuid())
+  branchId        String
+  roomId          String
+  stayId          String?
+  description     String
+  quantity        Int       @default(1)
+  status          String    @default("PENDING") // PENDING | DELIVERED
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  deliveredAt     DateTime?
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+  @@index([roomId])
+  @@index([status])
+}
+
+/// Solicitud de productos de Recepción al Almacén (admin).
+model ProductRequest {
+  id              String   @id @default(uuid())
+  branchId        String
+  status          String   @default("REQUESTED") // REQUESTED | SENT | RECEIVED
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  branch Branch               @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  items  ProductRequestItem[]
+
+  @@index([branchId])
+  @@index([status])
+}
+
+model ProductRequestItem {
+  id        String @id @default(uuid())
+  requestId String
+  productId String
+  quantity  Int
+
+  request ProductRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+}
+
+/// Baja de stock de recepción (dar de baja).
+model StockWriteOff {
+  id              String   @id @default(uuid())
+  branchId        String
+  productId       String
+  quantity        Int
+  reason          String
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+}
+
+/// Cola de impresión (despachos/tickets).
+model PrintJob {
+  id        String   @id @default(uuid())
+  branchId  String
+  type      String // DESPACHO | TICKET | RECEPCION
+  title     String
+  payload   String? // JSON serializado
+  status    String   @default("PENDING") // PENDING | PRINTED
+  createdAt DateTime @default(now())
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+  @@index([status])
 }
