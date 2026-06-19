@@ -35,4 +35,8 @@ export const receptionInventoryController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await receptionInventoryService.printQueue(req.scope)));
   },
+  async markPrinted(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await receptionInventoryService.markPrinted(req.scope, req.params.id)));
+  },
 };

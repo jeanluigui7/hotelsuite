@@ -10,10 +10,11 @@ import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
+import { PrintingService } from '../../../core/printing/printing.service';
 
 interface InvItem { productId: string; name: string; sku?: string | null; stock: number; min: number; ingresos: number; salidas: number; belowMin: boolean; }
 interface Req { id: string; status: string; createdAt: string; items: { productId: string; name: string; quantity: number }[]; }
-interface PrintJob { id: string; type: string; title: string; status: string; createdAt: string; }
+interface PrintJob { id: string; type: string; title: string; status: string; createdAt: string; payload?: string | null; }
 
 @Component({
   selector: 'app-inventario-recepcion',
@@ -50,7 +51,12 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       <h3 class="sec">Cola de impresión</h3>
       <div class="queue">
         @for (j of queue(); track j.id) {
-          <div class="job"><span class="jt">{{ j.title }}</span><span class="muted">{{ j.createdAt | date: 'dd/MM HH:mm' }}</span><p-tag [value]="j.status === 'PENDING' ? 'Pendiente' : 'Impreso'" [severity]="j.status === 'PENDING' ? 'warn' : 'secondary'" /></div>
+          <div class="job">
+            <span class="jt">{{ j.title }}</span>
+            <span class="muted">{{ j.createdAt | date: 'dd/MM HH:mm' }}</span>
+            <p-tag [value]="j.status === 'PENDING' ? 'Pendiente' : 'Impreso'" [severity]="j.status === 'PENDING' ? 'warn' : 'secondary'" />
+            <p-button label="Imprimir" icon="pi pi-print" size="small" [text]="true" (onClick)="print(j)" />
+          </div>
         } @empty { <p class="muted">Sin impresiones en cola.</p> }
       </div>
     </section>
@@ -128,6 +134,7 @@ export class InventarioRecepcionComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly api = environment.apiUrl;
   private readonly toast = inject(MessageService);
+  private readonly printing = inject(PrintingService);
 
   readonly items = signal<InvItem[]>([]);
   readonly requests = signal<Req[]>([]);
@@ -183,6 +190,48 @@ export class InventarioRecepcionComponent implements OnInit {
       });
     };
     next(0);
+  }
+
+  /** Construye el comprobante e intenta imprimir por QZ; si no está, abre la vista previa del navegador. */
+  async print(j: PrintJob): Promise<void> {
+    const html = this.buildReceipt(j);
+    try {
+      await this.printing.printHtml(html); // QZ Tray (impresión directa)
+      this.toast.add({ severity: 'success', summary: 'Impresión', detail: 'Enviado a QZ Tray.' });
+    } catch {
+      // QZ no disponible → vista previa del navegador (el usuario elige impresora).
+      this.printing.printViaBrowser(html);
+    }
+    this.http.post<ApiResponse<unknown>>(`${this.api}/reception-inventory/print-queue/${j.id}/printed`, {}).subscribe({
+      next: () => this.reload(),
+      error: () => undefined,
+    });
+  }
+
+  private buildReceipt(j: PrintJob): string {
+    let rows = '';
+    try {
+      const items = JSON.parse(j.payload ?? '[]') as { name?: string; productId?: string; quantity: number }[];
+      rows = items
+        .map((i) => `<tr><td>${i.name ?? i.productId ?? 'Ítem'}</td><td style="text-align:right">${i.quantity}</td></tr>`)
+        .join('');
+    } catch {
+      rows = '';
+    }
+    const now = new Date().toLocaleString('es-PE');
+    return `
+      <div style="font-family: 'Courier New', monospace; width: 280px; color: #000;">
+        <h3 style="text-align:center; margin:0 0 4px;">RIZZOS</h3>
+        <div style="text-align:center; font-size:12px; margin-bottom:8px;">${j.title}</div>
+        <div style="font-size:11px;">Fecha: ${now}</div>
+        <hr />
+        <table style="width:100%; font-size:12px; border-collapse:collapse;">
+          <thead><tr><th style="text-align:left">Producto</th><th style="text-align:right">Cant.</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="2">Sin detalle</td></tr>'}</tbody>
+        </table>
+        <hr />
+        <div style="text-align:center; font-size:11px;">Comprobante interno de recepción</div>
+      </div>`;
   }
 
   receive(id: string): void {

@@ -110,6 +110,13 @@ export const receptionInventoryService = {
     if (!req || req.branchId !== branchId) throw new ValidationError('Solicitud no encontrada');
     if (req.status !== 'SENT') throw new ValidationError('La solicitud no está lista para recepcionar');
 
+    // Nombres para el comprobante de impresión (el payload debe ser legible, no GUIDs).
+    const names = new Map(
+      (await prisma.product.findMany({ where: { id: { in: req.items.map((i) => i.productId) } }, select: { id: true, name: true } }))
+        .map((p) => [p.id, p.name] as const),
+    );
+    const printItems = req.items.map((it) => ({ productId: it.productId, name: names.get(it.productId) ?? it.productId, quantity: it.quantity }));
+
     await prisma.$transaction(async (tx) => {
       for (const it of req.items) {
         await tx.stock.upsert({
@@ -123,7 +130,7 @@ export const receptionInventoryService = {
       }
       await tx.productRequest.update({ where: { id }, data: { status: 'RECEIVED' } });
       await tx.printJob.create({
-        data: { branchId, type: 'RECEPCION', title: `Recepción de productos (${req.items.length} ítems)`, payload: JSON.stringify(req.items), status: 'PENDING' },
+        data: { branchId, type: 'RECEPCION', title: `Recepción de productos (${req.items.length} ítems)`, payload: JSON.stringify(printItems), status: 'PENDING' },
       });
     });
     return { received: req.items.length };
@@ -146,5 +153,13 @@ export const receptionInventoryService = {
   async printQueue(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);
     return prisma.printJob.findMany({ where: { branchId }, orderBy: { createdAt: 'desc' }, take: 50 });
+  },
+
+  /** Marca un trabajo de impresión como impreso (tras enviarlo a QZ/navegador). */
+  async markPrinted(scope: RequestScope, id: string) {
+    const branchId = requireActiveBranch(scope);
+    const job = await prisma.printJob.findUnique({ where: { id } });
+    if (!job || job.branchId !== branchId) throw new ValidationError('Trabajo de impresión no encontrado');
+    return prisma.printJob.update({ where: { id }, data: { status: 'PRINTED' } });
   },
 };
