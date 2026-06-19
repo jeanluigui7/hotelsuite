@@ -4,8 +4,10 @@ import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
+import { ButtonModule } from 'primeng/button';
 import { FinanceApiService } from '../../finance/services/finance-api.service';
 import type { CashSession, SessionReport } from '../../finance/services/finance.models';
+import { printPdf } from '../../../core/utils/export';
 
 const METHOD_LABEL: Record<string, string> = {
   CASH: 'Efectivo',
@@ -17,7 +19,7 @@ const METHOD_LABEL: Record<string, string> = {
 @Component({
   selector: 'app-turn-report',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, SelectModule, TableModule, TagModule],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, TableModule, TagModule],
   template: `
     <section>
       <header class="head">
@@ -25,11 +27,14 @@ const METHOD_LABEL: Record<string, string> = {
           <h1>Cuadro de Turno</h1>
           <p class="muted">Resumen de cierre de caja por turno.</p>
         </div>
-        <p-select [options]="sessions()" [(ngModel)]="selectedId" optionValue="id" (onChange)="loadReport()"
-                  placeholder="Seleccionar turno" styleClass="sel">
-          <ng-template let-s pTemplate="item">{{ s.openedAt | date: 'dd/MM/yy HH:mm' }} · {{ s.status === 'OPEN' ? 'Abierto' : 'Cerrado' }}</ng-template>
-          <ng-template let-s pTemplate="selectedItem">{{ s.openedAt | date: 'dd/MM/yy HH:mm' }}</ng-template>
-        </p-select>
+        <div class="head-actions">
+          <p-select [options]="sessions()" [(ngModel)]="selectedId" optionValue="id" (onChange)="loadReport()"
+                    placeholder="Seleccionar turno" styleClass="sel">
+            <ng-template let-s pTemplate="item">{{ s.openedAt | date: 'dd/MM/yy HH:mm' }} · {{ s.status === 'OPEN' ? 'Abierto' : 'Cerrado' }}</ng-template>
+            <ng-template let-s pTemplate="selectedItem">{{ s.openedAt | date: 'dd/MM/yy HH:mm' }}</ng-template>
+          </p-select>
+          <p-button label="Exportar PDF" icon="pi pi-file-pdf" severity="secondary" [disabled]="!report()" (onClick)="exportPdf()" />
+        </div>
       </header>
 
       @if (report(); as r) {
@@ -94,6 +99,7 @@ const METHOD_LABEL: Record<string, string> = {
       h3 { margin: 0 0 0.6rem; font-size: 1rem; }
       h3.section { margin: 1.5rem 0 0.6rem; }
       .head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 1.25rem; }
+      .head-actions { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
       .muted { color: var(--p-text-muted-color, #a1a1aa); }
       .center { text-align: center; }
       :host ::ng-deep .sel { width: 240px; }
@@ -133,5 +139,32 @@ export class TurnReportComponent implements OnInit {
   loadReport(): void {
     if (!this.selectedId) return;
     this.finance.sessionReport(this.selectedId).subscribe((res) => this.report.set(res.data));
+  }
+
+  exportPdf(): void {
+    const r = this.report();
+    if (!r) return;
+    const n = (v: string | number | null | undefined): string => (Number(v ?? 0) || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const methods = this.methodEntries(r)
+      .map((m) => `<tr><td>${this.label(m.key)}</td><td class="num">${n(m.value)}</td></tr>`)
+      .join('');
+    const items = r.byItem
+      .map((it) => `<tr><td>${it.description}</td><td class="num">${it.quantity}</td><td class="num">${n(it.total)}</td></tr>`)
+      .join('');
+    const moves = r.movements
+      .map((m) => `<tr><td>${m.type === 'IN' ? 'Ingreso' : 'Egreso'}</td><td>${m.concept}</td><td class="num">${n(m.amount)}</td></tr>`)
+      .join('');
+    const body = `
+      <div class="cards">
+        <div class="kpi"><div class="l">Ventas</div><div class="v">${r.summary.salesCount}</div></div>
+        <div class="kpi"><div class="l">Total cobrado</div><div class="v">${n(r.summary.totalCollected)}</div></div>
+        <div class="kpi"><div class="l">Efectivo esperado</div><div class="v">${n(r.summary.expectedCash)}</div></div>
+        <div class="kpi"><div class="l">Contado</div><div class="v">${r.countedAmount != null ? n(r.countedAmount) : '—'}</div></div>
+        <div class="kpi"><div class="l">Diferencia</div><div class="v">${r.difference != null ? n(r.difference) : '—'}</div></div>
+      </div>
+      <h2>Cobros por método</h2><table><tbody>${methods || '<tr><td>Sin cobros</td></tr>'}</tbody></table>
+      <h2>Ventas por artículo</h2><table><thead><tr><th>Artículo</th><th class="num">Cant.</th><th class="num">Total</th></tr></thead><tbody>${items || '<tr><td colspan="3">Sin ventas</td></tr>'}</tbody></table>
+      <h2>Movimientos</h2><table><thead><tr><th>Tipo</th><th>Concepto</th><th class="num">Monto</th></tr></thead><tbody>${moves || '<tr><td colspan="3">Sin movimientos</td></tr>'}</tbody></table>`;
+    printPdf('Cuadro de Turno · RIZZOS', body);
   }
 }

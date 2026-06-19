@@ -6,7 +6,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
-import { downloadCsv } from '../../../core/utils/export';
+import { downloadCsv, printPdf } from '../../../core/utils/export';
 
 interface Shift { id: string; shiftType: string; status: string; laundrySent: boolean; openedAt: string; }
 interface ShiftInfo { shift: Shift | null; inProgress: number; canClose: boolean; }
@@ -24,7 +24,10 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana'
     <section class="tl">
       <header class="top">
         <h1>Turno de Limpieza</h1>
-        <p-button label="Exportar PDF/CSV" icon="pi pi-file-excel" severity="secondary" (onClick)="exportCsv()" />
+        <div class="exp">
+          <p-button label="Exportar PDF" icon="pi pi-file-pdf" severity="secondary" [disabled]="!report()" (onClick)="exportPdf()" />
+          <p-button label="Exportar CSV" icon="pi pi-file-excel" severity="secondary" [outlined]="true" [disabled]="!report()" (onClick)="exportCsv()" />
+        </div>
       </header>
 
       <!-- Estado del turno -->
@@ -79,6 +82,7 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana'
       .tl { background: #0b1410; min-height: 100%; margin: -1.5rem; padding: 1.5rem; color: #e6efe9; }
       h1 { margin: 0; color: #fff; } h3 { margin: 1.4rem 0 0.7rem; color: #34d399; }
       .top { display: flex; align-items: center; justify-content: space-between; }
+      .exp { display: flex; gap: 0.5rem; flex-wrap: wrap; }
       .muted { color: #8aa499; }
       .shift { background: #0e241c; border: 1px solid #1f3a2c; border-radius: 12px; padding: 1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
       .s-info { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; }
@@ -144,5 +148,27 @@ export class TurnoLimpiezaComponent implements OnInit {
     for (const f of r.floors) for (const row of f.rows) rows.push([`Piso ${f.floor}`, `${this.typeLabel(row.type)} ${row.name}`, row.rem, row.sum]);
     rows.push([], ['Limpiezas', r.cleaningsDone], ['Mantenimientos', r.maintenances], ['Ropa a lavandería', r.laundryItems], ['Total REM', r.totals.rem], ['Total SUM', r.totals.sum]);
     downloadCsv('reporte-turno-limpieza', ['Piso', 'Ropa', 'REM', 'SUM'], rows);
+  }
+
+  exportPdf(): void {
+    const r = this.report();
+    if (!r) return;
+    const kpis = `
+      <div class="cards">
+        <div class="kpi"><div class="l">Limpiezas</div><div class="v">${r.cleaningsDone}</div></div>
+        <div class="kpi"><div class="l">Mantenimientos</div><div class="v">${r.maintenances}</div></div>
+        <div class="kpi"><div class="l">Ropa a lavandería</div><div class="v">${r.laundryItems}</div></div>
+        <div class="kpi"><div class="l">Total REM</div><div class="v">${r.totals.rem}</div></div>
+        <div class="kpi"><div class="l">Total SUM</div><div class="v">${r.totals.sum}</div></div>
+      </div>`;
+    const floors = r.floors
+      .map((f) => {
+        const body = f.rows
+          .map((row) => `<tr><td>${this.typeLabel(row.type)} ${row.name}</td><td class="num">${row.rem}</td><td class="num">${row.sum}</td></tr>`)
+          .join('');
+        return `<h2>Piso ${f.floor}</h2><table><thead><tr><th>Ropa</th><th class="num">REM</th><th class="num">SUM</th></tr></thead><tbody>${body || '<tr><td colspan="3">Sin datos</td></tr>'}</tbody></table>`;
+      })
+      .join('');
+    printPdf('Reporte de Turno de Limpieza · RIZZOS', kpis + floors);
   }
 }
