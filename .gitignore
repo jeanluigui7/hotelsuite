@@ -56,3 +56,6 @@ _md2html.cjs
 # Spec del cliente (Word grande) y su extracción temporal
 SISTEMA RIZZOS.docx
 .docx-extract/
+
+# Word/Office lock files
+~$*

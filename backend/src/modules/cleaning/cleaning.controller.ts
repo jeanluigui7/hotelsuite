@@ -69,4 +69,8 @@ export const cleaningController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await cleaningService.maintenanceRevisions(req.scope)));
   },
+  async linenMovements(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await cleaningService.linenMovements(req.scope)));
+  },
 };

@@ -137,6 +137,22 @@ async function main(): Promise<void> {
     });
   }
 
+  // 7. Movimientos de ropa (para poblar "Movimientos de Inventario (Limpieza)")
+  const lmv = [
+    { id: 'rz-lmv-1', linenItemId: 'rz-li-toa-coral', type: 'TRANSFER', quantity: 6, floor: '1', roomId: null, from: 'Almacén de Ropa', to: 'Limpieza P1', ref: 'Suministro admin', at: ago(2 * HOUR) },
+    { id: 'rz-lmv-2', linenItemId: 'rz-li-toa-blanca', type: 'SUPPLY', quantity: -1, floor: '3', roomId: 'rz-room-301', from: 'Limpieza P3', to: 'Habitaciones', ref: 'Suministro a habitación', at: ago(90 * 60_000) },
+    { id: 'rz-lmv-3', linenItemId: 'rz-li-sab-blanca', type: 'LAUNDRY', quantity: -1, floor: '2', roomId: null, from: 'Limpieza', to: 'Lavandería', ref: 'Manchada', at: ago(70 * 60_000) },
+    { id: 'rz-lmv-4', linenItemId: 'rz-li-edr-beige', type: 'TRANSFER', quantity: 4, floor: '2', roomId: null, from: 'Almacén de Ropa', to: 'Limpieza P2', ref: 'Suministro admin', at: ago(40 * 60_000) },
+    { id: 'rz-lmv-5', linenItemId: 'rz-li-toa-coral', type: 'LAUNDRY', quantity: -2, floor: '1', roomId: null, from: 'Limpieza', to: 'Lavandería', ref: 'Deteriorada', at: ago(15 * 60_000) },
+  ];
+  for (const m of lmv) {
+    await prisma.linenMovement.upsert({
+      where: { id: m.id },
+      update: {},
+      create: { id: m.id, branchId: RZ, linenItemId: m.linenItemId, type: m.type, quantity: m.quantity, floor: m.floor, roomId: m.roomId, areaFrom: m.from, areaTo: m.to, reference: m.ref, createdByUserId: limpUser?.id, createdAt: m.at },
+    });
+  }
+
   // eslint-disable-next-line no-console
   console.log(`✅ Demo RIZZOS por perfil lista.
    Usuarios (contraseña Rizzos123!):

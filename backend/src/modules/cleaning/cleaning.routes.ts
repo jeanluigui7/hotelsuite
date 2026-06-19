@@ -18,6 +18,7 @@ cleaningRouter.post('/cleaning/shift/close', requirePermission('operations', 'ed
 cleaningRouter.get('/cleaning/turno-report', requirePermission('operations', 'view'), asyncHandler(cleaningController.turnoReport));
 cleaningRouter.get('/cleaning/revisions', requirePermission('operations', 'view'), asyncHandler(cleaningController.revisions));
 cleaningRouter.get('/cleaning/maintenance-revisions', requirePermission('operations', 'view'), asyncHandler(cleaningController.maintenanceRevisions));
+cleaningRouter.get('/cleaning/linen-movements', requirePermission('operations', 'view'), asyncHandler(cleaningController.linenMovements));
 cleaningRouter.post('/cleaning/revision', requirePermission('operations', 'create'), asyncHandler(cleaningController.revisionPeriodica));
 cleaningRouter.get('/cleaning/linen-inventory', requirePermission('operations', 'view'), asyncHandler(cleaningController.linenInventory));
 cleaningRouter.post('/cleaning/linen/request', requirePermission('operations', 'create'), asyncHandler(cleaningController.requestLinen));

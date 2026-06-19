@@ -250,6 +250,58 @@ export const cleaningService = {
     });
   },
 
+  /** Movimientos de inventario de ropa (Reposición/Entrada/Salida) para la tabla de Limpieza. */
+  async linenMovements(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const moves = await prisma.linenMovement.findMany({
+      where: { branchId },
+      include: { linenItem: { select: { name: true, type: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 300,
+    });
+    const roomIds = [...new Set(moves.map((m) => m.roomId).filter((x): x is string => !!x))];
+    const rooms = await prisma.room.findMany({ where: { id: { in: roomIds } }, select: { id: true, number: true } });
+    const rmap = new Map(rooms.map((r) => [r.id, r.number]));
+
+    // Etiqueta y áreas por tipo (cuando no vienen en el registro).
+    const meta = (m: (typeof moves)[number]): { label: string; tone: string; from: string; to: string } => {
+      const piso = m.floor ? `Limpieza P${m.floor}` : 'Limpieza';
+      switch (m.type) {
+        case 'TRANSFER':
+          return { label: 'Entrada', tone: 'in', from: m.areaFrom ?? 'Almacén de Ropa', to: m.areaTo ?? piso };
+        case 'SUPPLY':
+          return { label: 'Reposición', tone: 'repo', from: m.areaFrom ?? piso, to: m.areaTo ?? 'Habitaciones' };
+        case 'LAUNDRY':
+          return { label: 'Salida', tone: 'out', from: m.areaFrom ?? 'Limpieza', to: m.areaTo ?? 'Lavandería' };
+        case 'PICKUP':
+          return { label: 'Entrada', tone: 'in', from: m.areaFrom ?? 'Habitaciones', to: m.areaTo ?? piso };
+        case 'REQUEST':
+          return { label: 'Solicitud', tone: 'req', from: piso, to: m.areaTo ?? 'Almacén de Ropa' };
+        default:
+          return { label: 'Ajuste', tone: 'adj', from: m.areaFrom ?? piso, to: m.areaTo ?? piso };
+      }
+    };
+
+    return moves.map((m) => {
+      const x = meta(m);
+      return {
+        id: m.id,
+        article: m.linenItem.name,
+        articleType: m.linenItem.type,
+        type: m.type,
+        label: x.label,
+        tone: x.tone,
+        quantity: m.quantity,
+        room: m.roomId ? (rmap.get(m.roomId) ?? '—') : '—',
+        floor: m.floor,
+        areaFrom: x.from,
+        areaTo: x.to,
+        reference: m.reference,
+        createdAt: m.createdAt,
+      };
+    });
+  },
+
   /** Inventario de ropa por pisos: REM (remanente) y SUM (suministrado) por tipo/ítem. */
   async linenInventory(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);
