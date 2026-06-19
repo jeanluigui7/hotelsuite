@@ -6,8 +6,13 @@ import {
   toPrismaPaging,
   type PaginationParams,
 } from '../../shared/pagination';
+import { prisma } from '../../config/prisma';
+import { requireActiveBranch } from '../../shared/scope';
+import type { RequestScope } from '../../shared/context';
 import { guestsRepository } from './guests.repository';
 import type { CreateGuestDto, UpdateGuestDto } from './guests.schema';
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 const SORTABLE = ['firstName', 'lastName', 'documentNumber', 'createdAt'] as const;
 
@@ -34,6 +39,43 @@ export const guestsService = {
     const guest = await guestsRepository.findById(id);
     if (!guest) throw new NotFoundError('Cliente no encontrado');
     return guest;
+  },
+
+  /**
+   * Busca un huésped por documento y devuelve sus deudas pendientes en la sucursal
+   * activa (ventas/servicios sin pagar + estancias con saldo). Para el check-in.
+   */
+  async lookup(scope: RequestScope, documentNumber: string) {
+    const branchId = requireActiveBranch(scope);
+    const guest = await prisma.guest.findFirst({ where: { documentNumber } });
+    if (!guest) return { guest: null, debts: { items: [], total: 0 } };
+
+    const stays = await prisma.stay.findMany({ where: { branchId, guestId: guest.id } });
+    const stayIds = stays.map((s) => s.id);
+    const sales = await prisma.sale.findMany({
+      where: { branchId, status: 'OPEN', OR: [{ guestId: guest.id }, { stayId: { in: stayIds } }] },
+      include: { items: { select: { description: true } }, payments: { select: { amount: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const items: { type: string; label: string; amount: number; date: Date }[] = [];
+    for (const s of sales) {
+      const paid = s.payments.reduce((a, p) => a + Number(p.amount), 0);
+      const due = round2(Number(s.total) - paid);
+      if (due > 0.001) {
+        const desc = s.items.map((i) => i.description).filter((d): d is string => !!d).slice(0, 2).join(', ');
+        items.push({ type: 'service', label: `Adeudo de servicio/productos: ${desc || 'venta'}`, amount: due, date: s.createdAt });
+      }
+    }
+    for (const st of stays) {
+      const bal = st.balanceDue ? Number(st.balanceDue) : 0;
+      if (bal > 0.001) items.push({ type: 'room', label: `Debe la habitación del día ${st.checkInAt.toLocaleDateString('es-PE')}`, amount: round2(bal), date: st.checkInAt });
+    }
+    const total = round2(items.reduce((a, i) => a + i.amount, 0));
+    return {
+      guest: { id: guest.id, documentType: guest.documentType, documentNumber: guest.documentNumber, firstName: guest.firstName, lastName: guest.lastName, phone: guest.phone },
+      debts: { items, total },
+    };
   },
 
   async create(dto: CreateGuestDto) {

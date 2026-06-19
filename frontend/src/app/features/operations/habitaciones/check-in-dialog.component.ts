@@ -1,8 +1,10 @@
 import { Component, EventEmitter, Input, Output, inject, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { forkJoin, of } from 'rxjs';
+import { environment } from '../../../../environments/environment';
+import type { ApiResponse } from '../../../core/models/api-response.model';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
@@ -21,6 +23,8 @@ import type { CheckInInput, RoomMapItem, Stay } from '../services/operations.mod
 type Tab = 'huesped' | 'adicionales' | 'venta' | 'pago';
 interface AddGuest { documentType: string; documentNumber: string; name: string; phone: string; notes: string; }
 interface PayRow { type: string; amount: number; received: number | null; reference: string; notes: string; }
+interface DebtItem { type: string; label: string; amount: number; date: string; }
+interface Debts { items: DebtItem[]; total: number; }
 
 const DOC_TYPES = [
   { label: 'DNI (Documento Nacional de Identidad)', value: 'DNI' },
@@ -67,8 +71,24 @@ const PAY_TYPES = [
       <!-- TAB 1: Datos del huésped -->
       @if (tab() === 'huesped') {
         <div class="grid2">
-          <div class="fld"><label>Documento</label><input pInputText [(ngModel)]="docNumber" placeholder="Número de documento" /></div>
+          <div class="fld"><label>Documento</label>
+            <div class="doc-row">
+              <input pInputText [(ngModel)]="docNumber" placeholder="Número de documento" (keyup.enter)="lookupDoc()" (blur)="lookupDoc()" />
+              @if (debts().items.length) { <span class="doc-badge" title="Observaciones de deuda"><i class="pi pi-exclamation-triangle"></i> {{ debts().items.length }}</span> }
+            </div>
+          </div>
           <div class="fld"><label>Tipo de Documento</label><p-select [options]="docTypes" optionLabel="label" optionValue="value" [(ngModel)]="docType" styleClass="w" /></div>
+
+          @if (debts().total > 0) {
+            <div class="debt span2">
+              <div class="debt-head"><span><i class="pi pi-exclamation-triangle"></i> CLIENTE CON DEUDA PENDIENTE</span><strong>S/ {{ debts().total | number: '1.2-2' }}</strong></div>
+              <ul>
+                @for (d of debts().items; track $index) {
+                  <li>• {{ d.label }} — <strong>S/ {{ d.amount | number: '1.2-2' }}</strong></li>
+                }
+              </ul>
+            </div>
+          }
           <div class="fld"><label>Nombre del Huésped</label><input pInputText [(ngModel)]="guestName" placeholder="Nombre completo (se autocompleta)" /></div>
           <div class="fld"><label>Teléfono</label><input pInputText [(ngModel)]="phone" placeholder="Número de contacto" /></div>
           <div class="fld"><label>Placa de vehículo (opcional)</label><input pInputText [(ngModel)]="vehiclePlate" placeholder="ABC-123" style="text-transform:uppercase" /></div>
@@ -236,6 +256,13 @@ const PAY_TYPES = [
       input[pInputText], input[type=datetime-local], textarea { width: 100%; background: #0f1a2b; border: 1px solid #1c2c44; color: #e6edf5; border-radius: 8px; padding: 0.6rem 0.7rem; font: inherit; }
       .rate-it { display: flex; justify-content: space-between; gap: 1rem; width: 100%; }
       .muted { color: #8aa0bd; font-size: 0.82rem; }
+      .doc-row { display: flex; gap: 0.5rem; align-items: stretch; }
+      .doc-row input { flex: 1; }
+      .doc-badge { display: inline-flex; align-items: center; gap: 0.3rem; background: #78350f; color: #fcd34d; border: 1px solid #b45309; border-radius: 8px; padding: 0 0.6rem; font-weight: 700; font-size: 0.85rem; }
+      .debt { background: rgba(120,53,15,0.25); border: 1px solid #b45309; border-radius: 10px; padding: 0.8rem 1rem; }
+      .debt-head { display: flex; justify-content: space-between; align-items: center; color: #fbbf24; font-weight: 700; }
+      .debt ul { margin: 0.5rem 0 0; padding: 0; list-style: none; color: #fcd9a8; font-size: 0.82rem; }
+      .debt li { padding: 0.15rem 0; } .debt li strong { color: #fbbf24; }
 
       .adic-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.8rem; }
       .ti { background: rgba(16,185,129,0.15); color: #10b981; padding: 0.35rem; border-radius: 8px; }
@@ -286,6 +313,8 @@ export class CheckInDialogComponent {
   private readonly inventory = inject(InventoryApiService);
   private readonly finance = inject(FinanceApiService);
   private readonly messages = inject(MessageService);
+  private readonly http = inject(HttpClient);
+  private readonly apiUrl = environment.apiUrl;
 
   private _room: RoomMapItem | null = null;
   @Input() visible = false;
@@ -310,7 +339,9 @@ export class CheckInDialogComponent {
   readonly lines = signal<{ product: Product; quantity: number }[]>([]);
   readonly addGuests = signal<AddGuest[]>([]);
   readonly pays = signal<PayRow[]>([]);
+  readonly debts = signal<Debts>({ items: [], total: 0 });
   readonly saving = signal(false);
+  private foundGuestId: string | null = null;
 
   targetRoomId: string | null = null;
   docType = 'DNI';
@@ -332,7 +363,7 @@ export class CheckInDialogComponent {
     this.docType = 'DNI'; this.docNumber = ''; this.guestName = ''; this.phone = ''; this.vehiclePlate = '';
     this.selectedRateId = null; this.selectedTierId = null; this.checkoutAt = ''; this.notes = '';
     this.prodSearch = ''; this.categoryFilter = null; this.comprobante = false;
-    this.lines.set([]); this.addGuests.set([]); this.pays.set([]);
+    this.lines.set([]); this.addGuests.set([]); this.pays.set([]); this.debts.set({ items: [], total: 0 }); this.foundGuestId = null;
 
     this.catalog.rates.list({ roomTypeId: room.roomType.id }).subscribe((res) => this.rates.set(res.data ?? []));
     this.catalog.clientTiers.list({ pageSize: 100, sortBy: 'name' }).subscribe((res) => this.tiers.set(res.data ?? []));
@@ -345,6 +376,23 @@ export class CheckInDialogComponent {
         if (g) { this.docType = g.documentType; this.docNumber = g.documentNumber; this.guestName = `${g.firstName} ${g.lastName ?? ''}`.trim(); this.phone = g.phone ?? ''; }
       });
     }
+  }
+
+  /** Busca el huésped por documento: autocompleta nombre/teléfono y carga deudas. */
+  lookupDoc(): void {
+    const doc = this.docNumber.trim();
+    if (!doc) { this.debts.set({ items: [], total: 0 }); this.foundGuestId = null; return; }
+    this.http.get<ApiResponse<{ guest: { id: string; firstName: string; lastName?: string | null; phone?: string | null } | null; debts: Debts }>>(
+      `${this.apiUrl}/guests-lookup`, { params: { documentNumber: doc } },
+    ).subscribe((res) => {
+      const g = res.data?.guest;
+      this.foundGuestId = g?.id ?? null;
+      if (g) {
+        if (!this.guestName) this.guestName = `${g.firstName} ${g.lastName ?? ''}`.trim();
+        if (!this.phone && g.phone) this.phone = g.phone;
+      }
+      this.debts.set(res.data?.debts ?? { items: [], total: 0 });
+    });
   }
 
   onRate(): void {
@@ -429,8 +477,13 @@ export class CheckInDialogComponent {
       children: 0,
       vehiclePlate: this.vehiclePlate || undefined,
       notes: this.notes || undefined,
-      newGuest: { documentType: this.docType as never, documentNumber: this.docNumber, firstName: this.guestName, lastName: '', phone: this.phone || '', email: '' },
     };
+    // Si el documento ya existe en la BD, usamos su id; si no, creamos huésped nuevo.
+    if (this.foundGuestId) {
+      input.guestId = this.foundGuestId;
+    } else {
+      input.newGuest = { documentType: this.docType as never, documentNumber: this.docNumber, firstName: this.guestName, lastName: '', phone: this.phone || '', email: '' };
+    }
     this.ops.checkIn(input).subscribe({
       next: (res) => {
         const stay = res.data as Stay | undefined;
