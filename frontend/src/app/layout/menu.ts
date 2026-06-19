@@ -1,6 +1,9 @@
 /**
- * Menú modular principal (§1.1 del PROMPT_SISTEMA_HOTELERO).
- * Estático en FASE 0. Desde FASE 1 se filtrará por permisos (RBAC).
+ * Menús de RIZZOS por PERFIL (según "SISTEMA RIZZOS.docx").
+ * El sidebar elige el menú según el rol del usuario autenticado:
+ *  - PERFIL LIMPIEZA      → LIMPIEZA_MENU
+ *  - PERFIL RECEPCIONISTA → RECEPCION_MENU
+ *  - PERFIL ADMINISTRADOR → ADMIN_MENU (acceso total)
  */
 export interface MenuItem {
   label: string;
@@ -9,12 +12,55 @@ export interface MenuItem {
   children?: { label: string; route: string }[];
 }
 
-export const APP_MENU: MenuItem[] = [
+/** PERFIL LIMPIEZA (img. 1 del documento). */
+export const LIMPIEZA_MENU: MenuItem[] = [
+  { label: 'Inicio', icon: 'pi pi-th-large', route: '/dashboard/limpieza' },
+  { label: 'Habitaciones', icon: 'pi pi-building', route: '/operations/gestion-limpieza' },
+  { label: 'Historial', icon: 'pi pi-history', route: '/operations/limpiezas' },
+  { label: 'Inventario Limpieza', icon: 'pi pi-box', route: '/operations/inventario-limpieza' },
+  { label: 'Revisiones', icon: 'pi pi-verified', route: '/operations/revisiones' },
+  { label: 'Movimientos', icon: 'pi pi-sync', route: '/inventory/movimientos-limpieza' },
+  { label: 'Reporte Turno', icon: 'pi pi-chart-bar', route: '/operations/turno-limpieza' },
+];
+
+/** PERFIL RECEPCIONISTA (img. 52 + secciones del documento). */
+export const RECEPCION_MENU: MenuItem[] = [
+  { label: 'Inicio', icon: 'pi pi-th-large', route: '/dashboard/recepcion' },
+  { label: 'Habitaciones', icon: 'pi pi-building', route: '/operations/habitaciones' },
+  {
+    label: 'Estancias',
+    icon: 'pi pi-clock',
+    route: '/operations/estancias',
+    children: [
+      { label: 'Historial de estancias', route: '/operations/estancias' },
+      { label: 'Check Outs', route: '/operations/checkouts' },
+      { label: 'Observaciones', route: '/operations/observaciones' },
+    ],
+  },
+  { label: 'Reservas', icon: 'pi pi-calendar', route: '/operations/reservas' },
+  { label: 'Conserjería', icon: 'pi pi-bell', route: '/operations/conserjeria' },
+  { label: 'Venta de Productos', icon: 'pi pi-shopping-cart', route: '/operations/frigobar' },
+  { label: 'Cajas', icon: 'pi pi-wallet', route: '/operations/caja' },
+  {
+    label: 'Inventario',
+    icon: 'pi pi-box',
+    route: '/operations/inventario-recepcion',
+    children: [
+      { label: 'Inventario de Productos', route: '/operations/inventario-recepcion' },
+      { label: 'Historial de Productos y Servicios', route: '/operations/productos' },
+      { label: 'Inventario de Limpieza', route: '/inventory/inventario-limpieza' },
+    ],
+  },
+];
+
+/** PERFIL ADMINISTRADOR (img. 99) — acceso total a todos los módulos. */
+export const ADMIN_MENU: MenuItem[] = [
   {
     label: 'Tablero',
     icon: 'pi pi-th-large',
     route: '/dashboard',
     children: [
+      { label: 'Vista General', route: '/dashboard' },
       { label: 'Resumen de Recepción', route: '/dashboard/recepcion' },
       { label: 'Resumen de Limpieza', route: '/dashboard/limpieza' },
       { label: 'Resumen de Caja', route: '/dashboard/caja' },
@@ -27,21 +73,21 @@ export const APP_MENU: MenuItem[] = [
     route: '/operations',
     children: [
       { label: 'Habitaciones', route: '/operations/habitaciones' },
-      { label: 'Caja', route: '/operations/caja' },
-      { label: 'Inventario Recepción', route: '/operations/inventario-recepcion' },
       { label: 'Frigobar', route: '/operations/frigobar' },
       { label: 'Historial de Estancias', route: '/operations/estancias' },
       { label: 'Productos y Servicios', route: '/operations/productos' },
       { label: 'Check-Outs', route: '/operations/checkouts' },
       { label: 'Reservas', route: '/operations/reservas' },
       { label: 'Conserjería', route: '/operations/conserjeria' },
+      { label: 'Historial de Limpiezas', route: '/operations/limpiezas' },
+      { label: 'Caja', route: '/operations/caja' },
+      { label: 'Inventario Recepción', route: '/operations/inventario-recepcion' },
       { label: 'Gestión de Limpieza', route: '/operations/gestion-limpieza' },
       { label: 'Inventario Limpieza', route: '/operations/inventario-limpieza' },
       { label: 'Reporte Turno (Limpieza)', route: '/operations/turno-limpieza' },
       { label: 'Revisión Periódica', route: '/operations/revision-periodica' },
-      { label: 'Transferencia de Ropa (Admin)', route: '/operations/transferencia-ropa' },
-      { label: 'Almacén de Productos (Admin)', route: '/operations/almacen-productos' },
-      { label: 'Historial de Limpiezas', route: '/operations/limpiezas' },
+      { label: 'Transferencia de Ropa', route: '/operations/transferencia-ropa' },
+      { label: 'Almacén de Productos', route: '/operations/almacen-productos' },
       { label: 'Revisiones', route: '/operations/revisiones' },
       { label: 'Mantenimientos', route: '/operations/mantenimientos' },
       { label: 'Observaciones', route: '/operations/observaciones' },
@@ -150,3 +196,30 @@ export const APP_MENU: MenuItem[] = [
     ],
   },
 ];
+
+/** Compatibilidad: el menú completo sigue siendo el del administrador. */
+export const APP_MENU = ADMIN_MENU;
+
+export type Profile = 'limpieza' | 'recepcion' | 'admin';
+
+/** Determina el perfil a partir del nombre del rol. */
+export function profileForRole(roleName: string | undefined, isSuperAdmin: boolean): Profile {
+  if (isSuperAdmin) return 'admin';
+  const r = (roleName ?? '').toLowerCase();
+  if (r.includes('limpieza')) return 'limpieza';
+  if (r.includes('recep') || r.includes('caja')) return 'recepcion';
+  if (r.includes('gerente') || r.includes('admin')) return 'admin';
+  return 'admin';
+}
+
+/** Devuelve el menú correspondiente al perfil. */
+export function menuForProfile(profile: Profile): MenuItem[] {
+  switch (profile) {
+    case 'limpieza':
+      return LIMPIEZA_MENU;
+    case 'recepcion':
+      return RECEPCION_MENU;
+    default:
+      return ADMIN_MENU;
+  }
+}

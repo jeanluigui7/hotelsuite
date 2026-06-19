@@ -64,6 +64,7 @@ export const cleaningService = {
     });
     const tasks = await prisma.housekeepingTask.findMany({ where: { branchId, status: 'IN_PROGRESS' } });
     const taskByRoom = new Map(tasks.map((t) => [t.roomId, t.id]));
+    const startedByRoom = new Map(tasks.map((t) => [t.roomId, t.createdAt]));
     return rooms.map((r) => ({
       id: r.id,
       number: r.number,
@@ -73,6 +74,7 @@ export const cleaningService = {
       repaso: r.status === 'REQUIERE_REPASO',
       enCurso: r.status === 'LIMPIEZA_EN_CURSO' || taskByRoom.has(r.id),
       taskId: taskByRoom.get(r.id) ?? null,
+      startedAt: startedByRoom.get(r.id) ?? null,
     }));
   },
 

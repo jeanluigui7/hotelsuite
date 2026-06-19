@@ -1,7 +1,8 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
+import { ThemeService } from './core/theme/theme.service';
 
 @Component({
   selector: 'app-root',
@@ -11,5 +12,7 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
   styleUrl: './app.component.scss',
 })
 export class AppComponent {
-  title = 'HotelSuite';
+  title = 'RIZZOS';
+  // Instancia el tema al arrancar (aplica modo oscuro + acento RIZZOS).
+  private readonly theme = inject(ThemeService);
 }

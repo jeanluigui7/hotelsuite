@@ -1,7 +1,11 @@
 import { Routes } from '@angular/router';
 
 const routes: Routes = [
-  { path: '', redirectTo: 'recepcion', pathMatch: 'full' },
+  {
+    path: '',
+    pathMatch: 'full',
+    loadComponent: () => import('./admin/admin-dashboard.component').then((m) => m.AdminDashboardComponent),
+  },
   {
     path: 'recepcion',
     loadComponent: () => import('./recepcion/recepcion-summary.component').then((m) => m.RecepcionSummaryComponent),

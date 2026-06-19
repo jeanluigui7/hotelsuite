@@ -1,4 +1,4 @@
-/* HotelSuite — estilos globales (tema claro Aura) */
+/* RIZZOS — estilos globales (tema oscuro navy + esmeralda, fuente Poppins) */
 @import 'primeicons/primeicons.css';
 
 * {
@@ -9,14 +9,61 @@ html,
 body {
   height: 100%;
   margin: 0;
-  font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  /* Variables del preset Aura (tema claro por defecto) */
-  background-color: var(--p-content-background, #f8fafc);
-  color: var(--p-text-color, #1f2937);
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--p-content-background, #0b1220);
+  color: var(--p-text-color, #e6edf5);
+}
+
+/* Que TODA la UI (incluido PrimeNG) use Poppins */
+:root {
+  --p-font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* Paleta de marca RIZZOS (se usa como fallback y en componentes propios) */
+  --rz-bg: #070b14;
+  --rz-bg-2: #0b1220;
+  --rz-panel: #0f1a2b;
+  --rz-panel-2: #122036;
+  --rz-border: #1c2c44;
+  --rz-text: #e6edf5;
+  --rz-text-muted: #8aa0bd;
+  --rz-accent: #10b981;
+  --rz-accent-2: #34d399;
+}
+
+body,
+button,
+input,
+select,
+textarea {
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Modo oscuro RIZZOS: navy profundo con tinte azul (igual a las imágenes) */
+html.dark {
+  --p-content-background: #0b1220;
+  --p-content-border-color: #1c2c44;
+  --p-content-hover-background: #142339;
+  --p-text-color: #e6edf5;
+  --p-text-muted-color: #8aa0bd;
+}
+
+html.dark body {
+  background: radial-gradient(1200px 600px at 80% -10%, #0e1b30 0%, #070b14 60%) fixed;
 }
 
 a {
   color: inherit;
   text-decoration: none;
+}
+
+/* Scrollbars discretos para el tema oscuro */
+html.dark ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+html.dark ::-webkit-scrollbar-thumb {
+  background: #1c2c44;
+  border-radius: 8px;
+}
+html.dark ::-webkit-scrollbar-track {
+  background: transparent;
 }
