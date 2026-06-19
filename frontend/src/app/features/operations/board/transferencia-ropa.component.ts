@@ -42,11 +42,15 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana'
             <ng-template let-i pTemplate="selectedItem">{{ typeLabel(i.type) }} · {{ i.name }}</ng-template>
           </p-select>
         </div>
-        <div class="field"><label>Piso destino</label>
-          <p-select [options]="floors()" [(ngModel)]="toFloor" optionLabel="floor" optionValue="floor" placeholder="Piso" styleClass="w" />
+        <div class="field"><label>Pisos destino</label>
+          <div class="pisos">
+            @for (f of floors(); track f.floor) {
+              <label class="pchk" [class.on]="selFloors.has(f.floor)"><input type="checkbox" [checked]="selFloors.has(f.floor)" (change)="toggleFloor(f.floor)" /> Piso {{ f.floor }}</label>
+            }
+          </div>
         </div>
-        <div class="field"><label>Cantidad</label><p-inputNumber [(ngModel)]="quantity" [min]="1" [showButtons]="true" buttonLayout="horizontal" /></div>
-        <p-button label="Confirmar Transferencia" icon="pi pi-arrow-right" [disabled]="!linenItemId || !toFloor" [loading]="busy()" (onClick)="transfer()" />
+        <div class="field"><label>Cantidad (por piso)</label><p-inputNumber [(ngModel)]="quantity" [min]="1" [showButtons]="true" buttonLayout="horizontal" /></div>
+        <p-button label="Confirmar Transferencia" icon="pi pi-arrow-right" [disabled]="!linenItemId || selFloors.size === 0" [loading]="busy()" (onClick)="transfer()" />
       </div>
     </section>
   `,
@@ -65,6 +69,9 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana'
       .field { display: flex; flex-direction: column; gap: 0.3rem; min-width: 180px; }
       label { font-size: 0.8rem; color: #9fb0c3; }
       :host ::ng-deep .w .p-select { width: 100%; background: #0e1622; border-color: #243245; }
+      .pisos { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .pchk { display: inline-flex; align-items: center; gap: 0.4rem; background: #0e1622; border: 1px solid #243245; border-radius: 8px; padding: 0.45rem 0.7rem; cursor: pointer; font-size: 0.85rem; }
+      .pchk.on { border-color: #ec4899; color: #f9a8d4; }
     `,
   ],
 })
@@ -78,7 +85,7 @@ export class TransferenciaRopaComponent implements OnInit {
   readonly requests = signal<Req[]>([]);
   readonly busy = signal(false);
   linenItemId: string | null = null;
-  toFloor: string | null = null;
+  selFloors = new Set<string>();
   quantity = 1;
 
   ngOnInit(): void { this.reload(); }
@@ -97,11 +104,28 @@ export class TransferenciaRopaComponent implements OnInit {
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
     });
   }
+  toggleFloor(floor: string): void {
+    if (this.selFloors.has(floor)) this.selFloors.delete(floor);
+    else this.selFloors.add(floor);
+  }
+
   transfer(): void {
+    const floors = [...this.selFloors];
+    if (!this.linenItemId || !floors.length) return;
     this.busy.set(true);
-    this.http.post<ApiResponse<unknown>>(`${this.api}/admin/linen/transfer`, { linenItemId: this.linenItemId, toFloor: this.toFloor, quantity: this.quantity }).subscribe({
-      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Transferencia realizada', detail: '' }); this.linenItemId = null; this.toFloor = null; this.quantity = 1; this.reload(); },
-      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
-    });
+    // Transfiere la misma cantidad a cada piso seleccionado (secuencial).
+    const send = (i: number): void => {
+      if (i >= floors.length) {
+        this.busy.set(false);
+        this.toast.add({ severity: 'success', summary: 'Transferencia realizada', detail: `${floors.length} piso(s)` });
+        this.linenItemId = null; this.selFloors = new Set(); this.quantity = 1; this.reload();
+        return;
+      }
+      this.http.post<ApiResponse<unknown>>(`${this.api}/admin/linen/transfer`, { linenItemId: this.linenItemId, toFloor: floors[i], quantity: this.quantity }).subscribe({
+        next: () => send(i + 1),
+        error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
+      });
+    };
+    send(0);
   }
 }
