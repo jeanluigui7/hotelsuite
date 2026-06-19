@@ -106,6 +106,62 @@ export const cleaningService = {
     return { ok: true };
   },
 
+  // ── Turno de limpieza ──
+  async shift(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const shift = await prisma.cleaningShift.findFirst({ where: { branchId, userId: scope.userId, status: 'OPEN' }, orderBy: { openedAt: 'desc' } });
+    const inProgress = await prisma.housekeepingTask.count({ where: { branchId, status: 'IN_PROGRESS' } });
+    return { shift, inProgress, canClose: inProgress === 0 };
+  },
+
+  async openShift(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const existing = await prisma.cleaningShift.findFirst({ where: { branchId, userId: scope.userId, status: 'OPEN' } });
+    if (existing) return existing;
+    const hour = new Date().getHours();
+    const shiftType = hour < 15 ? 'MANANA' : 'TARDE';
+    return prisma.cleaningShift.create({ data: { branchId, userId: scope.userId, shiftType, status: 'OPEN' } });
+  },
+
+  async markLaundrySent(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const shift = await prisma.cleaningShift.findFirst({ where: { branchId, userId: scope.userId, status: 'OPEN' } });
+    if (!shift) throw new ValidationError('No hay turno abierto');
+    return prisma.cleaningShift.update({ where: { id: shift.id }, data: { laundrySent: true } });
+  },
+
+  async closeShift(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const shift = await prisma.cleaningShift.findFirst({ where: { branchId, userId: scope.userId, status: 'OPEN' } });
+    if (!shift) throw new ValidationError('No hay turno abierto');
+    const inProgress = await prisma.housekeepingTask.count({ where: { branchId, status: 'IN_PROGRESS' } });
+    if (inProgress > 0) throw new ValidationError('No puedes finalizar el turno con limpiezas en curso');
+    if (!shift.laundrySent) throw new ValidationError('Debes enviar la ropa a lavandería antes de finalizar el turno');
+    return prisma.cleaningShift.update({ where: { id: shift.id }, data: { status: 'CLOSED', closedAt: new Date() } });
+  },
+
+  /** Reporte del turno/día: ropa por pisos, limpiezas y mantenimientos, ropa a lavandería. */
+  async turnoReport(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const inv = await this.linenInventory(scope);
+    const [cleaningsDone, maintenances, laundry] = await Promise.all([
+      prisma.housekeepingTask.count({ where: { branchId, status: { in: ['DONE', 'INSPECTED'] }, completedAt: { gte: start } } }),
+      prisma.maintenance.count({ where: { branchId, createdAt: { gte: start } } }),
+      prisma.linenMovement.aggregate({ where: { branchId, type: 'LAUNDRY', createdAt: { gte: start } }, _sum: { quantity: true } }),
+    ]);
+    const totalRem = inv.floors.reduce((a, f) => a + f.rows.reduce((b, r) => b + r.rem, 0), 0);
+    const totalSum = inv.floors.reduce((a, f) => a + f.rows.reduce((b, r) => b + r.sum, 0), 0);
+    return {
+      floors: inv.floors,
+      totals: { rem: totalRem, sum: totalSum },
+      cleaningsDone,
+      maintenances,
+      laundryItems: Math.abs(laundry._sum.quantity ?? 0),
+    };
+  },
+
   /** Inventario de ropa por pisos: REM (remanente) y SUM (suministrado) por tipo/ítem. */
   async linenInventory(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);

@@ -11,6 +11,11 @@ cleaningRouter.use(authenticate(), tenant());
 
 cleaningRouter.get('/cleaning/linen-items', requirePermission('operations', 'view'), asyncHandler(cleaningController.linenItems));
 cleaningRouter.get('/cleaning/rooms', requirePermission('operations', 'view'), asyncHandler(cleaningController.roomsToClean));
+cleaningRouter.get('/cleaning/shift', requirePermission('operations', 'view'), asyncHandler(cleaningController.shift));
+cleaningRouter.post('/cleaning/shift/open', requirePermission('operations', 'edit'), asyncHandler(cleaningController.openShift));
+cleaningRouter.post('/cleaning/shift/laundry-sent', requirePermission('operations', 'edit'), asyncHandler(cleaningController.markLaundrySent));
+cleaningRouter.post('/cleaning/shift/close', requirePermission('operations', 'edit'), asyncHandler(cleaningController.closeShift));
+cleaningRouter.get('/cleaning/turno-report', requirePermission('operations', 'view'), asyncHandler(cleaningController.turnoReport));
 cleaningRouter.get('/cleaning/linen-inventory', requirePermission('operations', 'view'), asyncHandler(cleaningController.linenInventory));
 cleaningRouter.post('/cleaning/linen/request', requirePermission('operations', 'create'), asyncHandler(cleaningController.requestLinen));
 cleaningRouter.post('/cleaning/linen/laundry', requirePermission('operations', 'edit'), asyncHandler(cleaningController.sendToLaundry));

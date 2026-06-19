@@ -37,6 +37,7 @@ export const APP_MENU: MenuItem[] = [
       { label: 'Conserjería', route: '/operations/conserjeria' },
       { label: 'Gestión de Limpieza', route: '/operations/gestion-limpieza' },
       { label: 'Inventario Limpieza', route: '/operations/inventario-limpieza' },
+      { label: 'Reporte Turno (Limpieza)', route: '/operations/turno-limpieza' },
       { label: 'Historial de Limpiezas', route: '/operations/limpiezas' },
       { label: 'Revisiones', route: '/operations/revisiones' },
       { label: 'Mantenimientos', route: '/operations/mantenimientos' },

@@ -35,4 +35,24 @@ export const cleaningController = {
     const dto = laundrySchema.parse(req.body);
     res.status(201).json(ok(await cleaningService.sendToLaundry(req.scope, dto)));
   },
+  async shift(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await cleaningService.shift(req.scope)));
+  },
+  async openShift(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(201).json(ok(await cleaningService.openShift(req.scope)));
+  },
+  async markLaundrySent(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await cleaningService.markLaundrySent(req.scope)));
+  },
+  async closeShift(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await cleaningService.closeShift(req.scope)));
+  },
+  async turnoReport(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await cleaningService.turnoReport(req.scope)));
+  },
 };
