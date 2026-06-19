@@ -52,3 +52,7 @@ DESPLIEGUE.html
 MANUAL_USUARIO.pdf
 MANUAL_USUARIO.html
 _md2html.cjs
+
+# Spec del cliente (Word grande) y su extracción temporal
+SISTEMA RIZZOS.docx
+.docx-extract/
