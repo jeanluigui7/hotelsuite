@@ -5,9 +5,10 @@ import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { TooltipModule } from 'primeng/tooltip';
-import { ConfirmationService, MessageService } from 'primeng/api';
+import { DialogModule } from 'primeng/dialog';
+import { MessageService } from 'primeng/api';
 import { OperationsApiService } from '../services/operations-api.service';
-import type { RoomMapItem } from '../services/operations.models';
+import type { CheckoutSummary, RoomMapItem } from '../services/operations.models';
 import { CheckInDialogComponent } from '../habitaciones/check-in-dialog.component';
 import { VentaProductosComponent } from './venta-productos.component';
 import { ServiciosPenalidadesComponent } from './servicios-penalidades.component';
@@ -18,7 +19,7 @@ type ViewMode = 'normal' | 'compacta' | 'real';
 @Component({
   selector: 'app-habitaciones-board',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, TooltipModule, CheckInDialogComponent, VentaProductosComponent, ServiciosPenalidadesComponent],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, TooltipModule, DialogModule, CheckInDialogComponent, VentaProductosComponent, ServiciosPenalidadesComponent],
   template: `
     <section class="board">
       <header class="top">
@@ -61,8 +62,8 @@ type ViewMode = 'normal' | 'compacta' | 'real';
                 <div class="guest"><i class="pi pi-user"></i> {{ r.activeStay.guestName }}</div>
                 <div class="cap muted">Salida: {{ r.activeStay.plannedCheckoutAt | date: 'dd/MM HH:mm' }}</div>
                 <div class="cap muted">Precio: {{ +r.activeStay.priceAgreed | number: '1.2-2' }}</div>
-                @if (+(r.activeStay.balanceDue || 0) > 0) {
-                  <div class="debe"><i class="pi pi-exclamation-circle"></i> Debe {{ +(r.activeStay.balanceDue || 0) | number: '1.2-2' }}</div>
+                @if ((r.activeStay.pending || 0) > 0) {
+                  <div class="debe"><i class="pi pi-exclamation-circle"></i> Debe {{ r.activeStay.pending || 0 | number: '1.2-2' }}</div>
                 }
               } @else {
                 <div class="caption">{{ st(r).caption }}</div>
@@ -88,6 +89,26 @@ type ViewMode = 'normal' | 'compacta' | 'real';
     <app-check-in-dialog [(visible)]="checkInVisible" [room]="selectedRoom" (done)="reload()" />
     <app-venta-productos [(visible)]="ventaVisible" (done)="reload()" />
     <app-servicios-penalidades [(visible)]="serviciosVisible" (done)="reload()" />
+
+    <p-dialog [(visible)]="checkoutVisible" [modal]="true" [header]="'Check-out · Hab. ' + (checkoutRoom?.number || '')" [style]="{ width: '26rem' }" styleClass="dk-dialog">
+      @if (checkoutData(); as d) {
+        @if (d.lateCharge > 0) {
+          <div class="co-late"><i class="pi pi-clock"></i> Late check-out: {{ d.lateHours }}h = {{ d.lateCharge | number: '1.2-2' }} (se agrega al adeudo)</div>
+        }
+        <div class="co-kv"><span>Recargos (early/late)</span><strong>{{ d.balanceDue + d.lateCharge | number: '1.2-2' }}</strong></div>
+        <div class="co-kv"><span>Consumos sin pagar</span><strong>{{ d.salesPending | number: '1.2-2' }}</strong></div>
+        <div class="co-kv total" [class.debt]="d.totalWithLate > 0"><span>Total pendiente</span><strong>{{ d.totalWithLate | number: '1.2-2' }}</strong></div>
+        @if (d.totalWithLate > 0) {
+          <p class="co-warn"><i class="pi pi-exclamation-triangle"></i> El cliente tiene pagos pendientes. Puedes continuar; el adeudo queda registrado.</p>
+        }
+      } @else {
+        <p class="muted">Calculando…</p>
+      }
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="checkoutVisible = false" />
+        <p-button label="Continuar Check-out" icon="pi pi-sign-out" [loading]="checkingOut()" (onClick)="doCheckout()" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -134,13 +155,18 @@ type ViewMode = 'normal' | 'compacta' | 'real';
       .cta.ghost { background: rgba(0,0,0,0.28); color: #fff; }
       .cta:disabled { opacity: 0.6; cursor: default; }
       .empty { grid-column: 1/-1; text-align: center; padding: 2rem; }
+      :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1622; color: #e6e9ef; }
+      .co-late { background: #2a1d12; border: 1px solid #6b4f2a; color: #fbbf24; padding: 0.5rem 0.7rem; border-radius: 8px; font-size: 0.82rem; margin-bottom: 0.6rem; }
+      .co-kv { display: flex; justify-content: space-between; padding: 0.35rem 0; font-size: 0.95rem; }
+      .co-kv.total { border-top: 1px solid #243245; margin-top: 0.4rem; padding-top: 0.55rem; }
+      .co-kv.total.debt strong { color: #fbbf24; }
+      .co-warn { color: #fbbf24; font-size: 0.82rem; display: flex; align-items: center; gap: 0.4rem; margin-top: 0.5rem; }
     `,
   ],
 })
 export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   private readonly ops = inject(OperationsApiService);
   private readonly toast = inject(MessageService);
-  private readonly confirm = inject(ConfirmationService);
 
   readonly rooms = signal<RoomMapItem[]>([]);
   readonly view = signal<ViewMode>('normal');
@@ -152,6 +178,10 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   checkInVisible = false;
   ventaVisible = false;
   serviciosVisible = false;
+  checkoutVisible = false;
+  readonly checkingOut = signal(false);
+  checkoutRoom: RoomMapItem | null = null;
+  readonly checkoutData = signal<CheckoutSummary | null>(null);
   selectedRoom: RoomMapItem | null = null;
   private timer?: ReturnType<typeof setInterval>;
 
@@ -203,19 +233,26 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
 
   confirmCheckout(r: RoomMapItem): void {
     if (!r.activeStay) return;
-    this.confirm.confirm({
-      header: 'Confirmar check-out',
-      message: `¿Cerrar la estancia de la habitación ${r.number}? Pasará a limpieza en espera.`,
-      acceptLabel: 'Check-out',
-      rejectLabel: 'Cancelar',
-      accept: () => {
-        this.ops.checkOut(r.activeStay!.id, 'CLEANING').subscribe({
-          next: () => {
-            this.toast.add({ severity: 'success', summary: 'Check-out', detail: `Habitación ${r.number}` });
-            this.reload();
-          },
-          error: (err) => this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo cerrar' }),
-        });
+    this.checkoutRoom = r;
+    this.checkoutData.set(null);
+    this.checkoutVisible = true;
+    this.ops.checkoutSummary(r.activeStay.id).subscribe((res) => this.checkoutData.set(res.data));
+  }
+
+  doCheckout(): void {
+    const r = this.checkoutRoom;
+    if (!r?.activeStay) return;
+    this.checkingOut.set(true);
+    this.ops.checkOut(r.activeStay.id, 'CLEANING').subscribe({
+      next: () => {
+        this.checkingOut.set(false);
+        this.checkoutVisible = false;
+        this.toast.add({ severity: 'success', summary: 'Check-out', detail: `Habitación ${r.number} → Limpieza en espera` });
+        this.reload();
+      },
+      error: (err) => {
+        this.checkingOut.set(false);
+        this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo cerrar' });
       },
     });
   }

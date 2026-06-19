@@ -46,6 +46,27 @@ function applyDiscount(price: number, discountPercent: number): number {
   return Math.round(result * 100) / 100;
 }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/** Pendiente = recargos (balanceDue: early/late) + saldo no pagado de ventas OPEN de la estancia. */
+async function computePending(stayId: string, balanceDue: Prisma.Decimal | number | null) {
+  const sales = await prisma.sale.findMany({
+    where: { stayId, status: { not: 'CANCELLED' } },
+    include: { payments: true },
+  });
+  let salesPending = 0;
+  for (const s of sales) {
+    const paid = s.payments.reduce((a, p) => a + Number(p.amount), 0);
+    const owed = Number(s.total) - paid;
+    if (owed > 0) salesPending += owed;
+  }
+  salesPending = round2(salesPending);
+  const bd = balanceDue ? Number(balanceDue) : 0;
+  return { balanceDue: bd, salesPending, total: round2(bd + salesPending) };
+}
+
 export const staysService = {
   async checkIn(scope: RequestScope, dto: CheckInDto) {
     const branchId = requireActiveBranch(scope);
@@ -129,11 +150,42 @@ export const staysService = {
     return serialize(stay as StayWithRelations);
   },
 
+  /** Pendiente de pago de una estancia: recargos (balanceDue) + ventas OPEN no pagadas. */
+  async pending(scope: RequestScope, id: string) {
+    const stay = await staysRepository.findById(id);
+    if (!stay || stay.branchId !== requireActiveBranch(scope)) throw new NotFoundError('Estancia no encontrada');
+    return computePending(id, stay.balanceDue);
+  },
+
+  /** Resumen previo al check-out: pendiente actual + cargo de late check-out estimado. */
+  async checkoutSummary(scope: RequestScope, id: string) {
+    const stay = await staysRepository.findById(id);
+    if (!stay || stay.branchId !== requireActiveBranch(scope)) throw new NotFoundError('Estancia no encontrada');
+    const isDia = stay.durationMinutes >= 1440;
+    let lateHours = 0;
+    let lateCharge = 0;
+    if (isDia) {
+      const q = await pernoctaService.quoteCheckOut(scope, stay.plannedCheckoutAt, new Date());
+      lateHours = q.lateHours;
+      lateCharge = q.lateCharge;
+    }
+    const p = await computePending(id, stay.balanceDue);
+    return { ...p, lateHours, lateCharge, plannedCheckoutAt: stay.plannedCheckoutAt, totalWithLate: round2(p.total + lateCharge) };
+  },
+
   async checkOut(scope: RequestScope, id: string, dto: CheckOutDto) {
     const branchId = requireActiveBranch(scope);
     const stay = await staysRepository.findById(id);
     if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
     if (stay.status !== 'OPEN') throw new ConflictError('La estancia ya está cerrada');
+    // Late check-out: si es día hotelero y la salida supera la prevista, se cobra como adeudo.
+    if (stay.durationMinutes >= 1440) {
+      const q = await pernoctaService.quoteCheckOut(scope, stay.plannedCheckoutAt, new Date());
+      if (q.lateCharge > 0) {
+        const bd = stay.balanceDue ? Number(stay.balanceDue) : 0;
+        await prisma.stay.update({ where: { id }, data: { balanceDue: round2(bd + q.lateCharge) } });
+      }
+    }
     const result = await staysRepository.checkOut(id, stay.roomId, dto.roomStatus);
     return serialize(result as StayWithRelations);
   },

@@ -7,6 +7,17 @@ export interface ActiveStay {
   plannedCheckoutAt: string;
   priceAgreed: string | number;
   balanceDue?: string | number | null;
+  pending?: number;
+}
+
+export interface CheckoutSummary {
+  balanceDue: number;
+  salesPending: number;
+  total: number;
+  lateHours: number;
+  lateCharge: number;
+  plannedCheckoutAt: string;
+  totalWithLate: number;
 }
 
 export interface RoomMapItem {

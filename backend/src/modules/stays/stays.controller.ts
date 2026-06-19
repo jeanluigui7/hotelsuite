@@ -23,6 +23,11 @@ export const staysController = {
     res.status(200).json(ok(await staysService.getById(req.scope, req.params.id)));
   },
 
+  async checkoutSummary(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await staysService.checkoutSummary(req.scope, req.params.id)));
+  },
+
   async list(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const params = paginationSchema.parse(req.query);

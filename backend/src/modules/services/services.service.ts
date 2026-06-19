@@ -74,11 +74,9 @@ export const servicesService = {
       payments: dto.payments.map((p) => ({ ...p, reference: p.reference || undefined })),
     });
 
+    // El saldo no pagado ya queda como venta OPEN atada a la estancia (no se duplica en balanceDue,
+    // que se reserva para recargos sin venta: early check-in / late check-out).
     const owed = round(Number(sale.total) - Number(sale.paid));
-    if (owed > 0) {
-      const current = stay.balanceDue ? Number(stay.balanceDue) : 0;
-      await prisma.stay.update({ where: { id: stay.id }, data: { balanceDue: round(current + owed) } });
-    }
 
     if (dto.createSupply) {
       for (const it of dto.items) {

@@ -6,6 +6,7 @@ import { CrudApi, toHttpParams, type ListParams } from '../../../core/http/crud-
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import type {
   CheckInInput,
+  CheckoutSummary,
   ConciergeRequest,
   ConsumptionInput,
   HousekeepingTask,
@@ -53,6 +54,10 @@ export class OperationsApiService {
 
   stays(params: ListParams = {}): Observable<ApiResponse<Stay[]>> {
     return this.http.get<ApiResponse<Stay[]>>(`${this.api}/stays`, { params: toHttpParams(params) });
+  }
+
+  checkoutSummary(stayId: string): Observable<ApiResponse<CheckoutSummary>> {
+    return this.http.get<ApiResponse<CheckoutSummary>>(`${this.api}/stays/${stayId}/checkout-summary`);
   }
 
   // ── Housekeeping ──
