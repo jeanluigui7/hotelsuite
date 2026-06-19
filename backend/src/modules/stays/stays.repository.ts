@@ -44,6 +44,7 @@ export const staysRepository = {
     plannedCheckoutAt: Date;
     adults: number;
     children: number;
+    vehiclePlate: string | null;
     notes: string | null;
     additionalGuestIds: string[];
   }) {
@@ -62,6 +63,7 @@ export const staysRepository = {
           plannedCheckoutAt: data.plannedCheckoutAt,
           adults: data.adults,
           children: data.children,
+          vehiclePlate: data.vehiclePlate,
           notes: data.notes,
         },
       });

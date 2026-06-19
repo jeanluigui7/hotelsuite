@@ -19,6 +19,7 @@ export const checkInSchema = z
     additionalGuestIds: z.array(z.string().min(1)).default([]),
     adults: z.coerce.number().int().min(1).default(1),
     children: z.coerce.number().int().min(0).default(0),
+    vehiclePlate: z.string().max(20).optional().or(z.literal('')),
     notes: z.string().max(500).optional().or(z.literal('')),
   })
   .refine((v) => v.guestId || v.newGuest, {

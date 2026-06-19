@@ -31,7 +31,7 @@ type ViewMode = 'normal' | 'compacta' | 'real';
             <button [class.active]="view() === 'real'" (click)="view.set('real')"><i class="pi pi-image"></i> Real</button>
           </div>
           <div class="actions">
-            <button class="act" (click)="soon('Vehículos')"><i class="pi pi-car"></i> Vehículos</button>
+            <button class="act" (click)="vehiculosVisible = true"><i class="pi pi-car"></i> Vehículos</button>
             <button class="act" (click)="checkInHint()"><i class="pi pi-sign-in"></i> Check-in</button>
             <button class="act" (click)="ventaVisible = true"><i class="pi pi-shopping-cart"></i> Venta Productos</button>
             <button class="act primary" (click)="serviciosVisible = true"><i class="pi pi-tags"></i> Servicios y Penalidades</button>
@@ -62,6 +62,9 @@ type ViewMode = 'normal' | 'compacta' | 'real';
                 <div class="guest"><i class="pi pi-user"></i> {{ r.activeStay.guestName }}</div>
                 <div class="cap muted">Salida: {{ r.activeStay.plannedCheckoutAt | date: 'dd/MM HH:mm' }}</div>
                 <div class="cap muted">Precio: {{ +r.activeStay.priceAgreed | number: '1.2-2' }}</div>
+                @if (r.activeStay.vehiclePlate) {
+                  <div class="cap plate"><i class="pi pi-car"></i> {{ r.activeStay.vehiclePlate }}</div>
+                }
                 @if ((r.activeStay.pending || 0) > 0) {
                   <div class="debe"><i class="pi pi-exclamation-circle"></i> Debe {{ r.activeStay.pending || 0 | number: '1.2-2' }}</div>
                 }
@@ -108,6 +111,22 @@ type ViewMode = 'normal' | 'compacta' | 'real';
         <p-button label="Cancelar" [text]="true" (onClick)="checkoutVisible = false" />
         <p-button label="Continuar Check-out" icon="pi pi-sign-out" [loading]="checkingOut()" (onClick)="doCheckout()" />
       </ng-template>
+    </p-dialog>
+
+    <p-dialog [(visible)]="vehiculosVisible" [modal]="true" header="Vehículos en estancia" [style]="{ width: '32rem' }" styleClass="dk-dialog">
+      @if (vehiculos().length) {
+        <table class="veh">
+          <thead><tr><th>Placa</th><th>Hab.</th><th>Huésped</th><th>Salida</th></tr></thead>
+          <tbody>
+            @for (v of vehiculos(); track v.plate + v.room) {
+              <tr><td class="pl">{{ v.plate }}</td><td>{{ v.room }}</td><td>{{ v.guest }}</td><td class="muted">{{ v.out | date: 'dd/MM HH:mm' }}</td></tr>
+            }
+          </tbody>
+        </table>
+      } @else {
+        <p class="muted">No hay vehículos registrados en estancias activas.</p>
+      }
+      <ng-template pTemplate="footer"><p-button label="Cerrar" [text]="true" (onClick)="vehiculosVisible = false" /></ng-template>
     </p-dialog>
   `,
   styles: [
@@ -161,6 +180,11 @@ type ViewMode = 'normal' | 'compacta' | 'real';
       .co-kv.total { border-top: 1px solid #243245; margin-top: 0.4rem; padding-top: 0.55rem; }
       .co-kv.total.debt strong { color: #fbbf24; }
       .co-warn { color: #fbbf24; font-size: 0.82rem; display: flex; align-items: center; gap: 0.4rem; margin-top: 0.5rem; }
+      .plate { background: rgba(0,0,0,0.28); border-radius: 999px; padding: 0.15rem 0.6rem; width: fit-content; margin: 0.15rem auto 0; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem; }
+      .veh { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+      .veh th, .veh td { text-align: left; padding: 0.45rem 0.5rem; border-bottom: 1px solid #1f2a3a; }
+      .veh th { color: #9fb0c3; font-weight: 600; }
+      .veh .pl { font-weight: 700; color: #34d399; }
     `,
   ],
 })
@@ -179,6 +203,7 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   ventaVisible = false;
   serviciosVisible = false;
   checkoutVisible = false;
+  vehiculosVisible = false;
   readonly checkingOut = signal(false);
   checkoutRoom: RoomMapItem | null = null;
   readonly checkoutData = signal<CheckoutSummary | null>(null);
@@ -196,6 +221,17 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     [...new Set(this.rooms().map((r) => r.floor).filter((f): f is string => !!f))].sort(),
   );
   readonly typeOptions = computed(() => [...new Set(this.rooms().map((r) => r.roomType.name))].sort());
+
+  readonly vehiculos = computed(() =>
+    this.rooms()
+      .filter((r) => r.activeStay?.vehiclePlate)
+      .map((r) => ({
+        plate: r.activeStay!.vehiclePlate as string,
+        room: r.number,
+        guest: r.activeStay!.guestName,
+        out: r.activeStay!.plannedCheckoutAt,
+      })),
+  );
 
   readonly filtered = computed<RoomMapItem[]>(() => {
     let list = this.rooms();
@@ -255,9 +291,5 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
         this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo cerrar' });
       },
     });
-  }
-
-  soon(feature: string): void {
-    this.toast.add({ severity: 'info', summary: feature, detail: 'Se construye en el siguiente paso de la Recepción (R2).' });
   }
 }

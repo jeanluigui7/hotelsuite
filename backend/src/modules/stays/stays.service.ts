@@ -30,6 +30,7 @@ function serialize(stay: StayWithRelations) {
     durationMinutes: stay.durationMinutes,
     priceAgreed: stay.priceAgreed,
     balanceDue: stay.balanceDue,
+    vehiclePlate: stay.vehiclePlate,
     adults: stay.adults,
     children: stay.children,
     notes: stay.notes,
@@ -144,6 +145,7 @@ export const staysService = {
       plannedCheckoutAt,
       adults: dto.adults,
       children: dto.children,
+      vehiclePlate: (dto.vehiclePlate || '').trim().toUpperCase() || null,
       notes: ((dto.notes || '') + earlyNote).trim() || null,
       additionalGuestIds: dto.additionalGuestIds.filter((id) => id !== guestId),
     });

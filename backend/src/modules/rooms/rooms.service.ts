@@ -32,6 +32,7 @@ function serializeMap(room: RoomForMap) {
           plannedCheckoutAt: stay.plannedCheckoutAt,
           priceAgreed: stay.priceAgreed,
           balanceDue: stay.balanceDue,
+          vehiclePlate: stay.vehiclePlate,
         }
       : null,
   };

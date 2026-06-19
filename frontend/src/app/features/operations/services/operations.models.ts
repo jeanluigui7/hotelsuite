@@ -8,6 +8,7 @@ export interface ActiveStay {
   priceAgreed: string | number;
   balanceDue?: string | number | null;
   pending?: number;
+  vehiclePlate?: string | null;
 }
 
 export interface CheckoutSummary {
@@ -65,6 +66,7 @@ export interface CheckInInput {
   additionalGuestIds: string[];
   adults: number;
   children: number;
+  vehiclePlate?: string;
   notes?: string;
 }
 

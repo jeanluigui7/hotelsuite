@@ -98,6 +98,9 @@ import type { CheckInInput, NewGuestInput, RoomMapItem } from '../services/opera
           <div class="col"><label>Niños</label><p-inputNumber [(ngModel)]="children" [min]="0" styleClass="w-full" /></div>
         </div>
 
+        <label>Placa de vehículo (opcional)</label>
+        <input pInputText [(ngModel)]="vehiclePlate" placeholder="Ej. ABC-123" style="text-transform: uppercase;" />
+
         <label>Huéspedes adicionales (opcional)</label>
         <p-multiSelect [options]="guestResults()" optionValue="id" [(ngModel)]="additionalGuestIds"
                        placeholder="Buscar arriba y seleccionar" styleClass="w-full">
@@ -179,6 +182,7 @@ export class CheckInDialogComponent {
   additionalGuestIds: string[] = [];
   adults = 1;
   children = 0;
+  vehiclePlate = '';
   notes = '';
 
   private init(room: RoomMapItem): void {
@@ -191,6 +195,7 @@ export class CheckInDialogComponent {
     this.additionalGuestIds = [];
     this.adults = 1;
     this.children = 0;
+    this.vehiclePlate = '';
     this.notes = '';
     this.pricePreview.set(null);
 
@@ -245,6 +250,7 @@ export class CheckInDialogComponent {
       additionalGuestIds: this.additionalGuestIds,
       adults: this.adults,
       children: this.children,
+      vehiclePlate: this.vehiclePlate || undefined,
       notes: this.notes || undefined,
     };
     if (this.guestMode === 'existing') {
