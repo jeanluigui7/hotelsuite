@@ -130,13 +130,15 @@ Nuevos/ampliados respecto al sistema actual:
 ## 9. Plan por fases (ejecución incremental)
 
 > Es un proyecto grande; se construye por fases verificables. Diseño y colores **idénticos** a las imágenes en cada pantalla.
+>
+> **ESTADO: R0–R5 COMPLETAS ✅** (verificadas E2E contra SQL Server real, builds en verde).
 
-- **FASE R0 — Sistema de diseño oscuro RIZZOS:** tokens de color, tema oscuro operativo, componentes base (card de habitación por estado, tablas de ropa, modales).
-- **FASE R1 — Modelo de datos + estados:** ampliar Room.status, modelos de ropa/lavandería/turnos/servicios/día hotelero/inventario recepción + migración + seed.
-- **FASE R2 — Recepción:** board de habitaciones (Normal/Compacta/Real), Check-in con día hotelero/early/late, Venta de productos, Servicios y Penalidades, Cajas (cierre+impresión), Inventario Recepción (solicitar/recepcionar/dar de baja/cola), Check-out con adeudos, cambiar habitación.
-- **FASE R3 — Limpieza:** Gestión de Habitaciones (iniciar/finalizar, recoger ropa, repaso, revisión periódica), Inventario de Ropa por Pisos (REM/SUM, solicitar), Lavandería, Reporte de Turno (PDF/ticket), Movimientos, Revisiones, reglas de cierre de turno.
-- **FASE R4 — Administrador:** Dashboard (función ROPA + transferencias, enviar ropa solicitada), Servicios y Penalidades (suministro), Historial de Limpieza + resumen + folios, Almacén de productos (enviar a recepción), Caja admin, Configuraciones/Permisos/Pernoctación, horarios.
-- **FASE R5 — Integraciones:** WhatsApp (aviso al admin por solicitudes), impresión de tickets (QZ/navegador), exportes PDF, vehículos.
+- **FASE R0 ✅ — Sistema de diseño oscuro RIZZOS:** tokens de color, tema oscuro operativo, componentes base (card de habitación por estado, tablas de ropa, modales).
+- **FASE R1 ✅ — Modelo de datos + estados:** ampliar Room.status, modelos de ropa/lavandería/turnos/servicios/día hotelero/inventario recepción + migración `20260619012435_rizzos_r1` + seed.
+- **FASE R2 ✅ — Recepción:** board de habitaciones (Normal/Compacta/Real), Check-in con día hotelero/early/late, Venta de productos, Servicios y Penalidades, Cajas (cierre+impresión), Inventario Recepción (solicitar/recepcionar/dar de baja/cola), Check-out con adeudos, cambiar habitación.
+- **FASE R3 ✅ — Limpieza:** Gestión de Habitaciones (iniciar/finalizar, recoger ropa, repaso, revisión periódica), Inventario de Ropa por Pisos (REM/SUM, solicitar), Lavandería, Reporte de Turno (PDF/CSV), Movimientos, Revisiones, reglas de cierre de turno.
+- **FASE R4 ✅ — Administrador:** Dashboard (función ROPA + transferencias, enviar ropa solicitada), Servicios y Penalidades (suministro), Historial de Limpieza + resumen + folios, Almacén de productos (enviar a recepción), Caja admin, Configuraciones/Permisos/Pernoctación, horarios.
+- **FASE R5 ✅ — Integraciones:** WhatsApp (aviso al admin por solicitudes de ropa/productos, `notify.adminPhone` por sucursal, registrado en MessageLog), impresión de comprobantes de recepción (QZ Tray → fallback vista previa del navegador), exportes PDF nativos (Reporte de Turno de Limpieza y Cuadro de Turno) vía `printPdf` sin dependencias, y placa de vehículo en check-in/board/lista de vehículos.
 
 Cada fase: propuesta breve → construcción → verificación (build + endpoints) → commit.
 
