@@ -249,6 +249,23 @@ async function main(): Promise<void> {
     await prisma.conciergeRequest.upsert({ where: { id: 'rz-con-1' }, update: {}, create: { id: 'rz-con-1', branchId: RZ, roomId: 'rz-room-101', guestName: 'Pedro Salas', category: 'taxi', description: 'Taxi 7am al terminal', status: 'PENDING', createdByUserId: adminId } });
   }
 
+  // ── 13. Ropa (linen) por pisos: toallas, sábanas, edredones ──
+  const linen = [
+    { id: 'rz-li-toa-blanca', type: 'TOALLA', name: 'Blanca', color: '#fff', reusable: true },
+    { id: 'rz-li-toa-coral', type: 'TOALLA', name: 'Coral', color: '#ff7f6b', reusable: true },
+    { id: 'rz-li-sab-blanca', type: 'SABANA', name: 'Blanca', color: '#fff', reusable: true },
+    { id: 'rz-li-sab-azul', type: 'SABANA', name: 'Azul', color: '#3b82f6', reusable: true },
+    { id: 'rz-li-edr-beige', type: 'EDREDON', name: 'Beige', color: '#d6c7a1', reusable: false },
+  ];
+  for (const l of linen) {
+    await prisma.linenItem.upsert({ where: { id: l.id }, update: { name: l.name, color: l.color, reusable: l.reusable }, create: { id: l.id, branchId: RZ, type: l.type, name: l.name, color: l.color, reusable: l.reusable } });
+    for (const floor of ['1', '2', '3']) {
+      const sid = `${l.id}-p${floor}`;
+      const rem = l.type === 'EDREDON' ? 4 : 12;
+      await prisma.linenStock.upsert({ where: { linenItemId_floor: { linenItemId: l.id, floor } }, update: {}, create: { id: sid, branchId: RZ, linenItemId: l.id, floor, rem, sum: 0 } });
+    }
+  }
+
   // eslint-disable-next-line no-console
   console.log(`✅ Sucursal RIZZOS lista (${branch.id}).
    Acceso: Super Admin asignado.

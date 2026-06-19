@@ -35,6 +35,7 @@ export const APP_MENU: MenuItem[] = [
       { label: 'Check-Outs', route: '/operations/checkouts' },
       { label: 'Reservas', route: '/operations/reservas' },
       { label: 'Conserjería', route: '/operations/conserjeria' },
+      { label: 'Gestión de Limpieza', route: '/operations/gestion-limpieza' },
       { label: 'Historial de Limpiezas', route: '/operations/limpiezas' },
       { label: 'Revisiones', route: '/operations/revisiones' },
       { label: 'Mantenimientos', route: '/operations/mantenimientos' },
