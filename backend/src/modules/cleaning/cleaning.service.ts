@@ -35,6 +35,16 @@ export const laundrySchema = z.object({
 export type RequestLinenDto = z.infer<typeof requestLinenSchema>;
 export type LaundryDto = z.infer<typeof laundrySchema>;
 
+export const revisionSchema = z.object({
+  roomId: z.string().min(1),
+  status: z.enum(['OK', 'ISSUE']).default('OK'),
+  tipoFalla: z.string().max(120).optional(),
+  acciones: z.array(z.string().max(120)).default([]),
+  observaciones: z.string().max(1000).optional().or(z.literal('')),
+  photo: z.string().optional(), // data URL (base64) capturada en el navegador
+});
+export type RevisionDto = z.infer<typeof revisionSchema>;
+
 export const cleaningService = {
   /** Ítems de ropa de la sucursal (para el modal de recoger ropa). */
   async linenItems(scope: RequestScope) {
@@ -160,6 +170,36 @@ export const cleaningService = {
       maintenances,
       laundryItems: Math.abs(laundry._sum.quantity ?? 0),
     };
+  },
+
+  /** Revisión periódica de una habitación (acciones, tipo de falla, observaciones, foto). */
+  async revisionPeriodica(scope: RequestScope, dto: RevisionDto) {
+    const branchId = requireActiveBranch(scope);
+    const room = await prisma.room.findUnique({ where: { id: dto.roomId } });
+    if (!room || room.branchId !== branchId) throw new ValidationError('Habitación no encontrada');
+    const detail = JSON.stringify({ tipoFalla: dto.tipoFalla ?? null, acciones: dto.acciones, observaciones: dto.observaciones || null, photo: dto.photo ?? null });
+    const rev = await prisma.revision.create({
+      data: { branchId, roomId: dto.roomId, status: dto.status, notes: detail, createdByUserId: scope.userId },
+    });
+    // Si la revisión deja la habitación OK y estaba en revisión/mantenimiento, vuelve a disponible.
+    if (dto.status === 'OK' && ['MANTENIMIENTO', 'REQUIERE_REPASO', 'LIMPIEZA_EN_CURSO'].includes(room.status)) {
+      await prisma.room.update({ where: { id: dto.roomId }, data: { status: 'FREE' } });
+    }
+    return { id: rev.id };
+  },
+
+  /** Historial de revisiones (con detalle parseado). */
+  async revisions(scope: RequestScope, roomId?: string) {
+    const branchId = requireActiveBranch(scope);
+    const rows = await prisma.revision.findMany({ where: { branchId, ...(roomId ? { roomId } : {}) }, orderBy: { createdAt: 'desc' }, take: 100 });
+    const roomIds = [...new Set(rows.map((r) => r.roomId))];
+    const rooms = await prisma.room.findMany({ where: { id: { in: roomIds } }, select: { id: true, number: true } });
+    const rmap = new Map(rooms.map((r) => [r.id, r.number]));
+    return rows.map((r) => {
+      let detail: { tipoFalla?: string | null; acciones?: string[]; observaciones?: string | null; photo?: string | null } = {};
+      try { detail = r.notes ? JSON.parse(r.notes) : {}; } catch { detail = { observaciones: r.notes }; }
+      return { id: r.id, room: rmap.get(r.roomId) ?? '—', status: r.status, createdAt: r.createdAt, ...detail };
+    });
   },
 
   /** Inventario de ropa por pisos: REM (remanente) y SUM (suministrado) por tipo/ítem. */

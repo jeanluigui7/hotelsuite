@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { ok } from '../../shared/response';
 import { UnauthorizedError } from '../../shared/errors';
-import { cleaningService, startSchema, requestLinenSchema, laundrySchema } from './cleaning.service';
+import { cleaningService, startSchema, requestLinenSchema, laundrySchema, revisionSchema } from './cleaning.service';
 
 export const cleaningController = {
   async linenItems(req: Request, res: Response): Promise<void> {
@@ -54,5 +54,15 @@ export const cleaningController = {
   async turnoReport(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await cleaningService.turnoReport(req.scope)));
+  },
+  async revisionPeriodica(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = revisionSchema.parse(req.body);
+    res.status(201).json(ok(await cleaningService.revisionPeriodica(req.scope, dto)));
+  },
+  async revisions(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const roomId = typeof req.query.roomId === 'string' ? req.query.roomId : undefined;
+    res.status(200).json(ok(await cleaningService.revisions(req.scope, roomId)));
   },
 };

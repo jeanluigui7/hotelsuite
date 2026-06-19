@@ -64,6 +64,10 @@ const routes: Routes = [
     loadComponent: () => import('./board/almacen-productos.component').then((m) => m.AlmacenProductosComponent),
   },
   {
+    path: 'revision-periodica',
+    loadComponent: () => import('./board/revision-periodica.component').then((m) => m.RevisionPeriodicaComponent),
+  },
+  {
     path: 'inventario-recepcion',
     loadComponent: () => import('./board/inventario-recepcion.component').then((m) => m.InventarioRecepcionComponent),
   },

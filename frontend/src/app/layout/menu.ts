@@ -38,6 +38,7 @@ export const APP_MENU: MenuItem[] = [
       { label: 'Gestión de Limpieza', route: '/operations/gestion-limpieza' },
       { label: 'Inventario Limpieza', route: '/operations/inventario-limpieza' },
       { label: 'Reporte Turno (Limpieza)', route: '/operations/turno-limpieza' },
+      { label: 'Revisión Periódica', route: '/operations/revision-periodica' },
       { label: 'Transferencia de Ropa (Admin)', route: '/operations/transferencia-ropa' },
       { label: 'Almacén de Productos (Admin)', route: '/operations/almacen-productos' },
       { label: 'Historial de Limpiezas', route: '/operations/limpiezas' },
