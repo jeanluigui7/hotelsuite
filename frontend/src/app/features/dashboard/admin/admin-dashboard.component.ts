@@ -22,17 +22,16 @@ interface StatCard {
   standalone: true,
   imports: [DatePipe, DecimalPipe],
   template: `
+    @if (isAdmin()) {
     <section class="dash">
       <!-- Pills de función rápida (solo perfil administrador, gateados por permiso) -->
-      @if (isAdmin()) {
-        <div class="pills">
+      <div class="pills">
           @if (can('inventory')) { <button class="pill purple" (click)="go('/operations/almacen-productos')"><i class="pi pi-box"></i> Productos</button> }
           @if (can('operations')) { <button class="pill red" (click)="go('/operations/inventario-recepcion')"><i class="pi pi-inbox"></i> Recepción</button> }
           @if (can('operations')) { <button class="pill orange" (click)="go('/operations/transferencia-ropa')"><i class="pi pi-sync"></i> Ropa</button> }
           @if (can('inventory')) { <button class="pill green" (click)="go('/inventory/inventario-limpieza')"><i class="pi pi-sparkles"></i> Amenidades</button> }
           @if (can('operations')) { <button class="pill blue" (click)="go('/operations/gestion-limpieza')"><i class="pi pi-check-circle"></i> Limpieza</button> }
         </div>
-      }
 
       <h1>Dashboard</h1>
 
@@ -101,6 +100,7 @@ interface StatCard {
 
       <p class="ts">Actualizado: {{ now | date: 'EEEE, d \\'de\\' MMMM HH:mm' }}</p>
     </section>
+    }
   `,
   styles: [
     `
@@ -161,6 +161,20 @@ export class AdminDashboardComponent implements OnInit {
   readonly caja = signal<CajaSummary | null>(null);
 
   ngOnInit(): void {
+    // Cada perfil ve SU propio dashboard. El resumen general (caja/dinero, todos
+    // los paneles) es exclusivo del administrador; limpieza y recepción se
+    // redirigen al suyo y ni siquiera consultan los endpoints administrativos.
+    const u = this.auth.user();
+    const profile = profileForRole(u?.roleName, u?.isSuperAdmin ?? false);
+    if (profile === 'limpieza') {
+      void this.router.navigateByUrl('/dashboard/limpieza');
+      return;
+    }
+    if (profile === 'recepcion') {
+      void this.router.navigateByUrl('/dashboard/recepcion');
+      return;
+    }
+
     forkJoin({
       recepcion: this.api.recepcion(),
       limpieza: this.api.limpieza(),
