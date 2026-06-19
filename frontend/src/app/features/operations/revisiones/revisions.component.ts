@@ -30,9 +30,9 @@ const TURNOS: Record<string, string> = { M: 'Mañana', T: 'Tarde', N: 'Noche' };
       <header class="top">
         <h1><i class="pi pi-wrench"></i> Revisiones de Mantenimiento</h1>
         <div class="filters">
-          <p-select [options]="floorOptions()" [(ngModel)]="pisoFilter" placeholder="Todos los pisos" [showClear]="true" styleClass="dk" />
-          <p-select [options]="colabOptions()" [(ngModel)]="colabFilter" placeholder="Todos los colaboradores" [showClear]="true" styleClass="dk" />
-          <p-select [options]="estadoOpts" [(ngModel)]="estadoFilter" optionLabel="label" optionValue="value" placeholder="Todos los estados" [showClear]="true" styleClass="dk" />
+          <p-select [options]="floorOptions()" [(ngModel)]="pisoFilter" (onChange)="page.set(0)" placeholder="Todos los pisos" [showClear]="true" styleClass="dk" />
+          <p-select [options]="colabOptions()" [(ngModel)]="colabFilter" (onChange)="page.set(0)" placeholder="Todos los colaboradores" [showClear]="true" styleClass="dk" />
+          <p-select [options]="estadoOpts" [(ngModel)]="estadoFilter" (onChange)="page.set(0)" optionLabel="label" optionValue="value" placeholder="Todos los estados" [showClear]="true" styleClass="dk" />
         </div>
       </header>
 
@@ -42,7 +42,7 @@ const TURNOS: Record<string, string> = { M: 'Mañana', T: 'Tarde', N: 'Noche' };
             <tr><th>Habitación</th><th>Fecha</th><th>Turno</th><th>Colaborador</th><th>Tiempo</th><th>Tipo de Mantenimiento</th><th>Observación</th><th class="ac">Acciones</th></tr>
           </thead>
           <tbody>
-            @for (r of filtered(); track r.roomId) {
+            @for (r of paged(); track r.roomId) {
               <tr [class.occ]="r.occupied">
                 <td class="hab"><strong>{{ r.number }}</strong>@if (r.occupied) { <span class="badge">OCUPADA</span> }</td>
                 <td class="muted">{{ r.date ? (r.date | date: 'dd/MM/yyyy') : '-' }}</td>
@@ -61,6 +61,17 @@ const TURNOS: Record<string, string> = { M: 'Mañana', T: 'Tarde', N: 'Noche' };
           </tbody>
         </table>
       </div>
+
+      @if (filtered().length > pageSize) {
+        <div class="pager">
+          <span class="info">{{ rangeFrom() }}–{{ rangeTo() }} de {{ filtered().length }}</span>
+          <div class="pbtns">
+            <button [disabled]="page() === 0" (click)="page.set(page() - 1)"><i class="pi pi-chevron-left"></i></button>
+            <span>{{ page() + 1 }} / {{ totalPages() }}</span>
+            <button [disabled]="page() + 1 >= totalPages()" (click)="page.set(page() + 1)"><i class="pi pi-chevron-right"></i></button>
+          </div>
+        </div>
+      }
     </section>
 
     <!-- Iniciar / Finalizar Revisión Periódica -->
@@ -108,6 +119,11 @@ const TURNOS: Record<string, string> = { M: 'Mañana', T: 'Tarde', N: 'Noche' };
       .filters { display: flex; gap: 0.5rem; flex-wrap: wrap; }
       :host ::ng-deep .dk .p-select { background: #131b27; border-color: #243245; min-width: 170px; }
       .muted { color: #8aa499; } .center { text-align: center; }
+      .pager { display: flex; align-items: center; justify-content: space-between; padding: 0.8rem 0.2rem; }
+      .pager .info { color: #8aa499; font-size: 0.82rem; }
+      .pbtns { display: flex; align-items: center; gap: 0.6rem; color: #cdd8e6; font-size: 0.85rem; }
+      .pbtns button { width: 2rem; height: 2rem; border-radius: 8px; border: 1px solid #243245; background: #131b27; color: #e6e9ef; cursor: pointer; }
+      .pbtns button:disabled { opacity: 0.4; cursor: not-allowed; }
       .tablewrap { overflow-x: auto; background: #0e1622; border: 1px solid #1f2a3a; border-radius: 14px; }
       .tbl { width: 100%; border-collapse: collapse; font-size: 0.88rem; min-width: 820px; }
       .tbl th { text-align: left; padding: 0.85rem 1rem; color: #9fb0c3; font-weight: 600; border-bottom: 1px solid #1f2a3a; background: #101a28; }
@@ -169,6 +185,16 @@ export class RevisionsComponent implements OnInit {
     if (this.estadoFilter) list = list.filter((r) => r.tipo === this.estadoFilter);
     return list;
   });
+
+  readonly pageSize = 10;
+  readonly page = signal(0);
+  readonly totalPages = computed(() => Math.max(1, Math.ceil(this.filtered().length / this.pageSize)));
+  readonly paged = computed<RevRow[]>(() => {
+    const p = Math.min(this.page(), this.totalPages() - 1);
+    return this.filtered().slice(p * this.pageSize, p * this.pageSize + this.pageSize);
+  });
+  rangeFrom = (): number => (this.filtered().length === 0 ? 0 : this.page() * this.pageSize + 1);
+  rangeTo = (): number => Math.min(this.filtered().length, (this.page() + 1) * this.pageSize);
 
   ngOnInit(): void { this.reload(); }
 

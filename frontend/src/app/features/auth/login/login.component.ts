@@ -191,6 +191,8 @@ import { AuthService } from '../../../core/auth/auth.service';
         box-shadow: 0 10px 24px rgba(236, 72, 153, 0.4);
       }
       :host ::ng-deep .submit .p-button:enabled:hover { background: linear-gradient(135deg, #ec2d80, #be185d); }
+      /* Centrar el texto/ícono del botón (PrimeNG deja la etiqueta con flex:1) */
+      :host ::ng-deep .submit .p-button-label { flex: 0 0 auto; text-align: center; }
 
       .branch-title { color: #f5f5f7; margin: 0 0 0.35rem; font-size: 1.3rem; }
       .muted { color: #b9a3b0; margin: 0 0 1.25rem; font-size: 0.9rem; }

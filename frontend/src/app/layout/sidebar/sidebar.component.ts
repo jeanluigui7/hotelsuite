@@ -35,7 +35,7 @@ import { LayoutService } from '../layout.service';
       <!-- Buscador de menú -->
       <div class="search">
         <i class="pi pi-search"></i>
-        <input type="text" placeholder="Buscar menú..." [(ngModel)]="query" />
+        <input type="text" placeholder="Buscar menú..." [ngModel]="query()" (ngModelChange)="query.set($event)" />
       </div>
 
       <!-- Menú -->
@@ -165,7 +165,7 @@ export class SidebarComponent {
   private readonly router = inject(Router);
   private readonly openGroups = signal<Set<string>>(new Set(['/dashboard', '/operations']));
 
-  query = '';
+  readonly query = signal('');
 
   /**
    * Menú según el perfil del usuario. Los perfiles curados (Limpieza/Recepción)
@@ -185,7 +185,7 @@ export class SidebarComponent {
 
   /** Filtra por el buscador de menú. */
   readonly filteredMenu = computed<MenuItem[]>(() => {
-    const q = this.query.trim().toLowerCase();
+    const q = this.query().trim().toLowerCase();
     const menu = this.visibleMenu();
     if (!q) return menu;
     return menu
@@ -199,7 +199,7 @@ export class SidebarComponent {
   });
 
   isOpen(route: string): boolean {
-    return this.openGroups().has(route) || this.query.trim().length > 0;
+    return this.openGroups().has(route) || this.query().trim().length > 0;
   }
 
   toggle(route: string): void {

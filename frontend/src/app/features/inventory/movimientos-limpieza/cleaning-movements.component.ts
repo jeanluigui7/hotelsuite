@@ -29,18 +29,18 @@ const TONE_CLASS: Record<string, string> = { in: 'in', out: 'out', repo: 'repo',
 
       <div class="filters">
         <div class="f"><label>Tipo</label>
-          <p-select [options]="tipoOpts()" [(ngModel)]="tipoFilter" placeholder="Todos los Tipos" [showClear]="true" styleClass="dk" /></div>
+          <p-select [options]="tipoOpts()" [(ngModel)]="tipoFilter" (onChange)="page.set(0)" placeholder="Todos los Tipos" [showClear]="true" styleClass="dk" /></div>
         <div class="f"><label>Piso</label>
-          <p-select [options]="pisoOpts()" [(ngModel)]="pisoFilter" placeholder="Todos los Pisos" [showClear]="true" styleClass="dk" /></div>
+          <p-select [options]="pisoOpts()" [(ngModel)]="pisoFilter" (onChange)="page.set(0)" placeholder="Todos los Pisos" [showClear]="true" styleClass="dk" /></div>
         <div class="f grow"><label>Buscar</label>
-          <span class="search"><i class="pi pi-search"></i><input placeholder="Buscar por artículo..." [(ngModel)]="search" /></span></div>
+          <span class="search"><i class="pi pi-search"></i><input placeholder="Buscar por artículo..." [(ngModel)]="search" (input)="page.set(0)" /></span></div>
       </div>
 
       <div class="tablewrap">
         <table class="tbl">
           <thead><tr><th>Artículo</th><th>Tipo</th><th>Cantidad</th><th>Habitación</th><th>Áreas (Origen → Destino)</th><th>Estado</th><th>Fecha</th><th class="ac">Acciones</th></tr></thead>
           <tbody>
-            @for (m of filtered(); track m.id) {
+            @for (m of paged(); track m.id) {
               <tr>
                 <td class="art">{{ m.article }}</td>
                 <td><span class="badge" [class]="toneClass(m.tone)">{{ m.label }}</span></td>
@@ -55,6 +55,17 @@ const TONE_CLASS: Record<string, string> = { in: 'in', out: 'out', repo: 'repo',
           </tbody>
         </table>
       </div>
+
+      @if (filtered().length > pageSize) {
+        <div class="pager">
+          <span class="info">{{ rangeFrom() }}–{{ rangeTo() }} de {{ filtered().length }}</span>
+          <div class="pbtns">
+            <button [disabled]="page() === 0" (click)="page.set(page() - 1)"><i class="pi pi-chevron-left"></i></button>
+            <span>{{ page() + 1 }} / {{ totalPages() }}</span>
+            <button [disabled]="page() + 1 >= totalPages()" (click)="page.set(page() + 1)"><i class="pi pi-chevron-right"></i></button>
+          </div>
+        </div>
+      }
     </section>
 
     <p-dialog [(visible)]="detVisible" [modal]="true" header="Detalle del movimiento" [style]="{ width: '26rem' }" styleClass="dk-dialog">
@@ -83,6 +94,11 @@ const TONE_CLASS: Record<string, string> = { in: 'in', out: 'out', repo: 'repo',
       .search { position: relative; display: flex; align-items: center; }
       .search i { position: absolute; left: 0.7rem; color: #6b7a90; }
       .search input { width: 100%; background: #131b27; border: 1px solid #243245; color: #e6e9ef; border-radius: 8px; padding: 0.6rem 0.7rem 0.6rem 2rem; }
+      .pager { display: flex; align-items: center; justify-content: space-between; padding: 0.8rem 0.2rem; }
+      .pager .info { color: #8b97a8; font-size: 0.82rem; }
+      .pbtns { display: flex; align-items: center; gap: 0.6rem; color: #cdd8e6; font-size: 0.85rem; }
+      .pbtns button { width: 2rem; height: 2rem; border-radius: 8px; border: 1px solid #243245; background: #131b27; color: #e6e9ef; cursor: pointer; }
+      .pbtns button:disabled { opacity: 0.4; cursor: not-allowed; }
       .tablewrap { overflow-x: auto; background: #0e1622; border: 1px solid #1f2a3a; border-radius: 14px; }
       .tbl { width: 100%; border-collapse: collapse; font-size: 0.86rem; min-width: 880px; }
       .tbl th { text-align: left; padding: 0.85rem 1rem; color: #9fb0c3; font-weight: 600; border-bottom: 1px solid #1f2a3a; background: #101a28; }
@@ -124,6 +140,16 @@ export class CleaningMovementsComponent implements OnInit {
       return true;
     });
   });
+
+  readonly pageSize = 10;
+  readonly page = signal(0);
+  readonly totalPages = computed(() => Math.max(1, Math.ceil(this.filtered().length / this.pageSize)));
+  readonly paged = computed<Mov[]>(() => {
+    const p = Math.min(this.page(), this.totalPages() - 1);
+    return this.filtered().slice(p * this.pageSize, p * this.pageSize + this.pageSize);
+  });
+  rangeFrom = (): number => (this.filtered().length === 0 ? 0 : this.page() * this.pageSize + 1);
+  rangeTo = (): number => Math.min(this.filtered().length, (this.page() + 1) * this.pageSize);
 
   ngOnInit(): void {
     this.http.get<ApiResponse<Mov[]>>(`${this.api}/cleaning/linen-movements`).subscribe((r) => this.moves.set(r.data ?? []));
