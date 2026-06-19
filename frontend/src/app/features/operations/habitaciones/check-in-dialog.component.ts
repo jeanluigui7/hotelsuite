@@ -2,186 +2,208 @@ import { Component, EventEmitter, Input, Output, inject, signal } from '@angular
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
+import { forkJoin, of } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
-import { MultiSelectModule } from 'primeng/multiselect';
 import { SelectModule } from 'primeng/select';
-import { SelectButtonModule } from 'primeng/selectbutton';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { MessageService } from 'primeng/api';
 import { CatalogApiService } from '../../settings/catalogs/catalog-api.service';
-import type { ClientTier, Guest, Rate } from '../../settings/catalogs/catalog.models';
-import { DOCUMENT_TYPE_OPTIONS } from '../../settings/catalogs/catalog.constants';
+import type { ClientTier, Rate } from '../../settings/catalogs/catalog.models';
 import { InventoryApiService } from '../../inventory/services/inventory-api.service';
 import type { Product } from '../../inventory/services/inventory.models';
 import { FinanceApiService } from '../../finance/services/finance-api.service';
 import { OperationsApiService } from '../services/operations-api.service';
-import type { CheckInInput, NewGuestInput, RoomMapItem, Stay } from '../services/operations.models';
+import type { CheckInInput, RoomMapItem, Stay } from '../services/operations.models';
 
 type Tab = 'huesped' | 'adicionales' | 'venta' | 'pago';
-interface Pay { method: 'CASH' | 'CARD' | 'TRANSFER' | 'WALLET'; amount: number; }
+interface AddGuest { documentType: string; documentNumber: string; name: string; phone: string; notes: string; }
+interface PayRow { type: string; amount: number; received: number | null; reference: string; notes: string; }
 
-const METHODS = [
-  { label: 'Efectivo', value: 'CASH' }, { label: 'Tarjeta', value: 'CARD' },
-  { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Yape/Plin', value: 'WALLET' },
+const DOC_TYPES = [
+  { label: 'DNI (Documento Nacional de Identidad)', value: 'DNI' },
+  { label: 'CE (Carné de Extranjería)', value: 'CE' },
+  { label: 'Pasaporte', value: 'PASAPORTE' },
+  { label: 'RUC', value: 'RUC' },
+];
+const PAY_TYPES = [
+  { value: 'CASH', label: 'Efectivo', commission: 0, ref: false, backend: 'CASH' as const },
+  { value: 'CARD_CREDIT', label: 'Tarjeta de crédito', commission: 5, ref: true, backend: 'CARD' as const },
+  { value: 'CARD_DEBIT', label: 'Tarjeta de débito', commission: 0, ref: true, backend: 'CARD' as const },
+  { value: 'TRANSFER', label: 'Transferencia', commission: 0, ref: true, backend: 'TRANSFER' as const },
+  { value: 'WALLET', label: 'Yape/Plin', commission: 0, ref: true, backend: 'WALLET' as const },
 ];
 
 @Component({
   selector: 'app-check-in-dialog',
   standalone: true,
-  imports: [
-    DecimalPipe, FormsModule, ButtonModule, DialogModule, InputTextModule,
-    InputNumberModule, MultiSelectModule, SelectModule, SelectButtonModule, ToggleSwitchModule,
-  ],
+  imports: [DecimalPipe, FormsModule, ButtonModule, DialogModule, InputTextModule, InputNumberModule, SelectModule, ToggleSwitchModule],
   template: `
-    <p-dialog
-      [visible]="visible"
-      (visibleChange)="onVisibleChange($event)"
-      [modal]="true"
-      [style]="{ width: '760px', maxWidth: '96vw' }"
-      [header]="'Check-in · Habitación ' + (room?.number ?? '')"
-      styleClass="ci-dialog"
-    >
-      <!-- Pestañas -->
+    <p-dialog [visible]="visible" (visibleChange)="onVisibleChange($event)" [modal]="true"
+              [style]="{ width: '960px', maxWidth: '97vw' }" header="Cambiar Estado de Habitación" styleClass="ci-dialog">
+      <p class="sub">Selecciona el nuevo estado para la habitación {{ room?.roomType?.name }} - {{ room?.number }}.</p>
+
+      <!-- Habitación actual / cambiar a -->
+      <div class="room-card">
+        <div><span class="lbl">Habitación Actual</span><strong>{{ room?.number }} - {{ room?.roomType?.name }}</strong></div>
+        <div class="change"><span>Cambiar a:</span>
+          <p-select [options]="freeRooms()" [(ngModel)]="targetRoomId" optionValue="id" styleClass="w sm">
+            <ng-template let-r pTemplate="item">{{ r.number }} - {{ r.roomType.name }}</ng-template>
+            <ng-template let-r pTemplate="selectedItem">{{ r.number }} - {{ r.roomType.name }}</ng-template>
+          </p-select>
+        </div>
+      </div>
+
+      <!-- Tabs -->
       <div class="tabs">
         <button [class.on]="tab() === 'huesped'" (click)="tab.set('huesped')">Datos del Huésped</button>
-        <button [class.on]="tab() === 'adicionales'" (click)="tab.set('adicionales')">Huéspedes Adicionales</button>
-        <button [class.on]="tab() === 'venta'" (click)="tab.set('venta')">Venta Productos (Opcional)</button>
+        <button [class.on]="tab() === 'adicionales'" (click)="tab.set('adicionales')">Huéspedes Adicionales @if (addGuests().length) { <span class="tbadge">{{ addGuests().length }}</span> }</button>
+        <button [class.on]="tab() === 'venta'" (click)="tab.set('venta')">Venta Productos (Opcional) @if (lines().length) { <span class="tbadge">{{ lines().length }}</span> }</button>
         <button [class.on]="tab() === 'pago'" (click)="tab.set('pago')">Métodos de Pago</button>
       </div>
 
-      <!-- TAB: Datos del huésped -->
+      <!-- TAB 1: Datos del huésped -->
       @if (tab() === 'huesped') {
-        <div class="form">
-          <p-selectButton [options]="guestModeOptions" optionLabel="label" optionValue="value" [(ngModel)]="guestMode" [allowEmpty]="false" />
-          @if (guestMode === 'existing') {
-            <label>Buscar cliente</label>
-            <div class="search-row">
-              <input pInputText placeholder="Nombre o documento…" [(ngModel)]="guestSearch" (keyup.enter)="searchGuests()" />
-              <p-button icon="pi pi-search" (onClick)="searchGuests()" />
-            </div>
-            <p-select [options]="guestResults()" [(ngModel)]="selectedGuestId" optionValue="id" [filter]="false" placeholder="Seleccionar cliente" styleClass="w-full">
-              <ng-template let-g pTemplate="item">{{ g.firstName }} {{ g.lastName }} · {{ g.documentNumber }}</ng-template>
-              <ng-template let-g pTemplate="selectedItem">{{ g.firstName }} {{ g.lastName }} · {{ g.documentNumber }}</ng-template>
+        <div class="grid2">
+          <div class="fld"><label>Documento</label><input pInputText [(ngModel)]="docNumber" placeholder="Número de documento" /></div>
+          <div class="fld"><label>Tipo de Documento</label><p-select [options]="docTypes" optionLabel="label" optionValue="value" [(ngModel)]="docType" styleClass="w" /></div>
+          <div class="fld"><label>Nombre del Huésped</label><input pInputText [(ngModel)]="guestName" placeholder="Nombre completo (se autocompleta)" /></div>
+          <div class="fld"><label>Teléfono</label><input pInputText [(ngModel)]="phone" placeholder="Número de contacto" /></div>
+          <div class="fld"><label>Placa de vehículo (opcional)</label><input pInputText [(ngModel)]="vehiclePlate" placeholder="ABC-123" style="text-transform:uppercase" /></div>
+          <div class="fld"><label>Duración / Tarifa</label>
+            <p-select [options]="rates()" [(ngModel)]="selectedRateId" optionValue="id" (onChange)="onRate()" placeholder="Seleccionar tarifa" styleClass="w">
+              <ng-template let-r pTemplate="item"><span class="rate-it">{{ r.label }} <strong>S/ {{ +r.price | number: '1.2-2' }}</strong></span></ng-template>
+              <ng-template let-r pTemplate="selectedItem">{{ r.label }} · S/ {{ +r.price | number: '1.2-2' }}</ng-template>
             </p-select>
-          } @else {
-            <div class="row">
-              <div class="col"><label>Tipo doc.</label><p-select [options]="docTypes" optionLabel="label" optionValue="value" [(ngModel)]="newGuest.documentType" styleClass="w-full" /></div>
-              <div class="col"><label>Número</label><input pInputText [(ngModel)]="newGuest.documentNumber" /></div>
-            </div>
-            <div class="row">
-              <div class="col"><label>Nombres</label><input pInputText [(ngModel)]="newGuest.firstName" /></div>
-              <div class="col"><label>Apellidos</label><input pInputText [(ngModel)]="newGuest.lastName" /></div>
-            </div>
-            <div class="row">
-              <div class="col"><label>Teléfono</label><input pInputText [(ngModel)]="newGuest.phone" /></div>
-              <div class="col"><label>Email</label><input pInputText type="email" [(ngModel)]="newGuest.email" /></div>
-            </div>
-          }
-
-          <h3>Tarifa y estancia</h3>
-          <div class="row">
-            <div class="col">
-              <label>Tarifa</label>
-              <p-select [options]="rates()" [(ngModel)]="selectedRateId" optionValue="id" (onChange)="recalc()" placeholder="Seleccionar tarifa" styleClass="w-full">
-                <ng-template let-r pTemplate="item">{{ r.label }} · {{ r.durationMinutes }} min · {{ r.price }}</ng-template>
-                <ng-template let-r pTemplate="selectedItem">{{ r.label }} · {{ r.price }}</ng-template>
-              </p-select>
-            </div>
-            <div class="col"><label>Tier (opcional)</label><p-select [options]="tiers()" optionLabel="name" optionValue="id" [(ngModel)]="selectedTierId" [showClear]="true" (onChange)="recalc()" placeholder="Sin tier" styleClass="w-full" /></div>
           </div>
-          <div class="row">
-            <div class="col"><label>Adultos</label><p-inputNumber [(ngModel)]="adults" [min]="1" styleClass="w-full" /></div>
-            <div class="col"><label>Niños</label><p-inputNumber [(ngModel)]="children" [min]="0" styleClass="w-full" /></div>
-          </div>
-          <label>Placa de vehículo (opcional)</label>
-          <input pInputText [(ngModel)]="vehiclePlate" placeholder="Ej. ABC-123" style="text-transform: uppercase;" />
-          <label>Notas</label>
-          <input pInputText [(ngModel)]="notes" />
-          @if (pricePreview() !== null) {
-            <div class="price">Precio acordado: <strong>{{ pricePreview() | number: '1.2-2' }}</strong>
-              @if (selectedTierId) { <span class="muted">(tarifa con descuento de tier)</span> }</div>
-          }
+          <div class="fld"><label>Tier (opcional)</label><p-select [options]="tiers()" optionLabel="name" optionValue="id" [(ngModel)]="selectedTierId" [showClear]="true" (onChange)="onRate()" placeholder="Sin tier" styleClass="w" /></div>
+          <div class="fld"><label>Fecha y hora de salida</label><input type="datetime-local" [(ngModel)]="checkoutAt" /></div>
+          <div class="fld span2"><label>Notas Adicionales</label><textarea [(ngModel)]="notes" rows="3" placeholder="Alergias, preferencias, motivo de estancia, solicitudes especiales..."></textarea></div>
         </div>
       }
 
-      <!-- TAB: Huéspedes adicionales -->
+      <!-- TAB 2: Huéspedes adicionales -->
       @if (tab() === 'adicionales') {
-        <div class="form">
-          <label>Huéspedes adicionales (opcional)</label>
-          <p-multiSelect [options]="guestResults()" optionValue="id" [(ngModel)]="additionalGuestIds" placeholder="Buscar arriba y seleccionar" styleClass="w-full">
-            <ng-template let-g pTemplate="item">{{ g.firstName }} {{ g.lastName }}</ng-template>
-          </p-multiSelect>
-          <p class="muted">Busca clientes en la pestaña "Datos del Huésped" para que aparezcan aquí.</p>
+        <div class="adic">
+          <div class="adic-head">
+            <div><span class="ti"><i class="pi pi-users"></i></span> <strong>HUÉSPEDES ADICIONALES</strong> <span class="muted">{{ addGuests().length }} registrado(s)</span></div>
+            <button class="add-btn" (click)="addGuest()"><i class="pi pi-plus"></i> Agregar Huésped</button>
+          </div>
+          @for (g of addGuests(); track $index; let i = $index) {
+            <div class="adic-row">
+              <span class="num">{{ i + 2 }}</span>
+              <div class="ag-grid">
+                <div class="fld"><label>Tipo</label><p-select [options]="docTypes" optionLabel="value" optionValue="value" [(ngModel)]="g.documentType" styleClass="w sm" /></div>
+                <div class="fld"><label>Número</label><input pInputText [(ngModel)]="g.documentNumber" placeholder="Documento" /></div>
+                <div class="fld"><label>Nombre</label><input pInputText [(ngModel)]="g.name" placeholder="Automático desde API" /></div>
+                <div class="fld"><label>Teléfono</label><input pInputText [(ngModel)]="g.phone" placeholder="Opcional" /></div>
+                <div class="fld"><label>Notas</label><input pInputText [(ngModel)]="g.notes" placeholder="Opcional" /></div>
+              </div>
+              <button class="del" (click)="removeGuest(i)"><i class="pi pi-trash"></i></button>
+            </div>
+          } @empty { <p class="muted">Sin huéspedes adicionales. Usa "Agregar Huésped".</p> }
         </div>
       }
 
-      <!-- TAB: Venta de productos (opcional) -->
+      <!-- TAB 3: Venta de productos -->
       @if (tab() === 'venta') {
         <div class="venta">
-          <div class="vleft">
+          <div class="vcol">
             <h4>Productos Disponibles</h4>
-            <div class="vfilters">
-              <span class="search"><i class="pi pi-search"></i><input pInputText placeholder="Buscar producto…" [(ngModel)]="prodSearch" /></span>
-              <p-select [options]="categoryOptions()" [(ngModel)]="categoryFilter" placeholder="Todas" [showClear]="true" styleClass="w sm" />
-            </div>
-            <div class="plist">
-              @for (p of filteredProducts(); track p.id) {
-                <button class="pcard" (click)="addProduct(p)" [disabled]="p.stock <= 0">
-                  <span class="pn">{{ p.name }} @if (p.category) { <small>· {{ p.category.name }}</small> }</span>
-                  <span class="pp">S/ {{ +p.salePrice | number: '1.2-2' }} <small [class.low]="p.stock <= 0">Stock: {{ p.stock }}</small></span>
-                </button>
-              } @empty { <p class="muted">Sin productos.</p> }
+            <div class="vbox">
+              <strong>Seleccionar Producto</strong><p class="muted">Busca y selecciona un producto del inventario</p>
+              <div class="vfilters">
+                <input pInputText placeholder="Buscar por nombre o código..." [(ngModel)]="prodSearch" />
+                <p-select [options]="categoryOptions()" [(ngModel)]="categoryFilter" placeholder="Todas" [showClear]="true" styleClass="w sm" />
+              </div>
+              <div class="plist">
+                @for (p of filteredProducts(); track p.id) {
+                  <button class="pcard" (click)="addProduct(p)" [disabled]="p.stock <= 0">
+                    <div><div class="pn">{{ p.name }}</div>@if (p.category) { <div class="pc">Categoría: {{ p.category.name }}</div> }</div>
+                    <div class="pr"><div class="pp">S/ {{ +p.salePrice | number: '1.2-2' }}</div><div class="ps">Stock: {{ p.stock }}</div><div class="pm">Mín: {{ p.reorderPoint }}</div></div>
+                  </button>
+                } @empty { <p class="muted">Sin productos.</p> }
+              </div>
             </div>
           </div>
-          <div class="vright">
+          <div class="vcol">
             <h4>Productos Seleccionados</h4>
-            <table class="seltbl">
-              <thead><tr><th>Producto</th><th>Cant.</th><th>P.Unit</th><th>Subtotal</th><th></th></tr></thead>
-              <tbody>
-                @for (l of lines(); track l.product.id) {
-                  <tr>
-                    <td>{{ l.product.name }}</td>
-                    <td><p-inputNumber [(ngModel)]="l.quantity" [min]="1" [max]="l.product.stock" [showButtons]="true" buttonLayout="horizontal" inputStyleClass="qy" (onInput)="touch()" /></td>
-                    <td>S/ {{ +l.product.salePrice | number: '1.2-2' }}</td>
-                    <td>S/ {{ +l.product.salePrice * l.quantity | number: '1.2-2' }}</td>
-                    <td><button class="elim" (click)="removeLine(l.product.id)">Eliminar</button></td>
-                  </tr>
-                } @empty { <tr><td colspan="5" class="muted center">Agrega productos del inventario.</td></tr> }
-              </tbody>
-            </table>
-            <div class="vtotal">Total: <strong>S/ {{ productsTotal() | number: '1.2-2' }}</strong></div>
+            @if (lines().length) {
+              <table class="seltbl">
+                <thead><tr><th>Producto</th><th>Cantidad</th><th>Precio Unit.</th><th>Subtotal</th><th></th></tr></thead>
+                <tbody>
+                  @for (l of lines(); track l.product.id) {
+                    <tr>
+                      <td>{{ l.product.name }}</td>
+                      <td><p-inputNumber [(ngModel)]="l.quantity" [min]="1" [max]="l.product.stock" [showButtons]="true" buttonLayout="horizontal" (onInput)="touch()" /></td>
+                      <td>S/ {{ +l.product.salePrice | number: '1.2-2' }}</td>
+                      <td>S/ {{ +l.product.salePrice * l.quantity | number: '1.2-2' }}</td>
+                      <td><button class="elim" (click)="removeLine(l.product.id)">Eliminar</button></td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+              <div class="vtotal">Total: <strong>S/ {{ totalProductos() | number: '1.2-2' }}</strong></div>
+            } @else {
+              <div class="empty"><i class="pi pi-box"></i><p>No hay productos seleccionados</p><span class="muted">Selecciona un producto de la lista de la izquierda.</span></div>
+            }
           </div>
         </div>
       }
 
-      <!-- TAB: Métodos de pago -->
+      <!-- TAB 4: Métodos de pago -->
       @if (tab() === 'pago') {
-        <div class="form">
-          <div class="caja-ok"><i class="pi pi-check-circle"></i> Los pagos de productos pueden registrarse normalmente.</div>
-          <div class="comp-row">
-            <span>¿Desea generar comprobante electrónico?</span>
-            <label class="cmp"><p-toggleSwitch [(ngModel)]="comprobante" /> {{ comprobante ? 'Sí, generar' : 'No, sin comprobante' }}</label>
+        <div class="pago">
+          <div class="caja-ok"><i class="pi pi-check-circle"></i> <div><strong>Caja abierta</strong><br><span class="muted">Los pagos pueden ser procesados normalmente.</span></div></div>
+          <div class="comp">
+            <p class="comp-q">¿Desea generar comprobante electrónico?</p>
+            <div class="comp-row"><strong>{{ comprobante ? 'Sí, generar' : 'No, sin comprobante' }}</strong>
+              <p-toggleSwitch [(ngModel)]="comprobante" />
+              <span class="muted">{{ comprobante ? '✓ Se generará comprobante' : '✕ No se generará ningún comprobante electrónico' }}</span></div>
           </div>
+
           <div class="pago-grid">
-            <div>
+            <div class="resumen">
               <h4>Resumen de Pago</h4>
-              <div class="kv"><span>Productos</span><strong>S/ {{ productsTotal() | number: '1.2-2' }}</strong></div>
-              <div class="kv"><span>Pagado</span><strong>S/ {{ paid() | number: '1.2-2' }}</strong></div>
-              <div class="kv total"><span>Vuelto</span><strong>S/ {{ change() | number: '1.2-2' }}</strong></div>
-              <p class="muted">El precio de la habitación se registra como acordado en la estancia.</p>
+              <div class="kv"><span>Tarifa seleccionada:</span><strong>{{ rateLabel() }}</strong></div>
+              <div class="kv"><span>Precio base:</span><strong>S/ {{ precioBase() | number: '1.2-2' }}</strong></div>
+              <div class="kv"><span>Total Productos:</span><strong>S/ {{ totalProductos() | number: '1.2-2' }}</strong></div>
+              @if (commissionTotal() > 0) { <div class="kv comm"><span>💳 Comisión POS:</span><strong>S/ {{ commissionTotal() | number: '1.2-2' }}</strong></div> }
+              <div class="kv"><span>Total a pagar:</span><strong>S/ {{ totalAPagar() | number: '1.2-2' }}</strong></div>
+              <div class="kv"><span>Total pagado:</span><strong>S/ {{ totalPagado() | number: '1.2-2' }}</strong></div>
+              @if (pendiente() > 0.001) {
+                <div class="status warn"><i class="pi pi-exclamation-triangle"></i> Pendiente por pagar <span>S/ {{ pendiente() | number: '1.2-2' }}</span></div>
+              } @else {
+                <div class="status ok"><i class="pi pi-check-circle"></i> Pagado completamente</div>
+              }
             </div>
-            <div>
-              <div class="ph"><h4>Métodos de Pago</h4><button class="addpay" (click)="addPay()"><i class="pi pi-plus"></i> Añadir método de pago</button></div>
+
+            <div class="metodos">
+              <div class="mh"><h4>Métodos de Pago</h4><button class="add-btn" (click)="addPay()"><i class="pi pi-plus"></i> Añadir método de pago</button></div>
               @for (p of pays(); track $index; let i = $index) {
-                <div class="payrow">
-                  <p-select [options]="methods" [(ngModel)]="p.method" optionLabel="label" optionValue="value" styleClass="w sm" />
-                  <p-inputNumber [(ngModel)]="p.amount" mode="decimal" [minFractionDigits]="2" [min]="0" inputStyleClass="amt" />
-                  <button class="elim" (click)="removePay(i)"><i class="pi pi-times"></i></button>
+                <div class="mcard">
+                  <div class="mtop"><span>Método de pago #{{ i + 1 }}</span><button class="del" (click)="removePay(i)"><i class="pi pi-times"></i></button></div>
+                  <div class="m-grid">
+                    <div class="fld"><label>Tipo de pago</label>
+                      <p-select [options]="payTypes" optionValue="value" [(ngModel)]="p.type" styleClass="w">
+                        <ng-template let-t pTemplate="item">{{ t.label }} @if (t.commission) { <span class="cm">(+{{ t.commission }}%)</span> }</ng-template>
+                        <ng-template let-t pTemplate="selectedItem">{{ t.label }} @if (t.commission) { <span class="cm">(+{{ t.commission }}%)</span> }</ng-template>
+                      </p-select>
+                    </div>
+                    <div class="fld"><label>{{ payMeta(p.type).commission ? 'Monto (incluye ' + payMeta(p.type).commission + '% comisión)' : 'Monto a cobrar' }}</label>
+                      <p-inputNumber [(ngModel)]="p.amount" mode="decimal" [minFractionDigits]="2" [min]="0" /></div>
+                    @if (payMeta(p.type).value === 'CASH') {
+                      <div class="fld"><label>💰 Con cuánto paga el cliente</label><p-inputNumber [(ngModel)]="p.received" mode="decimal" [minFractionDigits]="2" [min]="0" /></div>
+                      <div class="fld"><label>🔁 Vuelto a entregar</label><div class="vuelto">S/ {{ vuelto(p) | number: '1.2-2' }}</div></div>
+                    } @else {
+                      <div class="fld span2"><label>Referencia *</label><input pInputText [(ngModel)]="p.reference" placeholder="Obligatorio - N° de transacción, voucher, etc." /></div>
+                    }
+                    <div class="fld span2"><label>Notas</label><input pInputText [(ngModel)]="p.notes" placeholder="Notas adicionales del pago" /></div>
+                  </div>
                 </div>
-              } @empty { <p class="muted">Sin métodos (opcional si no hay productos).</p> }
+              } @empty { <p class="muted">Agrega uno o más métodos de pago.</p> }
             </div>
           </div>
         </div>
@@ -196,43 +218,65 @@ const METHODS = [
   `,
   styles: [
     `
-      .tabs { display: flex; gap: 0.3rem; border-bottom: 1px solid var(--p-content-border-color, #1c2c44); margin-bottom: 1rem; flex-wrap: wrap; }
-      .tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--p-text-muted-color, #8aa0bd); padding: 0.6rem 0.9rem; cursor: pointer; font-size: 0.85rem; }
-      .tabs button.on { color: var(--rz-accent, #10b981); border-bottom-color: var(--rz-accent, #10b981); font-weight: 700; }
-      .form { display: flex; flex-direction: column; }
-      h3 { margin: 1rem 0 0.5rem; font-size: 1rem; } h4 { margin: 0 0 0.6rem; font-size: 0.95rem; }
-      label { margin: 0.7rem 0 0.3rem; font-size: 0.85rem; color: var(--p-text-muted-color, #a1a1aa); }
-      input[pInputText] { width: 100%; }
-      .row { display: flex; gap: 1rem; } .row > .col { flex: 1; display: flex; flex-direction: column; }
-      .search-row { display: flex; gap: 0.5rem; } .search-row input { flex: 1; }
-      .price { margin-top: 1rem; padding: 0.7rem 0.9rem; border-radius: 8px; background: rgba(52,211,153,0.12); }
-      .muted { color: var(--p-text-muted-color, #a1a1aa); font-size: 0.82rem; } .center { text-align: center; }
-      :host ::ng-deep .w-full, :host ::ng-deep .w .p-select { width: 100%; }
+      :host ::ng-deep .ci-dialog .p-dialog-content, :host ::ng-deep .ci-dialog .p-dialog-header, :host ::ng-deep .ci-dialog .p-dialog-footer { background: #0b1220; color: #e6edf5; }
+      .sub { color: #8aa0bd; margin: 0 0 1rem; font-size: 0.85rem; }
+      .room-card { display: flex; justify-content: space-between; align-items: center; gap: 1rem; background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1rem; flex-wrap: wrap; }
+      .room-card .lbl { display: block; font-size: 0.72rem; color: #8aa0bd; } .room-card strong { font-size: 1.15rem; }
+      .change { display: flex; align-items: center; gap: 0.6rem; font-size: 0.85rem; color: #8aa0bd; }
+      :host ::ng-deep .w .p-select { width: 100%; } :host ::ng-deep .w.sm .p-select { min-width: 220px; }
 
-      .venta { display: grid; grid-template-columns: 1fr 1.2fr; gap: 1rem; }
-      .vfilters { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
-      .search { position: relative; flex: 1; } .search i { position: absolute; left: 0.6rem; top: 50%; transform: translateY(-50%); color: #6b7a90; }
-      .search input { width: 100%; padding-left: 1.9rem; }
-      .plist { display: flex; flex-direction: column; gap: 0.4rem; max-height: 300px; overflow-y: auto; }
-      .pcard { text-align: left; background: var(--p-content-hover-background, #142339); border: 1px solid var(--p-content-border-color,#1c2c44); border-radius: 8px; padding: 0.55rem 0.7rem; cursor: pointer; display: flex; flex-direction: column; gap: 0.2rem; color: var(--p-text-color,#e6edf5); }
-      .pcard:hover:not(:disabled) { border-color: var(--rz-accent,#10b981); } .pcard:disabled { opacity: 0.45; }
-      .pn small { color: #8aa0bd; } .pp { color: #34d399; font-weight: 700; font-size: 0.85rem; } .pp small { color: #8aa0bd; font-weight: 400; margin-left: 0.4rem; } .pp small.low { color: #f87171; }
+      .tabs { display: flex; gap: 0.3rem; background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 10px; padding: 4px; margin-bottom: 1.1rem; flex-wrap: wrap; }
+      .tabs button { flex: 1; background: transparent; border: 0; color: #8aa0bd; padding: 0.65rem 0.8rem; cursor: pointer; font-size: 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
+      .tabs button.on { background: #0b1220; color: #fff; font-weight: 700; box-shadow: 0 0 0 1px #1c2c44; }
+      .tbadge { background: #10b981; color: #04130d; border-radius: 999px; font-size: 0.68rem; font-weight: 700; padding: 0.05rem 0.4rem; }
+
+      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem 1.2rem; }
+      .fld { display: flex; flex-direction: column; gap: 0.3rem; } .fld.span2 { grid-column: 1 / -1; }
+      label { font-size: 0.82rem; color: #cdd8e6; }
+      input[pInputText], input[type=datetime-local], textarea { width: 100%; background: #0f1a2b; border: 1px solid #1c2c44; color: #e6edf5; border-radius: 8px; padding: 0.6rem 0.7rem; font: inherit; }
+      .rate-it { display: flex; justify-content: space-between; gap: 1rem; width: 100%; }
+      .muted { color: #8aa0bd; font-size: 0.82rem; }
+
+      .adic-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.8rem; }
+      .ti { background: rgba(16,185,129,0.15); color: #10b981; padding: 0.35rem; border-radius: 8px; }
+      .add-btn { background: #10b981; color: #04130d; border: 0; border-radius: 8px; padding: 0.5rem 0.9rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; }
+      .adic-row { display: flex; align-items: flex-start; gap: 0.8rem; background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 12px; padding: 1rem; margin-bottom: 0.6rem; }
+      .adic-row .num { width: 1.8rem; height: 1.8rem; border-radius: 50%; background: #142339; color: #34d399; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem; }
+      .ag-grid { flex: 1; display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.5rem; }
+      .del { background: transparent; border: 0; color: #f87171; cursor: pointer; }
+
+      .venta { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+      h4 { margin: 0 0 0.6rem; font-size: 1rem; }
+      .vbox { background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 12px; padding: 1rem; }
+      .vfilters { display: flex; gap: 0.5rem; margin: 0.6rem 0; }
+      .plist { display: flex; flex-direction: column; gap: 0.5rem; max-height: 320px; overflow-y: auto; }
+      .pcard { display: flex; justify-content: space-between; gap: 1rem; text-align: left; background: #0b1220; border: 1px solid #1c2c44; border-radius: 10px; padding: 0.7rem 0.9rem; cursor: pointer; color: #e6edf5; }
+      .pcard:hover:not(:disabled) { border-color: #10b981; } .pcard:disabled { opacity: 0.45; }
+      .pn { font-weight: 600; } .pc { font-size: 0.72rem; color: #8aa0bd; } .pr { text-align: right; }
+      .pp { color: #34d399; font-weight: 700; } .ps { font-size: 0.72rem; color: #34d399; } .pm { font-size: 0.72rem; color: #8aa0bd; }
       .seltbl { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-      .seltbl th { text-align: left; color: #8aa0bd; font-weight: 600; padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--p-content-border-color,#1c2c44); }
-      .seltbl td { padding: 0.4rem 0.4rem; border-bottom: 1px solid #16202e; }
+      .seltbl th { text-align: left; color: #8aa0bd; font-weight: 600; padding: 0.4rem; border-bottom: 1px solid #1c2c44; }
+      .seltbl td { padding: 0.4rem; border-bottom: 1px solid #16202e; }
       .elim { background: transparent; border: 0; color: #f87171; cursor: pointer; font-size: 0.8rem; }
       .vtotal { text-align: right; margin-top: 0.6rem; } .vtotal strong { color: #34d399; font-size: 1.1rem; }
+      .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.4rem; color: #8aa0bd; border: 1px dashed #1c2c44; border-radius: 12px; padding: 3rem 1rem; text-align: center; }
+      .empty .pi { font-size: 2rem; }
 
-      .caja-ok { background: rgba(16,185,129,0.12); border: 1px solid #14633f; color: #6ee7b7; border-radius: 8px; padding: 0.6rem 0.8rem; font-size: 0.85rem; }
-      .comp-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 0.9rem 0; padding: 0.7rem 0.9rem; border: 1px solid var(--p-content-border-color,#1c2c44); border-radius: 10px; flex-wrap: wrap; }
-      .cmp { display: flex; align-items: center; gap: 0.5rem; margin: 0; }
-      .pago-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
-      .kv { display: flex; justify-content: space-between; padding: 0.35rem 0; font-size: 0.9rem; }
-      .kv.total { border-top: 1px solid var(--p-content-border-color,#1c2c44); margin-top: 0.3rem; padding-top: 0.5rem; } .kv.total strong { color: #34d399; }
-      .ph { display: flex; justify-content: space-between; align-items: center; }
-      .addpay { background: transparent; border: 1px solid var(--p-content-border-color,#1c2c44); color: #cdd8e6; border-radius: 8px; padding: 0.3rem 0.6rem; cursor: pointer; font-size: 0.78rem; }
-      .payrow { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.4rem; align-items: center; margin-top: 0.4rem; }
-      :host ::ng-deep .amt { width: 100%; }
+      .caja-ok { display: flex; align-items: center; gap: 0.6rem; background: rgba(16,185,129,0.1); border: 1px solid #14633f; color: #6ee7b7; border-radius: 10px; padding: 0.8rem 1rem; }
+      .comp { border: 1px solid #14633f; border-radius: 10px; padding: 1rem; margin: 0.9rem 0; text-align: center; }
+      .comp-q { color: #34d399; font-weight: 700; margin: 0 0 0.6rem; }
+      .comp-row { display: flex; align-items: center; justify-content: center; gap: 0.8rem; }
+      .pago-grid { display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 1.2rem; }
+      .resumen { background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 12px; padding: 1rem; align-self: start; }
+      .kv { display: flex; justify-content: space-between; padding: 0.4rem 0; font-size: 0.88rem; } .kv.comm strong { color: #fbbf24; } .kv.comm span { color: #fbbf24; }
+      .status { margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px solid #1c2c44; display: flex; align-items: center; gap: 0.4rem; font-weight: 700; }
+      .status.ok { color: #34d399; } .status.warn { color: #fbbf24; justify-content: space-between; }
+      .mh { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem; }
+      .mcard { background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 12px; padding: 1rem; margin-bottom: 0.7rem; }
+      .mtop { display: flex; justify-content: space-between; color: #8aa0bd; font-size: 0.85rem; margin-bottom: 0.6rem; }
+      .m-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; } .m-grid .span2 { grid-column: 1 / -1; }
+      .cm { color: #fbbf24; } .vuelto { background: #0b1220; border: 1px solid #14633f; color: #34d399; border-radius: 8px; padding: 0.6rem 0.7rem; font-weight: 700; }
+      @media (max-width: 760px) { .grid2, .venta, .pago-grid, .m-grid { grid-template-columns: 1fr; } .ag-grid { grid-template-columns: 1fr 1fr; } }
     `,
   ],
 })
@@ -252,39 +296,31 @@ export class CheckInDialogComponent {
     this._room = value;
     if (value) this.init(value);
   }
-  get room(): RoomMapItem | null {
-    return this._room;
-  }
-
+  get room(): RoomMapItem | null { return this._room; }
   @Input() prefillGuestId: string | null = null;
 
-  readonly docTypes = DOCUMENT_TYPE_OPTIONS;
-  readonly methods = METHODS;
-  readonly guestModeOptions = [
-    { label: 'Cliente existente', value: 'existing' },
-    { label: 'Nuevo cliente', value: 'new' },
-  ];
+  readonly docTypes = DOC_TYPES;
+  readonly payTypes = PAY_TYPES;
 
   readonly tab = signal<Tab>('huesped');
   readonly rates = signal<Rate[]>([]);
   readonly tiers = signal<ClientTier[]>([]);
-  readonly guestResults = signal<Guest[]>([]);
+  readonly freeRooms = signal<RoomMapItem[]>([]);
   readonly products = signal<Product[]>([]);
   readonly lines = signal<{ product: Product; quantity: number }[]>([]);
-  readonly pays = signal<Pay[]>([]);
-  readonly pricePreview = signal<number | null>(null);
+  readonly addGuests = signal<AddGuest[]>([]);
+  readonly pays = signal<PayRow[]>([]);
   readonly saving = signal(false);
 
-  guestMode: 'existing' | 'new' = 'existing';
-  guestSearch = '';
-  selectedGuestId: string | null = null;
-  newGuest: NewGuestInput = { documentType: 'DNI', documentNumber: '', firstName: '', lastName: '', phone: '', email: '' };
+  targetRoomId: string | null = null;
+  docType = 'DNI';
+  docNumber = '';
+  guestName = '';
+  phone = '';
+  vehiclePlate = '';
   selectedRateId: string | null = null;
   selectedTierId: string | null = null;
-  additionalGuestIds: string[] = [];
-  adults = 1;
-  children = 0;
-  vehiclePlate = '';
+  checkoutAt = '';
   notes = '';
   prodSearch = '';
   categoryFilter: string | null = null;
@@ -292,65 +328,47 @@ export class CheckInDialogComponent {
 
   private init(room: RoomMapItem): void {
     this.tab.set('huesped');
-    this.guestMode = 'existing';
-    this.guestSearch = '';
-    this.selectedGuestId = null;
-    this.newGuest = { documentType: 'DNI', documentNumber: '', firstName: '', lastName: '', phone: '', email: '' };
-    this.selectedRateId = null;
-    this.selectedTierId = null;
-    this.additionalGuestIds = [];
-    this.adults = 1;
-    this.children = 0;
-    this.vehiclePlate = '';
-    this.notes = '';
-    this.prodSearch = '';
-    this.categoryFilter = null;
-    this.comprobante = false;
-    this.lines.set([]);
-    this.pays.set([]);
-    this.pricePreview.set(null);
+    this.targetRoomId = room.id;
+    this.docType = 'DNI'; this.docNumber = ''; this.guestName = ''; this.phone = ''; this.vehiclePlate = '';
+    this.selectedRateId = null; this.selectedTierId = null; this.checkoutAt = ''; this.notes = '';
+    this.prodSearch = ''; this.categoryFilter = null; this.comprobante = false;
+    this.lines.set([]); this.addGuests.set([]); this.pays.set([]);
 
     this.catalog.rates.list({ roomTypeId: room.roomType.id }).subscribe((res) => this.rates.set(res.data ?? []));
     this.catalog.clientTiers.list({ pageSize: 100, sortBy: 'name' }).subscribe((res) => this.tiers.set(res.data ?? []));
     this.inventory.products.list({ pageSize: 300, status: 'active' }).subscribe((res) => this.products.set(res.data ?? []));
-    this.searchGuests();
+    this.ops.map().subscribe((res) => this.freeRooms.set((res.data ?? []).filter((r) => r.status === 'FREE' || r.id === room.id)));
 
     if (this.prefillGuestId) {
-      const id = this.prefillGuestId;
-      this.catalog.guests.get(id).subscribe((res) => {
-        if (res.data) {
-          this.guestResults.set([res.data, ...this.guestResults().filter((g) => g.id !== id)]);
-          this.selectedGuestId = id;
-        }
+      this.catalog.guests.get(this.prefillGuestId).subscribe((res) => {
+        const g = res.data;
+        if (g) { this.docType = g.documentType; this.docNumber = g.documentNumber; this.guestName = `${g.firstName} ${g.lastName ?? ''}`.trim(); this.phone = g.phone ?? ''; }
       });
     }
   }
 
-  searchGuests(): void {
-    this.catalog.guests.list({ pageSize: 20, search: this.guestSearch || undefined }).subscribe((res) =>
-      this.guestResults.set(res.data ?? []),
-    );
-  }
-
-  recalc(): void {
+  onRate(): void {
     const rate = this.rates().find((r) => r.id === this.selectedRateId);
-    if (!rate) { this.pricePreview.set(null); return; }
+    if (rate) {
+      const out = new Date(Date.now() + rate.durationMinutes * 60_000);
+      const pad = (n: number): string => String(n).padStart(2, '0');
+      this.checkoutAt = `${out.getFullYear()}-${pad(out.getMonth() + 1)}-${pad(out.getDate())}T${pad(out.getHours())}:${pad(out.getMinutes())}`;
+    }
+  }
+  rateLabel(): string { return this.rates().find((r) => r.id === this.selectedRateId)?.label ?? '—'; }
+  precioBase(): number {
+    const rate = this.rates().find((r) => r.id === this.selectedRateId);
+    if (!rate) return 0;
     const tier = this.tiers().find((t) => t.id === this.selectedTierId);
-    const discount = tier ? Number(tier.discountPercent) : 0;
-    this.pricePreview.set(Math.round(Number(rate.price) * (1 - discount / 100) * 100) / 100);
+    const disc = tier ? Number(tier.discountPercent) : 0;
+    return Math.round(Number(rate.price) * (1 - disc / 100) * 100) / 100;
   }
 
-  // --- Venta de productos ---
-  categoryOptions(): string[] {
-    return [...new Set(this.products().map((p) => p.category?.name).filter((c): c is string => !!c))].sort();
-  }
+  // Productos
+  categoryOptions(): string[] { return [...new Set(this.products().map((p) => p.category?.name).filter((c): c is string => !!c))].sort(); }
   filteredProducts(): Product[] {
     const q = this.prodSearch.toLowerCase();
-    return this.products().filter((p) => {
-      if (q && !p.name.toLowerCase().includes(q)) return false;
-      if (this.categoryFilter && p.category?.name !== this.categoryFilter) return false;
-      return true;
-    });
+    return this.products().filter((p) => (!q || p.name.toLowerCase().includes(q)) && (!this.categoryFilter || p.category?.name === this.categoryFilter));
   }
   addProduct(p: Product): void {
     const ex = this.lines().find((l) => l.product.id === p.id);
@@ -359,62 +377,72 @@ export class CheckInDialogComponent {
   }
   removeLine(id: string): void { this.lines.set(this.lines().filter((l) => l.product.id !== id)); }
   touch(): void { this.lines.set([...this.lines()]); }
-  productsTotal(): number { return this.lines().reduce((a, l) => a + Number(l.product.salePrice) * l.quantity, 0); }
+  totalProductos(): number { return this.lines().reduce((a, l) => a + Number(l.product.salePrice) * l.quantity, 0); }
 
-  // --- Pagos ---
-  addPay(): void { this.pays.set([...this.pays(), { method: 'CASH', amount: Math.max(0, this.productsTotal() - this.paid()) }]); }
+  // Huéspedes adicionales
+  addGuest(): void { this.addGuests.set([...this.addGuests(), { documentType: 'DNI', documentNumber: '', name: '', phone: '', notes: '' }]); }
+  removeGuest(i: number): void { const n = [...this.addGuests()]; n.splice(i, 1); this.addGuests.set(n); }
+
+  // Pagos
+  payMeta(type: string): (typeof PAY_TYPES)[number] { return PAY_TYPES.find((t) => t.value === type) ?? PAY_TYPES[0]; }
+  addPay(): void { this.pays.set([...this.pays(), { type: 'CASH', amount: Math.max(0, this.baseTotal() - this.totalPagado()), received: null, reference: '', notes: '' }]); }
   removePay(i: number): void { const n = [...this.pays()]; n.splice(i, 1); this.pays.set(n); }
-  paid(): number { return this.pays().reduce((a, p) => a + (p.amount || 0), 0); }
-  change(): number { return Math.max(0, this.paid() - this.productsTotal()); }
+  baseTotal(): number { return Math.round((this.precioBase() + this.totalProductos()) * 100) / 100; }
+  commissionTotal(): number { return Math.round(this.pays().reduce((a, p) => a + (p.amount || 0) * this.payMeta(p.type).commission / 100, 0) * 100) / 100; }
+  totalAPagar(): number { return Math.round((this.baseTotal() + this.commissionTotal()) * 100) / 100; }
+  totalPagado(): number { return Math.round(this.pays().reduce((a, p) => a + (p.amount || 0), 0) * 100) / 100; }
+  pendiente(): number { return Math.round((this.totalAPagar() - this.totalPagado()) * 100) / 100; }
+  vuelto(p: PayRow): number { return Math.max(0, Math.round(((p.received ?? 0) - (p.amount || 0)) * 100) / 100); }
 
   nextTab(): void {
     const order: Tab[] = ['huesped', 'adicionales', 'venta', 'pago'];
-    const i = order.indexOf(this.tab());
-    this.tab.set(order[Math.min(order.length - 1, i + 1)]);
+    this.tab.set(order[Math.min(order.length - 1, order.indexOf(this.tab()) + 1)]);
   }
-
-  onVisibleChange(value: boolean): void {
-    this.visible = value;
-    this.visibleChange.emit(value);
-  }
+  onVisibleChange(value: boolean): void { this.visible = value; this.visibleChange.emit(value); }
 
   confirm(): void {
-    if (!this.room || !this.selectedRateId) {
-      this.tab.set('huesped');
-      this.messages.add({ severity: 'warn', summary: 'Falta tarifa', detail: 'Selecciona una tarifa.' });
-      return;
-    }
-    const input: CheckInInput = {
-      roomId: this.room.id,
-      rateId: this.selectedRateId,
-      tierId: this.selectedTierId ?? null,
-      additionalGuestIds: this.additionalGuestIds,
-      adults: this.adults,
-      children: this.children,
-      vehiclePlate: this.vehiclePlate || undefined,
-      notes: this.notes || undefined,
-    };
-    if (this.guestMode === 'existing') {
-      if (!this.selectedGuestId) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Falta huésped', detail: 'Selecciona un cliente.' }); return; }
-      input.guestId = this.selectedGuestId;
-    } else {
-      if (!this.newGuest.documentNumber || !this.newGuest.firstName) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Datos incompletos', detail: 'Completa documento y nombres.' }); return; }
-      input.newGuest = this.newGuest;
-    }
+    if (!this.room) return;
+    if (!this.selectedRateId) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Falta tarifa', detail: 'Selecciona una tarifa.' }); return; }
+    if (!this.docNumber || !this.guestName) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Datos incompletos', detail: 'Completa documento y nombre del huésped.' }); return; }
+    const badRef = this.pays().find((p) => this.payMeta(p.type).ref && !p.reference.trim());
+    if (badRef) { this.tab.set('pago'); this.messages.add({ severity: 'warn', summary: 'Falta referencia', detail: 'Los pagos con tarjeta/transferencia requieren referencia.' }); return; }
 
     this.saving.set(true);
+    // 1. Crear huéspedes adicionales (los que tengan documento) y luego check-in.
+    const toCreate = this.addGuests().filter((g) => g.documentNumber.trim());
+    const creates = toCreate.map((g) =>
+      this.catalog.guests.create({ documentType: g.documentType, documentNumber: g.documentNumber.trim(), firstName: g.name || g.documentNumber, lastName: '', phone: g.phone || undefined } as never),
+    );
+    forkJoin(creates.length ? creates : [of(null)]).subscribe((res) => {
+      const addIds = creates.length ? res.map((r) => (r as { data?: { id: string } } | null)?.data?.id).filter((x): x is string => !!x) : [];
+      this.doCheckIn(addIds);
+    });
+  }
+
+  private doCheckIn(additionalGuestIds: string[]): void {
+    const input: CheckInInput = {
+      roomId: this.targetRoomId ?? this.room!.id,
+      rateId: this.selectedRateId!,
+      tierId: this.selectedTierId ?? null,
+      additionalGuestIds,
+      adults: 1 + additionalGuestIds.length,
+      children: 0,
+      vehiclePlate: this.vehiclePlate || undefined,
+      notes: this.notes || undefined,
+      newGuest: { documentType: this.docType as never, documentNumber: this.docNumber, firstName: this.guestName, lastName: '', phone: this.phone || '', email: '' },
+    };
     this.ops.checkIn(input).subscribe({
       next: (res) => {
         const stay = res.data as Stay | undefined;
-        const hasProducts = this.lines().length > 0;
-        if (hasProducts && stay?.id) {
-          this.finance.createSale({
-            stayId: stay.id,
-            items: this.lines().map((l) => ({ productId: l.product.id, quantity: l.quantity })),
-            payments: this.pays().filter((p) => p.amount > 0).map((p) => ({ method: p.method, amount: p.amount })),
-          }).subscribe({
-            next: () => this.finish('Habitación ocupada. Venta registrada.'),
-            error: () => this.finish('Check-in hecho. La venta de productos no se pudo registrar.'),
+        const items = [
+          { description: `Tarifa: ${this.rateLabel()}`, unitPrice: this.precioBase(), quantity: 1 },
+          ...this.lines().map((l) => ({ productId: l.product.id, quantity: l.quantity })),
+        ];
+        const payments = this.pays().filter((p) => (p.amount || 0) > 0).map((p) => ({ method: this.payMeta(p.type).backend, amount: p.amount }));
+        if (stay?.id && payments.length) {
+          this.finance.createSale({ stayId: stay.id, items, payments }).subscribe({
+            next: () => this.finish('Habitación ocupada. Pago registrado.'),
+            error: () => this.finish('Check-in hecho. El cobro no se pudo registrar.'),
           });
         } else {
           this.finish('Habitación ocupada.');
