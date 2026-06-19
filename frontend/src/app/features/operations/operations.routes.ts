@@ -5,6 +5,10 @@ const routes: Routes = [
   { path: '', component: PlaceholderPageComponent },
   {
     path: 'habitaciones',
+    loadComponent: () => import('./board/habitaciones-board.component').then((m) => m.HabitacionesBoardComponent),
+  },
+  {
+    path: 'habitaciones-clasico',
     loadComponent: () => import('./habitaciones/rooms-map.component').then((m) => m.RoomsMapComponent),
   },
   {
