@@ -1,5 +1,5 @@
 import { Component, EventEmitter, Input, Output, inject, signal } from '@angular/core';
-import { DecimalPipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { forkJoin, of } from 'rxjs';
@@ -43,7 +43,7 @@ const PAY_TYPES = [
 @Component({
   selector: 'app-check-in-dialog',
   standalone: true,
-  imports: [DecimalPipe, FormsModule, ButtonModule, DialogModule, InputTextModule, InputNumberModule, SelectModule, ToggleSwitchModule],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, DialogModule, InputTextModule, InputNumberModule, SelectModule, ToggleSwitchModule],
   template: `
     <p-dialog [visible]="visible" (visibleChange)="onVisibleChange($event)" [modal]="true"
               [style]="{ width: '960px', maxWidth: '97vw' }" header="Cambiar Estado de Habitación" styleClass="ci-dialog">
@@ -94,11 +94,36 @@ const PAY_TYPES = [
           <div class="fld"><label>Placa de vehículo (opcional)</label><input pInputText [(ngModel)]="vehiclePlate" placeholder="ABC-123" style="text-transform:uppercase" /></div>
           <div class="fld"><label>Duración / Tarifa</label>
             <p-select [options]="rates()" [(ngModel)]="selectedRateId" optionValue="id" (onChange)="onRate()" placeholder="Seleccionar tarifa" styleClass="w">
-              <ng-template let-r pTemplate="item"><span class="rate-it">{{ r.label }} <strong>S/ {{ +r.price | number: '1.2-2' }}</strong></span></ng-template>
-              <ng-template let-r pTemplate="selectedItem">{{ r.label }} · S/ {{ +r.price | number: '1.2-2' }}</ng-template>
+              <ng-template let-r pTemplate="item"><span class="rate-it">{{ r.label }} @if (isPernocta(r)) { <span class="pn-badge">🌙 Pernoctación</span> } <strong>S/ {{ +r.price | number: '1.2-2' }}</strong></span></ng-template>
+              <ng-template let-r pTemplate="selectedItem">{{ r.label }} @if (isPernocta(r)) { <span class="pn-badge">🌙 Pernoctación</span> } · S/ {{ +r.price | number: '1.2-2' }}</ng-template>
             </p-select>
           </div>
           <div class="fld"><label>Tier (opcional)</label><p-select [options]="tiers()" optionLabel="name" optionValue="id" [(ngModel)]="selectedTierId" [showClear]="true" (onChange)="onRate()" placeholder="Sin tier" styleClass="w" /></div>
+
+          @if (isPernoctaRate()) {
+            <!-- Noches de estadía (día hotelero) -->
+            <div class="nights span2">
+              <div class="n-head"><span><i class="pi pi-moon"></i> Noches de estadía</span><span class="n-out">Salida: 12:00 hrs</span></div>
+              <div class="n-opts">
+                @for (n of nightOptions; track n) {
+                  <button [class.on]="nights === n && !manualNights" (click)="setNights(n)">{{ n }} {{ n === 1 ? 'noche' : 'noches' }}</button>
+                }
+                <button class="pers" [class.on]="manualNights" (click)="manualNights = true">Personalizar</button>
+              </div>
+              @if (manualNights) {
+                <div class="n-manual"><label>Noches:</label><p-inputNumber [(ngModel)]="nights" [min]="1" [max]="60" [showButtons]="true" buttonLayout="horizontal" (onInput)="recomputeNights()" /></div>
+              }
+              <div class="n-dates">
+                <div><span>Check-in:</span><strong>{{ now | date: 'dd/MM/yyyy HH:mm' }}</strong></div>
+                <div><span>Check-out:</span><strong class="out">{{ checkoutDate() | date: 'dd/MM/yyyy HH:mm' }}</strong></div>
+              </div>
+              <div class="n-price">
+                <div class="np-calc">{{ nights }} {{ nights === 1 ? 'noche' : 'noches' }} × S/ {{ ratePrice() | number: '1.2-2' }} <span class="eq">= S/ {{ nights * ratePrice() | number: '1.2-2' }}</span></div>
+                <div class="np-final"><label>Precio final:</label><span class="cur">S/</span><input type="number" [(ngModel)]="finalPrice" min="0" /></div>
+              </div>
+            </div>
+          }
+
           <div class="fld"><label>Fecha y hora de salida</label><input type="datetime-local" [(ngModel)]="checkoutAt" /></div>
           <div class="fld span2"><label>Notas Adicionales</label><textarea [(ngModel)]="notes" rows="3" placeholder="Alergias, preferencias, motivo de estancia, solicitudes especiales..."></textarea></div>
         </div>
@@ -256,6 +281,23 @@ const PAY_TYPES = [
       input[pInputText], input[type=datetime-local], textarea { width: 100%; background: #0f1a2b; border: 1px solid #1c2c44; color: #e6edf5; border-radius: 8px; padding: 0.6rem 0.7rem; font: inherit; }
       .rate-it { display: flex; justify-content: space-between; gap: 1rem; width: 100%; }
       .muted { color: #8aa0bd; font-size: 0.82rem; }
+      .pn-badge { background: #5b21b6; color: #e9d5ff; font-size: 0.66rem; font-weight: 700; padding: 0.05rem 0.4rem; border-radius: 999px; }
+      .nights { background: #fbfbfe; color: #1e1b4b; border: 1px solid #c4b5fd; border-radius: 14px; padding: 1rem; }
+      .n-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.7rem; }
+      .n-head > span:first-child { color: #6d28d9; font-weight: 700; display: inline-flex; align-items: center; gap: 0.4rem; }
+      .n-out { color: #7c3aed; font-size: 0.82rem; }
+      .n-opts { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .n-opts button { background: #1e1b4b; color: #c4b5fd; border: 0; border-radius: 10px; padding: 0.55rem 0.9rem; cursor: pointer; font-weight: 700; font-size: 0.85rem; }
+      .n-opts button.on { background: #7c3aed; color: #fff; }
+      .n-opts button.pers { background: #2e1065; }
+      .n-manual { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.6rem; color: #4c1d95; }
+      .n-dates { background: #1e1b4b; color: #ddd6fe; border-radius: 10px; padding: 0.7rem 0.9rem; margin-top: 0.7rem; display: flex; flex-direction: column; gap: 0.3rem; }
+      .n-dates > div { display: flex; justify-content: space-between; font-size: 0.85rem; } .n-dates .out { color: #a78bfa; }
+      .n-price { background: #ede9fe; border-radius: 10px; padding: 0.7rem 0.9rem; margin-top: 0.6rem; }
+      .np-calc { display: flex; justify-content: space-between; color: #4c1d95; font-size: 0.88rem; } .np-calc .eq { font-weight: 700; }
+      .np-final { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.5rem; color: #4c1d95; }
+      .np-final input { flex: 1; background: #fff; border: 1px solid #c4b5fd; color: #1e1b4b; border-radius: 8px; padding: 0.5rem 0.7rem; font-weight: 700; }
+      .np-final .cur { font-weight: 700; }
       .doc-row { display: flex; gap: 0.5rem; align-items: stretch; }
       .doc-row input { flex: 1; }
       .doc-badge { display: inline-flex; align-items: center; gap: 0.3rem; background: #78350f; color: #fcd34d; border: 1px solid #b45309; border-radius: 8px; padding: 0 0.6rem; font-weight: 700; font-size: 0.85rem; }
@@ -356,6 +398,11 @@ export class CheckInDialogComponent {
   prodSearch = '';
   categoryFilter: string | null = null;
   comprobante = false;
+  readonly now = new Date();
+  readonly nightOptions = [1, 2, 3, 5, 7];
+  nights = 1;
+  manualNights = false;
+  finalPrice: number | null = null;
 
   private init(room: RoomMapItem): void {
     this.tab.set('huesped');
@@ -363,6 +410,7 @@ export class CheckInDialogComponent {
     this.docType = 'DNI'; this.docNumber = ''; this.guestName = ''; this.phone = ''; this.vehiclePlate = '';
     this.selectedRateId = null; this.selectedTierId = null; this.checkoutAt = ''; this.notes = '';
     this.prodSearch = ''; this.categoryFilter = null; this.comprobante = false;
+    this.nights = 1; this.manualNights = false; this.finalPrice = null;
     this.lines.set([]); this.addGuests.set([]); this.pays.set([]); this.debts.set({ items: [], total: 0 }); this.foundGuestId = null;
 
     this.catalog.rates.list({ roomTypeId: room.roomType.id }).subscribe((res) => this.rates.set(res.data ?? []));
@@ -395,18 +443,58 @@ export class CheckInDialogComponent {
     });
   }
 
+  // --- Pernoctación / noches de estadía ---
+  isPernocta(r: Rate): boolean {
+    return (r.durationMinutes ?? 0) >= 1440 || /hotelero|noche|pernocta/i.test(r.label);
+  }
+  selectedRate(): Rate | undefined {
+    return this.rates().find((r) => r.id === this.selectedRateId);
+  }
+  isPernoctaRate(): boolean {
+    const r = this.selectedRate();
+    return !!r && this.isPernocta(r);
+  }
+  ratePrice(): number {
+    return Number(this.selectedRate()?.price ?? 0);
+  }
+  checkoutDate(): Date {
+    const d = new Date(this.now);
+    d.setDate(d.getDate() + this.nights);
+    d.setHours(12, 0, 0, 0);
+    return d;
+  }
+  setNights(n: number): void {
+    this.nights = n;
+    this.manualNights = false;
+    this.recomputeNights();
+  }
+  recomputeNights(): void {
+    this.finalPrice = Math.round(this.nights * this.ratePrice() * 100) / 100;
+    this.syncCheckoutInput(this.checkoutDate());
+  }
+  private syncCheckoutInput(out: Date): void {
+    const pad = (n: number): string => String(n).padStart(2, '0');
+    this.checkoutAt = `${out.getFullYear()}-${pad(out.getMonth() + 1)}-${pad(out.getDate())}T${pad(out.getHours())}:${pad(out.getMinutes())}`;
+  }
+
   onRate(): void {
-    const rate = this.rates().find((r) => r.id === this.selectedRateId);
-    if (rate) {
-      const out = new Date(Date.now() + rate.durationMinutes * 60_000);
-      const pad = (n: number): string => String(n).padStart(2, '0');
-      this.checkoutAt = `${out.getFullYear()}-${pad(out.getMonth() + 1)}-${pad(out.getDate())}T${pad(out.getHours())}:${pad(out.getMinutes())}`;
+    const rate = this.selectedRate();
+    if (!rate) return;
+    if (this.isPernocta(rate)) {
+      this.nights = Math.max(1, Math.round((rate.durationMinutes || 1440) / 1440));
+      this.manualNights = false;
+      this.recomputeNights();
+    } else {
+      this.finalPrice = null;
+      this.syncCheckoutInput(new Date(Date.now() + rate.durationMinutes * 60_000));
     }
   }
   rateLabel(): string { return this.rates().find((r) => r.id === this.selectedRateId)?.label ?? '—'; }
   precioBase(): number {
     const rate = this.rates().find((r) => r.id === this.selectedRateId);
     if (!rate) return 0;
+    // Pernoctación: usa el precio final (noches × tarifa, editable).
+    if (this.isPernocta(rate) && this.finalPrice != null) return this.finalPrice;
     const tier = this.tiers().find((t) => t.id === this.selectedTierId);
     const disc = tier ? Number(tier.discountPercent) : 0;
     return Math.round(Number(rate.price) * (1 - disc / 100) * 100) / 100;
@@ -477,6 +565,8 @@ export class CheckInDialogComponent {
       children: 0,
       vehiclePlate: this.vehiclePlate || undefined,
       notes: this.notes || undefined,
+      nights: this.isPernoctaRate() ? this.nights : undefined,
+      priceOverride: this.isPernoctaRate() && this.finalPrice != null ? this.finalPrice : undefined,
     };
     // Si el documento ya existe en la BD, usamos su id; si no, creamos huésped nuevo.
     if (this.foundGuestId) {

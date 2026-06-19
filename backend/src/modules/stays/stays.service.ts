@@ -115,12 +115,17 @@ export const staysService = {
     const checkInAt = new Date();
     // Día hotelero: tarifas de día completo (>=1440 min) o etiquetadas "hotelero/noche"
     // usan horario fijo de pernocta (no 24h) y pueden generar cargo de early check-in.
-    const isDiaHotelero = rate.durationMinutes >= 1440 || /hotelero|noche/i.test(rate.label);
+    const isDiaHotelero = rate.durationMinutes >= 1440 || /hotelero|noche|pernocta/i.test(rate.label);
     let plannedCheckoutAt: Date;
     let balanceDue: number | null = null;
     let earlyNote = '';
+    let durationMinutes = rate.durationMinutes;
+    let basePrice = Number(rate.price);
     if (isDiaHotelero) {
-      const nights = Math.max(1, Math.round(rate.durationMinutes / 1440));
+      // Pernoctación: el nº de noches define la salida (día hotelero) y multiplica el precio.
+      const nights = dto.nights ?? Math.max(1, Math.round(rate.durationMinutes / 1440));
+      durationMinutes = nights * 1440;
+      basePrice = Number(rate.price) * nights;
       const q = await pernoctaService.quoteCheckIn(scope, checkInAt, nights);
       plannedCheckoutAt = q.plannedCheckoutAt;
       if (q.earlyCharge > 0) {
@@ -130,7 +135,8 @@ export const staysService = {
     } else {
       plannedCheckoutAt = new Date(checkInAt.getTime() + rate.durationMinutes * 60_000);
     }
-    const priceAgreed = applyDiscount(Number(rate.price), discount);
+    // Precio final editable (priceOverride) o tarifa con descuento de tier.
+    const priceAgreed = dto.priceOverride != null ? round2(dto.priceOverride) : applyDiscount(basePrice, discount);
 
     const stay = await staysRepository.checkIn({
       branchId,
@@ -138,7 +144,7 @@ export const staysService = {
       guestId,
       rateId: rate.id,
       tierId: dto.tierId ?? null,
-      durationMinutes: rate.durationMinutes,
+      durationMinutes,
       priceAgreed,
       balanceDue,
       checkInAt,

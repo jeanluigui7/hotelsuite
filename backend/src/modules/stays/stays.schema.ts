@@ -21,6 +21,9 @@ export const checkInSchema = z
     children: z.coerce.number().int().min(0).default(0),
     vehiclePlate: z.string().max(20).optional().or(z.literal('')),
     notes: z.string().max(500).optional().or(z.literal('')),
+    // Pernoctación / día hotelero: nº de noches y precio final editable.
+    nights: z.coerce.number().int().min(1).max(60).optional(),
+    priceOverride: z.coerce.number().min(0).optional(),
   })
   .refine((v) => v.guestId || v.newGuest, {
     message: 'Debe indicar un huésped existente (guestId) o los datos de uno nuevo (newGuest)',

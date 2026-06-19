@@ -73,6 +73,8 @@ export interface CheckInInput {
   children: number;
   vehiclePlate?: string;
   notes?: string;
+  nights?: number;
+  priceOverride?: number;
 }
 
 export type ReservationStatus = 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'FULFILLED';
