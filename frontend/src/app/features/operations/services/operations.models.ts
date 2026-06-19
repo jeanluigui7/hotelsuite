@@ -6,6 +6,7 @@ export interface ActiveStay {
   checkInAt: string;
   plannedCheckoutAt: string;
   priceAgreed: string | number;
+  balanceDue?: string | number | null;
 }
 
 export interface RoomMapItem {

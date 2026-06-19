@@ -10,6 +10,7 @@ import { OperationsApiService } from '../services/operations-api.service';
 import type { RoomMapItem } from '../services/operations.models';
 import { CheckInDialogComponent } from '../habitaciones/check-in-dialog.component';
 import { VentaProductosComponent } from './venta-productos.component';
+import { ServiciosPenalidadesComponent } from './servicios-penalidades.component';
 import { roomState } from './room-states';
 
 type ViewMode = 'normal' | 'compacta' | 'real';
@@ -17,7 +18,7 @@ type ViewMode = 'normal' | 'compacta' | 'real';
 @Component({
   selector: 'app-habitaciones-board',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, TooltipModule, CheckInDialogComponent, VentaProductosComponent],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, TooltipModule, CheckInDialogComponent, VentaProductosComponent, ServiciosPenalidadesComponent],
   template: `
     <section class="board">
       <header class="top">
@@ -32,7 +33,7 @@ type ViewMode = 'normal' | 'compacta' | 'real';
             <button class="act" (click)="soon('Vehículos')"><i class="pi pi-car"></i> Vehículos</button>
             <button class="act" (click)="checkInHint()"><i class="pi pi-sign-in"></i> Check-in</button>
             <button class="act" (click)="ventaVisible = true"><i class="pi pi-shopping-cart"></i> Venta Productos</button>
-            <button class="act primary" (click)="soon('Servicios y Penalidades')"><i class="pi pi-tags"></i> Servicios y Penalidades</button>
+            <button class="act primary" (click)="serviciosVisible = true"><i class="pi pi-tags"></i> Servicios y Penalidades</button>
           </div>
         </div>
 
@@ -60,6 +61,9 @@ type ViewMode = 'normal' | 'compacta' | 'real';
                 <div class="guest"><i class="pi pi-user"></i> {{ r.activeStay.guestName }}</div>
                 <div class="cap muted">Salida: {{ r.activeStay.plannedCheckoutAt | date: 'dd/MM HH:mm' }}</div>
                 <div class="cap muted">Precio: {{ +r.activeStay.priceAgreed | number: '1.2-2' }}</div>
+                @if (+(r.activeStay.balanceDue || 0) > 0) {
+                  <div class="debe"><i class="pi pi-exclamation-circle"></i> Debe {{ +(r.activeStay.balanceDue || 0) | number: '1.2-2' }}</div>
+                }
               } @else {
                 <div class="caption">{{ st(r).caption }}</div>
               }
@@ -83,6 +87,7 @@ type ViewMode = 'normal' | 'compacta' | 'real';
 
     <app-check-in-dialog [(visible)]="checkInVisible" [room]="selectedRoom" (done)="reload()" />
     <app-venta-productos [(visible)]="ventaVisible" (done)="reload()" />
+    <app-servicios-penalidades [(visible)]="serviciosVisible" (done)="reload()" />
   `,
   styles: [
     `
@@ -122,6 +127,7 @@ type ViewMode = 'normal' | 'compacta' | 'real';
       .caption { opacity: 0.85; font-size: 0.9rem; }
       .guest { font-weight: 700; }
       .cap { font-size: 0.8rem; }
+      .debe { margin-top: 0.3rem; background: rgba(0,0,0,0.3); color: #fde68a; border: 1px solid rgba(251,191,36,0.5); padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem; }
       .muted { opacity: 0.8; }
       .foot { margin-top: auto; }
       .cta { width: 100%; background: rgba(255,255,255,0.92); color: #0b1018; border: 0; border-radius: 10px; padding: 0.6rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; justify-content: center; }
@@ -145,6 +151,7 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
 
   checkInVisible = false;
   ventaVisible = false;
+  serviciosVisible = false;
   selectedRoom: RoomMapItem | null = null;
   private timer?: ReturnType<typeof setInterval>;
 

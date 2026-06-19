@@ -59,6 +59,7 @@ import { dashboardRouter } from './modules/dashboard/dashboard.routes';
 import { inventoryConfigRouter } from './modules/inventory-config/inventory-config.routes';
 import { wifiRouter } from './modules/wifi/wifi.routes';
 import { pernoctaRouter } from './modules/pernocta/pernocta.routes';
+import { servicesRouter } from './modules/services/services.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -129,6 +130,7 @@ export function createApp(): Application {
   app.use('/api', remindersRouter);
   app.use('/api', wifiRouter);
   app.use('/api', pernoctaRouter);
+  app.use('/api', servicesRouter);
   app.use('/api', landingRouter);
 
   // Fallbacks

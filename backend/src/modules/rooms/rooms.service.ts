@@ -30,6 +30,7 @@ function serializeMap(room: RoomForMap) {
           checkInAt: stay.checkInAt,
           plannedCheckoutAt: stay.plannedCheckoutAt,
           priceAgreed: stay.priceAgreed,
+          balanceDue: stay.balanceDue,
         }
       : null,
   };
