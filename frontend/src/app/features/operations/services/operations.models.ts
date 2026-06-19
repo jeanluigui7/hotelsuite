@@ -3,11 +3,16 @@ export type RoomStatus = 'FREE' | 'OCCUPIED' | 'CLEANING' | 'MAINTENANCE';
 export interface ActiveStay {
   id: string;
   guestName: string;
+  documentNumber?: string | null;
+  phone?: string | null;
+  guestCount?: number;
   checkInAt: string;
   plannedCheckoutAt: string;
+  durationMinutes?: number;
   priceAgreed: string | number;
   balanceDue?: string | number | null;
   pending?: number;
+  consumosTotal?: number;
   vehiclePlate?: string | null;
 }
 

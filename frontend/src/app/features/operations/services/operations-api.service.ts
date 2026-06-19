@@ -56,6 +56,10 @@ export class OperationsApiService {
     return this.http.post<ApiResponse<Stay>>(`${this.api}/stays/${stayId}/change-room`, { destRoomId, originStatus });
   }
 
+  renew(stayId: string): Observable<ApiResponse<Stay>> {
+    return this.http.post<ApiResponse<Stay>>(`${this.api}/stays/${stayId}/renew`, {});
+  }
+
   stays(params: ListParams = {}): Observable<ApiResponse<Stay[]>> {
     return this.http.get<ApiResponse<Stay[]>>(`${this.api}/stays`, { params: toHttpParams(params) });
   }

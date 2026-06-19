@@ -8,8 +8,10 @@ import { TooltipModule } from 'primeng/tooltip';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { Router } from '@angular/router';
+import { AuthService } from '../../../core/auth/auth.service';
+import { PrintingService } from '../../../core/printing/printing.service';
 import { OperationsApiService } from '../services/operations-api.service';
-import type { CheckoutSummary, RoomMapItem } from '../services/operations.models';
+import type { ActiveStay, CheckoutSummary, RoomMapItem } from '../services/operations.models';
 import { CheckInDialogComponent } from '../habitaciones/check-in-dialog.component';
 import { VentaProductosComponent } from './venta-productos.component';
 import { ServiciosPenalidadesComponent } from './servicios-penalidades.component';
@@ -50,43 +52,62 @@ type ViewMode = 'normal' | 'compacta' | 'real';
 
       <div class="grid" [class.compacta]="view() === 'compacta'" [class.real]="view() === 'real'">
         @for (r of filtered(); track r.id) {
-          <article class="card" [style.background]="st(r).gradient">
-            <div class="card-head">
-              <span class="num"># {{ r.number }}</span>
-              <span class="piso"><i class="pi pi-building"></i> {{ r.floor || '-' }}° piso</span>
-            </div>
-            <div class="type">{{ r.roomType.name }}</div>
-            <div class="state"><i [class]="st(r).icon"></i> {{ st(r).label }}</div>
-
-            <div class="body">
-              @if (r.activeStay) {
-                <div class="guest"><i class="pi pi-user"></i> {{ r.activeStay.guestName }}</div>
-                <div class="cap muted">Salida: {{ r.activeStay.plannedCheckoutAt | date: 'dd/MM HH:mm' }}</div>
-                <div class="cap muted">Precio: {{ +r.activeStay.priceAgreed | number: '1.2-2' }}</div>
-                @if (r.activeStay.vehiclePlate) {
-                  <div class="cap plate"><i class="pi pi-car"></i> {{ r.activeStay.vehiclePlate }}</div>
-                }
-                @if ((r.activeStay.pending || 0) > 0) {
-                  <div class="debe"><i class="pi pi-exclamation-circle"></i> Debe {{ r.activeStay.pending || 0 | number: '1.2-2' }}</div>
-                }
-              } @else {
-                <div class="caption">{{ st(r).caption }}</div>
-              }
-            </div>
-
-            <div class="foot">
-              @if (r.status === 'FREE') {
-                <button class="cta" (click)="openCheckIn(r)"><i class="pi pi-sign-in"></i> Check-in</button>
-              } @else if (r.status === 'OCCUPIED') {
-                <div class="foot-row">
-                  <button class="cta ghost" (click)="confirmCheckout(r)"><i class="pi pi-sign-out"></i> Check-out</button>
-                  <button class="cta ghost sm" (click)="openChange(r)" pTooltip="Cambiar de habitación"><i class="pi pi-arrow-right-arrow-left"></i></button>
+          @if (r.status === 'OCCUPIED' && r.activeStay) {
+            <!-- Tarjeta de habitación ocupada / pernoctando -->
+            <article class="ocard" [class.exp]="isExpired(r.activeStay)">
+              <div class="oc-head">
+                <span class="oc-num"># {{ r.number }} <span class="oc-tag">{{ isPernocta(r.activeStay) ? '🌙 PERNOCTANDO' : 'HOSPEDAJE' }}</span></span>
+                <span class="oc-piso"><i class="pi pi-building"></i> {{ r.floor || '-' }}º piso</span>
+              </div>
+              <div class="oc-badges">
+                <span class="ob type">{{ r.roomType.name }}</span>
+                <span class="ob occ">● Ocupada</span>
+              </div>
+              <div class="oc-timer">
+                <span class="t" [class.red]="isExpired(r.activeStay)"><i class="pi pi-clock"></i> {{ remainingLabel(r.activeStay) }}</span>
+                @if (isExpired(r.activeStay)) { <span class="exp-badge">Tiempo Expirado</span> }
+                <span class="spacer"></span>
+                <button class="mini" (click)="renew(r)" [disabled]="busyStay() === r.activeStay.id"><i class="pi pi-refresh"></i> Renovar</button>
+                <button class="mini" (click)="ticket(r)"><i class="pi pi-dollar"></i> Ticket</button>
+                <button class="mini" (click)="openChange(r)"><i class="pi pi-arrow-right-arrow-left"></i> Cambiar</button>
+              </div>
+              <div class="oc-guest">
+                <div class="g-top"><span class="g-name">{{ r.activeStay.guestName }}</span><span class="g-count"><i class="pi pi-users"></i> {{ r.activeStay.guestCount || 1 }}</span></div>
+                <div class="g-meta"><span><i class="pi pi-id-card"></i> {{ r.activeStay.documentNumber || '—' }}</span><span><i class="pi pi-phone"></i> {{ r.activeStay.phone || '—' }}</span></div>
+                <div class="g-dates">
+                  <div><span>Entrada</span><strong>{{ r.activeStay.checkInAt | date: 'dd/MM HH:mm' }}</strong></div>
+                  <div><span>Salida</span><strong>{{ r.activeStay.plannedCheckoutAt | date: 'dd/MM HH:mm' }}</strong></div>
                 </div>
-              } @else {
-                <button class="cta ghost" disabled>{{ st(r).label }}</button>
-              }
-            </div>
-          </article>
+              </div>
+              <div class="oc-money">
+                <span class="chip room"><i class="pi pi-home"></i> S/ {{ +r.activeStay.priceAgreed | number: '1.2-2' }}</span>
+                <span class="chip cons"><i class="pi pi-shopping-bag"></i> S/ {{ (r.activeStay.consumosTotal || 0) | number: '1.2-2' }}</span>
+                @if ((r.activeStay.pending || 0) > 0) { <span class="chip debe">Debe S/ {{ r.activeStay.pending || 0 | number: '1.2-2' }}</span> }
+                @if (r.activeStay.vehiclePlate) { <span class="chip plate"><i class="pi pi-car"></i> {{ r.activeStay.vehiclePlate }}</span> }
+                <span class="chip total">Total S/ {{ stayTotal(r.activeStay) | number: '1.2-2' }}</span>
+              </div>
+              <div class="oc-foot">
+                <button class="cta out" (click)="confirmCheckout(r)"><i class="pi pi-sign-out"></i> Pre Checkout</button>
+              </div>
+            </article>
+          } @else {
+            <article class="card" [style.background]="st(r).gradient">
+              <div class="card-head">
+                <span class="num"># {{ r.number }}</span>
+                <span class="piso"><i class="pi pi-building"></i> {{ r.floor || '-' }}° piso</span>
+              </div>
+              <div class="type">{{ r.roomType.name }}</div>
+              <div class="state"><i [class]="st(r).icon"></i> {{ st(r).label }}</div>
+              <div class="body"><div class="caption">{{ st(r).caption }}</div></div>
+              <div class="foot">
+                @if (r.status === 'FREE') {
+                  <button class="cta" (click)="openCheckIn(r)"><i class="pi pi-sign-in"></i> Check-in</button>
+                } @else {
+                  <button class="cta ghost" disabled>{{ st(r).label }}</button>
+                }
+              </div>
+            </article>
+          }
         } @empty {
           <p class="muted empty">No hay habitaciones que coincidan con el filtro.</p>
         }
@@ -241,6 +262,38 @@ type ViewMode = 'normal' | 'compacta' | 'real';
       .veh th, .veh td { text-align: left; padding: 0.45rem 0.5rem; border-bottom: 1px solid #1f2a3a; }
       .veh th { color: #9fb0c3; font-weight: 600; }
       .veh .pl { font-weight: 700; color: #34d399; }
+
+      /* Tarjeta de habitación ocupada / pernoctando */
+      .ocard { border-radius: 16px; padding: 1rem; color: #eaf0ff; display: flex; flex-direction: column; gap: 0.7rem;
+        background: linear-gradient(160deg, #1e3a8a 0%, #1e40af 55%, #2563eb 100%); border: 2px solid transparent; box-shadow: 0 8px 22px rgba(0,0,0,0.35); }
+      .grid.real .ocard { grid-column: span 1; }
+      .ocard.exp { border-color: #ef4444; }
+      .oc-head { display: flex; align-items: center; justify-content: space-between; }
+      .oc-num { font-size: 1.3rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.5rem; }
+      .oc-tag { font-size: 0.72rem; font-weight: 800; color: #fbbf24; background: rgba(0,0,0,0.25); padding: 0.15rem 0.55rem; border-radius: 999px; }
+      .oc-piso { font-size: 0.75rem; background: rgba(0,0,0,0.28); padding: 0.2rem 0.6rem; border-radius: 999px; }
+      .oc-badges { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+      .ob { font-size: 0.72rem; font-weight: 700; padding: 0.25rem 0.6rem; border-radius: 999px; background: rgba(0,0,0,0.25); }
+      .ob.type { background: rgba(124,58,237,0.55); }
+      .oc-timer { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; background: rgba(0,0,0,0.22); border-radius: 10px; padding: 0.5rem 0.7rem; }
+      .oc-timer .t { font-weight: 800; font-size: 1rem; display: inline-flex; align-items: center; gap: 0.35rem; } .oc-timer .t.red { color: #fca5a5; }
+      .exp-badge { background: #dc2626; color: #fff; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 6px; }
+      .oc-timer .spacer { flex: 1; }
+      .mini { background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); color: #eaf0ff; border-radius: 8px; padding: 0.3rem 0.55rem; cursor: pointer; font-size: 0.74rem; display: inline-flex; align-items: center; gap: 0.3rem; }
+      .mini:hover:not(:disabled) { background: rgba(0,0,0,0.45); } .mini:disabled { opacity: 0.5; }
+      .oc-guest { background: rgba(0,0,0,0.2); border-radius: 12px; padding: 0.8rem; }
+      .g-top { display: flex; align-items: center; justify-content: space-between; }
+      .g-name { font-size: 1.05rem; font-weight: 800; }
+      .g-count { background: rgba(124,58,237,0.6); border-radius: 999px; padding: 0.15rem 0.6rem; font-size: 0.75rem; font-weight: 700; }
+      .g-meta { display: flex; gap: 1rem; font-size: 0.8rem; opacity: 0.9; margin-top: 0.3rem; flex-wrap: wrap; }
+      .g-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.6rem; }
+      .g-dates > div { background: rgba(0,0,0,0.25); border-radius: 8px; padding: 0.45rem 0.6rem; }
+      .g-dates span { font-size: 0.68rem; opacity: 0.75; display: block; } .g-dates strong { font-size: 0.85rem; }
+      .oc-money { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+      .chip { font-size: 0.78rem; font-weight: 700; padding: 0.3rem 0.6rem; border-radius: 8px; background: rgba(0,0,0,0.28); display: inline-flex; align-items: center; gap: 0.3rem; }
+      .chip.cons { color: #6ee7b7; } .chip.debe { background: rgba(251,191,36,0.2); color: #fde68a; border: 1px solid rgba(251,191,36,0.5); }
+      .chip.total { margin-left: auto; background: rgba(0,0,0,0.4); }
+      .oc-foot .cta.out { width: 100%; background: rgba(255,255,255,0.92); color: #0b1018; border: 0; border-radius: 10px; padding: 0.65rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
     `,
   ],
 })
@@ -248,6 +301,11 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   private readonly ops = inject(OperationsApiService);
   private readonly toast = inject(MessageService);
   private readonly router = inject(Router);
+  private readonly printing = inject(PrintingService);
+  private readonly auth = inject(AuthService);
+  readonly nowTick = signal(Date.now());
+  readonly busyStay = signal<string | null>(null);
+  private clock?: ReturnType<typeof setInterval>;
 
   readonly rooms = signal<RoomMapItem[]>([]);
   readonly view = signal<ViewMode>('normal');
@@ -309,13 +367,68 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.reload();
     this.timer = setInterval(() => this.reload(), 15_000);
+    this.clock = setInterval(() => this.nowTick.set(Date.now()), 1000);
   }
   ngOnDestroy(): void {
     if (this.timer) clearInterval(this.timer);
+    if (this.clock) clearInterval(this.clock);
   }
 
   st(r: RoomMapItem) {
     return roomState(r.status);
+  }
+
+  // --- Tarjeta de habitación ocupada ---
+  isPernocta(s: ActiveStay): boolean {
+    return (s.durationMinutes ?? 0) >= 1440;
+  }
+  isExpired(s: ActiveStay): boolean {
+    return new Date(s.plannedCheckoutAt).getTime() - this.nowTick() < 0;
+  }
+  remainingLabel(s: ActiveStay): string {
+    const ms = new Date(s.plannedCheckoutAt).getTime() - this.nowTick();
+    const neg = ms < 0;
+    const t = Math.abs(ms);
+    const h = Math.floor(t / 3_600_000);
+    const m = Math.floor((t % 3_600_000) / 60_000);
+    const sec = Math.floor((t % 60_000) / 1000);
+    const p = (n: number): string => String(n).padStart(2, '0');
+    return `${neg ? '-' : ''}${p(h)}:${p(m)}:${p(sec)}`;
+  }
+  stayTotal(s: ActiveStay): number {
+    return Math.round((Number(s.priceAgreed) + (s.consumosTotal ?? 0)) * 100) / 100;
+  }
+
+  renew(r: RoomMapItem): void {
+    if (!r.activeStay) return;
+    this.busyStay.set(r.activeStay.id);
+    this.ops.renew(r.activeStay.id).subscribe({
+      next: () => { this.busyStay.set(null); this.toast.add({ severity: 'success', summary: 'Renovado', detail: `Hab. ${r.number}: pernocta extendida.` }); this.reload(); },
+      error: (err) => { this.busyStay.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo renovar' }); },
+    });
+  }
+
+  ticket(r: RoomMapItem): void {
+    const s = r.activeStay;
+    if (!s) return;
+    const branch = this.auth.activeBranch()?.name ?? 'RIZZOS';
+    const fmt = (n: number): string => n.toFixed(2);
+    const html = `
+      <div style="font-family:monospace;width:280px">
+        <h3 style="text-align:center;margin:0 0 4px">${branch}</h3>
+        <div style="text-align:center;font-size:12px">Ticket de estancia</div><hr>
+        <div>Hab.: ${r.number} (${r.roomType.name})</div>
+        <div>Huésped: ${s.guestName}</div>
+        <div>Doc: ${s.documentNumber ?? '—'}</div>
+        <div>Entrada: ${new Date(s.checkInAt).toLocaleString('es-PE')}</div>
+        <div>Salida: ${new Date(s.plannedCheckoutAt).toLocaleString('es-PE')}</div><hr>
+        <div>Habitación: S/ ${fmt(Number(s.priceAgreed))}</div>
+        <div>Consumos: S/ ${fmt(s.consumosTotal ?? 0)}</div>
+        ${(s.pending ?? 0) > 0 ? `<div>Pendiente: S/ ${fmt(s.pending ?? 0)}</div>` : ''}
+        <div style="font-weight:bold">TOTAL: S/ ${fmt(this.stayTotal(s))}</div><hr>
+        <div style="text-align:center;font-size:11px">¡Gracias por su preferencia!</div>
+      </div>`;
+    this.printing.printViaBrowser(html);
   }
 
   reload(): void {

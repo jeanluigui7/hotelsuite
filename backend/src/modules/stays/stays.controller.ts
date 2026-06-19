@@ -18,6 +18,11 @@ export const staysController = {
     res.status(200).json(ok(await staysService.checkOut(req.scope, req.params.id, dto)));
   },
 
+  async renew(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await staysService.renew(req.scope, req.params.id)));
+  },
+
   async changeRoom(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const dto = changeRoomSchema.parse(req.body);

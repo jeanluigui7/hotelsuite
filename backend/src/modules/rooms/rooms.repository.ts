@@ -9,7 +9,10 @@ const mapInclude = {
     where: { status: 'OPEN' },
     take: 1,
     orderBy: { checkInAt: 'desc' },
-    include: { guest: { select: { id: true, firstName: true, lastName: true } } },
+    include: {
+      guest: { select: { id: true, firstName: true, lastName: true, documentNumber: true, phone: true } },
+      _count: { select: { additionalGuests: true } },
+    },
   },
 } satisfies Prisma.RoomInclude;
 

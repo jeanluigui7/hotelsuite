@@ -28,8 +28,12 @@ function serializeMap(room: RoomForMap) {
       ? {
           id: stay.id,
           guestName: `${stay.guest.firstName} ${stay.guest.lastName ?? ''}`.trim(),
+          documentNumber: stay.guest.documentNumber,
+          phone: stay.guest.phone,
+          guestCount: 1 + (stay._count?.additionalGuests ?? 0),
           checkInAt: stay.checkInAt,
           plannedCheckoutAt: stay.plannedCheckoutAt,
+          durationMinutes: stay.durationMinutes,
           priceAgreed: stay.priceAgreed,
           balanceDue: stay.balanceDue,
           vehiclePlate: stay.vehiclePlate,
@@ -60,18 +64,21 @@ export const roomsService = {
       ? await prisma.sale.findMany({ where: { stayId: { in: stayIds }, status: { not: 'CANCELLED' } }, include: { payments: true } })
       : [];
     const salesPending = new Map<string, number>();
+    const consumos = new Map<string, number>();
     for (const s of sales) {
       if (!s.stayId) continue;
       const paid = s.payments.reduce((a, p) => a + Number(p.amount), 0);
       const owed = Number(s.total) - paid;
       if (owed > 0) salesPending.set(s.stayId, (salesPending.get(s.stayId) ?? 0) + owed);
+      consumos.set(s.stayId, (consumos.get(s.stayId) ?? 0) + Number(s.total));
     }
     return rooms.map((r) => {
       const m = serializeMap(r);
       if (m.activeStay) {
         const bd = m.activeStay.balanceDue ? Number(m.activeStay.balanceDue) : 0;
         const sp = salesPending.get(m.activeStay.id) ?? 0;
-        return { ...m, activeStay: { ...m.activeStay, pending: Math.round((bd + sp) * 100) / 100 } };
+        const cons = Math.round((consumos.get(m.activeStay.id) ?? 0) * 100) / 100;
+        return { ...m, activeStay: { ...m.activeStay, pending: Math.round((bd + sp) * 100) / 100, consumosTotal: cons } };
       }
       return m;
     });

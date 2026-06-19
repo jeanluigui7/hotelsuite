@@ -192,6 +192,19 @@ export const staysService = {
     return serialize(result as StayWithRelations);
   },
 
+  /** Renueva/extiende la pernocta: agrega otra duración de tarifa y suma su precio al adeudo. */
+  async renew(scope: RequestScope, id: string) {
+    const branchId = requireActiveBranch(scope);
+    const stay = await staysRepository.findById(id);
+    if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
+    if (stay.status !== 'OPEN') throw new ConflictError('La estancia ya está cerrada');
+    const newCheckout = new Date(new Date(stay.plannedCheckoutAt).getTime() + stay.durationMinutes * 60_000);
+    const bd = (stay.balanceDue ? Number(stay.balanceDue) : 0) + Number(stay.priceAgreed);
+    await prisma.stay.update({ where: { id }, data: { plannedCheckoutAt: newCheckout, balanceDue: round2(bd) } });
+    const updated = await staysRepository.findById(id);
+    return serialize(updated as StayWithRelations);
+  },
+
   /** Cambia de habitación a una estancia activa y deja la de origen sucia o libre. */
   async changeRoom(scope: RequestScope, id: string, dto: ChangeRoomDto) {
     const branchId = requireActiveBranch(scope);
