@@ -48,6 +48,10 @@ const routes: Routes = [
     loadComponent: () => import('./board/gestion-limpieza.component').then((m) => m.GestionLimpiezaComponent),
   },
   {
+    path: 'inventario-limpieza',
+    loadComponent: () => import('./board/inventario-limpieza-rizzos.component').then((m) => m.InventarioLimpiezaRizzosComponent),
+  },
+  {
     path: 'inventario-recepcion',
     loadComponent: () => import('./board/inventario-recepcion.component').then((m) => m.InventarioRecepcionComponent),
   },

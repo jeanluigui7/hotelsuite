@@ -23,6 +23,18 @@ export const startSchema = z.object({
 });
 export type StartDto = z.infer<typeof startSchema>;
 
+export const requestLinenSchema = z.object({
+  items: z.array(z.object({ linenItemId: z.string().min(1), floor: z.string().min(1), quantity: z.coerce.number().int().min(1) })).min(1),
+});
+export const laundrySchema = z.object({
+  linenItemId: z.string().min(1),
+  floor: z.string().min(1),
+  quantity: z.coerce.number().int().min(1),
+  reason: z.string().max(200).optional(),
+});
+export type RequestLinenDto = z.infer<typeof requestLinenSchema>;
+export type LaundryDto = z.infer<typeof laundrySchema>;
+
 export const cleaningService = {
   /** Ítems de ropa de la sucursal (para el modal de recoger ropa). */
   async linenItems(scope: RequestScope) {
@@ -91,6 +103,51 @@ export const cleaningService = {
       await prisma.housekeepingTask.update({ where: { id: task.id }, data: { status: 'DONE', result: 'APPROVED', completedAt: new Date() } });
     }
     await prisma.room.update({ where: { id: roomId }, data: { status: 'FREE' } });
+    return { ok: true };
+  },
+
+  /** Inventario de ropa por pisos: REM (remanente) y SUM (suministrado) por tipo/ítem. */
+  async linenInventory(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const [items, stocks] = await Promise.all([
+      prisma.linenItem.findMany({ where: { branchId, status: 'active' }, orderBy: [{ type: 'asc' }, { name: 'asc' }] }),
+      prisma.linenStock.findMany({ where: { branchId } }),
+    ]);
+    const floors = [...new Set(stocks.map((s) => s.floor))].sort();
+    const key = (li: string, f: string) => `${li}|${f}`;
+    const stockMap = new Map(stocks.map((s) => [key(s.linenItemId, s.floor), s]));
+    return {
+      floors: floors.map((floor) => ({
+        floor,
+        rows: items.map((it) => {
+          const s = stockMap.get(key(it.id, floor));
+          return { linenItemId: it.id, type: it.type, name: it.name, color: it.color, rem: s?.rem ?? 0, sum: s?.sum ?? 0 };
+        }),
+      })),
+    };
+  },
+
+  /** Solicita ropa al almacén/administrador (queda como movimiento REQUEST pendiente). */
+  async requestLinen(scope: RequestScope, dto: RequestLinenDto) {
+    const branchId = requireActiveBranch(scope);
+    for (const i of dto.items) {
+      await prisma.linenMovement.create({
+        data: { branchId, linenItemId: i.linenItemId, type: 'REQUEST', quantity: i.quantity, floor: i.floor, reference: 'Solicitud de limpieza', createdByUserId: scope.userId },
+      });
+    }
+    // Aviso al administrador (mock; se integrará con WhatsApp real cuando se configure).
+    return { requested: dto.items.length };
+  },
+
+  /** Envía prenda manchada/deteriorada a lavandería (descuenta del remanente). */
+  async sendToLaundry(scope: RequestScope, dto: LaundryDto) {
+    const branchId = requireActiveBranch(scope);
+    const stock = await prisma.linenStock.findUnique({ where: { linenItemId_floor: { linenItemId: dto.linenItemId, floor: dto.floor } } });
+    if (!stock || stock.branchId !== branchId || stock.rem < dto.quantity) throw new ValidationError('Cantidad insuficiente en el remanente');
+    await prisma.$transaction([
+      prisma.linenStock.update({ where: { linenItemId_floor: { linenItemId: dto.linenItemId, floor: dto.floor } }, data: { rem: { decrement: dto.quantity } } }),
+      prisma.linenMovement.create({ data: { branchId, linenItemId: dto.linenItemId, type: 'LAUNDRY', quantity: -dto.quantity, floor: dto.floor, reference: dto.reason || 'Manchada/Deteriorada', createdByUserId: scope.userId } }),
+    ]);
     return { ok: true };
   },
 };
