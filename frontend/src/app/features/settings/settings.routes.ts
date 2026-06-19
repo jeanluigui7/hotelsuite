@@ -16,6 +16,10 @@ const routes: Routes = [
     loadComponent: () => import('./pernoctacion/pernocta.component').then((m) => m.PernoctaConfigComponent),
   },
   {
+    path: 'permisos-recepcion',
+    loadComponent: () => import('./permisos-recepcion/permisos-recepcion.component').then((m) => m.PermisosRecepcionComponent),
+  },
+  {
     path: 'tipos-habitacion',
     loadComponent: () => import('./tipos-habitacion/room-types.component').then((m) => m.RoomTypesComponent),
   },
