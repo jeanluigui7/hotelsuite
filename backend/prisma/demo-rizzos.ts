@@ -153,6 +153,45 @@ async function main(): Promise<void> {
     });
   }
 
+  // 8. Catálogo de productos del almacén (para el flujo de Almacén de Productos / ventas)
+  const cats = [
+    { id: 'rz-cat-aguas', name: 'Aguas y Refrescos' },
+    { id: 'rz-cat-energ', name: 'Energizantes y rehidratantes' },
+    { id: 'rz-cat-gall', name: 'Galletas' },
+    { id: 'rz-cat-choc', name: 'Chocolates y Dulces' },
+  ];
+  for (const c of cats) {
+    await prisma.inventoryCategory.upsert({ where: { id: c.id }, update: { name: c.name }, create: { id: c.id, branchId: RZ, name: c.name } });
+  }
+  const prods = [
+    { id: 'rz-p-sanluis-sg', sku: 'PROD-001', name: 'San Luis SIN GAS', cat: 'rz-cat-aguas', venta: 3, compra: 1.24, stock: 15, reorder: 12 },
+    { id: 'rz-p-sanluis-cg', sku: 'PROD-002', name: 'San Luis CON GAS', cat: 'rz-cat-aguas', venta: 3, compra: 1.2, stock: 14, reorder: 5 },
+    { id: 'rz-p-coca', sku: 'PROD-004', name: 'Coca Cola', cat: 'rz-cat-aguas', venta: 4, compra: 2.62, stock: 12, reorder: 6 },
+    { id: 'rz-p-inka', sku: 'PROD-005', name: 'Inka Cola', cat: 'rz-cat-aguas', venta: 4, compra: 2.5, stock: 9, reorder: 5 },
+    { id: 'rz-p-fanta', sku: 'PROD-006', name: 'Fanta', cat: 'rz-cat-aguas', venta: 3, compra: 1.8, stock: 8, reorder: 5 },
+    { id: 'rz-p-frugos', sku: 'PROD-009', name: 'Frugos del Valle 1 L', cat: 'rz-cat-aguas', venta: 6, compra: 3.5, stock: 10, reorder: 4 },
+    { id: 'rz-p-sporade', sku: 'PROD-011', name: 'Sporade', cat: 'rz-cat-energ', venta: 3.5, compra: 2.37, stock: 12, reorder: 8 },
+    { id: 'rz-p-gatorade', sku: 'PROD-012', name: 'Gatorade', cat: 'rz-cat-energ', venta: 3.5, compra: 2.4, stock: 14, reorder: 6 },
+    { id: 'rz-p-volt', sku: 'PROD-013', name: 'Volt', cat: 'rz-cat-energ', venta: 3.5, compra: 2.3, stock: 27, reorder: 10 },
+    { id: 'rz-p-morochas', sku: 'PROD-020', name: 'Morochas', cat: 'rz-cat-gall', venta: 1.5, compra: 0.8, stock: 30, reorder: 10 },
+    { id: 'rz-p-oreo', sku: 'PROD-021', name: 'Oreo', cat: 'rz-cat-gall', venta: 1.5, compra: 0.9, stock: 25, reorder: 10 },
+    { id: 'rz-p-bonbon', sku: 'PROD-030', name: 'Chupetin Bon Bon Bum', cat: 'rz-cat-choc', venta: 1, compra: 0.5, stock: 40, reorder: 15 },
+    { id: 'rz-p-triangulo', sku: 'PROD-031', name: 'Triangulo', cat: 'rz-cat-choc', venta: 3, compra: 1.8, stock: 18, reorder: 6 },
+    { id: 'rz-p-jabon', sku: 'AMN-005', name: 'Jabón granel + papel fraccionado', cat: 'rz-cat-amen', venta: 0.5, compra: 0.3, stock: 12, reorder: 10 },
+  ];
+  for (const p of prods) {
+    await prisma.product.upsert({
+      where: { id: p.id },
+      update: { name: p.name, sku: p.sku, salePrice: p.venta, cost: p.compra, reorderPoint: p.reorder, categoryId: p.cat },
+      create: { id: p.id, branchId: RZ, name: p.name, sku: p.sku, salePrice: p.venta, cost: p.compra, reorderPoint: p.reorder, categoryId: p.cat },
+    });
+    await prisma.stock.upsert({
+      where: { productId_warehouseId: { productId: p.id, warehouseId: 'rz-wh-prod' } },
+      update: { quantity: p.stock },
+      create: { productId: p.id, warehouseId: 'rz-wh-prod', quantity: p.stock },
+    });
+  }
+
   // eslint-disable-next-line no-console
   console.log(`✅ Demo RIZZOS por perfil lista.
    Usuarios (contraseña Rizzos123!):
