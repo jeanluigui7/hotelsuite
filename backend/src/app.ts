@@ -60,6 +60,7 @@ import { inventoryConfigRouter } from './modules/inventory-config/inventory-conf
 import { wifiRouter } from './modules/wifi/wifi.routes';
 import { pernoctaRouter } from './modules/pernocta/pernocta.routes';
 import { servicesRouter } from './modules/services/services.routes';
+import { receptionInventoryRouter } from './modules/reception-inventory/reception-inventory.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -131,6 +132,7 @@ export function createApp(): Application {
   app.use('/api', wifiRouter);
   app.use('/api', pernoctaRouter);
   app.use('/api', servicesRouter);
+  app.use('/api', receptionInventoryRouter);
   app.use('/api', landingRouter);
 
   // Fallbacks

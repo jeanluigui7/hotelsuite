@@ -28,6 +28,7 @@ export const APP_MENU: MenuItem[] = [
     children: [
       { label: 'Habitaciones', route: '/operations/habitaciones' },
       { label: 'Caja', route: '/operations/caja' },
+      { label: 'Inventario Recepción', route: '/operations/inventario-recepcion' },
       { label: 'Frigobar', route: '/operations/frigobar' },
       { label: 'Historial de Estancias', route: '/operations/estancias' },
       { label: 'Productos y Servicios', route: '/operations/productos' },

@@ -44,6 +44,10 @@ const routes: Routes = [
     loadComponent: () => import('./board/cajas.component').then((m) => m.CajasComponent),
   },
   {
+    path: 'inventario-recepcion',
+    loadComponent: () => import('./board/inventario-recepcion.component').then((m) => m.InventarioRecepcionComponent),
+  },
+  {
     path: 'checkouts',
     loadComponent: () => import('./checkouts/checkouts.component').then((m) => m.CheckoutsComponent),
   },
