@@ -9,6 +9,7 @@ import { ConfirmationService, MessageService } from 'primeng/api';
 import { OperationsApiService } from '../services/operations-api.service';
 import type { RoomMapItem } from '../services/operations.models';
 import { CheckInDialogComponent } from '../habitaciones/check-in-dialog.component';
+import { VentaProductosComponent } from './venta-productos.component';
 import { roomState } from './room-states';
 
 type ViewMode = 'normal' | 'compacta' | 'real';
@@ -16,7 +17,7 @@ type ViewMode = 'normal' | 'compacta' | 'real';
 @Component({
   selector: 'app-habitaciones-board',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, TooltipModule, CheckInDialogComponent],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, TooltipModule, CheckInDialogComponent, VentaProductosComponent],
   template: `
     <section class="board">
       <header class="top">
@@ -30,7 +31,7 @@ type ViewMode = 'normal' | 'compacta' | 'real';
           <div class="actions">
             <button class="act" (click)="soon('Vehículos')"><i class="pi pi-car"></i> Vehículos</button>
             <button class="act" (click)="checkInHint()"><i class="pi pi-sign-in"></i> Check-in</button>
-            <button class="act" (click)="soon('Venta de productos')"><i class="pi pi-shopping-cart"></i> Venta Productos</button>
+            <button class="act" (click)="ventaVisible = true"><i class="pi pi-shopping-cart"></i> Venta Productos</button>
             <button class="act primary" (click)="soon('Servicios y Penalidades')"><i class="pi pi-tags"></i> Servicios y Penalidades</button>
           </div>
         </div>
@@ -81,6 +82,7 @@ type ViewMode = 'normal' | 'compacta' | 'real';
     </section>
 
     <app-check-in-dialog [(visible)]="checkInVisible" [room]="selectedRoom" (done)="reload()" />
+    <app-venta-productos [(visible)]="ventaVisible" (done)="reload()" />
   `,
   styles: [
     `
@@ -142,6 +144,7 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   typeFilter: string | null = null;
 
   checkInVisible = false;
+  ventaVisible = false;
   selectedRoom: RoomMapItem | null = null;
   private timer?: ReturnType<typeof setInterval>;
 
