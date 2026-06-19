@@ -18,6 +18,11 @@ export const staysController = {
     res.status(200).json(ok(await staysService.checkOut(req.scope, req.params.id, dto)));
   },
 
+  async folio(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await staysService.folio(req.scope, req.params.id)));
+  },
+
   async renew(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await staysService.renew(req.scope, req.params.id)));

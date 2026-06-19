@@ -192,6 +192,89 @@ export const staysService = {
     return serialize(result as StayWithRelations);
   },
 
+  /** Folio de estancia: agrega huésped, fechas, montos, movimientos, productos, limpiezas y eventos. */
+  async folio(scope: RequestScope, id: string) {
+    const branchId = requireActiveBranch(scope);
+    const stay = await staysRepository.findById(id);
+    if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
+
+    const sales = await prisma.sale.findMany({
+      where: { stayId: id, status: { not: 'CANCELLED' } },
+      include: { items: true, payments: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const room = await prisma.room.findUnique({ where: { id: stay.roomId }, include: { roomType: { select: { name: true } } } });
+    const tasks = await prisma.housekeepingTask.findMany({ where: { branchId, roomId: stay.roomId, createdAt: { gte: stay.checkInAt } }, orderBy: { createdAt: 'asc' } });
+
+    // Nombres de responsables
+    const userIds = [...new Set([...sales.map((s) => s.createdByUserId), ...sales.flatMap((s) => s.payments.map((p) => p.createdByUserId)), ...tasks.map((t) => t.assignedToUserId)].filter((x): x is string => !!x))];
+    const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } });
+    const uname = (uid?: string | null): string => (uid ? users.find((u) => u.id === uid)?.name ?? '—' : '—');
+
+    const isRoomLine = (desc: string): boolean => /^tarifa[:\s]/i.test(desc) || /pernocta|renovaci/i.test(desc);
+    const METHOD: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', WALLET: 'Yape/Plin' };
+
+    // Movimientos (ledger) y productos
+    type Mov = { at: Date; type: string; description: string; method?: string; charge: number; payment: number; by: string };
+    const movs: Mov[] = [];
+    const products: { name: string; quantity: number; amount: number; at: Date; paid: boolean }[] = [];
+    let consumos = 0;
+    for (const s of sales) {
+      const paidSale = s.payments.reduce((a, p) => a + Number(p.amount), 0);
+      const fullyPaid = paidSale + 0.001 >= Number(s.total);
+      for (const it of s.items) {
+        const sub = Number(it.subtotal);
+        movs.push({ at: s.createdAt, type: isRoomLine(it.description) ? 'Estadía' : 'Producto', description: it.description, charge: sub, payment: 0, by: uname(s.createdByUserId) });
+        if (!isRoomLine(it.description)) {
+          consumos += sub;
+          products.push({ name: it.description, quantity: it.quantity, amount: sub, at: s.createdAt, paid: fullyPaid });
+        }
+      }
+      for (const p of s.payments) {
+        movs.push({ at: p.createdAt, type: 'Pago', description: `Pago - ${METHOD[p.method] ?? p.method}`, method: p.method, charge: 0, payment: Number(p.amount), by: uname(p.createdByUserId) });
+      }
+    }
+    movs.sort((a, b) => a.at.getTime() - b.at.getTime());
+    let bal = 0;
+    const movements = movs.map((m) => { bal = Math.round((bal + m.charge - m.payment) * 100) / 100; return { ...m, balance: bal }; });
+
+    // Limpiezas
+    const totalDays = Math.max(1, Math.ceil(stay.durationMinutes / 1440));
+    const cleaningAllowed = Math.max(0, totalDays - 1);
+    const cleaningDone = tasks.filter((t) => t.status === 'DONE' || t.status === 'INSPECTED').length;
+    const cleaningLog = tasks.map((t) => ({ at: t.completedAt ?? t.createdAt, action: t.status === 'PENDING' ? 'Solicitó' : t.status === 'IN_PROGRESS' ? 'Inició' : 'Finalizó', by: uname(t.assignedToUserId) }));
+
+    const habitacion = round2(Number(stay.priceAgreed));
+    const renovaciones = round2(stay.balanceDue ? Number(stay.balanceDue) : 0);
+    const total = round2(habitacion + renovaciones + consumos);
+    const paid = round2(sales.flatMap((s) => s.payments).reduce((a, p) => a + Number(p.amount), 0));
+    const hospedaje = round2(habitacion + renovaciones);
+    const ratio = hospedaje > 0 ? Math.round((consumos / hospedaje) * 1000) / 10 : 0;
+    const limit = 20;
+    const exceeded = ratio > limit;
+
+    return {
+      folio: { code: `FP-${stay.id.slice(0, 6).toUpperCase()}`, status: stay.status === 'OPEN' ? 'Activa' : 'Cerrada' },
+      guest: { name: `${stay.guest.firstName} ${stay.guest.lastName ?? ''}`.trim(), documentNumber: stay.guest.documentNumber, phone: stay.guest.phone },
+      room: { number: room?.number ?? '—', typeName: room?.roomType.name ?? '—' },
+      checkInAt: stay.checkInAt,
+      plannedCheckoutAt: stay.plannedCheckoutAt,
+      durationMinutes: stay.durationMinutes,
+      renewals: renovaciones > 0 ? Math.max(1, Math.round(renovaciones / (habitacion || 1))) : 0,
+      amounts: { habitacion, renovaciones, consumos: round2(consumos), total, paid },
+      cleaning: { done: cleaningDone, allowed: cleaningAllowed },
+      cleaningLog,
+      movements,
+      products,
+      simulator: {
+        hospedaje, productos: round2(consumos), ratio, limit, exceeded,
+        exceso: exceeded ? round2(consumos - hospedaje * limit / 100) : 0,
+        igvAdicional: exceeded ? round2((consumos - hospedaje * limit / 100) * 0.18) : 0,
+        suggested: round2(consumos / (limit / 100)),
+      },
+    };
+  },
+
   /** Renueva/extiende la pernocta: agrega otra duración de tarifa y suma su precio al adeudo. */
   async renew(scope: RequestScope, id: string) {
     const branchId = requireActiveBranch(scope);

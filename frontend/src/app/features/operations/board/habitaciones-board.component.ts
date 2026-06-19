@@ -15,14 +15,16 @@ import type { ActiveStay, CheckoutSummary, RoomMapItem } from '../services/opera
 import { CheckInDialogComponent } from '../habitaciones/check-in-dialog.component';
 import { VentaProductosComponent } from './venta-productos.component';
 import { ServiciosPenalidadesComponent } from './servicios-penalidades.component';
+import { FolioEstanciaComponent } from './folio-estancia.component';
 import { roomState } from './room-states';
+import type { RoomStatus } from '../services/operations.models';
 
 type ViewMode = 'normal' | 'compacta' | 'real';
 
 @Component({
   selector: 'app-habitaciones-board',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, TooltipModule, DialogModule, CheckInDialogComponent, VentaProductosComponent, ServiciosPenalidadesComponent],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, TooltipModule, DialogModule, CheckInDialogComponent, VentaProductosComponent, ServiciosPenalidadesComponent, FolioEstanciaComponent],
   template: `
     <section class="board">
       <header class="top">
@@ -84,10 +86,11 @@ type ViewMode = 'normal' | 'compacta' | 'real';
                 <span class="chip cons"><i class="pi pi-shopping-bag"></i> S/ {{ (r.activeStay.consumosTotal || 0) | number: '1.2-2' }}</span>
                 @if ((r.activeStay.pending || 0) > 0) { <span class="chip debe">Debe S/ {{ r.activeStay.pending || 0 | number: '1.2-2' }}</span> }
                 @if (r.activeStay.vehiclePlate) { <span class="chip plate"><i class="pi pi-car"></i> {{ r.activeStay.vehiclePlate }}</span> }
-                <span class="chip total">Total S/ {{ stayTotal(r.activeStay) | number: '1.2-2' }}</span>
+                <button class="chip total clickable" (click)="openFolio(r)" pTooltip="Ver folio de estancia"><i class="pi pi-search"></i> Total S/ {{ stayTotal(r.activeStay) | number: '1.2-2' }}</button>
               </div>
               <div class="oc-foot">
                 <button class="cta out" (click)="confirmCheckout(r)"><i class="pi pi-sign-out"></i> Pre Checkout</button>
+                <button class="cta out ghost2" (click)="openFolio(r)"><i class="pi pi-pencil"></i> Editar</button>
               </div>
             </article>
           } @else {
@@ -101,9 +104,12 @@ type ViewMode = 'normal' | 'compacta' | 'real';
               <div class="body"><div class="caption">{{ st(r).caption }}</div></div>
               <div class="foot">
                 @if (r.status === 'FREE') {
-                  <button class="cta" (click)="openCheckIn(r)"><i class="pi pi-sign-in"></i> Check-in</button>
+                  <div class="foot-row">
+                    <button class="cta" (click)="openCheckIn(r)"><i class="pi pi-sign-in"></i> Check-in</button>
+                    <button class="cta ghost sm" (click)="openEstado(r)" pTooltip="Cambiar estado"><i class="pi pi-pencil"></i></button>
+                  </div>
                 } @else {
-                  <button class="cta ghost" disabled>{{ st(r).label }}</button>
+                  <button class="cta ghost" (click)="openEstado(r)"><i class="pi pi-pencil"></i> Editar</button>
                 }
               </div>
             </article>
@@ -190,6 +196,22 @@ type ViewMode = 'normal' | 'compacta' | 'real';
         <p-button label="Confirmar Cambio" icon="pi pi-arrow-right-arrow-left" [disabled]="!destRoomId" [loading]="changing()" (onClick)="doChange()" />
       </ng-template>
     </p-dialog>
+
+    <!-- Cambiar estado de habitación (Editar) -->
+    <p-dialog [(visible)]="estadoVisible" [modal]="true" [header]="'Cambiar Estado · Hab. ' + (estadoRoom?.number || '')" [style]="{ width: '24rem' }" styleClass="dk-dialog">
+      <p class="muted" style="margin:0 0 0.6rem">Selecciona el nuevo estado para la habitación.</p>
+      <div class="est-opts">
+        <button [class.on]="estadoValue === 'FREE'" (click)="estadoValue = 'FREE'"><i class="pi pi-check-circle"></i> Disponible</button>
+        <button [class.on]="estadoValue === 'CLEANING'" (click)="estadoValue = 'CLEANING'"><i class="pi pi-sparkles"></i> Limpieza</button>
+        <button [class.on]="estadoValue === 'MAINTENANCE'" (click)="estadoValue = 'MAINTENANCE'"><i class="pi pi-wrench"></i> Mantenimiento</button>
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="estadoVisible = false" />
+        <p-button label="Guardar" icon="pi pi-check" [loading]="savingEstado()" (onClick)="saveEstado()" />
+      </ng-template>
+    </p-dialog>
+
+    <app-folio-estancia [(visible)]="folioVisible" [stayId]="folioStayId" />
   `,
   styles: [
     `
@@ -293,7 +315,14 @@ type ViewMode = 'normal' | 'compacta' | 'real';
       .chip { font-size: 0.78rem; font-weight: 700; padding: 0.3rem 0.6rem; border-radius: 8px; background: rgba(0,0,0,0.28); display: inline-flex; align-items: center; gap: 0.3rem; }
       .chip.cons { color: #6ee7b7; } .chip.debe { background: rgba(251,191,36,0.2); color: #fde68a; border: 1px solid rgba(251,191,36,0.5); }
       .chip.total { margin-left: auto; background: rgba(0,0,0,0.4); }
-      .oc-foot .cta.out { width: 100%; background: rgba(255,255,255,0.92); color: #0b1018; border: 0; border-radius: 10px; padding: 0.65rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
+      .oc-foot { display: flex; gap: 0.5rem; }
+      .oc-foot .cta.out { flex: 1; background: rgba(255,255,255,0.92); color: #0b1018; border: 0; border-radius: 10px; padding: 0.65rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
+      .oc-foot .cta.out.ghost2 { flex: 0 0 auto; background: rgba(0,0,0,0.3); color: #fff; }
+      .chip.total.clickable { cursor: pointer; border: 0; }
+      .chip.total.clickable:hover { background: rgba(0,0,0,0.55); }
+      .est-opts { display: flex; flex-direction: column; gap: 0.5rem; }
+      .est-opts button { display: flex; align-items: center; gap: 0.5rem; background: #131b27; border: 1px solid #243245; color: #e6e9ef; border-radius: 10px; padding: 0.7rem 0.9rem; cursor: pointer; font-size: 0.9rem; }
+      .est-opts button.on { border-color: #10b981; color: #34d399; }
     `,
   ],
 })
@@ -328,6 +357,12 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   destRoomId: string | null = null;
   originStatus: 'CLEANING' | 'FREE' = 'CLEANING';
   readonly changing = signal(false);
+  folioVisible = false;
+  folioStayId: string | null = null;
+  estadoVisible = false;
+  estadoRoom: RoomMapItem | null = null;
+  estadoValue: RoomStatus = 'FREE';
+  readonly savingEstado = signal(false);
   private timer?: ReturnType<typeof setInterval>;
 
   readonly stateOptions = [
@@ -405,6 +440,28 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     this.ops.renew(r.activeStay.id).subscribe({
       next: () => { this.busyStay.set(null); this.toast.add({ severity: 'success', summary: 'Renovado', detail: `Hab. ${r.number}: pernocta extendida.` }); this.reload(); },
       error: (err) => { this.busyStay.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo renovar' }); },
+    });
+  }
+
+  openFolio(r: RoomMapItem): void {
+    if (!r.activeStay) return;
+    this.folioStayId = r.activeStay.id;
+    this.folioVisible = true;
+  }
+
+  openEstado(r: RoomMapItem): void {
+    this.estadoRoom = r;
+    this.estadoValue = (r.status === 'OCCUPIED' ? 'CLEANING' : (r.status as RoomStatus)) ?? 'FREE';
+    this.estadoVisible = true;
+  }
+
+  saveEstado(): void {
+    const r = this.estadoRoom;
+    if (!r) return;
+    this.savingEstado.set(true);
+    this.ops.changeRoomStatus(r.id, this.estadoValue).subscribe({
+      next: () => { this.savingEstado.set(false); this.estadoVisible = false; this.toast.add({ severity: 'success', summary: 'Estado actualizado', detail: `Hab. ${r.number}` }); this.reload(); },
+      error: (err) => { this.savingEstado.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo cambiar el estado' }); },
     });
   }
 
