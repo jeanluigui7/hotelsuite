@@ -68,6 +68,13 @@ export const maintenanceService = {
       scheduledAt: dto.scheduledAt ?? null,
       createdByUserId: scope.userId,
     });
+    // Mantenimiento crítico bloquea la habitación (si no está ocupada) hasta resolverlo.
+    if (dto.critical && dto.roomId && dto.status !== 'DONE' && dto.status !== 'CANCELLED') {
+      const room = await prisma.room.findUnique({ where: { id: dto.roomId } });
+      if (room && room.status !== 'OCCUPIED') {
+        await prisma.room.update({ where: { id: dto.roomId }, data: { status: 'MAINTENANCE' } });
+      }
+    }
     return serialize(m, await roomMap(branchId));
   },
 
@@ -85,6 +92,13 @@ export const maintenanceService = {
       scheduledAt: dto.scheduledAt === undefined ? undefined : dto.scheduledAt,
       completedAt: dto.status === 'DONE' ? new Date() : undefined,
     });
+    // Al resolver (DONE/CANCELLED) se desbloquea la habitación: pasa a limpieza.
+    if ((dto.status === 'DONE' || dto.status === 'CANCELLED') && m.roomId) {
+      const room = await prisma.room.findUnique({ where: { id: m.roomId } });
+      if (room && room.status === 'MAINTENANCE') {
+        await prisma.room.update({ where: { id: m.roomId }, data: { status: 'CLEANING' } });
+      }
+    }
     return serialize(m, await roomMap(branchId));
   },
 

@@ -8,6 +8,8 @@ export const createMaintenanceSchema = z.object({
   cost: z.coerce.number().min(0).optional(),
   assignedToUserId: z.string().min(1).optional().nullable(),
   scheduledAt: z.coerce.date().optional().nullable(),
+  // Mantenimiento crítico: bloquea la habitación (MANTENIMIENTO) hasta resolverse.
+  critical: z.boolean().optional().default(true),
 });
 
 export const updateMaintenanceSchema = createMaintenanceSchema.partial();

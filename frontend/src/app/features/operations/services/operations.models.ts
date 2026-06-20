@@ -1,4 +1,12 @@
-export type RoomStatus = 'FREE' | 'OCCUPIED' | 'CLEANING' | 'MAINTENANCE';
+export type RoomStatus =
+  | 'FREE'
+  | 'OCCUPIED'
+  | 'CLEANING'
+  | 'MAINTENANCE'
+  | 'RESERVADA'
+  | 'LIMPIEZA_SOLICITADA'
+  | 'LIMPIEZA_EN_CURSO'
+  | 'REQUIERE_REPASO';
 
 export interface ActiveStay {
   id: string;

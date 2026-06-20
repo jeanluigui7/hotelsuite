@@ -16,11 +16,15 @@ import { OperationsApiService } from '../services/operations-api.service';
 import type { Room, RoomMapItem, RoomStatus } from '../services/operations.models';
 import { CheckInDialogComponent } from './check-in-dialog.component';
 
-const STATUS_LABEL: Record<RoomStatus, string> = {
+const STATUS_LABEL: Partial<Record<RoomStatus, string>> = {
   FREE: 'Libre',
   OCCUPIED: 'Ocupada',
   CLEANING: 'Limpieza',
   MAINTENANCE: 'Mantenimiento',
+  RESERVADA: 'Reservada',
+  LIMPIEZA_SOLICITADA: 'Limpieza solicitada',
+  LIMPIEZA_EN_CURSO: 'Limpieza en curso',
+  REQUIERE_REPASO: 'Requiere repaso',
 };
 
 interface RoomForm {
@@ -217,7 +221,7 @@ export class RoomsMapComponent implements OnInit, OnDestroy {
   }
 
   label(s: RoomStatus): string {
-    return STATUS_LABEL[s];
+    return STATUS_LABEL[s] ?? s;
   }
 
   reload(silent = false): void {

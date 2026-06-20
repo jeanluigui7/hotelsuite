@@ -62,6 +62,13 @@ export const ROOM_STATES: Record<string, RoomStateConfig> = {
     icon: 'pi pi-spin pi-cog',
     caption: 'Limpieza en curso',
   },
+  LIMPIEZA_SOLICITADA: {
+    label: 'Limpieza solicitada',
+    color: '#f59e0b',
+    gradient: 'linear-gradient(160deg, #b45309 0%, #92400e 100%)',
+    icon: 'pi pi-bell',
+    caption: 'Limpieza solicitada',
+  },
   REQUIERE_REPASO: {
     label: 'Requiere repaso',
     color: '#dc2626',

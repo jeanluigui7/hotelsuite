@@ -104,7 +104,7 @@ type ViewMode = 'normal' | 'compacta' | 'real';
               <div class="state"><i [class]="st(r).icon"></i> {{ st(r).label }}</div>
               <div class="body"><div class="caption">{{ st(r).caption }}</div></div>
               <div class="foot">
-                @if (r.status === 'FREE') {
+                @if (r.status === 'FREE' || r.status === 'RESERVADA') {
                   <div class="foot-row">
                     <button class="cta" (click)="openCheckIn(r)"><i class="pi pi-sign-in"></i> Check-in</button>
                     <button class="cta ghost sm" (click)="openEstado(r)" pTooltip="Cambiar estado"><i class="pi pi-pencil"></i></button>
@@ -207,7 +207,9 @@ type ViewMode = 'normal' | 'compacta' | 'real';
         } @else {
           <p class="est-note"><i class="pi pi-info-circle"></i> Una habitación en limpieza solo puede pasar a Disponible por Limpieza o el Administrador.</p>
         }
-        <button [class.on]="estadoValue === 'CLEANING'" (click)="estadoValue = 'CLEANING'"><i class="pi pi-sparkles"></i> Limpieza</button>
+        <button [class.on]="estadoValue === 'LIMPIEZA_SOLICITADA'" (click)="estadoValue = 'LIMPIEZA_SOLICITADA'"><i class="pi pi-bell"></i> Limpieza solicitada</button>
+        <button [class.on]="estadoValue === 'CLEANING'" (click)="estadoValue = 'CLEANING'"><i class="pi pi-sparkles"></i> Limpieza en espera</button>
+        <button [class.on]="estadoValue === 'RESERVADA'" (click)="estadoValue = 'RESERVADA'"><i class="pi pi-bookmark"></i> Reservada</button>
         <button [class.on]="estadoValue === 'MAINTENANCE'" (click)="estadoValue = 'MAINTENANCE'"><i class="pi pi-wrench"></i> Mantenimiento</button>
       </div>
       <ng-template pTemplate="footer">

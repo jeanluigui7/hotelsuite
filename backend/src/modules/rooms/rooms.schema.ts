@@ -11,7 +11,7 @@ export const updateRoomSchema = createRoomSchema.partial();
 
 // Manual status changes never set OCCUPIED (that happens via check-in).
 export const changeRoomStatusSchema = z.object({
-  status: z.enum(['FREE', 'CLEANING', 'MAINTENANCE']),
+  status: z.enum(['FREE', 'CLEANING', 'MAINTENANCE', 'RESERVADA', 'LIMPIEZA_SOLICITADA']),
 });
 
 export type CreateRoomDto = z.infer<typeof createRoomSchema>;

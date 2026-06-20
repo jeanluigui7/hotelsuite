@@ -74,7 +74,8 @@ export const staysService = {
 
     const room = await prisma.room.findUnique({ where: { id: dto.roomId } });
     if (!room || room.branchId !== branchId) throw new NotFoundError('Habitación no encontrada');
-    if (room.status !== 'FREE') throw new ConflictError('La habitación no está libre');
+    // Se puede hacer check-in de una habitación libre o reservada.
+    if (room.status !== 'FREE' && room.status !== 'RESERVADA') throw new ConflictError('La habitación no está disponible para check-in');
 
     const rate = await prisma.rate.findUnique({ where: { id: dto.rateId } });
     if (!rate || rate.branchId !== branchId) throw new ValidationError('Tarifa inválida');
