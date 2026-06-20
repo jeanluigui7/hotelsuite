@@ -61,7 +61,7 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana'
                 <i class="pi pi-clock"></i>
                 <div><span class="t">{{ elapsed(r.startedAt) }}</span><small>Límite: 12 min</small></div>
               </div>
-              <button class="cta done" (click)="finish(r)"><i class="pi pi-check"></i> Finalizar Limpieza</button>
+              <button class="cta done" (click)="openFinalizar(r)"><i class="pi pi-check"></i> Finalizar Limpieza</button>
             } @else {
               <div class="st">Limpieza en espera</div>
               <button class="cta" (click)="openIniciar(r)"><i class="pi pi-play"></i> Iniciar Limpieza</button>
@@ -93,6 +93,53 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana'
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="iniciarVisible = false" />
         <p-button label="Confirmar Recojo" icon="pi pi-check" [loading]="busy()" (onClick)="confirmRecojo()" />
+      </ng-template>
+    </p-dialog>
+
+    <!-- Finalizar limpieza: Reposición → Revisión de Mantenimiento -->
+    <p-dialog [(visible)]="finVisible" [modal]="true" [header]="(finStep === 'reposicion' ? 'Reposición · Hab. ' : 'Revisión de Mantenimiento · Hab. ') + (finRoom?.number || '')" [style]="{ width: '40rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      @if (finStep === 'reposicion') {
+        <p class="hint"><i class="pi pi-info-circle"></i> Confirma los ítems a reponer desde el inventario de limpieza. Los ítems con "—" permanecen en la habitación.</p>
+        <div class="rep-info">
+          <p><strong>Reglas:</strong></p>
+          <ul><li>CHECKOUT: solo ítems BASE.</li><li>Ítems TARIFA / VENTA / PREMIUM no se reponen.</li><li>Ítems con "—" permanecen en habitación.</li></ul>
+        </div>
+      } @else {
+        <p class="hint"><i class="pi pi-info-circle"></i> Verifica el estado de la habitación e informa cualquier problema detectado.</p>
+        <h4 class="q">¿Todo está en buen estado?</h4>
+        <div class="okno">
+          <button [class.on]="todoOk === true" (click)="setOk(true)"><i class="pi pi-check-circle"></i> Sí, todo OK</button>
+          <button class="no" [class.on]="todoOk === false" (click)="setOk(false)"><i class="pi pi-exclamation-circle"></i> No, hay problemas</button>
+        </div>
+        @if (todoOk === false) {
+          <h4>Selecciona los items con problemas</h4>
+          <div class="cats">
+            @for (c of cats; track c.key) {
+              <div class="cat" [class.open]="c.selected">
+                <button class="cat-h" (click)="c.selected = !c.selected"><input type="checkbox" [checked]="c.selected" /> {{ c.label }} <i class="pi" [class.pi-chevron-down]="c.selected" [class.pi-chevron-right]="!c.selected"></i></button>
+                @if (c.selected) {
+                  <div class="cat-b">
+                    <small class="muted">{{ c.hint }}</small>
+                    <label>Falla detectada *</label>
+                    <input pInputText [(ngModel)]="c.falla" placeholder="Describe la falla..." />
+                    <label>Observación</label>
+                    <input pInputText [(ngModel)]="c.observacion" placeholder="Describe el problema..." />
+                  </div>
+                }
+              </div>
+            }
+          </div>
+          <label>Observaciones Generales (Opcional)</label>
+          <input pInputText [(ngModel)]="obsGenerales" placeholder="Comentarios adicionales sobre la habitación..." />
+        }
+      }
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="finVisible = false" />
+        @if (finStep === 'reposicion') {
+          <p-button label="Siguiente" icon="pi pi-arrow-right" iconPos="right" (onClick)="finStep = 'revision'" />
+        } @else {
+          <p-button label="Finalizar Limpieza" icon="pi pi-check" [disabled]="todoOk === null" [loading]="busy()" (onClick)="confirmFinalizar()" />
+        }
       </ng-template>
     </p-dialog>
   `,
@@ -135,6 +182,19 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana'
       .states .rob.on { background: #ef4444; border-color: #ef4444; color: #fff; }
       .states .det.on { background: #f59e0b; border-color: #f59e0b; color: #3a2606; font-weight: 700; }
       :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1a14; color: #e6efe9; }
+      .rep-info { background: rgba(59,130,246,0.1); border: 1px solid #1e40af; border-radius: 10px; padding: 0.8rem 1rem; color: #bfdbfe; font-size: 0.85rem; }
+      .rep-info ul { margin: 0.3rem 0 0; padding-left: 1.1rem; }
+      .q { color: #34d399; margin: 0.8rem 0 0.5rem; }
+      .okno { display: flex; gap: 0.6rem; margin-bottom: 0.8rem; }
+      .okno button { flex: 1; background: #0e241c; border: 1px solid #1f3a2c; color: #e6efe9; border-radius: 10px; padding: 0.8rem; cursor: pointer; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
+      .okno button.on { background: #10b981; color: #04130d; } .okno button.no.on { background: #ef4444; color: #fff; }
+      .cats { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.6rem; }
+      .cat { border: 1px solid #1f3a2c; border-radius: 10px; overflow: hidden; }
+      .cat-h { width: 100%; background: #0e241c; border: 0; color: #e6efe9; padding: 0.7rem 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem; text-align: left; }
+      .cat-h .pi { margin-left: auto; }
+      .cat-b { padding: 0.7rem 0.9rem; display: flex; flex-direction: column; gap: 0.3rem; background: #0b1923; }
+      .cat-b label { font-size: 0.8rem; color: #9fb0c3; margin-top: 0.3rem; }
+      :host ::ng-deep .cat-b input { width: 100%; }
     `,
   ],
 })
@@ -149,6 +209,25 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   readonly busy = signal(false);
   iniciarVisible = false;
   selRoom: CleanRoom | null = null;
+
+  // Finalizar limpieza (Reposición → Revisión de Mantenimiento)
+  finVisible = false;
+  finStep: 'reposicion' | 'revision' = 'reposicion';
+  finRoom: CleanRoom | null = null;
+  todoOk: boolean | null = null;
+  obsGenerales = '';
+  cats: { key: string; label: string; hint: string; selected: boolean; falla: string; observacion: string }[] = [];
+  private readonly CATS = [
+    { key: 'MOBILIARIO', label: 'MOBILIARIO', hint: 'Revisar muebles, cajones, sillas.' },
+    { key: 'ARTEFACTOS', label: 'ARTEFACTOS ELÉCTRICOS', hint: 'TV, frigobar, A/C, control remoto.' },
+    { key: 'BANO', label: 'BAÑO', hint: 'Revisar baños: fugas, goteos, inodoro.' },
+    { key: 'CAMA', label: 'CAMA/COLCHÓN/CABECERA', hint: 'Estado de cama, colchón, cabecera.' },
+    { key: 'ELECTRICIDAD', label: 'ELECTRICIDAD/ILUMINACIÓN', hint: 'Focos, tomas, interruptores.' },
+    { key: 'PAREDES', label: 'PAREDES', hint: 'Manchas, humedad, pintura.' },
+    { key: 'PUERTA', label: 'PUERTA/CERRADURAS', hint: 'Chapas, seguros, bisagras.' },
+    { key: 'VENTANAS', label: 'VENTANAS/ESPEJOS', hint: 'Vidrios, espejos, cortinas.' },
+    { key: 'REPARACION', label: 'REPARACIÓN / REMODELACIÓN', hint: 'Trabajos mayores pendientes.' },
+  ];
   private readonly tick = signal(0);
   private timer?: ReturnType<typeof setInterval>;
 
@@ -209,6 +288,33 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     this.busy.set(true);
     this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/${r.id}/finish`, {}).subscribe({
       next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Limpieza finalizada', detail: `Hab. ${r.number} disponible` }); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
+    });
+  }
+
+  openFinalizar(r: CleanRoom): void {
+    this.finRoom = r;
+    this.finStep = 'reposicion';
+    this.todoOk = null;
+    this.obsGenerales = '';
+    this.cats = this.CATS.map((c) => ({ ...c, selected: false, falla: '', observacion: '' }));
+    this.finVisible = true;
+  }
+  setOk(v: boolean): void { this.todoOk = v; }
+  confirmFinalizar(): void {
+    const r = this.finRoom;
+    if (!r || this.todoOk === null) return;
+    const problems = this.todoOk
+      ? []
+      : this.cats.filter((c) => c.selected).map((c) => ({ category: c.label, falla: c.falla, observacion: c.observacion }));
+    this.busy.set(true);
+    this.http.post<ApiResponse<{ maintenance: boolean }>>(`${this.api}/cleaning/${r.id}/finish`, { problems, observacionesGenerales: this.obsGenerales }).subscribe({
+      next: (res) => {
+        this.busy.set(false); this.finVisible = false;
+        const m = res.data?.maintenance;
+        this.toast.add({ severity: 'success', summary: 'Limpieza finalizada', detail: m ? `Hab. ${r.number} → Mantenimiento (problemas registrados)` : `Hab. ${r.number} disponible` });
+        this.reload();
+      },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
     });
   }

@@ -46,6 +46,16 @@ export const revisionSchema = z.object({
 });
 export type RevisionDto = z.infer<typeof revisionSchema>;
 
+export const finishSchema = z.object({
+  problems: z.array(z.object({
+    category: z.string().max(60),
+    falla: z.string().max(120).optional().or(z.literal('')),
+    observacion: z.string().max(500).optional().or(z.literal('')),
+  })).default([]),
+  observacionesGenerales: z.string().max(1000).optional().or(z.literal('')),
+});
+export type FinishDto = z.infer<typeof finishSchema>;
+
 export const cleaningService = {
   /** Ítems de ropa de la sucursal (para el modal de recoger ropa). */
   async linenItems(scope: RequestScope) {
@@ -112,7 +122,7 @@ export const cleaningService = {
   },
 
   /** Finaliza la limpieza: cierra la tarea y deja la habitación Disponible. */
-  async finish(scope: RequestScope, roomId: string) {
+  async finish(scope: RequestScope, roomId: string, dto?: FinishDto) {
     const branchId = requireActiveBranch(scope);
     const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room || room.branchId !== branchId) throw new ValidationError('Habitación no encontrada');
@@ -120,8 +130,20 @@ export const cleaningService = {
     if (task) {
       await prisma.housekeepingTask.update({ where: { id: task.id }, data: { status: 'DONE', result: 'APPROVED', completedAt: new Date() } });
     }
+    const problems = dto?.problems ?? [];
+    if (problems.length) {
+      // "No, hay problemas": se registra un mantenimiento y la habitación queda bloqueada.
+      const desc = problems.map((p) => `${p.category}${p.falla ? ' · ' + p.falla : ''}${p.observacion ? ': ' + p.observacion : ''}`).join('\n')
+        + (dto?.observacionesGenerales ? `\n\nGenerales: ${dto.observacionesGenerales}` : '');
+      await prisma.maintenance.create({
+        data: { branchId, roomId, title: `Problemas en limpieza (Hab. ${room.number})`, description: desc, status: 'OPEN', createdByUserId: scope.userId },
+      });
+      await prisma.room.update({ where: { id: roomId }, data: { status: 'MAINTENANCE' } });
+      return { ok: true, maintenance: true };
+    }
+    // Todo OK → habitación disponible.
     await prisma.room.update({ where: { id: roomId }, data: { status: 'FREE' } });
-    return { ok: true };
+    return { ok: true, maintenance: false };
   },
 
   // ── Turno de limpieza ──
