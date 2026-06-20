@@ -52,7 +52,7 @@ const TURNOS: Record<string, string> = { M: 'Mañana', T: 'Tarde', N: 'Noche' };
                 <td>{{ r.tipo }}</td>
                 <td class="muted">{{ r.observacion || '-' }}</td>
                 <td class="ac">
-                  <button class="ico play" [disabled]="r.occupied" (click)="openIniciar(r)" title="Iniciar revisión"><i class="pi pi-play"></i></button>
+                  <button class="ico play" [disabled]="r.occupied" (click)="startRev(r)" title="Iniciar revisión (cronómetro)"><i class="pi pi-play"></i></button>
                   <button class="ico eye" (click)="openHistory(r)" title="Ver historial"><i class="pi pi-eye"></i></button>
                   <button class="ico ok" [disabled]="r.occupied" (click)="quickOk(r)" title="Finalizar - Todo OK"><i class="pi pi-check-circle"></i></button>
                 </td>
@@ -210,6 +210,13 @@ export class RevisionsComponent implements OnInit {
   toggleAcc(a: string): void {
     if (this.selAcc.has(a)) this.selAcc.delete(a);
     else this.selAcc.add(a);
+  }
+
+  startRev(r: RevRow): void {
+    this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/${r.roomId}/revision-start`, {}).subscribe({
+      next: () => { this.toast.add({ severity: 'success', summary: 'Revisión iniciada', detail: `Hab. ${r.number} en revisión — el tiempo corre.` }); this.reload(); },
+      error: (e: HttpErrorResponse) => this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo iniciar.' }),
+    });
   }
 
   openIniciar(r: RevRow): void {

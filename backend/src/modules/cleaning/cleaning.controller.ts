@@ -60,6 +60,10 @@ export const cleaningController = {
     const dto = revisionSchema.parse(req.body);
     res.status(201).json(ok(await cleaningService.revisionPeriodica(req.scope, dto)));
   },
+  async startRevision(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(201).json(ok(await cleaningService.startRevision(req.scope, req.params.roomId)));
+  },
   async revisions(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const roomId = typeof req.query.roomId === 'string' ? req.query.roomId : undefined;

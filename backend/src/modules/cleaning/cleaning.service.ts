@@ -58,13 +58,17 @@ export const cleaningService = {
   async roomsToClean(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);
     const rooms = await prisma.room.findMany({
-      where: { branchId, status: { in: CLEANABLE } },
+      where: { branchId, status: { in: [...CLEANABLE, 'REVISION'] } },
       include: { roomType: { select: { name: true } } },
       orderBy: [{ floor: 'asc' }, { number: 'asc' }],
     });
     const tasks = await prisma.housekeepingTask.findMany({ where: { branchId, status: 'IN_PROGRESS' } });
     const taskByRoom = new Map(tasks.map((t) => [t.roomId, t.id]));
     const startedByRoom = new Map(tasks.map((t) => [t.roomId, t.createdAt]));
+    // Revisión periódica en curso: revisiones PENDING (su createdAt = inicio del cronómetro).
+    const pendingRevs = await prisma.revision.findMany({ where: { branchId, status: 'PENDING' }, orderBy: { createdAt: 'desc' } });
+    const revStartByRoom = new Map<string, Date>();
+    for (const rv of pendingRevs) if (!revStartByRoom.has(rv.roomId)) revStartByRoom.set(rv.roomId, rv.createdAt);
     return rooms.map((r) => ({
       id: r.id,
       number: r.number,
@@ -73,8 +77,9 @@ export const cleaningService = {
       typeName: r.roomType.name,
       repaso: r.status === 'REQUIERE_REPASO',
       enCurso: r.status === 'LIMPIEZA_EN_CURSO' || taskByRoom.has(r.id),
+      revision: r.status === 'REVISION',
       taskId: taskByRoom.get(r.id) ?? null,
-      startedAt: startedByRoom.get(r.id) ?? null,
+      startedAt: startedByRoom.get(r.id) ?? revStartByRoom.get(r.id) ?? null,
     }));
   },
 
@@ -175,17 +180,32 @@ export const cleaningService = {
     };
   },
 
+  /** Inicia una revisión periódica: pone la habitación EN REVISIÓN y arranca el cronómetro. */
+  async startRevision(scope: RequestScope, roomId: string) {
+    const branchId = requireActiveBranch(scope);
+    const room = await prisma.room.findUnique({ where: { id: roomId } });
+    if (!room || room.branchId !== branchId) throw new ValidationError('Habitación no encontrada');
+    if (room.status === 'OCCUPIED') throw new ValidationError('No se puede revisar una habitación ocupada');
+    // Marca de inicio: una revisión PENDING (su createdAt es el inicio del cronómetro).
+    const existing = await prisma.revision.findFirst({ where: { branchId, roomId, status: 'PENDING' } });
+    if (!existing) await prisma.revision.create({ data: { branchId, roomId, status: 'PENDING', createdByUserId: scope.userId } });
+    await prisma.room.update({ where: { id: roomId }, data: { status: 'REVISION' } });
+    return { ok: true };
+  },
+
   /** Revisión periódica de una habitación (acciones, tipo de falla, observaciones, foto). */
   async revisionPeriodica(scope: RequestScope, dto: RevisionDto) {
     const branchId = requireActiveBranch(scope);
     const room = await prisma.room.findUnique({ where: { id: dto.roomId } });
     if (!room || room.branchId !== branchId) throw new ValidationError('Habitación no encontrada');
     const detail = JSON.stringify({ tipoFalla: dto.tipoFalla ?? null, acciones: dto.acciones, observaciones: dto.observaciones || null, photo: dto.photo ?? null });
-    const rev = await prisma.revision.create({
-      data: { branchId, roomId: dto.roomId, status: dto.status, notes: detail, createdByUserId: scope.userId },
-    });
+    // Si había una revisión en curso (PENDING, iniciada con play), se finaliza esa; si no, se crea.
+    const pending = await prisma.revision.findFirst({ where: { branchId, roomId: dto.roomId, status: 'PENDING' } });
+    const rev = pending
+      ? await prisma.revision.update({ where: { id: pending.id }, data: { status: dto.status, notes: detail, createdByUserId: scope.userId } })
+      : await prisma.revision.create({ data: { branchId, roomId: dto.roomId, status: dto.status, notes: detail, createdByUserId: scope.userId } });
     // Si la revisión deja la habitación OK y estaba en revisión/mantenimiento, vuelve a disponible.
-    if (dto.status === 'OK' && ['MANTENIMIENTO', 'REQUIERE_REPASO', 'LIMPIEZA_EN_CURSO'].includes(room.status)) {
+    if (dto.status === 'OK' && ['REVISION', 'MANTENIMIENTO', 'MAINTENANCE', 'REQUIERE_REPASO', 'LIMPIEZA_EN_CURSO'].includes(room.status)) {
       await prisma.room.update({ where: { id: dto.roomId }, data: { status: 'FREE' } });
     }
     return { id: rev.id };

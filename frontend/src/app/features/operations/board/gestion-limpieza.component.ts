@@ -7,7 +7,7 @@ import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 
-interface CleanRoom { id: string; number: string; floor?: string | null; status: string; typeName: string; repaso: boolean; enCurso: boolean; taskId: string | null; startedAt?: string | null; }
+interface CleanRoom { id: string; number: string; floor?: string | null; status: string; typeName: string; repaso: boolean; enCurso: boolean; revision?: boolean; taskId: string | null; startedAt?: string | null; }
 interface LinenItem { id: string; type: string; name: string; color?: string | null; reusable: boolean; }
 interface InspRow { item: LinenItem; state: 'OK' | 'ROBADA' | 'DETERIORADA'; pickup: boolean; }
 
@@ -28,6 +28,20 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana'
             <article class="card repaso">
               <div class="num">Hab. {{ r.number }}</div><div class="ty">{{ r.typeName }}</div><div class="pi-flo">Piso {{ r.floor || '-' }}</div>
               <button class="cta" (click)="openIniciar(r)"><i class="pi pi-refresh"></i> Iniciar Repaso</button>
+            </article>
+          }
+        </div>
+      }
+
+      @if (revisionRooms().length) {
+        <h3 class="rev"><i class="pi pi-wrench"></i> En Revisión de Mantenimiento <span class="count purple">{{ revisionRooms().length }}</span></h3>
+        <div class="grid">
+          @for (r of revisionRooms(); track r.id) {
+            <article class="card revision">
+              <div class="card-top"><div class="num">Hab. {{ r.number }}</div><span class="dot-purple"></span></div>
+              <div class="ty">{{ r.typeName }}</div><div class="pi-flo">Piso {{ r.floor || '-' }}</div>
+              <div class="timer rev-t"><i class="pi pi-clock"></i><div><span class="t">{{ elapsed(r.startedAt) }}</span><small>Revisión en curso</small></div></div>
+              <button class="cta rev-btn" (click)="finishRevision(r)"><i class="pi pi-check"></i> Finalizar Revisión PERIÓDICA</button>
             </article>
           }
         </div>
@@ -94,7 +108,13 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana'
       .card { background: linear-gradient(160deg, #14352a, #0e241c); border: 1px solid #1f3a2c; border-radius: 14px; padding: 1.1rem; display: flex; flex-direction: column; gap: 0.3rem; }
       .card.curso { background: linear-gradient(160deg, #6b5d12, #4a3f0c); border-color: #a3870b; }
       .card.repaso { background: linear-gradient(160deg, #5b1a1a, #3a0d0d); border-color: #b91c1c; }
-      h3.ges { color: #fbbf24; }
+      .card.revision { background: linear-gradient(160deg, #3b1c63, #1e1040); border-color: #7c3aed; }
+      h3.ges { color: #fbbf24; } h3.rev { color: #a78bfa; }
+      .count.purple { background: #5b21b6; color: #fff; }
+      .dot-purple { width: 12px; height: 12px; border-radius: 50%; background: #a78bfa; box-shadow: 0 0 0 4px rgba(167,139,250,0.2); }
+      .timer.rev-t { background: rgba(124,58,237,0.25); border-color: #7c3aed; color: #ddd6fe; }
+      .timer.rev-t .t { color: #c4b5fd; }
+      .cta.rev-btn { background: #7c3aed; }
       .card-top { display: flex; align-items: center; justify-content: space-between; }
       .dot-amber { width: 12px; height: 12px; border-radius: 50%; background: #fbbf24; box-shadow: 0 0 0 4px rgba(251,191,36,0.2); }
       .num { font-size: 1.3rem; font-weight: 800; color: #fff; } .ty { font-size: 0.78rem; text-transform: uppercase; opacity: 0.9; } .pi-flo { font-size: 0.78rem; opacity: 0.7; }
@@ -133,7 +153,8 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   private timer?: ReturnType<typeof setInterval>;
 
   readonly repasoRooms = computed(() => this.rooms().filter((r) => r.repaso));
-  readonly normalRooms = computed(() => this.rooms().filter((r) => !r.repaso));
+  readonly revisionRooms = computed(() => this.rooms().filter((r) => r.revision));
+  readonly normalRooms = computed(() => this.rooms().filter((r) => !r.repaso && !r.revision));
 
   ngOnInit(): void {
     this.reload();
@@ -188,6 +209,14 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     this.busy.set(true);
     this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/${r.id}/finish`, {}).subscribe({
       next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Limpieza finalizada', detail: `Hab. ${r.number} disponible` }); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
+    });
+  }
+
+  finishRevision(r: CleanRoom): void {
+    this.busy.set(true);
+    this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/revision`, { roomId: r.id, status: 'OK', acciones: [], observaciones: '' }).subscribe({
+      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Revisión finalizada', detail: `Hab. ${r.number} disponible` }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
     });
   }
