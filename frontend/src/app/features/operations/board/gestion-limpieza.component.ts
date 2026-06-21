@@ -267,7 +267,10 @@ const ACCIONES_PERIODICAS = [
       <div class="rp-foot">
         <div><label>Turno</label><div class="turno-chip"><i class="pi pi-moon"></i> {{ turnoActual() }} <span class="auto">Automático</span></div></div>
         <div><label>Imagen (Obligatoria)</label>
-          <label class="foto-btn"><i class="pi pi-camera"></i> {{ revFoto ? 'Foto tomada ✓' : 'Tomar Foto' }}<input type="file" accept="image/*" capture="environment" (change)="onFoto($event)" hidden /></label>
+          <div class="foto-row">
+            <label class="foto-btn"><i class="pi pi-camera"></i> {{ revFoto ? 'Cambiar foto' : 'Tomar Foto' }}<input type="file" accept="image/*" capture="environment" (change)="onFoto($event)" hidden /></label>
+            @if (revFoto) { <img [src]="revFoto" class="foto-prev" alt="foto" /> }
+          </div>
         </div>
       </div>
       <label>Observaciones Generales</label>
@@ -358,6 +361,8 @@ const ACCIONES_PERIODICAS = [
       .turno-chip { background: #12231b; border: 1px solid #1f3a2c; border-radius: 10px; padding: 0.6rem 0.8rem; display: flex; align-items: center; gap: 0.5rem; }
       .turno-chip .auto { background: #14271f; color: #9fe7c4; border-radius: 999px; padding: 0.1rem 0.5rem; font-size: 0.7rem; margin-left: auto; }
       .foto-btn { display: inline-flex; align-items: center; gap: 0.5rem; background: #fbeef4; color: #be185d; border-radius: 10px; padding: 0.6rem 0.9rem; cursor: pointer; font-weight: 700; }
+      .foto-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+      .foto-prev { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; border: 1px solid #1f3a2c; }
       :host ::ng-deep .dk-dialog textarea { width: 100%; background: #0b1410; border: 1px solid #1f3a2c; color: #e6efe9; border-radius: 8px; padding: 0.5rem 0.7rem; font: inherit; }
       :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1a14; color: #e6efe9; }
       .rep-info { background: rgba(59,130,246,0.1); border: 1px solid #1e40af; border-radius: 10px; padding: 0.8rem 1rem; color: #bfdbfe; font-size: 0.85rem; margin-top: 0.8rem; }
@@ -587,10 +592,27 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   revHasProblems(): boolean { return this.revCats.some((c) => c.selected); }
   turnoActual(): string { const h = new Date().getHours(); return h >= 7 && h < 15 ? 'Mañana' : h >= 15 && h < 23 ? 'Tarde' : 'Noche'; }
   onFoto(e: Event): void {
-    const file = (e.target as HTMLInputElement).files?.[0];
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
     if (!file) return;
+    if (!file.type.startsWith('image/')) { this.toast.add({ severity: 'warn', summary: 'Archivo inválido', detail: 'Selecciona una imagen.' }); input.value = ''; return; }
+    if (file.size > 15 * 1024 * 1024) { this.toast.add({ severity: 'warn', summary: 'Imagen muy grande', detail: 'Máximo 15 MB.' }); input.value = ''; return; }
+    // Comprime a máx 1024px / JPEG 0.6 para una miniatura ligera (la foto no se sube en bruto).
     const reader = new FileReader();
-    reader.onload = () => { this.revFoto = reader.result as string; };
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 1024;
+        let { width, height } = img;
+        if (width > max || height > max) { const s = max / Math.max(width, height); width = Math.round(width * s); height = Math.round(height * s); }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d')?.drawImage(img, 0, 0, width, height);
+        this.revFoto = canvas.toDataURL('image/jpeg', 0.6);
+      };
+      img.onerror = () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo leer la imagen.' });
+      img.src = reader.result as string;
+    };
     reader.readAsDataURL(file);
   }
   /** Foto obligatoria + al menos 1 acción; cada problema marcado requiere su falla. */
@@ -607,7 +629,8 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     const obs = [this.revObs, ...problems.filter((c) => c.observacion).map((c) => `${c.label}: ${c.observacion}`)].filter(Boolean).join(' | ');
     this.busy.set(true);
     this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/revision`, {
-      roomId: r.id, status, tipoFalla, acciones: this.selAcc().map((a) => a.label), observaciones: obs, photo: this.revFoto,
+      // Solo se envía una marca de foto (no el base64) para no exceder el límite del servidor.
+      roomId: r.id, status, tipoFalla, acciones: this.selAcc().map((a) => a.label), observaciones: obs, photo: this.revFoto ? 'foto-adjunta' : undefined,
     }).subscribe({
       next: () => { this.busy.set(false); this.revPerVisible = false; this.toast.add({ severity: 'success', summary: 'Revisión finalizada', detail: status === 'OK' ? `Hab. ${r.number} disponible` : `Hab. ${r.number}: observaciones registradas` }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
