@@ -28,6 +28,12 @@ const FALLAS: Record<string, string[]> = {
   REPARACION: ['Remodelación pendiente', 'Reparación mayor', 'Cambio de equipo', 'Otro'],
 };
 
+/** Acciones periódicas registradas (Mantenimiento Periódico). */
+const ACCIONES_PERIODICAS = [
+  'Cambio de cortinas', 'Reemplazo de colchones', 'Cambio de chapas y cerraduras',
+  'Cambio de vidrios dañados', 'Limpieza profunda de ventiladores', 'Limpieza de paredes', 'Limpieza inodoro',
+];
+
 @Component({
   selector: 'app-gestion-limpieza',
   standalone: true,
@@ -56,7 +62,7 @@ const FALLAS: Record<string, string[]> = {
               <div class="card-top"><div class="num">Hab. {{ r.number }}</div><span class="dot-purple"></span></div>
               <div class="ty">{{ r.typeName }}</div><div class="pi-flo">Piso {{ r.floor || '-' }}</div>
               <div class="timer rev-t"><i class="pi pi-clock"></i><div><span class="t">{{ elapsed(r.startedAt) }}</span><small>Revisión en curso</small></div></div>
-              <button class="cta rev-btn" (click)="finishRevision(r)"><i class="pi pi-check"></i> Finalizar Revisión PERIÓDICA</button>
+              <button class="cta rev-btn" (click)="openRevPer(r)"><i class="pi pi-check"></i> Finalizar Revisión PERIÓDICA</button>
             </article>
           }
         </div>
@@ -221,6 +227,57 @@ const FALLAS: Record<string, string[]> = {
         }
       </ng-template>
     </p-dialog>
+
+    <!-- Mantenimiento Periódico (Finalizar Revisión Periódica) -->
+    <p-dialog [(visible)]="revPerVisible" [modal]="true" [header]="'Mantenimiento Periódico - Hab. ' + (revPerRoom?.number || '')" [style]="{ width: '42rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      <p class="sub">Marca los items con problemas y selecciona las acciones periódicas realizadas.</p>
+      <div class="rev-status" [class.bad]="revHasProblems()">
+        <i class="pi" [class.pi-check-circle]="!revHasProblems()" [class.pi-exclamation-circle]="revHasProblems()"></i>
+        <div><strong>{{ revHasProblems() ? 'Problemas detectados' : 'Sin problemas detectados' }}</strong><br><small>{{ revCats.length }} items | {{ selAcc().length }} acciones seleccionadas</small></div>
+      </div>
+
+      <h4 class="rp-h"><i class="pi pi-exclamation-triangle"></i> Marcar items con problemas</h4>
+      <div class="cats">
+        @for (c of revCats; track c.key) {
+          <div class="cat" [class.open]="c.selected">
+            <button class="cat-h" (click)="c.selected = !c.selected"><input type="checkbox" [checked]="c.selected" /> {{ c.label }} <i class="pi" [class.pi-chevron-down]="c.selected" [class.pi-chevron-right]="!c.selected"></i></button>
+            @if (c.selected) {
+              <div class="cat-b">
+                <label>Selecciona la Falla Detectada *</label>
+                <p-select [options]="fallasFor(c.key)" [(ngModel)]="c.falla" placeholder="Selecciona una falla..." styleClass="wsel" />
+                @if (!c.falla) { <div class="req"><i class="pi pi-exclamation-triangle"></i> Selecciona una falla específica para continuar</div> }
+                <label>Observación</label><textarea [(ngModel)]="c.observacion" rows="2" placeholder="Describe el problema..."></textarea>
+              </div>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="acc-box" [class.warn]="selAcc().length === 0">
+        <div class="acc-head"><span><i class="pi pi-sync"></i> Acciones Periódicas Realizadas</span><span class="acc-count">{{ selAcc().length }} seleccionadas</span></div>
+        <small class="muted">Selecciona las acciones periódicas que realizaste (mínimo 1).</small>
+        <div class="acc-grid">
+          @for (a of revActions; track a.label) {
+            <label class="acc" [class.on]="a.sel"><input type="checkbox" [(ngModel)]="a.sel" /> {{ a.label }}</label>
+          }
+        </div>
+        @if (selAcc().length === 0) { <div class="req"><i class="pi pi-exclamation-triangle"></i> Debes seleccionar al menos 1 acción periódica</div> }
+      </div>
+
+      <div class="rp-foot">
+        <div><label>Turno</label><div class="turno-chip"><i class="pi pi-moon"></i> {{ turnoActual() }} <span class="auto">Automático</span></div></div>
+        <div><label>Imagen (Obligatoria)</label>
+          <label class="foto-btn"><i class="pi pi-camera"></i> {{ revFoto ? 'Foto tomada ✓' : 'Tomar Foto' }}<input type="file" accept="image/*" capture="environment" (change)="onFoto($event)" hidden /></label>
+        </div>
+      </div>
+      <label>Observaciones Generales</label>
+      <textarea [(ngModel)]="revObs" rows="2" placeholder="Comentarios adicionales (opcional)..."></textarea>
+
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="revPerVisible = false" />
+        <p-button [label]="revHasProblems() ? 'Finalizar con observación' : 'Finalizar - Todo OK'" icon="pi pi-check-circle" [disabled]="!canRevPer()" [loading]="busy()" (onClick)="confirmRevPer()" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -284,6 +341,24 @@ const FALLAS: Record<string, string[]> = {
       .cb-h { font-weight: 700; margin-bottom: 0.5rem; } .confbox.recoger .cb-h { color: #6ee7b7; } .confbox.dejar .cb-h { color: #fbbf24; }
       .cb-row { display: flex; align-items: center; justify-content: space-between; padding: 0.45rem 0.6rem; border-radius: 8px; background: #0b1410; margin-bottom: 0.35rem; }
       .ok-badge { background: #10b981; color: #04130d; border-radius: 6px; padding: 0.05rem 0.4rem; font-size: 0.7rem; font-weight: 700; }
+
+      /* Mantenimiento Periódico */
+      .rev-status { display: flex; align-items: center; gap: 0.7rem; border: 1px solid #14633f; background: rgba(16,185,129,0.08); border-radius: 10px; padding: 0.8rem 1rem; color: #6ee7b7; margin-bottom: 1rem; }
+      .rev-status.bad { border-color: #b45309; background: rgba(245,158,11,0.08); color: #fbbf24; }
+      .rev-status .pi { font-size: 1.4rem; } .rev-status small { color: #8aa499; }
+      .rp-h { color: #fbbf24; display: flex; align-items: center; gap: 0.4rem; margin: 0.8rem 0 0.5rem; }
+      .acc-box { border: 1px solid #1f3a2c; border-radius: 12px; padding: 1rem; margin: 1rem 0; }
+      .acc-box.warn { border-color: #6b4f2a; }
+      .acc-head { display: flex; align-items: center; justify-content: space-between; color: #a78bfa; font-weight: 700; }
+      .acc-count { background: #2e1065; color: #c4b5fd; border-radius: 999px; padding: 0.1rem 0.6rem; font-size: 0.72rem; }
+      .acc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.6rem; }
+      .acc { display: flex; align-items: center; gap: 0.5rem; background: #0b1410; border: 1px solid #1f3a2c; border-radius: 10px; padding: 0.7rem 0.8rem; cursor: pointer; font-size: 0.85rem; }
+      .acc.on { border-color: #7c3aed; color: #c4b5fd; }
+      .rp-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 0.6rem 0; }
+      .turno-chip { background: #12231b; border: 1px solid #1f3a2c; border-radius: 10px; padding: 0.6rem 0.8rem; display: flex; align-items: center; gap: 0.5rem; }
+      .turno-chip .auto { background: #14271f; color: #9fe7c4; border-radius: 999px; padding: 0.1rem 0.5rem; font-size: 0.7rem; margin-left: auto; }
+      .foto-btn { display: inline-flex; align-items: center; gap: 0.5rem; background: #fbeef4; color: #be185d; border-radius: 10px; padding: 0.6rem 0.9rem; cursor: pointer; font-weight: 700; }
+      :host ::ng-deep .dk-dialog textarea { width: 100%; background: #0b1410; border: 1px solid #1f3a2c; color: #e6efe9; border-radius: 8px; padding: 0.5rem 0.7rem; font: inherit; }
       :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1a14; color: #e6efe9; }
       .rep-info { background: rgba(59,130,246,0.1); border: 1px solid #1e40af; border-radius: 10px; padding: 0.8rem 1rem; color: #bfdbfe; font-size: 0.85rem; margin-top: 0.8rem; }
       .rep-info ul { margin: 0.3rem 0 0; padding-left: 1.1rem; }
@@ -336,6 +411,13 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   obsGenerales = '';
   readonly reposicion = signal<{ ropa: RepoRow[]; amenities: RepoRow[] }>({ ropa: [], amenities: [] });
   cats: { key: string; label: string; hint: string; selected: boolean; falla: string; observacion: string }[] = [];
+  // Mantenimiento Periódico
+  revPerVisible = false;
+  revPerRoom: CleanRoom | null = null;
+  revCats: { key: string; label: string; hint: string; selected: boolean; falla: string; observacion: string }[] = [];
+  revActions: { label: string; sel: boolean }[] = [];
+  revFoto: string | null = null;
+  revObs = '';
   private readonly CATS = [
     { key: 'MOBILIARIO', label: 'MOBILIARIO', hint: 'Revisar muebles, cajones, sillas.' },
     { key: 'ARTEFACTOS', label: 'ARTEFACTOS ELÉCTRICOS', hint: 'TV, frigobar, A/C, control remoto.' },
@@ -492,10 +574,42 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     });
   }
 
-  finishRevision(r: CleanRoom): void {
+  // --- Mantenimiento Periódico (Finalizar Revisión Periódica) ---
+  openRevPer(r: CleanRoom): void {
+    this.revPerRoom = r;
+    this.revCats = this.CATS.map((c) => ({ ...c, selected: false, falla: '', observacion: '' }));
+    this.revActions = ACCIONES_PERIODICAS.map((label) => ({ label, sel: false }));
+    this.revFoto = null;
+    this.revObs = '';
+    this.revPerVisible = true;
+  }
+  selAcc(): { label: string }[] { return this.revActions.filter((a) => a.sel); }
+  revHasProblems(): boolean { return this.revCats.some((c) => c.selected); }
+  turnoActual(): string { const h = new Date().getHours(); return h >= 7 && h < 15 ? 'Mañana' : h >= 15 && h < 23 ? 'Tarde' : 'Noche'; }
+  onFoto(e: Event): void {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { this.revFoto = reader.result as string; };
+    reader.readAsDataURL(file);
+  }
+  /** Foto obligatoria + al menos 1 acción; cada problema marcado requiere su falla. */
+  canRevPer(): boolean {
+    if (!this.revFoto || this.selAcc().length === 0) return false;
+    return this.revCats.filter((c) => c.selected).every((c) => !!c.falla);
+  }
+  confirmRevPer(): void {
+    const r = this.revPerRoom;
+    if (!r || !this.canRevPer()) return;
+    const problems = this.revCats.filter((c) => c.selected);
+    const status = problems.length ? 'ISSUE' : 'OK';
+    const tipoFalla = problems.map((c) => `${c.label}: ${c.falla}`).join(' · ') || undefined;
+    const obs = [this.revObs, ...problems.filter((c) => c.observacion).map((c) => `${c.label}: ${c.observacion}`)].filter(Boolean).join(' | ');
     this.busy.set(true);
-    this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/revision`, { roomId: r.id, status: 'OK', acciones: [], observaciones: '' }).subscribe({
-      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Revisión finalizada', detail: `Hab. ${r.number} disponible` }); this.reload(); },
+    this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/revision`, {
+      roomId: r.id, status, tipoFalla, acciones: this.selAcc().map((a) => a.label), observaciones: obs, photo: this.revFoto,
+    }).subscribe({
+      next: () => { this.busy.set(false); this.revPerVisible = false; this.toast.add({ severity: 'success', summary: 'Revisión finalizada', detail: status === 'OK' ? `Hab. ${r.number} disponible` : `Hab. ${r.number}: observaciones registradas` }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
     });
   }

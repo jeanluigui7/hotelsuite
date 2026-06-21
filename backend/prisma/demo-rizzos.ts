@@ -247,6 +247,14 @@ async function main(): Promise<void> {
     await prisma.linenInspection.create({ data: { taskId: 'rz-task-3', linenItemId: it.id, description: it.desc, state: it.state, pickup: it.pickup } });
   }
 
+  // 13. Habitación EN REVISIÓN PERIÓDICA (tarjeta morada con cronómetro)
+  await prisma.revision.upsert({
+    where: { id: 'rz-rev-pend-303' },
+    update: { status: 'PENDING', createdAt: ago(106 * HOUR) },
+    create: { id: 'rz-rev-pend-303', branchId: RZ, roomId: 'rz-room-303', status: 'PENDING', createdByUserId: limpUser?.id, createdAt: ago(106 * HOUR) },
+  });
+  await prisma.room.update({ where: { id: 'rz-room-303' }, data: { status: 'REVISION' } });
+
   // eslint-disable-next-line no-console
   console.log(`✅ Demo RIZZOS por perfil lista.
    Usuarios (contraseña Rizzos123!):
