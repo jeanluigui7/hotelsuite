@@ -10,7 +10,7 @@ import type { ApiResponse } from '../../../core/models/api-response.model';
 
 interface CleanRoom { id: string; number: string; floor?: string | null; status: string; typeName: string; repaso: boolean; enCurso: boolean; revision?: boolean; taskId: string | null; startedAt?: string | null; }
 interface LinenItem { id: string; type: string; name: string; color?: string | null; reusable: boolean; }
-interface InspRow { item: LinenItem; state: 'OK' | 'ROBADA' | 'DETERIORADA'; pickup: boolean; }
+interface InspRow { item: LinenItem; tipo: 'BASE' | 'EXTRA'; state: 'OK' | 'ROBADA' | 'DETERIORADA'; pickup: boolean; }
 interface RepoRow { section: string; tipo: string; name: string; code: string; type: string | null; color: string | null; cant: number; mantiene: boolean; motivo: string; subName?: string; }
 
 const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana', EDREDON: 'Edredón', AMENITY: 'Amenity' };
@@ -86,28 +86,64 @@ const FALLAS: Record<string, string[]> = {
       </div>
     </section>
 
-    <!-- Recoger Ropa y Amenities -->
-    <p-dialog [(visible)]="iniciarVisible" [modal]="true" [header]="'Recoger Ropa y Amenities · Hab. ' + (selRoom?.number || '')" [style]="{ width: '46rem', maxWidth: '95vw' }" styleClass="dk-dialog">
-      <p class="hint"><i class="pi pi-info-circle"></i> Marca el estado de cada ítem y si lo recoges. ROBADA deshabilita recoger; DETERIORADA fuerza recoger.</p>
-      <table class="insp">
-        <thead><tr><th>Ítem</th><th>Estado</th><th class="ck">Recoger</th></tr></thead>
-        <tbody>
-          @for (row of rows(); track row.item.id) {
-            <tr>
-              <td><span class="dot" [style.background]="row.item.color || '#888'"></span> {{ typeLabel(row.item.type) }} · {{ row.item.name }}</td>
-              <td class="states">
+    <!-- Iniciar limpieza: FASE 1 (Recoger) → Confirmar Recojo -->
+    <p-dialog [(visible)]="iniciarVisible" [modal]="true"
+              [header]="(iniStep === 'fase1' ? 'FASE 1: Recoger Ropa y Amenities – Habitación ' : 'Confirmar Recojo – Habitación ') + (selRoom?.number || '')"
+              [style]="{ width: '52rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      @if (iniStep === 'fase1') {
+        <p class="sub">Marca el estado de cada ítem y decide si recogerlo (☑) o dejarlo (☐)</p>
+        <div class="instr">
+          <strong><i class="pi pi-info-circle"></i> Instrucciones</strong>
+          <p>☑ <b>RECOGER:</b> Sábanas/toallas van a lavandería y se reponen. Edredones van a lavandería pero NO se reponen automáticamente.</p>
+          <p>☐ <b>DEJAR:</b> Items permanecen en habitación. Edredones regresan al almacén. Sin reposición en FASE 3.</p>
+          <p><b>ROBADA/AUSENTE:</b> Se marca como "—". Sábanas/toallas se reponen automáticamente. Edredones solo por orden de Recepción.</p>
+          <p><b>DETERIORADA:</b> Fuerza ☑ RECOGER. Sábanas/toallas se reponen. Edredones solo por orden de Recepción.</p>
+        </div>
+        <div class="insp2">
+          <div class="ir ih"><span>Item</span><span>Cantidad</span><span>Estado</span><span class="rc">Recoger</span></div>
+          @for (row of rows(); track $index) {
+            <div class="ir">
+              <div class="it"><strong>{{ row.item.name }}</strong><small>{{ typeLabel(row.item.type) }} · {{ row.tipo }} @if (row.tipo === 'EXTRA') { <span class="oblig">⚠ Recoger obligatorio</span> }</small></div>
+              <div class="qty"><span class="qb">1</span></div>
+              <div class="states2">
                 <button [class.on]="row.state === 'OK'" class="ok" (click)="setState(row, 'OK')">OK</button>
                 <button [class.on]="row.state === 'ROBADA'" class="rob" (click)="setState(row, 'ROBADA')">ROBADA</button>
                 <button [class.on]="row.state === 'DETERIORADA'" class="det" (click)="setState(row, 'DETERIORADA')">DETERIORADA</button>
-              </td>
-              <td class="ck"><input type="checkbox" [(ngModel)]="row.pickup" [disabled]="row.state === 'ROBADA' || row.state === 'DETERIORADA'" /></td>
-            </tr>
-          } @empty { <tr><td colspan="3" class="muted center">No hay ropa configurada para inspeccionar.</td></tr> }
-        </tbody>
-      </table>
+              </div>
+              <div class="rc">
+                @if (row.state === 'ROBADA') { <span class="dash">—</span> }
+                @else {
+                  <input type="checkbox" [checked]="row.pickup" [disabled]="!canToggle(row)" (change)="togglePickup(row)" />
+                  @if (forced(row)) { <small class="forced">(Forzado)</small> }
+                }
+              </div>
+              <div class="ir-note"><i class="pi pi-info-circle"></i> {{ noteFor(row) }}</div>
+            </div>
+          } @empty { <div class="ir"><span class="muted" style="grid-column:1/-1">No hay ropa configurada.</span></div> }
+        </div>
+        <div class="done-bar"><span><i class="pi pi-check-circle"></i> Todos los items completados</span><span>{{ rows().length }} / {{ rows().length }} completados</span></div>
+      } @else {
+        <p class="sub">Revisa el resumen de tu selección antes de confirmar</p>
+        <div class="confbox recoger">
+          <div class="cb-h">☑ Items a RECOGER ({{ recogerList().length }})</div>
+          @for (row of recogerList(); track $index) { <div class="cb-row"><span>{{ row.item.name }}</span><span><span class="qb">1</span> <span class="ok-badge">{{ row.state }}</span></span></div> }
+          @if (!recogerList().length) { <div class="cb-row muted">Ninguno</div> }
+        </div>
+        <div class="confbox dejar">
+          <div class="cb-h">☐ Items a DEJAR ({{ dejarList().length }})</div>
+          @for (row of dejarList(); track $index) { <div class="cb-row"><span>{{ row.item.name }}</span><span><span class="qb">1</span> <span class="ok-badge">{{ row.state }}</span></span></div> }
+          @if (!dejarList().length) { <div class="cb-row muted">Ninguno</div> }
+        </div>
+        <div class="rep-info"><p><i class="pi pi-info-circle"></i> <strong>¿Estás seguro?</strong></p><p>Una vez confirmado, esta acción registrará el recojo de items y no podrá deshacerse. Si cometiste un error, presiona "Volver" para corregir.</p></div>
+      }
       <ng-template pTemplate="footer">
-        <p-button label="Cancelar" [text]="true" (onClick)="iniciarVisible = false" />
-        <p-button label="Confirmar Recojo" icon="pi pi-check" [loading]="busy()" (onClick)="confirmRecojo()" />
+        @if (iniStep === 'fase1') {
+          <p-button label="Cancelar" [text]="true" (onClick)="iniciarVisible = false" />
+          <p-button label="Siguiente" icon="pi pi-arrow-right" iconPos="right" (onClick)="iniStep = 'confirmar'" />
+        } @else {
+          <p-button label="Volver" icon="pi pi-arrow-left" severity="secondary" (onClick)="iniStep = 'fase1'" />
+          <p-button label="Confirmar Recojo" icon="pi pi-check" [loading]="busy()" (onClick)="confirmRecojo()" />
+        }
       </ng-template>
     </p-dialog>
 
@@ -224,6 +260,30 @@ const FALLAS: Record<string, string[]> = {
       .states .ok.on { background: #10b981; border-color: #10b981; color: #06281c; font-weight: 700; }
       .states .rob.on { background: #ef4444; border-color: #ef4444; color: #fff; }
       .states .det.on { background: #f59e0b; border-color: #f59e0b; color: #3a2606; font-weight: 700; }
+
+      /* FASE 1 (Iniciar limpieza) */
+      .sub { color: #8aa499; margin: 0 0 0.8rem; font-size: 0.85rem; }
+      .instr { background: rgba(59,130,246,0.08); border: 1px solid #1e40af; border-radius: 10px; padding: 0.8rem 1rem; margin-bottom: 1rem; color: #cdd8e6; font-size: 0.8rem; }
+      .instr strong { color: #93c5fd; display: block; margin-bottom: 0.4rem; } .instr p { margin: 0.25rem 0; } .instr b { color: #e6efe9; }
+      .insp2 { border: 1px solid #1f3a2c; border-radius: 10px; overflow: hidden; }
+      .ir { display: grid; grid-template-columns: 2fr 0.7fr 2fr 1fr; gap: 0.6rem; align-items: center; padding: 0.7rem 0.9rem; border-top: 1px solid #14271f; }
+      .ir.ih { background: #12231b; border-top: 0; color: #8aa499; font-size: 0.75rem; }
+      .ir .it strong { display: block; } .ir .it small { color: #8aa499; }
+      .oblig { color: #fbbf24; } .qb { background: #14271f; border-radius: 999px; padding: 0.1rem 0.6rem; font-weight: 700; }
+      .states2 { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+      .states2 button { background: #0b1410; border: 1px solid #2a3f33; color: #cde8db; border-radius: 7px; padding: 0.35rem 0.6rem; cursor: pointer; font-size: 0.74rem; }
+      .states2 .ok.on { background: #10b981; border-color: #10b981; color: #06281c; font-weight: 700; }
+      .states2 .rob.on { background: #ef4444; border-color: #ef4444; color: #fff; }
+      .states2 .det.on { background: #f59e0b; border-color: #f59e0b; color: #3a2606; font-weight: 700; }
+      .rc { text-align: center; } .ir .rc { display: flex; flex-direction: column; align-items: center; gap: 0.1rem; }
+      .dash { color: #8aa499; font-weight: 700; font-size: 1.1rem; } .forced { color: #fbbf24; font-size: 0.66rem; }
+      .ir-note { grid-column: 1 / -1; background: #0b1923; border-radius: 6px; padding: 0.4rem 0.6rem; color: #9fb0c3; font-size: 0.74rem; display: flex; align-items: center; gap: 0.4rem; }
+      .done-bar { display: flex; align-items: center; justify-content: space-between; margin-top: 0.8rem; background: rgba(16,185,129,0.1); border: 1px solid #14633f; color: #6ee7b7; border-radius: 8px; padding: 0.6rem 0.9rem; font-size: 0.85rem; }
+      .confbox { border-radius: 10px; padding: 0.9rem; margin-bottom: 0.8rem; }
+      .confbox.recoger { border: 1px solid #14633f; } .confbox.dejar { border: 1px solid #6b4f2a; }
+      .cb-h { font-weight: 700; margin-bottom: 0.5rem; } .confbox.recoger .cb-h { color: #6ee7b7; } .confbox.dejar .cb-h { color: #fbbf24; }
+      .cb-row { display: flex; align-items: center; justify-content: space-between; padding: 0.45rem 0.6rem; border-radius: 8px; background: #0b1410; margin-bottom: 0.35rem; }
+      .ok-badge { background: #10b981; color: #04130d; border-radius: 6px; padding: 0.05rem 0.4rem; font-size: 0.7rem; font-weight: 700; }
       :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1a14; color: #e6efe9; }
       .rep-info { background: rgba(59,130,246,0.1); border: 1px solid #1e40af; border-radius: 10px; padding: 0.8rem 1rem; color: #bfdbfe; font-size: 0.85rem; margin-top: 0.8rem; }
       .rep-info ul { margin: 0.3rem 0 0; padding-left: 1.1rem; }
@@ -265,6 +325,7 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   readonly rows = signal<InspRow[]>([]);
   readonly busy = signal(false);
   iniciarVisible = false;
+  iniStep: 'fase1' | 'confirmar' = 'fase1';
   selRoom: CleanRoom | null = null;
 
   // Finalizar limpieza (Reposición → Revisión de Mantenimiento)
@@ -321,21 +382,53 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
 
   openIniciar(r: CleanRoom): void {
     this.selRoom = r;
-    this.rows.set(this.linen().map((item) => ({ item, state: 'OK', pickup: false })));
+    this.iniStep = 'fase1';
+    // BASE: la ropa/amenities del inventario; por defecto se recogen (sábanas/toallas/amenities).
+    const base: InspRow[] = this.linen().map((item) => ({ item, tipo: 'BASE' as const, state: 'OK' as const, pickup: item.type !== 'EDREDON' }));
+    this.rows.set(base);
     this.iniciarVisible = true;
+    // EXTRA: suministros pendientes de la habitación (recoger obligatorio).
+    this.http.get<ApiResponse<{ id: string; room: string; description: string }[]>>(`${this.api}/services/supplies?status=PENDING`).subscribe((res) => {
+      const sups = (res.data ?? []).filter((s) => s.room === r.number);
+      if (!sups.length) return;
+      const extras: InspRow[] = sups.map((s) => ({ item: { id: 'sup-' + s.id, type: 'AMENITY', name: s.description, reusable: true }, tipo: 'EXTRA' as const, state: 'OK' as const, pickup: true }));
+      this.rows.set([...this.rows(), ...extras]);
+    });
   }
 
   setState(row: InspRow, state: 'OK' | 'ROBADA' | 'DETERIORADA'): void {
     row.state = state;
-    if (state === 'ROBADA') row.pickup = false;
-    if (state === 'DETERIORADA') row.pickup = true;
+    if (state === 'ROBADA') row.pickup = false; // marcado "—", reposición automática
+    else if (state === 'DETERIORADA') row.pickup = true; // fuerza recoger
+    else if (row.tipo === 'EXTRA') row.pickup = true; // EXTRA siempre se recoge
     this.rows.set([...this.rows()]);
   }
+  /** Solo los BASE en estado OK pueden alternarse; EXTRA/DETERIORADA forzados, ROBADA "—". */
+  canToggle(row: InspRow): boolean { return row.tipo === 'BASE' && row.state === 'OK'; }
+  forced(row: InspRow): boolean { return row.state !== 'ROBADA' && (row.tipo === 'EXTRA' || row.state === 'DETERIORADA'); }
+  togglePickup(row: InspRow): void { if (this.canToggle(row)) { row.pickup = !row.pickup; this.rows.set([...this.rows()]); } }
+  private effPickup(row: InspRow): boolean { return row.state === 'ROBADA' ? false : (this.forced(row) || row.pickup); }
+  noteFor(row: InspRow): string {
+    if (row.state === 'ROBADA') return 'Marcado como ausente "—" → reposición automática (sábanas/toallas).';
+    if (row.state === 'DETERIORADA') return 'Deteriorada → se recoge. Reposición de sábanas/toallas.';
+    if (row.tipo === 'EXTRA') return 'Item EXTRA (suministro adicional) → Se recoge obligatoriamente. FASE 3: Sin reposición (no es item base)';
+    if (row.item.type === 'AMENITY') return 'Item se recoge → Va a inventario correspondiente';
+    return this.effPickup(row)
+      ? 'Ropa se recoge → Va a lavandería. FASE 3: Sistema autorrellena reposición'
+      : 'Ropa se deja (no recomendado) → Permanece hasta próxima limpieza. FASE 3: Sin reposición (—)';
+  }
+  recogerList(): InspRow[] { return this.rows().filter((r) => this.effPickup(r)); }
+  dejarList(): InspRow[] { return this.rows().filter((r) => !this.effPickup(r)); }
 
   confirmRecojo(): void {
     if (!this.selRoom) return;
     this.busy.set(true);
-    const inspections = this.rows().map((r) => ({ linenItemId: r.item.id, description: `${this.typeLabel(r.item.type)} ${r.item.name}`, state: r.state, pickup: r.pickup }));
+    const inspections = this.rows().map((r) => ({
+      linenItemId: r.item.id.startsWith('sup-') ? undefined : r.item.id,
+      description: `${this.typeLabel(r.item.type)} ${r.item.name}`,
+      state: r.state,
+      pickup: this.effPickup(r),
+    }));
     this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/${this.selRoom.id}/start`, { inspections }).subscribe({
       next: () => { this.busy.set(false); this.iniciarVisible = false; this.toast.add({ severity: 'success', summary: 'Limpieza iniciada', detail: `Hab. ${this.selRoom?.number} en curso` }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo iniciar.' }); },
