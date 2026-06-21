@@ -603,7 +603,7 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     if (!r || !this.canRevPer()) return;
     const problems = this.revCats.filter((c) => c.selected);
     const status = problems.length ? 'ISSUE' : 'OK';
-    const tipoFalla = problems.map((c) => `${c.label}: ${c.falla}`).join(' · ') || undefined;
+    const tipoFalla = (problems.map((c) => `${c.label}: ${c.falla}`).join(' · ') || '').slice(0, 300) || undefined;
     const obs = [this.revObs, ...problems.filter((c) => c.observacion).map((c) => `${c.label}: ${c.observacion}`)].filter(Boolean).join(' | ');
     this.busy.set(true);
     this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/revision`, {

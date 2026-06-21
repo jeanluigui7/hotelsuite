@@ -39,7 +39,7 @@ export type LaundryDto = z.infer<typeof laundrySchema>;
 export const revisionSchema = z.object({
   roomId: z.string().min(1),
   status: z.enum(['OK', 'ISSUE']).default('OK'),
-  tipoFalla: z.string().max(120).optional(),
+  tipoFalla: z.string().max(300).optional(),
   acciones: z.array(z.string().max(120)).default([]),
   observaciones: z.string().max(1000).optional().or(z.literal('')),
   photo: z.string().optional(), // data URL (base64) capturada en el navegador
@@ -252,7 +252,13 @@ export const cleaningService = {
     const branchId = requireActiveBranch(scope);
     const room = await prisma.room.findUnique({ where: { id: dto.roomId } });
     if (!room || room.branchId !== branchId) throw new ValidationError('Habitación no encontrada');
-    const detail = JSON.stringify({ tipoFalla: dto.tipoFalla ?? null, acciones: dto.acciones, observaciones: dto.observaciones || null, photo: dto.photo ?? null });
+    // notes es NVARCHAR(1000): no guardamos la foto base64 (desborda) — solo una marca; observaciones acotadas.
+    const detail = JSON.stringify({
+      tipoFalla: (dto.tipoFalla || '').slice(0, 300) || null,
+      acciones: dto.acciones,
+      observaciones: (dto.observaciones || '').slice(0, 300) || null,
+      hasPhoto: !!dto.photo,
+    });
     // Si había una revisión en curso (PENDING, iniciada con play), se finaliza esa; si no, se crea.
     const pending = await prisma.revision.findFirst({ where: { branchId, roomId: dto.roomId, status: 'PENDING' } });
     const rev = pending
