@@ -11,7 +11,7 @@ import type { ApiResponse } from '../../../core/models/api-response.model';
 interface CleanRoom { id: string; number: string; floor?: string | null; status: string; typeName: string; repaso: boolean; enCurso: boolean; revision?: boolean; taskId: string | null; startedAt?: string | null; }
 interface LinenItem { id: string; type: string; name: string; color?: string | null; reusable: boolean; }
 interface InspRow { item: LinenItem; tipo: 'BASE' | 'EXTRA'; state: 'OK' | 'ROBADA' | 'DETERIORADA'; pickup: boolean; }
-interface RepoRow { section: string; tipo: string; name: string; code: string; type: string | null; color: string | null; cant: number; mantiene: boolean; motivo: string; subName?: string; }
+interface RepoRow { section: string; tipo: string; name: string; code: string; type: string | null; color: string | null; cant: number; mantiene: boolean; motivo: string; subName?: string; subIndex?: number; }
 
 const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana', EDREDON: 'Edredón', AMENITY: 'Amenity' };
 
@@ -457,13 +457,13 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   repoCount(): number { return this.reposicion().ropa.length + this.reposicion().amenities.length; }
   repoRopaRepuestos(): number { return this.reposicion().ropa.filter((r) => !r.mantiene).length; }
   repoAmenRepuestos(): number { return this.reposicion().amenities.filter((r) => !r.mantiene).length; }
-  /** "Ruedita de refrescar": cambia el sustituto a otra prenda del mismo tipo. */
+  /** "Ruedita de refrescar": intercala el sustituto entre prendas del mismo tipo. */
   cycleSub(r: RepoRow): void {
     const same = this.linen().filter((l) => l.type === r.type);
-    if (same.length < 2) return;
-    const names = same.map((l) => l.name);
-    const cur = names.indexOf(r.subName ?? r.name.replace(/^(Toalla|Sábana|Edredón|Amenity)\s*/i, '').trim());
-    r.subName = `${TYPE_LABEL[r.type ?? ''] ?? ''} ${names[(cur + 1) % names.length]}`.trim();
+    if (same.length < 2) { this.toast.add({ severity: 'info', summary: 'Sin sustitutos', detail: 'No hay otro color/prenda del mismo tipo en inventario.' }); return; }
+    r.subIndex = ((r.subIndex ?? 0) + 1) % same.length;
+    const li = same[r.subIndex];
+    r.subName = `${TYPE_LABEL[r.type ?? ''] ?? ''} ${li.name}`.trim();
     this.reposicion.set({ ...this.reposicion() });
   }
   fallasFor(key: string): string[] { return FALLAS[key] ?? ['Otro']; }

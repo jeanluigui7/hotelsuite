@@ -220,6 +220,33 @@ async function main(): Promise<void> {
     });
   }
 
+  // 11. Más colores de ropa + amenities (linen) para el flujo de recojo/reposición
+  const moreLinen = [
+    { id: 'rz-li-toa-verde', type: 'TOALLA', name: 'Verde Margarita', color: '#22c55e', reusable: true },
+    { id: 'rz-li-sab-incaica', type: 'SABANA', name: 'Incaica Roja', color: '#ef4444', reusable: true },
+    { id: 'rz-li-sab-azulbol', type: 'SABANA', name: 'Azul Bolas', color: '#3b82f6', reusable: true },
+    { id: 'rz-li-amn-jabon', type: 'AMENITY', name: 'Jabón granel + papel fraccionado', color: '#fcd34d', reusable: false },
+    { id: 'rz-li-amn-shampoo', type: 'AMENITY', name: 'Shampoo sachet', color: '#a78bfa', reusable: false },
+  ];
+  for (const l of moreLinen) {
+    await prisma.linenItem.upsert({ where: { id: l.id }, update: { name: l.name, color: l.color, reusable: l.reusable }, create: { id: l.id, branchId: RZ, type: l.type, name: l.name, color: l.color, reusable: l.reusable } });
+    for (const floor of ['1', '2', '3']) {
+      await prisma.linenStock.upsert({ where: { linenItemId_floor: { linenItemId: l.id, floor } }, update: {}, create: { id: `${l.id}-p${floor}`, branchId: RZ, linenItemId: l.id, floor, rem: l.type === 'AMENITY' ? 6 : 10, sum: 0 } });
+    }
+  }
+
+  // 12. Inspección de la limpieza en curso (rz-task-3, hab 302) para ver la reposición al finalizar
+  await prisma.linenInspection.deleteMany({ where: { taskId: 'rz-task-3' } });
+  const insp = [
+    { id: 'rz-li-toa-verde', desc: 'Toalla Verde Margarita', state: 'OK', pickup: true },
+    { id: 'rz-li-sab-incaica', desc: 'Sábana Incaica Roja', state: 'OK', pickup: false },
+    { id: 'rz-li-sab-azulbol', desc: 'Sábana Azul Bolas', state: 'OK', pickup: true },
+    { id: 'rz-li-amn-jabon', desc: 'Jabón granel + papel fraccionado', state: 'OK', pickup: true },
+  ];
+  for (const it of insp) {
+    await prisma.linenInspection.create({ data: { taskId: 'rz-task-3', linenItemId: it.id, description: it.desc, state: it.state, pickup: it.pickup } });
+  }
+
   // eslint-disable-next-line no-console
   console.log(`✅ Demo RIZZOS por perfil lista.
    Usuarios (contraseña Rizzos123!):
