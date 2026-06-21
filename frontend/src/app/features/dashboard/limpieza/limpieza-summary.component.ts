@@ -1,7 +1,9 @@
 import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
+import { SelectModule } from 'primeng/select';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
@@ -11,11 +13,15 @@ import { DashboardApiService, type LimpiezaSummary } from '../dashboard-api.serv
 
 interface Shift { id: string; shiftType: string; status: string; laundrySent: boolean; openedAt: string; }
 interface ShiftInfo { shift: Shift | null; inProgress: number; canClose: boolean; }
+interface LinenRow { linenItemId: string; type: string; name: string; color?: string | null; rem: number; sum: number; }
+interface LinenFloor { floor: string; rows: LinenRow[]; }
+
+const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sabanas', EDREDON: 'Edredones', AMENITY: 'Amenities' };
 
 @Component({
   selector: 'app-limpieza-summary',
   standalone: true,
-  imports: [DatePipe, ButtonModule, TooltipModule],
+  imports: [DatePipe, FormsModule, ButtonModule, SelectModule, TooltipModule],
   template: `
     <section class="rz">
       <!-- Hero -->
@@ -69,6 +75,34 @@ interface ShiftInfo { shift: Shift | null; inProgress: number; canClose: boolean
           </div>
         </div>
       }
+
+      <!-- Stock de Ropa por Piso -->
+      <h2 class="sr-title">Stock de Ropa por Piso</h2>
+      <div class="sr-card">
+        <div class="sr-head">Artículos Reutilizables en Limpieza</div>
+        <div class="sr-body">
+          <div class="sr-filters">
+            <span class="sr-search"><i class="pi pi-search"></i><input placeholder="Buscar por nombre o marca..." [(ngModel)]="linenSearch" /></span>
+            <p-select [options]="floorOptions()" [(ngModel)]="floorFilter" placeholder="Todos los pisos" [showClear]="true" styleClass="dk" />
+            <p-select [options]="cicloOptions" optionLabel="label" optionValue="value" [(ngModel)]="ciclo" placeholder="Todos los ciclos" styleClass="dk" />
+            <button class="sr-refresh" (click)="reload()"><i class="pi pi-sync"></i> Actualizar</button>
+          </div>
+          <div class="sr-tablewrap">
+            <table class="sr-tbl">
+              <thead><tr><th class="cat">Categoría de Artículo</th>
+                @for (f of stockFloors(); track f) { <th class="pf">Piso {{ f }}<small>Total Stock</small></th> }
+              </tr></thead>
+              <tbody>
+                @for (row of stockRows(); track row.category) {
+                  <tr><td class="cat">{{ row.category }}</td>
+                    @for (f of stockFloors(); track f) { <td class="num" [class.zero]="(row.byFloor[f] || 0) === 0">{{ row.byFloor[f] || 0 }}</td> }
+                  </tr>
+                } @empty { <tr><td [attr.colspan]="stockFloors().length + 1" class="muted center">Sin artículos.</td></tr> }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </section>
   `,
   styles: [
@@ -102,6 +136,24 @@ interface ShiftInfo { shift: Shift | null; inProgress: number; canClose: boolean
       .stat { border-radius: 14px; padding: 1.1rem 1.25rem; color: #fff; display: flex; flex-direction: column; gap: 0.2rem; }
       .stat .num { font-size: 2rem; font-weight: 800; line-height: 1; }
       .stat .lbl { font-size: 0.82rem; opacity: 0.92; }
+
+      .sr-title { font-size: 1.4rem; font-weight: 800; color: #fff; margin: 1.5rem 0 1rem; }
+      .sr-card { background: var(--p-content-background,#0f1a2b); border: 1px solid var(--p-content-border-color,#1c2c44); border-radius: 16px; overflow: hidden; }
+      .sr-head { background: #10b981; color: #04130d; font-weight: 800; padding: 0.8rem 1.25rem; }
+      .sr-body { padding: 1.25rem; }
+      .sr-filters { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+      .sr-search { position: relative; flex: 1; min-width: 240px; } .sr-search i { position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%); color: #6b7a90; }
+      .sr-search input { width: 100%; background: var(--p-content-hover-background,#142339); border: 1px solid var(--p-content-border-color,#1c2c44); color: #e6edf5; border-radius: 8px; padding: 0.6rem 0.7rem 0.6rem 2rem; }
+      :host ::ng-deep .dk .p-select { background: var(--p-content-hover-background,#142339); border-color: var(--p-content-border-color,#1c2c44); min-width: 200px; }
+      .sr-refresh { background: #0b1220; border: 1px solid var(--p-content-border-color,#1c2c44); color: #e6edf5; border-radius: 8px; padding: 0.55rem 0.9rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; }
+      .sr-tablewrap { overflow-x: auto; border-radius: 10px; }
+      .sr-tbl { width: 100%; border-collapse: collapse; }
+      .sr-tbl th { background: #10b981; color: #04130d; font-weight: 800; padding: 0.8rem 1rem; text-align: center; }
+      .sr-tbl th.cat { text-align: left; } .sr-tbl th small { display: block; font-weight: 500; font-size: 0.72rem; opacity: 0.85; }
+      .sr-tbl td { padding: 0.8rem 1rem; border-top: 1px solid var(--p-content-border-color,#1c2c44); text-align: center; font-weight: 700; }
+      .sr-tbl td.cat { text-align: left; font-weight: 600; }
+      .sr-tbl td.zero { color: #6b7a90; font-weight: 400; }
+      .muted { color: var(--p-text-muted-color,#8aa0bd); } .center { text-align: center; }
     `,
   ],
 })
@@ -118,6 +170,17 @@ export class LimpiezaSummaryComponent implements OnInit, OnDestroy {
   private readonly tick = signal(0);
   private timer?: ReturnType<typeof setInterval>;
 
+  // Stock de ropa por piso
+  readonly linenFloors = signal<LinenFloor[]>([]);
+  linenSearch = '';
+  floorFilter: string | null = null;
+  ciclo: 'all' | 'rem' | 'sum' = 'all';
+  readonly cicloOptions = [
+    { label: 'Todos los ciclos', value: 'all' },
+    { label: 'Remanente (REM)', value: 'rem' },
+    { label: 'Suministrado (SUM)', value: 'sum' },
+  ];
+
   ngOnInit(): void {
     this.reload();
     this.timer = setInterval(() => this.tick.update((v) => v + 1), 60_000);
@@ -126,8 +189,32 @@ export class LimpiezaSummaryComponent implements OnInit, OnDestroy {
     if (this.timer) clearInterval(this.timer);
   }
 
+  // Pisos disponibles para el filtro.
+  floorOptions(): string[] { return [...new Set(this.linenFloors().map((f) => f.floor))].sort(); }
+  stockFloors(): string[] {
+    const all = this.floorOptions();
+    return this.floorFilter ? all.filter((f) => f === this.floorFilter) : all;
+  }
+  /** Pivot Categoría (tipo) × Piso con el total de stock según el ciclo. */
+  stockRows(): { category: string; byFloor: Record<string, number> }[] {
+    const q = this.linenSearch.toLowerCase();
+    const val = (r: LinenRow): number => (this.ciclo === 'rem' ? r.rem : this.ciclo === 'sum' ? r.sum : r.rem + r.sum);
+    const byType = new Map<string, { category: string; byFloor: Record<string, number> }>();
+    for (const f of this.linenFloors()) {
+      for (const r of f.rows) {
+        if (q && !(r.name.toLowerCase().includes(q) || (TYPE_LABEL[r.type] ?? r.type).toLowerCase().includes(q))) continue;
+        const cat = TYPE_LABEL[r.type] ?? r.type;
+        if (!byType.has(r.type)) byType.set(r.type, { category: cat, byFloor: {} });
+        const row = byType.get(r.type)!;
+        row.byFloor[f.floor] = (row.byFloor[f.floor] ?? 0) + val(r);
+      }
+    }
+    return [...byType.values()].sort((a, b) => a.category.localeCompare(b.category));
+  }
+
   reload(): void {
     this.api.limpieza().subscribe((res) => this.data.set(res.data));
+    this.http.get<ApiResponse<{ floors: LinenFloor[] }>>(`${this.apiUrl}/cleaning/linen-inventory`).subscribe((r) => this.linenFloors.set(r.data?.floors ?? []));
     this.http.get<ApiResponse<ShiftInfo>>(`${this.apiUrl}/cleaning/shift`).subscribe((r) => this.info.set(r.data));
   }
 
