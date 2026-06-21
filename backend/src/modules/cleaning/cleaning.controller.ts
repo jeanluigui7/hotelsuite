@@ -61,6 +61,10 @@ export const cleaningController = {
     const dto = revisionSchema.parse(req.body);
     res.status(201).json(ok(await cleaningService.revisionPeriodica(req.scope, dto)));
   },
+  async reposicion(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await cleaningService.reposicion(req.scope, req.params.roomId)));
+  },
   async startRevision(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(201).json(ok(await cleaningService.startRevision(req.scope, req.params.roomId)));

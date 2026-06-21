@@ -202,6 +202,38 @@ export const cleaningService = {
     };
   },
 
+  /** Ítems a reponer al finalizar (lo recogido en la inspección de inicio). */
+  async reposicion(scope: RequestScope, roomId: string) {
+    const branchId = requireActiveBranch(scope);
+    const task = await prisma.housekeepingTask.findFirst({
+      where: { branchId, roomId, status: 'IN_PROGRESS' },
+      include: { linenInspections: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!task) return { ropa: [], amenities: [] };
+    const ids = task.linenInspections.map((i) => i.linenItemId).filter((x): x is string => !!x);
+    const linen = await prisma.linenItem.findMany({ where: { id: { in: ids } } });
+    const lmap = new Map(linen.map((l) => [l.id, l]));
+    const rows = task.linenInspections.map((i) => {
+      const li = i.linenItemId ? lmap.get(i.linenItemId) : null;
+      const isAmenity = li?.type === 'AMENITY';
+      return {
+        section: isAmenity ? 'amenity' : 'ropa',
+        tipo: 'BASE',
+        name: i.description,
+        code: i.linenItemId ? i.linenItemId.slice(-7).toUpperCase() : '—',
+        type: li?.type ?? null,
+        color: li?.color ?? null,
+        cant: i.pickup ? 1 : 0,
+        mantiene: !i.pickup,
+        motivo: i.pickup
+          ? (isAmenity ? 'Amenity recogido - Reponer desde inv. limpieza' : `Ropa recogida - Reponer desde inv. limpieza (${li?.name ?? ''})`)
+          : 'Permanece en habitación',
+      };
+    });
+    return { ropa: rows.filter((r) => r.section === 'ropa'), amenities: rows.filter((r) => r.section === 'amenity') };
+  },
+
   /** Inicia una revisión periódica: pone la habitación EN REVISIÓN y arranca el cronómetro. */
   async startRevision(scope: RequestScope, roomId: string) {
     const branchId = requireActiveBranch(scope);

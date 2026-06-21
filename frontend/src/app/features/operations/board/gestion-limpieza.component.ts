@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
+import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
@@ -10,13 +11,27 @@ import type { ApiResponse } from '../../../core/models/api-response.model';
 interface CleanRoom { id: string; number: string; floor?: string | null; status: string; typeName: string; repaso: boolean; enCurso: boolean; revision?: boolean; taskId: string | null; startedAt?: string | null; }
 interface LinenItem { id: string; type: string; name: string; color?: string | null; reusable: boolean; }
 interface InspRow { item: LinenItem; state: 'OK' | 'ROBADA' | 'DETERIORADA'; pickup: boolean; }
+interface RepoRow { section: string; tipo: string; name: string; code: string; type: string | null; color: string | null; cant: number; mantiene: boolean; motivo: string; subName?: string; }
 
 const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana', EDREDON: 'Edredón', AMENITY: 'Amenity' };
+
+/** Catálogo registrado de fallas por categoría (seleccionables en la revisión). */
+const FALLAS: Record<string, string[]> = {
+  MOBILIARIO: ['Mueble roto', 'Cajón dañado', 'Silla inestable', 'Closet/puerta dañada', 'Mesa de noche dañada', 'Otro'],
+  ARTEFACTOS: ['TV no enciende', 'Frigobar no enfría', 'Aire acondicionado no funciona', 'Control remoto dañado', 'Secadora dañada', 'Otro'],
+  BANO: ['Fuga de agua', 'Inodoro tapado', 'Grifo goteando', 'Ducha dañada', 'Espejo roto', 'Falta presión de agua', 'Otro'],
+  CAMA: ['Colchón manchado', 'Cama rota', 'Cabecera suelta', 'Base dañada', 'Otro'],
+  ELECTRICIDAD: ['Foco quemado', 'Tomacorriente dañado', 'Interruptor no funciona', 'Cableado expuesto', 'Otro'],
+  PAREDES: ['Mancha/humedad', 'Pintura descascarada', 'Hueco o grieta', 'Papel mural dañado', 'Otro'],
+  PUERTA: ['Cerradura dañada', 'Bisagra suelta', 'Puerta no cierra', 'Tarjeta/llave no funciona', 'Otro'],
+  VENTANAS: ['Vidrio roto', 'Cortina dañada', 'Ventana no cierra', 'Espejo rajado', 'Otro'],
+  REPARACION: ['Remodelación pendiente', 'Reparación mayor', 'Cambio de equipo', 'Otro'],
+};
 
 @Component({
   selector: 'app-gestion-limpieza',
   standalone: true,
-  imports: [FormsModule, ButtonModule, DialogModule],
+  imports: [FormsModule, ButtonModule, DialogModule, SelectModule],
   template: `
     <section class="gl">
       <header class="top"><h1>Gestión de Habitaciones</h1><button class="refresh" (click)="reload()"><i class="pi pi-refresh"></i> Actualizar</button></header>
@@ -99,10 +114,37 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana'
     <!-- Finalizar limpieza: Reposición → Revisión de Mantenimiento -->
     <p-dialog [(visible)]="finVisible" [modal]="true" [header]="(finStep === 'reposicion' ? 'Reposición · Hab. ' : 'Revisión de Mantenimiento · Hab. ') + (finRoom?.number || '')" [style]="{ width: '40rem', maxWidth: '95vw' }" styleClass="dk-dialog">
       @if (finStep === 'reposicion') {
-        <p class="hint"><i class="pi pi-info-circle"></i> Confirma los ítems a reponer desde el inventario de limpieza. Los ítems con "—" permanecen en la habitación.</p>
+        <p class="hint"><i class="pi pi-info-circle"></i> Confirma los ítems a reponer <span class="ck-badge">CHECKOUT</span> {{ repoCount() }} items</p>
+
+        <h4 class="rep-h"><i class="pi pi-bookmark"></i> Ropa <span class="frac">{{ repoRopaRepuestos() }}/{{ reposicion().ropa.length }}</span></h4>
+        <div class="rep-tbl">
+          <div class="rep-row rh"><span>Tipo</span><span>Item</span><span>Cant.</span><span>Motivo</span></div>
+          @for (r of reposicion().ropa; track $index) {
+            <div class="rep-row">
+              <span><span class="base">BASE</span></span>
+              <span class="it"><strong>{{ r.subName || r.name }}</strong><small>{{ r.code }}</small></span>
+              <span>@if (r.mantiene) { <span class="mant">MANTIENE</span> } @else { <span class="cant"><i class="pi pi-check-circle"></i> {{ r.cant }}</span> }</span>
+              <span class="motivo">{{ r.mantiene ? 'Permanece en habitación' : r.motivo }} @if (!r.mantiene && r.type) { <button class="refresh-i" (click)="cycleSub(r)" title="Cambiar color/sustituto"><i class="pi pi-sync"></i></button> }</span>
+            </div>
+          } @empty { <div class="rep-row"><span class="muted" style="grid-column:1/-1">Sin ropa recogida.</span></div> }
+        </div>
+
+        <h4 class="rep-h"><i class="pi pi-sparkles"></i> Amenities <span class="frac">{{ repoAmenRepuestos() }}/{{ reposicion().amenities.length }}</span></h4>
+        <div class="rep-tbl">
+          <div class="rep-row rh"><span>Tipo</span><span>Item</span><span>Cant.</span><span>Motivo</span></div>
+          @for (r of reposicion().amenities; track $index) {
+            <div class="rep-row">
+              <span><span class="base">BASE</span></span>
+              <span class="it"><strong>{{ r.name }}</strong><small>{{ r.code }}</small></span>
+              <span>@if (r.mantiene) { <span class="mant">MANTIENE</span> } @else { <span class="cant"><i class="pi pi-check-circle"></i> {{ r.cant }}</span> }</span>
+              <span class="motivo">{{ r.motivo }}</span>
+            </div>
+          } @empty { <div class="rep-row"><span class="muted" style="grid-column:1/-1">Sin amenities recogidos.</span></div> }
+        </div>
+
         <div class="rep-info">
-          <p><strong>Reglas:</strong></p>
-          <ul><li>CHECKOUT: solo ítems BASE.</li><li>Ítems TARIFA / VENTA / PREMIUM no se reponen.</li><li>Ítems con "—" permanecen en habitación.</li></ul>
+          <p><i class="pi pi-info-circle"></i> <strong>Información:</strong></p>
+          <ul><li>CHECKOUT: solo ítems BASE.</li><li>Ítems TARIFA / VENTA y PREMIUM no se reponen.</li><li>Ítems con "—" permanecen en habitación.</li></ul>
         </div>
       } @else {
         <p class="hint"><i class="pi pi-info-circle"></i> Verifica el estado de la habitación e informa cualquier problema detectado.</p>
@@ -120,10 +162,11 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana'
                 @if (c.selected) {
                   <div class="cat-b">
                     <small class="muted">{{ c.hint }}</small>
-                    <label>Falla detectada *</label>
-                    <input pInputText [(ngModel)]="c.falla" placeholder="Describe la falla..." />
+                    <label>Selecciona la Falla Detectada *</label>
+                    <p-select [options]="fallasFor(c.key)" [(ngModel)]="c.falla" placeholder="Selecciona una falla..." styleClass="wsel" />
+                    @if (!c.falla) { <div class="req"><i class="pi pi-exclamation-triangle"></i> Selecciona una falla específica para continuar</div> }
                     <label>Observación</label>
-                    <input pInputText [(ngModel)]="c.observacion" placeholder="Describe el problema..." />
+                    <textarea [(ngModel)]="c.observacion" rows="2" placeholder="Describe el problema..."></textarea>
                   </div>
                 }
               </div>
@@ -138,7 +181,7 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana'
         @if (finStep === 'reposicion') {
           <p-button label="Siguiente" icon="pi pi-arrow-right" iconPos="right" (onClick)="finStep = 'revision'" />
         } @else {
-          <p-button label="Finalizar Limpieza" icon="pi pi-check" [disabled]="todoOk === null" [loading]="busy()" (onClick)="confirmFinalizar()" />
+          <p-button label="Finalizar Limpieza" icon="pi pi-check" [disabled]="!canFinalizar()" [loading]="busy()" (onClick)="confirmFinalizar()" />
         }
       </ng-template>
     </p-dialog>
@@ -182,8 +225,20 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana'
       .states .rob.on { background: #ef4444; border-color: #ef4444; color: #fff; }
       .states .det.on { background: #f59e0b; border-color: #f59e0b; color: #3a2606; font-weight: 700; }
       :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1a14; color: #e6efe9; }
-      .rep-info { background: rgba(59,130,246,0.1); border: 1px solid #1e40af; border-radius: 10px; padding: 0.8rem 1rem; color: #bfdbfe; font-size: 0.85rem; }
+      .rep-info { background: rgba(59,130,246,0.1); border: 1px solid #1e40af; border-radius: 10px; padding: 0.8rem 1rem; color: #bfdbfe; font-size: 0.85rem; margin-top: 0.8rem; }
       .rep-info ul { margin: 0.3rem 0 0; padding-left: 1.1rem; }
+      .ck-badge { background: #065f46; color: #6ee7b7; border-radius: 999px; padding: 0.1rem 0.5rem; font-size: 0.7rem; font-weight: 700; }
+      .rep-h { color: #e6efe9; margin: 1rem 0 0.5rem; display: flex; align-items: center; gap: 0.4rem; }
+      .rep-h .frac { background: #14271f; color: #9fe7c4; border-radius: 999px; padding: 0.1rem 0.5rem; font-size: 0.72rem; }
+      .rep-tbl { border: 1px solid #1f3a2c; border-radius: 10px; overflow: hidden; }
+      .rep-row { display: grid; grid-template-columns: 4rem 1.6fr 0.8fr 2fr; gap: 0.5rem; align-items: center; padding: 0.55rem 0.8rem; border-top: 1px solid #14271f; font-size: 0.82rem; }
+      .rep-row.rh { background: #12231b; border-top: 0; color: #8aa499; font-size: 0.72rem; }
+      .base { background: #064e3b; color: #6ee7b7; border: 1px solid #14633f; border-radius: 6px; padding: 0.1rem 0.45rem; font-size: 0.68rem; font-weight: 700; }
+      .it strong { display: block; } .it small { color: #8aa499; }
+      .cant { color: #34d399; display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 700; }
+      .mant { background: #1e3a8a; color: #93c5fd; border-radius: 6px; padding: 0.1rem 0.5rem; font-size: 0.68rem; font-weight: 700; }
+      .motivo { color: #9fe7c4; display: flex; align-items: center; gap: 0.4rem; }
+      .refresh-i { background: transparent; border: 0; color: #34d399; cursor: pointer; }
       .q { color: #34d399; margin: 0.8rem 0 0.5rem; }
       .okno { display: flex; gap: 0.6rem; margin-bottom: 0.8rem; }
       .okno button { flex: 1; background: #0e241c; border: 1px solid #1f3a2c; color: #e6efe9; border-radius: 10px; padding: 0.8rem; cursor: pointer; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
@@ -194,7 +249,9 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana'
       .cat-h .pi { margin-left: auto; }
       .cat-b { padding: 0.7rem 0.9rem; display: flex; flex-direction: column; gap: 0.3rem; background: #0b1923; }
       .cat-b label { font-size: 0.8rem; color: #9fb0c3; margin-top: 0.3rem; }
-      :host ::ng-deep .cat-b input { width: 100%; }
+      :host ::ng-deep .cat-b input, :host ::ng-deep .cat-b textarea, :host ::ng-deep .cat-b .wsel { width: 100%; }
+      .cat-b textarea { background: #0b1410; border: 1px solid #1f3a2c; color: #e6efe9; border-radius: 8px; padding: 0.5rem 0.7rem; font: inherit; }
+      .req { background: rgba(245,158,11,0.12); border: 1px solid #b45309; color: #fbbf24; border-radius: 8px; padding: 0.4rem 0.6rem; font-size: 0.78rem; display: flex; align-items: center; gap: 0.4rem; }
     `,
   ],
 })
@@ -216,6 +273,7 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   finRoom: CleanRoom | null = null;
   todoOk: boolean | null = null;
   obsGenerales = '';
+  readonly reposicion = signal<{ ropa: RepoRow[]; amenities: RepoRow[] }>({ ropa: [], amenities: [] });
   cats: { key: string; label: string; hint: string; selected: boolean; falla: string; observacion: string }[] = [];
   private readonly CATS = [
     { key: 'MOBILIARIO', label: 'MOBILIARIO', hint: 'Revisar muebles, cajones, sillas.' },
@@ -298,9 +356,31 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     this.todoOk = null;
     this.obsGenerales = '';
     this.cats = this.CATS.map((c) => ({ ...c, selected: false, falla: '', observacion: '' }));
+    this.reposicion.set({ ropa: [], amenities: [] });
+    this.http.get<ApiResponse<{ ropa: RepoRow[]; amenities: RepoRow[] }>>(`${this.api}/cleaning/${r.id}/reposicion`).subscribe((res) => this.reposicion.set(res.data ?? { ropa: [], amenities: [] }));
     this.finVisible = true;
   }
   setOk(v: boolean): void { this.todoOk = v; }
+  repoCount(): number { return this.reposicion().ropa.length + this.reposicion().amenities.length; }
+  repoRopaRepuestos(): number { return this.reposicion().ropa.filter((r) => !r.mantiene).length; }
+  repoAmenRepuestos(): number { return this.reposicion().amenities.filter((r) => !r.mantiene).length; }
+  /** "Ruedita de refrescar": cambia el sustituto a otra prenda del mismo tipo. */
+  cycleSub(r: RepoRow): void {
+    const same = this.linen().filter((l) => l.type === r.type);
+    if (same.length < 2) return;
+    const names = same.map((l) => l.name);
+    const cur = names.indexOf(r.subName ?? r.name.replace(/^(Toalla|Sábana|Edredón|Amenity)\s*/i, '').trim());
+    r.subName = `${TYPE_LABEL[r.type ?? ''] ?? ''} ${names[(cur + 1) % names.length]}`.trim();
+    this.reposicion.set({ ...this.reposicion() });
+  }
+  fallasFor(key: string): string[] { return FALLAS[key] ?? ['Otro']; }
+  /** Habilita Finalizar: todo OK, o cada categoría marcada tiene una falla seleccionada. */
+  canFinalizar(): boolean {
+    if (this.todoOk === null) return false;
+    if (this.todoOk === true) return true;
+    const sel = this.cats.filter((c) => c.selected);
+    return sel.length > 0 && sel.every((c) => !!c.falla);
+  }
   confirmFinalizar(): void {
     const r = this.finRoom;
     if (!r || this.todoOk === null) return;
