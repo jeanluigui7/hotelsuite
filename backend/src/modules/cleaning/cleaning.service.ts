@@ -263,10 +263,12 @@ export const cleaningService = {
       hasPhoto: !!dto.photo,
     });
     // Si había una revisión en curso (PENDING, iniciada con play), se finaliza esa; si no, se crea.
+    // La foto (data URL base64) se guarda en su propia columna NVARCHAR(MAX); solo si llega una.
+    const photo = dto.photo && dto.photo.startsWith('data:image') ? dto.photo : undefined;
     const pending = await prisma.revision.findFirst({ where: { branchId, roomId: dto.roomId, status: 'PENDING' } });
     const rev = pending
-      ? await prisma.revision.update({ where: { id: pending.id }, data: { status: dto.status, notes: detail, createdByUserId: scope.userId } })
-      : await prisma.revision.create({ data: { branchId, roomId: dto.roomId, status: dto.status, notes: detail, createdByUserId: scope.userId } });
+      ? await prisma.revision.update({ where: { id: pending.id }, data: { status: dto.status, notes: detail, createdByUserId: scope.userId, ...(photo ? { photo } : {}) } })
+      : await prisma.revision.create({ data: { branchId, roomId: dto.roomId, status: dto.status, notes: detail, createdByUserId: scope.userId, photo } });
     // "Todo OK" certifica la habitación → Disponible (salvo que esté ocupada).
     // Con observación → queda en MAINTENANCE para que se resuelva la falla.
     if (room.status !== 'OCCUPIED') {
@@ -321,7 +323,8 @@ export const cleaningService = {
         tipoFalla: detail.tipoFalla ?? null,
         acciones,
         observaciones: detail.observaciones ?? null,
-        hasPhoto: !!detail.hasPhoto,
+        hasPhoto: !!detail.hasPhoto || !!r.photo,
+        photo: r.photo ?? null,
         fallas,
       };
     });

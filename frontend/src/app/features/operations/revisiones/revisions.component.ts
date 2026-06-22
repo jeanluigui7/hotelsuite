@@ -19,7 +19,7 @@ interface Falla { category: string; description: string; critical: boolean; }
 interface HistRow {
   id: string; room: string; status: string; estado: string; tipo: string; turno: string;
   collaborator: string; minutes: number; createdAt: string; finishedAt: string | null;
-  tipoFalla?: string | null; acciones: string[]; observaciones?: string | null; hasPhoto: boolean; fallas: Falla[];
+  tipoFalla?: string | null; acciones: string[]; observaciones?: string | null; hasPhoto: boolean; photo?: string | null; fallas: Falla[];
 }
 
 const TIPOS = ['Mobiliario', 'Baño', 'Electricidad', 'Plomería', 'Pintura/Paredes', 'Otros'];
@@ -191,7 +191,11 @@ const TURNOS: Record<string, { label: string; icon: string; cls: string }> = {
           <div class="det-acc"><h3>Acciones realizadas</h3>@for (a of h.acciones; track a) { <span class="acc-chip">{{ a }}</span> }</div>
         }
         @if (h.observaciones) { <div class="det-obs"><h3>Observaciones</h3><p>{{ h.observaciones }}</p></div> }
-        @if (h.hasPhoto) { <div class="det-photo"><i class="pi pi-camera"></i> Foto adjunta por el colaborador</div> }
+        @if (h.photo) {
+          <div class="det-foto"><h3><i class="pi pi-camera"></i> Foto adjunta por el colaborador</h3><img [src]="h.photo" class="foto-img" alt="foto de la revisión" /></div>
+        } @else if (h.hasPhoto) {
+          <div class="det-photo"><i class="pi pi-camera"></i> Foto adjunta por el colaborador (registro anterior sin imagen almacenada)</div>
+        }
       }
       <ng-template pTemplate="footer"><p-button label="Cerrar" [text]="true" (onClick)="detailVisible = false" /></ng-template>
     </p-dialog>
@@ -283,6 +287,8 @@ const TURNOS: Record<string, { label: string; icon: string; cls: string }> = {
       .acc-chip { display: inline-block; background: #1b2433; border: 1px solid #2b3a4f; border-radius: 999px; padding: 0.25rem 0.7rem; font-size: 0.8rem; margin: 0 0.4rem 0.4rem 0; }
       .det-obs { margin-top: 1rem; } .det-obs p { margin: 0; color: #cbd5e1; }
       .det-photo { margin-top: 1rem; display: flex; align-items: center; gap: 0.5rem; color: #93c5fd; background: rgba(37,99,235,0.1); border: 1px solid rgba(37,99,235,0.35); border-radius: 10px; padding: 0.7rem 0.9rem; font-size: 0.85rem; }
+      .det-foto { margin-top: 1rem; } .det-foto h3 { font-size: 0.9rem; color: #93c5fd; margin: 0 0 0.5rem; display: flex; align-items: center; gap: 0.4rem; }
+      .foto-img { max-width: 100%; max-height: 360px; border-radius: 10px; border: 1px solid #1f2a3a; display: block; }
       @media (max-width: 760px) { .stats, .hf-row, .det-meta { grid-template-columns: 1fr 1fr; } }
     `,
   ],

@@ -653,8 +653,8 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     const obs = [this.revObs, ...problems.filter((c) => c.observacion).map((c) => `${c.label}: ${c.observacion}`)].filter(Boolean).join(' | ');
     this.busy.set(true);
     this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/revision`, {
-      // Solo se envía una marca de foto (no el base64) para no exceder el límite del servidor.
-      roomId: r.id, status, tipoFalla, acciones: this.selAcc().map((a) => a.label), observaciones: obs, photo: this.revFoto() ? 'foto-adjunta' : undefined,
+      // Se envía la foto comprimida (data URL) para guardarla y poder visualizarla luego.
+      roomId: r.id, status, tipoFalla, acciones: this.selAcc().map((a) => a.label), observaciones: obs, photo: this.revFoto() ?? undefined,
     }).subscribe({
       next: () => { this.busy.set(false); this.revPerVisible = false; this.toast.add({ severity: 'success', summary: 'Revisión finalizada', detail: status === 'OK' ? `Hab. ${r.number} disponible` : `Hab. ${r.number}: observaciones registradas` }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },

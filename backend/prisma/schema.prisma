@@ -922,6 +922,7 @@ model Revision {
   branchId        String
   roomId          String
   notes           String?
+  photo           String?  @db.NVarChar(Max) // foto adjunta (data URL base64) de la revisión
   status          String   @default("PENDING") // PENDING | OK | ISSUE
   createdByUserId String?
   createdAt       DateTime @default(now())

@@ -133,8 +133,8 @@ export class RevisionPeriodicaComponent implements OnInit {
     if (!this.roomId) { this.toast.add({ severity: 'warn', summary: 'Falta habitación', detail: 'Selecciona una habitación.' }); return; }
     this.busy.set(true);
     this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/revision`, {
-      // Solo marca de foto (no base64) para no exceder el límite del servidor.
-      roomId: this.roomId, status, tipoFalla: this.tipoFalla || undefined, acciones: [...this.selAcc], observaciones: this.observaciones || undefined, photo: this.photo() ? 'foto-adjunta' : undefined,
+      // Se envía la foto comprimida (data URL) para guardarla y visualizarla luego.
+      roomId: this.roomId, status, tipoFalla: this.tipoFalla || undefined, acciones: [...this.selAcc], observaciones: this.observaciones || undefined, photo: this.photo() || undefined,
     }).subscribe({
       next: () => {
         this.busy.set(false);

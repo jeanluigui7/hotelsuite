@@ -179,14 +179,18 @@ async function main(): Promise<void> {
     { id: 'rz-rev-101c', roomId: 'rz-room-101', status: 'OK', tipoFalla: null, acciones: ['Revisión general'], obs: null, at: ago(7 * HOUR) },
     { id: 'rz-rev-101d', roomId: 'rz-room-101', status: 'OK', tipoFalla: null, acciones: ['Cambio de cortinas'], obs: 'Cortinas repuestas.', at: ago(28 * HOUR) },
   ];
+  // Foto demo (SVG embebido como data URL) para que el historial muestre una imagen real.
+  const demoFotoSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="220"><rect width="320" height="220" fill="#1f2937"/><rect x="20" y="20" width="280" height="180" rx="10" fill="#111827" stroke="#374151"/><circle cx="110" cy="95" r="34" fill="#fbbf24"/><rect x="95" y="130" width="130" height="14" rx="7" fill="#374151"/><rect x="95" y="155" width="90" height="12" rx="6" fill="#374151"/><text x="160" y="205" fill="#9ca3af" font-family="sans-serif" font-size="12" text-anchor="middle">Foto: foco quemado - Hab. 101</text></svg>`;
+  const demoFoto = `data:image/svg+xml;base64,${Buffer.from(demoFotoSvg).toString('base64')}`;
   for (let i = 0; i < revs.length; i++) {
     const r = revs[i] as (typeof revs)[number] & { hasPhoto?: boolean };
     await prisma.revision.upsert({
       where: { id: r.id },
-      update: {},
+      update: { photo: r.hasPhoto ? demoFoto : null },
       create: {
         id: r.id, branchId: RZ, roomId: r.roomId, status: r.status,
         notes: JSON.stringify({ tipoFalla: r.tipoFalla, acciones: r.acciones, observaciones: r.obs, hasPhoto: !!r.hasPhoto }),
+        photo: r.hasPhoto ? demoFoto : null,
         createdByUserId: colab(i), createdAt: r.at,
       },
     });
