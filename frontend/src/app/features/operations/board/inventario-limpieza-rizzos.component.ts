@@ -7,6 +7,7 @@ import { DialogModule } from 'primeng/dialog';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { InputTextModule } from 'primeng/inputtext';
 import { MessageService } from 'primeng/api';
+import { forkJoin, of } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { AuthService } from '../../../core/auth/auth.service';
@@ -14,7 +15,8 @@ import { printPdf } from '../../../core/utils/export';
 
 interface Row { linenItemId: string; type: string; name: string; color?: string | null; rem: number; sum: number; }
 interface Floor { floor: string; rows: Row[]; }
-interface Supply { id: string; room: string; description: string; quantity: number; status: string; createdAt: string; }
+interface Supply { id: string; roomId: string; room: string; floor?: string | null; roomType?: string; description: string; category?: string; quantity: number; status: string; createdAt: string; }
+interface SupplyGroup { roomId: string; room: string; floor?: string | null; roomType?: string; items: Supply[]; }
 
 const TYPE_COLS: { type: string; label: string; color: string }[] = [
   { type: 'TOALLA', label: 'TOALLAS', color: '#f97316' },
@@ -90,16 +92,36 @@ const TYPE_COLS: { type: string; label: string; color: string }[] = [
       </div>
 
       <h3>Suministros pendientes de entrega</h3>
-      <div class="supplies">
-        @for (s of supplies(); track s.id) {
-          <div class="sup">
-            <div><strong>Hab. {{ s.room }}</strong> · {{ s.description }} x{{ s.quantity }}</div>
-            <span class="muted">{{ s.createdAt | date: 'dd/MM HH:mm' }}</span>
-            <p-button label="Confirmar Entrega" icon="pi pi-check" size="small" [loading]="busy()" (onClick)="deliver(s)" />
-          </div>
+      <div class="sup-grid">
+        @for (g of groups(); track g.roomId) {
+          <article class="sup-card">
+            <span class="sp-badge"><i class="pi pi-box"></i> Suministro Pendiente</span>
+            <div class="sp-num">Hab. {{ g.room }}</div>
+            <div class="sp-ty">{{ g.roomType }}</div>
+            <div class="sp-flo">Piso {{ g.floor || '-' }}</div>
+            <button class="suministrar" (click)="openDeliver(g)"><i class="pi pi-box"></i> Suministrar Habitación</button>
+          </article>
         } @empty { <p class="muted">No hay suministros pendientes.</p> }
       </div>
     </section>
+
+    <!-- Confirmar entrega de suministro -->
+    <p-dialog [(visible)]="delVisible" [modal]="true" [style]="{ width: '40rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      <ng-template pTemplate="header"><div class="del-head"><i class="pi pi-box"></i> Confirmar Entrega - Habitación {{ delGroup?.room }}</div></ng-template>
+      <div class="instr"><strong>Instrucciones:</strong> Los siguientes items fueron solicitados desde recepción. Por favor, confirma que los has entregado a la habitación.</div>
+      <h4 class="del-h">Items a entregar:</h4>
+      @for (it of delGroup?.items || []; track it.id) {
+        <div class="del-item">
+          <i class="pi pi-check-circle"></i>
+          <div><strong>{{ it.description }}</strong><div class="muted">Cantidad: <b>{{ it.quantity }}</b> unidad</div><div class="muted">Categoría: {{ it.category }}</div></div>
+        </div>
+      }
+      <ng-template pTemplate="footer">
+        <p-button label="Rechazar Entrega" icon="pi pi-times-circle" severity="danger" [loading]="busy()" (onClick)="confirmReject()" />
+        <p-button label="Cerrar" severity="secondary" [text]="true" (onClick)="delVisible = false" />
+        <p-button label="Confirmar Entrega" icon="pi pi-check-circle" severity="success" [loading]="busy()" (onClick)="confirmDeliver()" />
+      </ng-template>
+    </p-dialog>
 
     <!-- Solicitar ropa -->
     <p-dialog [(visible)]="reqVisible" [modal]="true" [header]="'Solicitar ropa · Piso ' + reqFloor" [style]="{ width: '30rem' }" styleClass="dk-dialog">
@@ -161,9 +183,19 @@ const TYPE_COLS: { type: string; label: string; color: string }[] = [
       .solicitar { background: #2563eb; } .manch { background: #b91c1c; }
       .solicitar:disabled, .manch:disabled { opacity: 0.45; cursor: not-allowed; }
 
-      .supplies { display: flex; flex-direction: column; gap: 0.5rem; }
-      .sup { display: flex; align-items: center; gap: 1rem; background: #0e241c; border: 1px solid #1f3a2c; border-radius: 10px; padding: 0.6rem 0.9rem; flex-wrap: wrap; }
-      .sup > div:first-child { flex: 1; }
+      .sup-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
+      .sup-card { background: #11202c; border: 1px solid #1c3340; border-radius: 16px; padding: 1.1rem; text-align: center; display: flex; flex-direction: column; gap: 0.3rem; }
+      .sp-badge { align-self: center; background: #ea7a0b; color: #fff; font-weight: 800; font-size: 0.72rem; border-radius: 999px; padding: 0.25rem 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem; margin-bottom: 0.4rem; }
+      .sp-num { font-size: 1.8rem; font-weight: 800; color: #fff; }
+      .sp-ty { font-weight: 700; color: #dbe7f0; letter-spacing: 0.03em; }
+      .sp-flo { color: #8aa499; font-size: 0.85rem; }
+      .suministrar { margin-top: 0.9rem; background: #10b981; color: #06281c; border: 0; border-radius: 12px; padding: 0.8rem; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; }
+      .suministrar:hover { background: #34d399; }
+      .del-head { display: flex; align-items: center; gap: 0.5rem; font-size: 1.25rem; font-weight: 800; color: #fff; } .del-head .pi { color: #ea7a0b; }
+      .instr { background: rgba(37,99,235,0.1); border: 1px solid rgba(37,99,235,0.4); border-radius: 10px; padding: 0.8rem 1rem; color: #cdd8e6; font-size: 0.88rem; margin-bottom: 0.8rem; } .instr strong { color: #93c5fd; }
+      .del-h { margin: 0 0 0.5rem; color: #cdd8e6; font-size: 0.9rem; }
+      .del-item { display: flex; gap: 0.7rem; background: #0e241c; border: 1px solid #1f3a2c; border-radius: 12px; padding: 0.9rem 1rem; margin-bottom: 0.5rem; }
+      .del-item .pi { color: #34d399; font-size: 1.2rem; } .del-item strong { font-size: 1rem; }
       .form { display: flex; flex-direction: column; gap: 0.5rem; }
       .form label { font-size: 0.85rem; color: #9fb0c3; margin-top: 0.4rem; }
       :host ::ng-deep .form input { width: 100%; }
@@ -191,6 +223,19 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
   reqVisible = false;
   lndVisible = false;
   reqFloor = '';
+  delVisible = false;
+  delGroup: SupplyGroup | null = null;
+
+  /** Agrupa los suministros pendientes por habitación (una tarjeta por habitación). */
+  readonly groups = computed<SupplyGroup[]>(() => {
+    const map = new Map<string, SupplyGroup>();
+    for (const s of this.supplies()) {
+      let g = map.get(s.roomId);
+      if (!g) { g = { roomId: s.roomId, room: s.room, floor: s.floor, roomType: s.roomType, items: [] }; map.set(s.roomId, g); }
+      g.items.push(s);
+    }
+    return [...map.values()];
+  });
 
   ngOnInit(): void { this.reload(); }
 
@@ -274,10 +319,28 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
     this.selected.set(s);
   }
 
-  deliver(s: Supply): void {
+  openDeliver(g: SupplyGroup): void {
+    this.delGroup = g;
+    this.delVisible = true;
+  }
+
+  /** Confirma la entrega de TODOS los items de la habitación (descuenta inventario). */
+  confirmDeliver(): void {
+    const g = this.delGroup;
+    if (!g) return;
     this.busy.set(true);
-    this.http.post<ApiResponse<unknown>>(`${this.api}/services/supplies/${s.id}/deliver`, {}).subscribe({
-      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Entregado', detail: `Hab. ${s.room}` }); this.reload(); },
+    forkJoin(g.items.map((it) => this.http.post<ApiResponse<unknown>>(`${this.api}/services/supplies/${it.id}/deliver`, {}))).subscribe({
+      next: () => { this.busy.set(false); this.delVisible = false; this.toast.add({ severity: 'success', summary: 'Entregado', detail: `Hab. ${g.room}: suministro entregado y descontado del inventario.` }); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
+    });
+  }
+
+  confirmReject(): void {
+    const g = this.delGroup;
+    if (!g) return;
+    this.busy.set(true);
+    forkJoin(g.items.map((it) => this.http.post<ApiResponse<unknown>>(`${this.api}/services/supplies/${it.id}/reject`, {}))).subscribe({
+      next: () => { this.busy.set(false); this.delVisible = false; this.toast.add({ severity: 'warn', summary: 'Rechazado', detail: `Hab. ${g.room}: entrega rechazada.` }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
     });
   }

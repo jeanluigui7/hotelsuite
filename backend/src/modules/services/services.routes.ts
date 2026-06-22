@@ -13,3 +13,4 @@ servicesRouter.get('/services/catalog', requirePermission('operations', 'view'),
 servicesRouter.post('/services/charge', requirePermission('operations', 'create'), asyncHandler(servicesController.charge));
 servicesRouter.get('/services/supplies', requirePermission('operations', 'view'), asyncHandler(servicesController.supplies));
 servicesRouter.post('/services/supplies/:id/deliver', requirePermission('operations', 'edit'), asyncHandler(servicesController.deliver));
+servicesRouter.post('/services/supplies/:id/reject', requirePermission('operations', 'edit'), asyncHandler(servicesController.reject));

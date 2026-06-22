@@ -104,24 +104,71 @@ export const servicesService = {
       orderBy: { createdAt: 'desc' },
     });
     const roomIds = [...new Set(rows.map((r) => r.roomId))];
-    const rooms = await prisma.room.findMany({ where: { id: { in: roomIds } }, select: { id: true, number: true } });
-    const roomMap = new Map(rooms.map((r) => [r.id, r.number]));
-    return rows.map((r) => ({
-      id: r.id,
-      room: roomMap.get(r.roomId) ?? '—',
-      description: r.description,
-      quantity: r.quantity,
-      status: r.status,
-      createdAt: r.createdAt,
-      deliveredAt: r.deliveredAt,
-    }));
+    const [rooms, linen] = await Promise.all([
+      prisma.room.findMany({ where: { id: { in: roomIds } }, include: { roomType: { select: { name: true } } } }),
+      prisma.linenItem.findMany({ where: { branchId, status: 'active' }, select: { name: true, type: true } }),
+    ]);
+    const roomMap = new Map(rooms.map((r) => [r.id, r]));
+    const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana', EDREDON: 'Edredón', AMENITY: 'Amenity' };
+    const categoryOf = (desc: string): string => {
+      const li = linen.find((l) => desc.toUpperCase().includes(l.name.toUpperCase()) || l.name.toUpperCase().includes(desc.toUpperCase()));
+      return li ? (TYPE_LABEL[li.type] ?? li.type) : 'Suministro';
+    };
+    return rows.map((r) => {
+      const room = roomMap.get(r.roomId);
+      return {
+        id: r.id,
+        roomId: r.roomId,
+        room: room?.number ?? '—',
+        floor: room?.floor ?? null,
+        roomType: room?.roomType?.name ?? '',
+        description: r.description,
+        category: categoryOf(r.description),
+        quantity: r.quantity,
+        status: r.status,
+        createdAt: r.createdAt,
+        deliveredAt: r.deliveredAt,
+      };
+    });
   },
 
-  /** Limpieza confirma la entrega de un suministro pendiente. */
+  /**
+   * Limpieza confirma la entrega de un suministro pendiente: marca DELIVERED y descuenta
+   * del inventario correspondiente (ropa del piso si el ítem coincide con un linen item).
+   */
   async deliver(scope: RequestScope, id: string) {
     const branchId = requireActiveBranch(scope);
     const supply = await prisma.roomSupply.findUnique({ where: { id } });
     if (!supply || supply.branchId !== branchId) throw new ValidationError('Suministro no encontrado');
-    return prisma.roomSupply.update({ where: { id }, data: { status: 'DELIVERED', deliveredAt: new Date() } });
+    if (supply.status === 'DELIVERED') return supply;
+
+    const room = await prisma.room.findUnique({ where: { id: supply.roomId }, select: { floor: true, number: true } });
+    const floor = room?.floor ?? null;
+    // Resuelve el ítem de ropa por nombre para descontar del remanente del piso.
+    const linen = await prisma.linenItem.findMany({ where: { branchId, status: 'active' }, select: { id: true, name: true } });
+    const item = linen.find((l) => supply.description.toUpperCase().includes(l.name.toUpperCase()) || l.name.toUpperCase().includes(supply.description.toUpperCase()));
+
+    await prisma.$transaction(async (tx) => {
+      if (item && floor) {
+        const stock = await tx.linenStock.findUnique({ where: { linenItemId_floor: { linenItemId: item.id, floor } } });
+        const dec = Math.min(supply.quantity, stock?.rem ?? 0);
+        if (dec > 0) {
+          await tx.linenStock.update({ where: { linenItemId_floor: { linenItemId: item.id, floor } }, data: { rem: { decrement: dec } } });
+        }
+        await tx.linenMovement.create({
+          data: { branchId, linenItemId: item.id, type: 'SUPPLY', quantity: -supply.quantity, floor, areaFrom: `Piso ${floor}`, areaTo: `Hab. ${room?.number ?? ''}`.trim(), reference: 'Entrega de suministro a habitación', createdByUserId: scope.userId },
+        });
+      }
+      await tx.roomSupply.update({ where: { id }, data: { status: 'DELIVERED', deliveredAt: new Date() } });
+    });
+    return { ok: true };
+  },
+
+  /** Limpieza rechaza la entrega de un suministro (no entregado). */
+  async reject(scope: RequestScope, id: string) {
+    const branchId = requireActiveBranch(scope);
+    const supply = await prisma.roomSupply.findUnique({ where: { id } });
+    if (!supply || supply.branchId !== branchId) throw new ValidationError('Suministro no encontrado');
+    return prisma.roomSupply.update({ where: { id }, data: { status: 'REJECTED' } });
   },
 };

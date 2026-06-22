@@ -22,4 +22,8 @@ export const servicesController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await servicesService.deliver(req.scope, req.params.id)));
   },
+  async reject(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await servicesService.reject(req.scope, req.params.id)));
+  },
 };
