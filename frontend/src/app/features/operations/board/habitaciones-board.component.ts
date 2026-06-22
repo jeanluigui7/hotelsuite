@@ -202,22 +202,50 @@ const MANT_CATS = [
       <ng-template pTemplate="footer"><p-button label="Cerrar" [text]="true" (onClick)="vehiculosVisible = false" /></ng-template>
     </p-dialog>
 
-    <p-dialog [(visible)]="changeVisible" [modal]="true" [header]="'Cambiar habitación · ' + (changeRoom?.number || '')" [style]="{ width: '26rem' }" styleClass="dk-dialog">
-      <div class="ch-form">
-        <label>Habitación de destino</label>
-        <p-select [options]="freeRooms()" [(ngModel)]="destRoomId" optionValue="id" [filter]="true" filterBy="number" placeholder="Selecciona habitación disponible" styleClass="w">
-          <ng-template let-r pTemplate="item">Hab. {{ r.number }} · {{ r.roomType.name }}</ng-template>
-          <ng-template let-r pTemplate="selectedItem">Hab. {{ r.number }} · {{ r.roomType.name }}</ng-template>
-        </p-select>
-        <label>¿Cómo debe quedar la habitación {{ changeRoom?.number }} (origen)?</label>
-        <div class="ch-opts">
-          <label class="radio"><input type="radio" name="os" value="CLEANING" [(ngModel)]="originStatus" /> Sucia para limpieza</label>
-          <label class="radio"><input type="radio" name="os" value="FREE" [(ngModel)]="originStatus" /> Disponible</label>
+    <p-dialog [(visible)]="changeVisible" [modal]="true" [style]="{ width: '44rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      <ng-template pTemplate="header">
+        <div class="ch-head"><h2><i class="pi pi-arrow-right-arrow-left"></i> Cambiar de Habitación</h2>
+          <p>Mover a <strong>{{ changeRoom?.activeStay?.guestName }}</strong> desde la habitación <strong>{{ changeRoom?.number }}</strong> a una habitación disponible</p></div>
+      </ng-template>
+      @if (changeRoom?.activeStay; as s) {
+        <div class="ch-info">
+          <h3>Información Actual</h3>
+          <div class="ch-grid">
+            <div><span class="lbl">Huésped:</span><strong>{{ s.guestName }}</strong></div>
+            <div><span class="lbl">Habitación actual:</span><strong>{{ changeRoom?.number }} ({{ changeRoom?.roomType?.name }})</strong></div>
+            <div><span class="lbl">Check-in:</span><strong>{{ s.checkInAt | date: 'dd/MM HH:mm' }}</strong></div>
+            <div><span class="lbl">Check-out programado:</span><strong>{{ s.plannedCheckoutAt | date: 'dd/MM HH:mm' }}</strong></div>
+          </div>
         </div>
+      }
+      <h3 class="ch-sel">Seleccionar Habitación de Destino</h3>
+      <div class="ch-list">
+        @for (fr of freeRooms(); track fr.id) {
+          <button class="ch-room" [class.on]="destRoomId === fr.id" (click)="destRoomId = fr.id">
+            <div class="ch-room-h"><span class="hash"># {{ fr.number }}</span> <span class="disp">Disponible</span></div>
+            <div class="ch-room-t">{{ fr.roomType.name }} · Piso {{ fr.floor || '-' }}</div>
+          </button>
+        } @empty { <p class="muted">No hay habitaciones disponibles.</p> }
       </div>
       <ng-template pTemplate="footer">
-        <p-button label="Cancelar" [text]="true" (onClick)="changeVisible = false" />
-        <p-button label="Confirmar Cambio" icon="pi pi-arrow-right-arrow-left" [disabled]="!destRoomId" [loading]="changing()" (onClick)="doChange()" />
+        <p-button label="Cancelar" severity="secondary" (onClick)="changeVisible = false" />
+        <p-button label="Confirmar Cambio" icon="pi pi-arrow-right-arrow-left" [disabled]="!destRoomId" (onClick)="goOriginStep()" />
+      </ng-template>
+    </p-dialog>
+
+    <!-- Paso 2: estado de la habitación origen -->
+    <p-dialog [(visible)]="originVisible" [modal]="true" header="Estado de Habitación Origen" [style]="{ width: '32rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      <p class="muted" style="margin:0 0 1rem">Al confirmar el cambio, ¿cómo debe quedar la habitación <strong>{{ changeRoom?.number }}</strong>?</p>
+      <button class="orig-opt clean" [disabled]="changing()" (click)="doChange('CLEANING')">
+        <span class="oo-ico"><i class="pi pi-sparkles"></i></span>
+        <span class="oo-body"><strong>Sucia para limpieza</strong><small>Pasa a pendiente de limpieza</small></span>
+      </button>
+      <button class="orig-opt free" [disabled]="changing()" (click)="doChange('FREE')">
+        <span class="oo-ico"><i class="pi pi-check-circle"></i></span>
+        <span class="oo-body"><strong>Disponible</strong><small>Queda libre para nueva ocupación</small></span>
+      </button>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" severity="secondary" [disabled]="changing()" (onClick)="originVisible = false" />
       </ng-template>
     </p-dialog>
 
@@ -329,6 +357,26 @@ const MANT_CATS = [
       :host ::ng-deep .ch-form .w .p-select { width: 100%; }
       .ch-opts { display: flex; flex-direction: column; gap: 0.4rem; }
       .ch-opts .radio { display: flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; cursor: pointer; }
+      /* Cambiar de habitación (rediseño) */
+      .ch-head h2 { margin: 0; font-size: 1.3rem; color: #fff; display: flex; align-items: center; gap: 0.5rem; } .ch-head h2 .pi { color: #a855f7; }
+      .ch-head p { margin: 0.3rem 0 0; color: #8b97a8; font-size: 0.88rem; }
+      .ch-info { background: #0b1320; border: 1px solid #1c2738; border-radius: 12px; padding: 1rem 1.2rem; margin-bottom: 1rem; }
+      .ch-info h3, .ch-sel { margin: 0 0 0.7rem; font-size: 0.95rem; color: #cdd8e6; }
+      .ch-sel { margin-top: 0.4rem; }
+      .ch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem 1.5rem; }
+      .ch-grid .lbl { display: block; color: #8b97a8; font-size: 0.78rem; margin-bottom: 0.2rem; } .ch-grid strong { color: #fff; }
+      .ch-list { display: flex; flex-direction: column; gap: 0.6rem; max-height: 18rem; overflow-y: auto; padding-right: 0.3rem; }
+      .ch-room { text-align: left; background: #0e1622; border: 1px solid #243245; border-radius: 12px; padding: 0.9rem 1.1rem; cursor: pointer; color: #e6e9ef; }
+      .ch-room:hover { border-color: #3b4d66; } .ch-room.on { border-color: #a855f7; box-shadow: 0 0 0 2px rgba(168,85,247,0.3); }
+      .ch-room-h { display: flex; align-items: center; gap: 0.6rem; } .ch-room-h .hash { font-size: 1.05rem; font-weight: 800; }
+      .ch-room-h .disp { font-size: 0.72rem; font-weight: 700; color: #34d399; background: rgba(16,185,129,0.14); border-radius: 999px; padding: 0.1rem 0.55rem; }
+      .ch-room-t { color: #8b97a8; font-size: 0.85rem; margin-top: 0.25rem; }
+      .orig-opt { width: 100%; display: flex; align-items: center; gap: 0.9rem; text-align: left; background: #0e1622; border: 1px solid #243245; border-radius: 12px; padding: 1rem 1.1rem; cursor: pointer; color: #e6e9ef; margin-bottom: 0.7rem; }
+      .orig-opt:hover:not(:disabled) { border-color: #3b4d66; } .orig-opt:disabled { opacity: 0.5; cursor: default; }
+      .orig-opt.clean:hover:not(:disabled) { border-color: #f59e0b; } .orig-opt.free:hover:not(:disabled) { border-color: #10b981; }
+      .oo-ico { width: 42px; height: 42px; border-radius: 10px; display: grid; place-items: center; flex: 0 0 auto; }
+      .orig-opt.clean .oo-ico { background: rgba(245,158,11,0.16); color: #fbbf24; } .orig-opt.free .oo-ico { background: rgba(16,185,129,0.16); color: #34d399; }
+      .oo-body strong { display: block; } .oo-body small { color: #8b97a8; }
       .empty { grid-column: 1/-1; text-align: center; padding: 2rem; }
       :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1622; color: #e6e9ef; }
       .co-pend { background: #2a1410; border: 1px solid #7f1d1d; border-radius: 10px; padding: 0.8rem 0.9rem; margin-bottom: 0.8rem; }
@@ -447,9 +495,9 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   readonly checkoutData = signal<CheckoutSummary | null>(null);
   selectedRoom: RoomMapItem | null = null;
   changeVisible = false;
+  originVisible = false;
   changeRoom: RoomMapItem | null = null;
   destRoomId: string | null = null;
-  originStatus: 'CLEANING' | 'FREE' = 'CLEANING';
   readonly changing = signal(false);
   folioVisible = false;
   folioStayId: string | null = null;
@@ -664,19 +712,25 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     if (!r.activeStay) return;
     this.changeRoom = r;
     this.destRoomId = null;
-    this.originStatus = 'CLEANING';
     this.changeVisible = true;
   }
 
-  doChange(): void {
+  /** Paso 1 → Paso 2: pregunta cómo queda la habitación origen. */
+  goOriginStep(): void {
+    if (!this.destRoomId) return;
+    this.changeVisible = false;
+    this.originVisible = true;
+  }
+
+  doChange(originStatus: 'CLEANING' | 'FREE'): void {
     const r = this.changeRoom;
     if (!r?.activeStay || !this.destRoomId) return;
     this.changing.set(true);
-    this.ops.changeRoom(r.activeStay.id, this.destRoomId, this.originStatus).subscribe({
+    this.ops.changeRoom(r.activeStay.id, this.destRoomId, originStatus).subscribe({
       next: () => {
         this.changing.set(false);
-        this.changeVisible = false;
-        this.toast.add({ severity: 'success', summary: 'Cambio realizado', detail: `Hab. ${r.number} → cambio de habitación` });
+        this.originVisible = false;
+        this.toast.add({ severity: 'success', summary: 'Cambio realizado', detail: `Huésped movido. Hab. ${r.number} → ${originStatus === 'CLEANING' ? 'pendiente de limpieza' : 'disponible'}.` });
         this.reload();
       },
       error: (err) => {
