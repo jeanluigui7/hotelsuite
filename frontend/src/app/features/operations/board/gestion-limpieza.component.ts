@@ -281,8 +281,8 @@ const ACCIONES_PERIODICAS = [
         <div><label>Turno</label><div class="turno-chip"><i class="pi pi-moon"></i> {{ turnoActual() }} <span class="auto">Automático</span></div></div>
         <div><label>Imagen (Obligatoria)</label>
           <div class="foto-row">
-            <label class="foto-btn"><i class="pi pi-camera"></i> {{ revFoto ? 'Cambiar foto' : 'Tomar Foto' }}<input type="file" accept="image/*" capture="environment" (change)="onFoto($event)" hidden /></label>
-            @if (revFoto) { <img [src]="revFoto" class="foto-prev" alt="foto" /> }
+            <label class="foto-btn"><i class="pi pi-camera"></i> {{ revFoto() ? 'Cambiar foto' : 'Tomar Foto' }}<input type="file" accept="image/*" capture="environment" (change)="onFoto($event)" hidden /></label>
+            @if (revFoto(); as f) { <img [src]="f" class="foto-prev" alt="foto capturada" (click)="fotoZoom.set(f)" /> }
           </div>
         </div>
       </div>
@@ -293,6 +293,11 @@ const ACCIONES_PERIODICAS = [
         <p-button label="Cancelar" [text]="true" (onClick)="revPerVisible = false" />
         <p-button [label]="revHasProblems() ? 'Finalizar con observación' : 'Finalizar - Todo OK'" icon="pi pi-check-circle" [disabled]="!canRevPer()" [loading]="busy()" (onClick)="confirmRevPer()" />
       </ng-template>
+    </p-dialog>
+
+    <!-- Zoom de la foto capturada -->
+    <p-dialog [visible]="!!fotoZoom()" (visibleChange)="fotoZoom.set(null)" [modal]="true" header="Foto capturada" [style]="{ width: 'auto', maxWidth: '95vw' }" [dismissableMask]="true" styleClass="dk-dialog">
+      @if (fotoZoom(); as f) { <img [src]="f" class="foto-zoom" alt="foto capturada" /> }
     </p-dialog>
   `,
   styles: [
@@ -377,7 +382,9 @@ const ACCIONES_PERIODICAS = [
       .turno-chip .auto { background: #14271f; color: #9fe7c4; border-radius: 999px; padding: 0.1rem 0.5rem; font-size: 0.7rem; margin-left: auto; }
       .foto-btn { display: inline-flex; align-items: center; gap: 0.5rem; background: #fbeef4; color: #be185d; border-radius: 10px; padding: 0.6rem 0.9rem; cursor: pointer; font-weight: 700; }
       .foto-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-      .foto-prev { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; border: 1px solid #1f3a2c; }
+      .foto-prev { width: 84px; height: 84px; object-fit: cover; border-radius: 8px; border: 1px solid #1f3a2c; cursor: zoom-in; }
+      .foto-prev:hover { border-color: #34d399; }
+      .foto-zoom { max-width: 80vw; max-height: 75vh; border-radius: 10px; display: block; }
       :host ::ng-deep .dk-dialog textarea { width: 100%; background: #0b1410; border: 1px solid #1f3a2c; color: #e6efe9; border-radius: 8px; padding: 0.5rem 0.7rem; font: inherit; }
       :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1a14; color: #e6efe9; }
       .rep-info { background: rgba(59,130,246,0.1); border: 1px solid #1e40af; border-radius: 10px; padding: 0.8rem 1rem; color: #bfdbfe; font-size: 0.85rem; margin-top: 0.8rem; }
@@ -436,7 +443,8 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   revPerRoom: CleanRoom | null = null;
   revCats: { key: string; label: string; hint: string; selected: boolean; falla: string; observacion: string }[] = [];
   revActions: { label: string; sel: boolean }[] = [];
-  revFoto: string | null = null;
+  readonly revFoto = signal<string | null>(null);
+  readonly fotoZoom = signal<string | null>(null);
   revObs = '';
   private readonly CATS = [
     { key: 'MOBILIARIO', label: 'MOBILIARIO', hint: 'Revisar muebles, cajones, sillas.' },
@@ -600,7 +608,7 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     this.revPerRoom = r;
     this.revCats = this.CATS.map((c) => ({ ...c, selected: false, falla: '', observacion: '' }));
     this.revActions = ACCIONES_PERIODICAS.map((label) => ({ label, sel: false }));
-    this.revFoto = null;
+    this.revFoto.set(null);
     this.revObs = '';
     this.revPerVisible = true;
   }
@@ -624,7 +632,7 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
         const canvas = document.createElement('canvas');
         canvas.width = width; canvas.height = height;
         canvas.getContext('2d')?.drawImage(img, 0, 0, width, height);
-        this.revFoto = canvas.toDataURL('image/jpeg', 0.6);
+        this.revFoto.set(canvas.toDataURL('image/jpeg', 0.6));
       };
       img.onerror = () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo leer la imagen.' });
       img.src = reader.result as string;
@@ -633,7 +641,7 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   }
   /** Foto obligatoria + al menos 1 acción; cada problema marcado requiere su falla. */
   canRevPer(): boolean {
-    if (!this.revFoto || this.selAcc().length === 0) return false;
+    if (!this.revFoto() || this.selAcc().length === 0) return false;
     return this.revCats.filter((c) => c.selected).every((c) => !!c.falla);
   }
   confirmRevPer(): void {
@@ -646,7 +654,7 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     this.busy.set(true);
     this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/revision`, {
       // Solo se envía una marca de foto (no el base64) para no exceder el límite del servidor.
-      roomId: r.id, status, tipoFalla, acciones: this.selAcc().map((a) => a.label), observaciones: obs, photo: this.revFoto ? 'foto-adjunta' : undefined,
+      roomId: r.id, status, tipoFalla, acciones: this.selAcc().map((a) => a.label), observaciones: obs, photo: this.revFoto() ? 'foto-adjunta' : undefined,
     }).subscribe({
       next: () => { this.busy.set(false); this.revPerVisible = false; this.toast.add({ severity: 'success', summary: 'Revisión finalizada', detail: status === 'OK' ? `Hab. ${r.number} disponible` : `Hab. ${r.number}: observaciones registradas` }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
