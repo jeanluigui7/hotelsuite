@@ -18,7 +18,6 @@ import { VentaProductosComponent } from './venta-productos.component';
 import { ServiciosPenalidadesComponent } from './servicios-penalidades.component';
 import { FolioEstanciaComponent } from './folio-estancia.component';
 import { roomState } from './room-states';
-import type { RoomStatus } from '../services/operations.models';
 
 type ViewMode = 'normal' | 'compacta' | 'real';
 
@@ -105,9 +104,8 @@ type ViewMode = 'normal' | 'compacta' | 'real';
               <div class="body"><div class="caption">{{ st(r).caption }}</div></div>
               <div class="foot">
                 @if (r.status === 'FREE' || r.status === 'RESERVADA') {
-                  <div class="foot-row">
-                    <button class="cta" (click)="openCheckIn(r)"><i class="pi pi-sign-in"></i> Check-in</button>
-                    <button class="cta ghost sm" (click)="openEstado(r)" pTooltip="Cambiar estado"><i class="pi pi-pencil"></i></button>
+                  <div class="foot-row end">
+                    <button class="cta estado-btn" (click)="openEstado(r)">Estado <i class="pi pi-arrow-right"></i></button>
                   </div>
                 } @else {
                   <button class="cta ghost" (click)="openEstado(r)"><i class="pi pi-pencil"></i> Editar</button>
@@ -199,23 +197,16 @@ type ViewMode = 'normal' | 'compacta' | 'real';
     </p-dialog>
 
     <!-- Cambiar estado de habitación (Editar) -->
-    <p-dialog [(visible)]="estadoVisible" [modal]="true" [header]="'Cambiar Estado · Hab. ' + (estadoRoom?.number || '')" [style]="{ width: '24rem' }" styleClass="dk-dialog">
-      <p class="muted" style="margin:0 0 0.6rem">Selecciona el nuevo estado para la habitación.</p>
-      <div class="est-opts">
-        @if (canSetFree(estadoRoom?.status || 'FREE')) {
-          <button [class.on]="estadoValue === 'FREE'" (click)="estadoValue = 'FREE'"><i class="pi pi-check-circle"></i> Disponible</button>
-        } @else {
-          <p class="est-note"><i class="pi pi-info-circle"></i> Una habitación en limpieza solo puede pasar a Disponible por Limpieza o el Administrador.</p>
-        }
-        <button [class.on]="estadoValue === 'LIMPIEZA_SOLICITADA'" (click)="estadoValue = 'LIMPIEZA_SOLICITADA'"><i class="pi pi-bell"></i> Limpieza solicitada</button>
-        <button [class.on]="estadoValue === 'CLEANING'" (click)="estadoValue = 'CLEANING'"><i class="pi pi-sparkles"></i> Limpieza en espera</button>
-        <button [class.on]="estadoValue === 'RESERVADA'" (click)="estadoValue = 'RESERVADA'"><i class="pi pi-bookmark"></i> Reservada</button>
-        <button [class.on]="estadoValue === 'MAINTENANCE'" (click)="estadoValue = 'MAINTENANCE'"><i class="pi pi-wrench"></i> Mantenimiento</button>
+    <p-dialog [(visible)]="estadoVisible" [modal]="true" header="Cambiar Estado de Habitación" [style]="{ width: '40rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      <p class="muted" style="margin:0 0 1rem">Selecciona el nuevo estado para la habitación {{ estadoRoom?.roomType?.name }} - {{ estadoRoom?.number }}.</p>
+      <div class="est-rows">
+        <button class="est-r" [disabled]="savingEstado()" (click)="applyEstado('FREE')"><span class="d green"></span> Disponible</button>
+        <button class="est-r" [disabled]="savingEstado()" (click)="applyEstado('RESERVADA')"><span class="d purple"></span> Reservada</button>
+        <button class="est-r" [disabled]="savingEstado()" (click)="applyEstado('OCUPADA')"><span class="d blue"></span> Ocupada</button>
+        <button class="est-r" [disabled]="savingEstado()" (click)="applyEstado('LIMPIEZA_SOLICITADA')"><span class="d amber"></span> Limpieza solicitada</button>
+        <button class="est-r" [disabled]="savingEstado()" (click)="applyEstado('MAINTENANCE')"><span class="d red"></span> Mantenimiento</button>
       </div>
-      <ng-template pTemplate="footer">
-        <p-button label="Cancelar" [text]="true" (onClick)="estadoVisible = false" />
-        <p-button label="Guardar" icon="pi pi-check" [loading]="savingEstado()" (onClick)="saveEstado()" />
-      </ng-template>
+      <ng-template pTemplate="footer"><p-button label="Cancelar" [text]="true" (onClick)="estadoVisible = false" /></ng-template>
     </p-dialog>
 
     <app-folio-estancia [(visible)]="folioVisible" [stayId]="folioStayId" />
@@ -327,9 +318,13 @@ type ViewMode = 'normal' | 'compacta' | 'real';
       .oc-foot .cta.out.ghost2 { flex: 0 0 auto; background: rgba(0,0,0,0.3); color: #fff; }
       .chip.total.clickable { cursor: pointer; border: 0; }
       .chip.total.clickable:hover { background: rgba(0,0,0,0.55); }
-      .est-opts { display: flex; flex-direction: column; gap: 0.5rem; }
-      .est-opts button { display: flex; align-items: center; gap: 0.5rem; background: #131b27; border: 1px solid #243245; color: #e6e9ef; border-radius: 10px; padding: 0.7rem 0.9rem; cursor: pointer; font-size: 0.9rem; }
-      .est-opts button.on { border-color: #10b981; color: #34d399; }
+      .est-rows { display: flex; flex-direction: column; gap: 0.6rem; }
+      .est-r { display: flex; align-items: center; gap: 0.7rem; background: #131b27; border: 1px solid #243245; color: #e6e9ef; border-radius: 10px; padding: 0.9rem 1rem; cursor: pointer; font-size: 0.95rem; text-align: left; }
+      .est-r:hover:not(:disabled) { background: #1a2333; } .est-r:disabled { opacity: 0.5; cursor: not-allowed; }
+      .est-r .d { width: 12px; height: 12px; border-radius: 50%; flex: 0 0 auto; }
+      .d.green { background: #10b981; } .d.purple { background: #a855f7; } .d.blue { background: #3b82f6; } .d.amber { background: #f59e0b; } .d.red { background: #ef4444; }
+      .foot-row.end { justify-content: flex-end; }
+      .estado-btn { background: rgba(255,255,255,0.92); color: #0b1018; font-weight: 700; flex: 0 0 auto; }
       .est-note { background: #2a1d12; border: 1px solid #6b4f2a; color: #fbbf24; border-radius: 8px; padding: 0.5rem 0.7rem; font-size: 0.8rem; margin: 0; }
     `,
   ],
@@ -384,7 +379,6 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   folioStayId: string | null = null;
   estadoVisible = false;
   estadoRoom: RoomMapItem | null = null;
-  estadoValue: RoomStatus = 'FREE';
   readonly savingEstado = signal(false);
   private timer?: ReturnType<typeof setInterval>;
 
@@ -474,15 +468,21 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
 
   openEstado(r: RoomMapItem): void {
     this.estadoRoom = r;
-    this.estadoValue = (r.status === 'OCCUPIED' ? 'CLEANING' : (r.status as RoomStatus)) ?? 'FREE';
     this.estadoVisible = true;
   }
 
-  saveEstado(): void {
+  applyEstado(value: 'FREE' | 'RESERVADA' | 'OCUPADA' | 'LIMPIEZA_SOLICITADA' | 'MAINTENANCE'): void {
     const r = this.estadoRoom;
     if (!r) return;
+    // "Ocupada" no es un estado manual: abre el check-in (requiere huésped).
+    if (value === 'OCUPADA') { this.estadoVisible = false; this.openCheckIn(r); return; }
+    // Recepción no puede pasar una habitación en limpieza a Disponible.
+    if (value === 'FREE' && !this.canSetFree(r.status)) {
+      this.toast.add({ severity: 'warn', summary: 'No permitido', detail: 'Una habitación en limpieza solo la libera Limpieza o el Administrador.' });
+      return;
+    }
     this.savingEstado.set(true);
-    this.ops.changeRoomStatus(r.id, this.estadoValue).subscribe({
+    this.ops.changeRoomStatus(r.id, value).subscribe({
       next: () => { this.savingEstado.set(false); this.estadoVisible = false; this.toast.add({ severity: 'success', summary: 'Estado actualizado', detail: `Hab. ${r.number}` }); this.reload(); },
       error: (err) => { this.savingEstado.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo cambiar el estado' }); },
     });
