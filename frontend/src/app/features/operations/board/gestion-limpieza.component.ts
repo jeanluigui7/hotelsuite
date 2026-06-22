@@ -50,6 +50,7 @@ const ACCIONES_PERIODICAS = [
         <div class="grid">
           @for (g of supplyGroups(); track g.roomId) {
             <article class="card sup-pend">
+              <span class="sp-qty" title="Cantidad solicitada">{{ groupQty(g) }}</span>
               <span class="sp-badge"><i class="pi pi-box"></i> Suministro Pendiente</span>
               <div class="num">Hab. {{ g.room }}</div><div class="ty">{{ g.roomType }}</div><div class="pi-flo">Piso {{ g.floor || '-' }}</div>
               <button class="cta suministrar" (click)="openDeliver(g)"><i class="pi pi-box"></i> Suministrar Habitación</button>
@@ -350,7 +351,8 @@ const ACCIONES_PERIODICAS = [
       .card.mantenimiento { background: linear-gradient(160deg, #b91c1c, #7f1d1d); border-color: #ef4444; }
       .count.red { background: #ef4444; } .count.amber { background: #ea7a0b; }
       h3.sup-t { color: #fbbf24; } h3.sup-t .pi { color: #ea7a0b; }
-      .card.sup-pend { background: #11202c; border-color: #1c3340; text-align: center; align-items: center; }
+      .card.sup-pend { background: #11202c; border-color: #1c3340; text-align: center; align-items: center; position: relative; }
+      .card.sup-pend .sp-qty { position: absolute; top: 0.7rem; right: 0.8rem; min-width: 1.7rem; height: 1.7rem; padding: 0 0.45rem; border-radius: 999px; background: #ef4444; color: #fff; font-weight: 800; font-size: 0.9rem; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
       .card.sup-pend .sp-badge { align-self: center; background: #ea7a0b; color: #fff; font-weight: 800; font-size: 0.7rem; border-radius: 999px; padding: 0.22rem 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem; margin-bottom: 0.3rem; }
       .card.sup-pend .num { font-size: 1.7rem; }
       .cta.suministrar { background: #10b981; color: #06281c; }
@@ -550,6 +552,7 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     this.http.get<ApiResponse<Supply[]>>(`${this.api}/services/supplies?status=PENDING`).subscribe((r) => this.supplies.set(r.data ?? []));
   }
 
+  groupQty(g: SupplyGroup): number { return g.items.reduce((n, it) => n + (it.quantity || 0), 0); }
   openDeliver(g: SupplyGroup): void { this.delGroup = g; this.delVisible = true; }
 
   /** Confirma la entrega de los suministros de la habitación (descuenta del inventario). */
