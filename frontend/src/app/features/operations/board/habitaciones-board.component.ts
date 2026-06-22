@@ -380,8 +380,8 @@ const MANT_CATS = [
       .chip.cons { color: #6ee7b7; } .chip.debe { background: rgba(251,191,36,0.2); color: #fde68a; border: 1px solid rgba(251,191,36,0.5); }
       .chip.total { margin-left: auto; background: rgba(0,0,0,0.4); }
       .oc-foot { display: flex; gap: 0.5rem; }
-      .oc-foot .cta.out { flex: 1; background: rgba(255,255,255,0.92); color: #0b1018; border: 0; border-radius: 10px; padding: 0.65rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
-      .oc-foot .cta.out.ghost2 { flex: 0 0 auto; background: rgba(0,0,0,0.3); color: #fff; }
+      .oc-foot .cta.out { flex: 1; width: auto; min-width: 0; background: rgba(255,255,255,0.92); color: #0b1018; border: 0; border-radius: 10px; padding: 0.65rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; white-space: nowrap; }
+      .oc-foot .cta.out.ghost2 { flex: 0 0 auto; width: auto; background: rgba(0,0,0,0.3); color: #fff; }
       .chip.total.clickable { cursor: pointer; border: 0; }
       .chip.total.clickable:hover { background: rgba(0,0,0,0.55); }
       .est-rows { display: flex; flex-direction: column; gap: 0.6rem; }
