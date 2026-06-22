@@ -549,9 +549,16 @@ export class CheckInDialogComponent {
     const creates = toCreate.map((g) =>
       this.catalog.guests.create({ documentType: g.documentType, documentNumber: g.documentNumber.trim(), firstName: g.name || g.documentNumber, lastName: '', phone: g.phone || undefined } as never),
     );
-    forkJoin(creates.length ? creates : [of(null)]).subscribe((res) => {
-      const addIds = creates.length ? res.map((r) => (r as { data?: { id: string } } | null)?.data?.id).filter((x): x is string => !!x) : [];
-      this.doCheckIn(addIds);
+    forkJoin(creates.length ? creates : [of(null)]).subscribe({
+      next: (res) => {
+        const addIds = creates.length ? res.map((r) => (r as { data?: { id: string } } | null)?.data?.id).filter((x): x is string => !!x) : [];
+        this.doCheckIn(addIds);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.saving.set(false);
+        this.tab.set('huesped');
+        this.messages.add({ severity: 'error', summary: 'Huésped adicional', detail: err.error?.error?.message ?? 'No se pudo registrar un huésped adicional.' });
+      },
     });
   }
 
