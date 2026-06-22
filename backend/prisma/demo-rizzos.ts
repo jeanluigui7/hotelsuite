@@ -193,7 +193,8 @@ async function main(): Promise<void> {
     });
   }
 
-  // 7. Ropa (linen): colores/amenities + almacén central (ALMACEN) + remanente por piso
+  // 7. Ropa (linen): asegura los colores/amenities propios y luego deja el stock de TODA
+  // la ropa consistente (almacén central ALMACEN + remanente por piso, sin suministros previos).
   const linen = [
     { id: 'rz-li-toa-verde', type: 'TOALLA', name: 'Verde Margarita', color: '#22c55e', reusable: true },
     { id: 'rz-li-sab-incaica', type: 'SABANA', name: 'Incaica Roja', color: '#ef4444', reusable: true },
@@ -206,18 +207,23 @@ async function main(): Promise<void> {
       where: { id: l.id }, update: { name: l.name, color: l.color, reusable: l.reusable },
       create: { id: l.id, branchId: RZ, type: l.type, name: l.name, color: l.color, reusable: l.reusable },
     });
-    // Almacén central de ropa (origen de los suministros del admin).
+  }
+  // Reset consistente del stock de TODA la ropa activa (incluye la del seed base).
+  const allLinen = await prisma.linenItem.findMany({ where: { branchId: RZ, status: 'active' } });
+  for (const it of allLinen) {
+    const remPiso = it.type === 'AMENITY' ? 6 : 10;
+    // Almacén central (origen de los suministros del admin).
     await prisma.linenStock.upsert({
-      where: { linenItemId_floor: { linenItemId: l.id, floor: 'ALMACEN' } },
-      update: { rem: 50, sum: 50 },
-      create: { id: `${l.id}-alm`, branchId: RZ, linenItemId: l.id, floor: 'ALMACEN', rem: 50, sum: 50 },
+      where: { linenItemId_floor: { linenItemId: it.id, floor: 'ALMACEN' } },
+      update: { rem: 50, sum: 0 },
+      create: { branchId: RZ, linenItemId: it.id, floor: 'ALMACEN', rem: 50, sum: 0 },
     });
-    // Remanente inicial por piso (ropa ya disponible en cada piso).
+    // Remanente por piso (sum = 0: nada suministrado aún en este periodo).
     for (const floor of ['1', '2', '3']) {
-      const rem = l.type === 'AMENITY' ? 6 : 10;
       await prisma.linenStock.upsert({
-        where: { linenItemId_floor: { linenItemId: l.id, floor } },
-        update: { rem, sum: rem }, create: { id: `${l.id}-p${floor}`, branchId: RZ, linenItemId: l.id, floor, rem, sum: rem },
+        where: { linenItemId_floor: { linenItemId: it.id, floor } },
+        update: { rem: remPiso, sum: 0 },
+        create: { branchId: RZ, linenItemId: it.id, floor, rem: remPiso, sum: 0 },
       });
     }
   }
