@@ -11,7 +11,7 @@ import type { ApiResponse } from '../../../core/models/api-response.model';
 interface Mov {
   id: string; article: string; articleType: string; type: string; label: string; tone: string;
   quantity: number; room: string; floor?: string | null; areaFrom: string; areaTo: string;
-  reference?: string | null; createdAt: string;
+  reference?: string | null; createdAt: string; user?: string | null;
 }
 
 const TONE_CLASS: Record<string, string> = { in: 'in', out: 'out', repo: 'repo', req: 'req', adj: 'adj' };
@@ -68,18 +68,23 @@ const TONE_CLASS: Record<string, string> = { in: 'in', out: 'out', repo: 'repo',
       }
     </section>
 
-    <p-dialog [(visible)]="detVisible" [modal]="true" header="Detalle del movimiento" [style]="{ width: '26rem' }" styleClass="dk-dialog">
+    <p-dialog [(visible)]="detVisible" [modal]="true" [style]="{ width: '34rem', maxWidth: '95vw' }" styleClass="dk-dialog mov-dlg">
+      <ng-template pTemplate="header">
+        <div class="dh"><h2>Detalles del Movimiento</h2><p>Información completa del movimiento de inventario</p></div>
+      </ng-template>
       @if (sel; as m) {
-        <div class="kv"><span>Artículo</span><strong>{{ m.article }}</strong></div>
-        <div class="kv"><span>Tipo</span><strong>{{ m.label }}</strong></div>
-        <div class="kv"><span>Cantidad</span><strong>{{ m.quantity }}</strong></div>
-        <div class="kv"><span>Habitación</span><strong>{{ m.room }}</strong></div>
-        <div class="kv"><span>Origen</span><strong>{{ m.areaFrom }}</strong></div>
-        <div class="kv"><span>Destino</span><strong>{{ m.areaTo }}</strong></div>
-        <div class="kv"><span>Referencia</span><strong>{{ m.reference || '—' }}</strong></div>
-        <div class="kv"><span>Fecha</span><strong>{{ m.createdAt | date: 'dd/MM/yy HH:mm' }}</strong></div>
+        <div class="mv-grid">
+          <div class="mv-f"><span class="lbl">Artículo</span><strong class="big">{{ m.article }}</strong></div>
+          <div class="mv-f"><span class="lbl">Tipo</span><span class="badge2" [class]="toneClass(m.tone)"><i [class]="toneIcon(m.tone)"></i> {{ m.label }}</span></div>
+          <div class="mv-f"><span class="lbl">Cantidad</span><strong class="big" [class.pos]="m.quantity >= 0" [class.neg]="m.quantity < 0">{{ m.quantity > 0 ? '+' + m.quantity : m.quantity }}</strong></div>
+          <div class="mv-f"><span class="lbl">Estado</span><span class="estado2"><i class="pi pi-check-circle"></i> Completado</span></div>
+          <div class="mv-f wide"><span class="lbl">Fecha</span><strong>{{ m.createdAt | date: 'dd MMM yyyy, HH:mm' }}</strong></div>
+          <div class="mv-f wide"><span class="lbl">Notas</span><div class="notes">{{ m.reference || 'Sin notas' }}</div></div>
+          <div class="mv-f"><span class="lbl">Solicitado por</span><strong>{{ m.user || '—' }}</strong></div>
+          <div class="mv-f"><span class="lbl">Aprobado por</span><strong>{{ m.user || '—' }}</strong></div>
+        </div>
       }
-      <ng-template pTemplate="footer"><p-button label="Cerrar" [text]="true" (onClick)="detVisible = false" /></ng-template>
+      <ng-template pTemplate="footer"><p-button label="Cerrar" severity="success" (onClick)="detVisible = false" /></ng-template>
     </p-dialog>
   `,
   styles: [
@@ -112,8 +117,17 @@ const TONE_CLASS: Record<string, string> = { in: 'in', out: 'out', repo: 'repo',
       .estado { color: #34d399; display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.82rem; }
       .ac { text-align: right; } .ver { background: transparent; border: 0; color: #60a5fa; cursor: pointer; font-weight: 600; }
       .ver:hover { text-decoration: underline; }
-      .kv { display: flex; justify-content: space-between; padding: 0.4rem 0; border-bottom: 1px solid #16202e; font-size: 0.9rem; }
       :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1622; color: #e6e9ef; }
+      .dh h2 { margin: 0; font-size: 1.35rem; color: #fff; } .dh p { margin: 0.2rem 0 0; color: #8b97a8; font-size: 0.85rem; }
+      .mv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem 1.5rem; }
+      .mv-f { display: flex; flex-direction: column; gap: 0.35rem; } .mv-f.wide { grid-column: 1 / -1; }
+      .mv-f .lbl { color: #8b97a8; font-size: 0.82rem; } .mv-f strong { font-size: 1rem; } .mv-f .big { font-size: 1.2rem; }
+      .mv-f .big.pos { color: #34d399; } .mv-f .big.neg { color: #f87171; }
+      .badge2 { width: fit-content; font-size: 0.82rem; font-weight: 700; padding: 0.3rem 0.8rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 0.4rem; }
+      .badge2.in { background: #064e3b; color: #6ee7b7; } .badge2.out { background: #7f1d1d; color: #fca5a5; }
+      .badge2.repo { background: #1e3a8a; color: #93c5fd; } .badge2.req { background: #78350f; color: #fcd34d; } .badge2.adj { background: #334155; color: #cbd5e1; }
+      .estado2 { color: #34d399; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 1rem; font-weight: 600; }
+      .notes { background: #131b27; border: 1px solid #243245; border-radius: 10px; padding: 0.8rem 1rem; color: #e6e9ef; font-size: 0.95rem; }
     `,
   ],
 })
@@ -160,6 +174,11 @@ export class CleaningMovementsComponent implements OnInit {
 
   toneClass(tone: string): string {
     return TONE_CLASS[tone] ?? 'adj';
+  }
+
+  toneIcon(tone: string): string {
+    const icons: Record<string, string> = { in: 'pi pi-plus-circle', out: 'pi pi-minus-circle', repo: 'pi pi-replay', req: 'pi pi-inbox', adj: 'pi pi-sliders-h' };
+    return icons[tone] ?? 'pi pi-circle';
   }
 
   open(m: Mov): void {

@@ -382,8 +382,13 @@ export const cleaningService = {
       take: 300,
     });
     const roomIds = [...new Set(moves.map((m) => m.roomId).filter((x): x is string => !!x))];
-    const rooms = await prisma.room.findMany({ where: { id: { in: roomIds } }, select: { id: true, number: true } });
+    const userIds = [...new Set(moves.map((m) => m.createdByUserId).filter((x): x is string => !!x))];
+    const [rooms, users] = await Promise.all([
+      prisma.room.findMany({ where: { id: { in: roomIds } }, select: { id: true, number: true } }),
+      prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }),
+    ]);
     const rmap = new Map(rooms.map((r) => [r.id, r.number]));
+    const umap = new Map(users.map((u) => [u.id, u.name]));
 
     // Etiqueta y áreas por tipo (cuando no vienen en el registro).
     const meta = (m: (typeof moves)[number]): { label: string; tone: string; from: string; to: string } => {
@@ -420,6 +425,7 @@ export const cleaningService = {
         areaTo: x.to,
         reference: m.reference,
         createdAt: m.createdAt,
+        user: m.createdByUserId ? (umap.get(m.createdByUserId) ?? '—') : '—',
       };
     });
   },
