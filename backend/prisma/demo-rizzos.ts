@@ -171,15 +171,20 @@ async function main(): Promise<void> {
     { id: 'rz-rev-2', roomId: 'rz-room-103', status: 'ISSUE', tipoFalla: 'Pintura/Paredes', acciones: ['Limpieza de paredes'], obs: 'Pared con manchas', at: ago(5 * HOUR) },
     { id: 'rz-rev-3', roomId: 'rz-room-203', status: 'OK', tipoFalla: null, acciones: ['Revisión general'], obs: null, at: ago(20 * HOUR) },
     { id: 'rz-rev-4', roomId: 'rz-room-303', status: 'ISSUE', tipoFalla: 'Electricidad', acciones: ['Cambio de foco'], obs: 'Foco del baño quemado', at: ago(28 * HOUR) },
+    // Historial completo de la Habitación 101 (1 preventivo con falla crítica + 3 periódicos).
+    { id: 'rz-rev-101a', roomId: 'rz-room-101', status: 'ISSUE', tipoFalla: 'ELECTRICIDAD/ILUMINACIÓN: Foco quemado en la habitación', acciones: [], obs: 'Se requiere cambiar el foco principal.', hasPhoto: true, at: ago(106 * HOUR) },
+    { id: 'rz-rev-101b', roomId: 'rz-room-101', status: 'OK', tipoFalla: null, acciones: ['Limpieza de paredes'], obs: null, at: ago(5 * HOUR) },
+    { id: 'rz-rev-101c', roomId: 'rz-room-101', status: 'OK', tipoFalla: null, acciones: ['Revisión general'], obs: null, at: ago(7 * HOUR) },
+    { id: 'rz-rev-101d', roomId: 'rz-room-101', status: 'OK', tipoFalla: null, acciones: ['Cambio de cortinas'], obs: 'Cortinas repuestas.', at: ago(28 * HOUR) },
   ];
   for (let i = 0; i < revs.length; i++) {
-    const r = revs[i];
+    const r = revs[i] as (typeof revs)[number] & { hasPhoto?: boolean };
     await prisma.revision.upsert({
       where: { id: r.id },
       update: {},
       create: {
         id: r.id, branchId: RZ, roomId: r.roomId, status: r.status,
-        notes: JSON.stringify({ tipoFalla: r.tipoFalla, acciones: r.acciones, observaciones: r.obs, photo: null }),
+        notes: JSON.stringify({ tipoFalla: r.tipoFalla, acciones: r.acciones, observaciones: r.obs, hasPhoto: !!r.hasPhoto }),
         createdByUserId: colab(i), createdAt: r.at,
       },
     });

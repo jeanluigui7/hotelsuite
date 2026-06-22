@@ -275,17 +275,55 @@ export const cleaningService = {
     return { id: rev.id };
   },
 
-  /** Historial de revisiones (con detalle parseado). */
+  /** Historial de revisiones de una habitación (detalle enriquecido para el modal de historial). */
   async revisions(scope: RequestScope, roomId?: string) {
     const branchId = requireActiveBranch(scope);
     const rows = await prisma.revision.findMany({ where: { branchId, ...(roomId ? { roomId } : {}) }, orderBy: { createdAt: 'desc' }, take: 100 });
     const roomIds = [...new Set(rows.map((r) => r.roomId))];
-    const rooms = await prisma.room.findMany({ where: { id: { in: roomIds } }, select: { id: true, number: true } });
+    const [rooms, users] = await Promise.all([
+      prisma.room.findMany({ where: { id: { in: roomIds } }, select: { id: true, number: true } }),
+      prisma.user.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.createdByUserId).filter((x): x is string => !!x))] } }, select: { id: true, name: true } }),
+    ]);
     const rmap = new Map(rooms.map((r) => [r.id, r.number]));
+    const umap = new Map(users.map((u) => [u.id, u.name]));
+    // Categorías consideradas críticas (resaltan con badge "Crítico").
+    const CRITICAL_CATS = ['ELECTRICIDAD', 'BAÑO', 'BANO', 'PLOMERÍA', 'PLOMERIA', 'ARTEFACTOS', 'PUERTA'];
+    const turnoOf = (d: Date): string => { const h = d.getHours(); return h >= 7 && h < 15 ? 'M' : h >= 15 && h < 23 ? 'T' : 'N'; };
     return rows.map((r) => {
-      let detail: { tipoFalla?: string | null; acciones?: string[]; observaciones?: string | null; photo?: string | null } = {};
+      let detail: { tipoFalla?: string | null; acciones?: string[]; observaciones?: string | null; hasPhoto?: boolean } = {};
       try { detail = r.notes ? JSON.parse(r.notes) : {}; } catch { detail = { observaciones: r.notes }; }
-      return { id: r.id, room: rmap.get(r.roomId) ?? '—', status: r.status, createdAt: r.createdAt, ...detail };
+      // Fallas: "CATEGORÍA: descripción · CATEGORÍA2: descripción2"
+      const fallas = (detail.tipoFalla || '')
+        .split('·')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((part) => {
+          const i = part.indexOf(':');
+          const category = (i >= 0 ? part.slice(0, i) : 'GENERAL').trim();
+          const description = (i >= 0 ? part.slice(i + 1) : part).trim();
+          const critical = CRITICAL_CATS.some((c) => category.toUpperCase().includes(c));
+          return { category, description, critical };
+        });
+      const acciones = detail.acciones ?? [];
+      const finished = r.status !== 'PENDING';
+      const minutes = finished ? Math.max(0, Math.round((r.updatedAt.getTime() - r.createdAt.getTime()) / 60_000)) : Math.round((Date.now() - r.createdAt.getTime()) / 60_000);
+      return {
+        id: r.id,
+        room: rmap.get(r.roomId) ?? '—',
+        status: r.status,
+        estado: r.status === 'OK' ? 'Bueno' : r.status === 'ISSUE' ? 'Intermedio' : 'En curso',
+        tipo: acciones.length ? 'Periódico' : 'Preventivo',
+        turno: turnoOf(r.createdAt),
+        collaborator: r.createdByUserId ? (umap.get(r.createdByUserId) ?? '—') : '—',
+        minutes,
+        createdAt: r.createdAt,
+        finishedAt: finished ? r.updatedAt : null,
+        tipoFalla: detail.tipoFalla ?? null,
+        acciones,
+        observaciones: detail.observaciones ?? null,
+        hasPhoto: !!detail.hasPhoto,
+        fallas,
+      };
     });
   },
 
