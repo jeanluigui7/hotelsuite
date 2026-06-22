@@ -29,6 +29,10 @@ const routes: Routes = [
   },
   {
     path: 'limpiezas',
+    loadComponent: () => import('./limpiezas/historial-limpieza.component').then((m) => m.HistorialLimpiezaComponent),
+  },
+  {
+    path: 'limpiezas-tareas',
     loadComponent: () => import('./limpiezas/housekeeping.component').then((m) => m.HousekeepingComponent),
   },
   {

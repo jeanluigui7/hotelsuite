@@ -118,6 +118,49 @@ async function main(): Promise<void> {
       where: { id: 'rz-task-4' }, update: { status: 'DONE' },
       create: { id: 'rz-task-4', branchId: RZ, roomId: 'rz-room-203', assignedToUserId: limpUser.id, status: 'DONE', result: 'APPROVED', completedAt: ago(20 * 60_000), createdAt: ago(90 * 60_000) },
     });
+
+    // --- Historial de Limpieza: estancias cerradas (para el Tipo) + tareas finalizadas con ropa ---
+    const recep = await prisma.user.findUnique({ where: { email: 'recepcion@rizzos.local' } });
+    const guest = await prisma.guest.findFirst({ where: {} });
+    if (guest) {
+      // CHECK OUT (corta) en 203 y PERNOCTA (>=600 min) en 103, ya cerradas.
+      await prisma.stay.upsert({
+        where: { id: 'rz-stay-hist-co' }, update: {},
+        create: { id: 'rz-stay-hist-co', branchId: RZ, roomId: 'rz-room-203', guestId: guest.id, status: 'CLOSED', checkInAt: ago(6 * HOUR), plannedCheckoutAt: ago(3 * HOUR), checkOutAt: ago(95 * 60_000), durationMinutes: 180, priceAgreed: 80 },
+      });
+      await prisma.stay.upsert({
+        where: { id: 'rz-stay-hist-pe' }, update: {},
+        create: { id: 'rz-stay-hist-pe', branchId: RZ, roomId: 'rz-room-103', guestId: guest.id, status: 'CLOSED', checkInAt: ago(13 * HOUR), plannedCheckoutAt: ago(1 * HOUR), checkOutAt: ago(70 * 60_000), durationMinutes: 720, priceAgreed: 120 },
+      });
+    }
+    // Tareas finalizadas con inspección de ropa (recogidos = pickup true, dejados = pickup false).
+    const histTasks: { id: string; roomId: string; created: number; completed: number; user: string; linen: { d: string; pickup: boolean }[] }[] = [
+      { id: 'rz-htask-203', roomId: 'rz-room-203', created: 100 * 60_000, completed: 92 * 60_000, user: limpUser.id, linen: [{ d: 'Toalla de cuerpo', pickup: true }, { d: 'Sábana matrimonial', pickup: true }, { d: 'Funda de almohada', pickup: false }] },
+      { id: 'rz-htask-103', roomId: 'rz-room-103', created: 9 * HOUR, completed: 65 * 60_000, user: limpUser.id, linen: [] },
+      { id: 'rz-htask-201', roomId: 'rz-room-201', created: 150 * 60_000, completed: 143 * 60_000, user: recep?.id ?? limpUser.id, linen: [{ d: 'Toalla de mano', pickup: true }, { d: 'Sábana matrimonial', pickup: true }, { d: 'Cubrecama', pickup: false }, { d: 'Funda de almohada', pickup: false }] },
+    ];
+    for (const t of histTasks) {
+      await prisma.linenInspection.deleteMany({ where: { taskId: t.id } });
+      await prisma.housekeepingTask.upsert({
+        where: { id: t.id },
+        update: { status: 'DONE', result: 'APPROVED', completedAt: ago(t.completed) },
+        create: {
+          id: t.id, branchId: RZ, roomId: t.roomId, assignedToUserId: t.user, status: 'DONE', result: 'APPROVED',
+          createdAt: ago(t.created), completedAt: ago(t.completed),
+          linenInspections: { create: t.linen.map((l) => ({ description: l.d, state: 'OK', pickup: l.pickup })) },
+        },
+      });
+    }
+    // Suministro de cortesía entregado (fila SUMINISTRO con badge CORTESÍA).
+    for (const s of [
+      { id: 'rz-sup-202a', roomId: 'rz-room-202', description: 'Incaica Roja', quantity: 1 },
+      { id: 'rz-sup-202b', roomId: 'rz-room-202', description: 'Verde Margarita', quantity: 1 },
+    ]) {
+      await prisma.roomSupply.upsert({
+        where: { id: s.id }, update: { status: 'DELIVERED', deliveredAt: ago(110 * 60_000) },
+        create: { id: s.id, branchId: RZ, roomId: s.roomId, description: s.description, quantity: s.quantity, status: 'DELIVERED', createdByUserId: recep?.id ?? limpUser.id, createdAt: ago(120 * 60_000), deliveredAt: ago(110 * 60_000) },
+      });
+    }
   }
 
   // 6. Revisiones de mantenimiento (para poblar la tabla "Revisiones de Mantenimiento")

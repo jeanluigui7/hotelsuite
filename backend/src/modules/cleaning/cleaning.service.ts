@@ -386,6 +386,104 @@ export const cleaningService = {
     });
   },
 
+  /**
+   * Historial de Limpieza agrupado por turno (Mañana/Tarde/Noche).
+   * Una fila por tarea de limpieza finalizada (Check Out / Pernocta) y por suministro
+   * entregado (Suministro). Incluye recogidos/dejados/repuestos de ropa y adicionales.
+   */
+  async history(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const [tasks, rooms, stays, supplies] = await Promise.all([
+      prisma.housekeepingTask.findMany({
+        where: { branchId, status: { in: ['DONE', 'INSPECTED'] }, completedAt: { not: null } },
+        include: { linenInspections: true },
+        orderBy: { completedAt: 'desc' },
+        take: 500,
+      }),
+      prisma.room.findMany({ where: { branchId }, select: { id: true, number: true, floor: true } }),
+      prisma.stay.findMany({ where: { branchId }, select: { roomId: true, durationMinutes: true, checkInAt: true, checkOutAt: true }, orderBy: { checkInAt: 'desc' } }),
+      prisma.roomSupply.findMany({ where: { branchId, status: 'DELIVERED' }, orderBy: { deliveredAt: 'desc' }, take: 500 }),
+    ]);
+    const rmap = new Map(rooms.map((r) => [r.id, r]));
+    const userIds = [...new Set([...tasks.map((t) => t.assignedToUserId), ...supplies.map((s) => s.createdByUserId)].filter((x): x is string => !!x))];
+    const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } });
+    const umap = new Map(users.map((u) => [u.id, u.name]));
+
+    const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    const DAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+    const dateLabel = (d: Date) => `${DAYS[d.getDay()]}, ${d.getDate()} de ${MONTHS[d.getMonth()]} de ${d.getFullYear()}`;
+    const dateKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const turnoOf = (d: Date): { key: string; label: string; hours: string; order: number } => {
+      const h = d.getHours();
+      if (h >= 7 && h < 15) return { key: 'M', label: 'Mañana', hours: '07:00 - 15:00', order: 0 };
+      if (h >= 15 && h < 23) return { key: 'T', label: 'Tarde', hours: '15:00 - 23:00', order: 1 };
+      return { key: 'N', label: 'Noche', hours: '23:00 - 07:00', order: 2 };
+    };
+    const groupCount = (arr: { description: string }[]) => {
+      const m = new Map<string, number>();
+      for (const i of arr) m.set(i.description, (m.get(i.description) ?? 0) + 1);
+      return [...m].map(([name, units]) => ({ name, units }));
+    };
+    const LIMIT_MIN = 30; // límite de duración antes de marcar "Excedido"
+
+    type Row = ReturnType<typeof rowFrom> | ReturnType<typeof supplyRow>;
+    const matchedSupplyIds = new Set<string>();
+
+    function rowFrom(t: (typeof tasks)[number]) {
+      const r = rmap.get(t.roomId)!;
+      const recogidasInsp = t.linenInspections.filter((i) => i.pickup);
+      const dejadasInsp = t.linenInspections.filter((i) => !i.pickup);
+      const recogidos = groupCount(recogidasInsp);
+      const winStart = t.createdAt.getTime() - 60 * 60 * 1000;
+      const winEnd = (t.completedAt?.getTime() ?? Date.now()) + 60 * 60 * 1000;
+      const adic = supplies.filter((s) => s.roomId === t.roomId && s.deliveredAt && s.deliveredAt.getTime() >= winStart && s.deliveredAt.getTime() <= winEnd);
+      adic.forEach((s) => matchedSupplyIds.add(s.id));
+      const stay = stays.find((s) => s.roomId === t.roomId && s.checkOutAt && Math.abs(s.checkOutAt.getTime() - t.createdAt.getTime()) < 24 * 60 * 60 * 1000) ?? stays.find((s) => s.roomId === t.roomId);
+      const tipo = stay ? (stay.durationMinutes >= 600 ? 'PERNOCTA' : 'CHECKOUT') : 'CHECKOUT';
+      const durationMinutes = t.completedAt ? Math.max(0, Math.round((t.completedAt.getTime() - t.createdAt.getTime()) / 60000)) : 0;
+      return {
+        id: t.id, kind: 'TASK', dateTime: t.createdAt, fin: t.completedAt, roomNumber: r.number, floor: r.floor, tipo,
+        estado: 'Finalizado', durationMinutes, excedido: durationMinutes > LIMIT_MIN,
+        recogidos, dejados: groupCount(dejadasInsp), repuestos: recogidos, // cada prenda recogida se repone con una limpia
+        adicionales: adic.map((a) => ({ name: a.description, units: a.quantity, cortesia: true })),
+        extra: adic.reduce((n, a) => n + a.quantity, 0),
+        user: t.assignedToUserId ? (umap.get(t.assignedToUserId) ?? '—') : '—',
+      };
+    }
+    function supplyRow(s: (typeof supplies)[number]) {
+      const r = rmap.get(s.roomId);
+      return {
+        id: s.id, kind: 'SUPPLY', dateTime: s.deliveredAt ?? s.createdAt, fin: s.deliveredAt ?? s.createdAt,
+        roomNumber: r?.number ?? '—', floor: r?.floor ?? null, tipo: 'SUMINISTRO',
+        estado: 'Finalizado', durationMinutes: 0, excedido: false,
+        recogidos: [] as { name: string; units: number }[], dejados: [] as { name: string; units: number }[], repuestos: [] as { name: string; units: number }[],
+        adicionales: [{ name: s.description, units: s.quantity, cortesia: true }],
+        extra: s.quantity,
+        user: s.createdByUserId ? (umap.get(s.createdByUserId) ?? '—') : '—',
+      };
+    }
+
+    const rows: Row[] = tasks.filter((t) => rmap.has(t.roomId)).map(rowFrom);
+    // Suministros entregados que no quedaron como adicionales de una tarea → fila SUMINISTRO propia.
+    for (const s of supplies) if (!matchedSupplyIds.has(s.id)) rows.push(supplyRow(s));
+
+    // Agrupar por turno (fecha + Mañana/Tarde/Noche)
+    const shiftMap = new Map<string, { dateISO: string; dateLabel: string; turnoKey: string; turnoLabel: string; hours: string; sortAt: number; rows: Row[] }>();
+    for (const row of rows) {
+      const d = row.dateTime;
+      const t = turnoOf(d);
+      const key = `${dateKey(d)}|${t.key}`;
+      if (!shiftMap.has(key)) {
+        shiftMap.set(key, { dateISO: d.toISOString(), dateLabel: dateLabel(d), turnoKey: t.key, turnoLabel: t.label, hours: t.hours, sortAt: new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() + t.order, rows: [] });
+      }
+      shiftMap.get(key)!.rows.push(row);
+    }
+    const shifts = [...shiftMap.values()]
+      .sort((a, b) => b.sortAt - a.sortAt)
+      .map((s) => ({ ...s, count: s.rows.length, rows: s.rows.sort((a, b) => b.dateTime.getTime() - a.dateTime.getTime()) }));
+    return shifts;
+  },
+
   /** Inventario de ropa por pisos: REM (remanente) y SUM (suministrado) por tipo/ítem. */
   async linenInventory(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);

@@ -82,4 +82,8 @@ export const cleaningController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await cleaningService.linenMovements(req.scope)));
   },
+  async history(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await cleaningService.history(req.scope)));
+  },
 };
