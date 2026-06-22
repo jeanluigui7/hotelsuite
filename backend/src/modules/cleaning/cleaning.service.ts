@@ -8,7 +8,9 @@ import { notifyAdmin } from '../../shared/notify';
 /** Flujo de limpieza RIZZOS: iniciar limpieza (recoger ropa con estado OK/ROBADA/DETERIORADA)
  *  → habitación EN CURSO → finalizar limpieza → Disponible. */
 
-const CLEANABLE = ['CLEANING', 'LIMPIEZA_EN_ESPERA', 'LIMPIEZA_EN_CURSO', 'LIMPIEZA_SOLICITADA', 'REQUIERE_REPASO'];
+// MAINTENANCE entra aquí porque el admin manda a limpieza las habitaciones "muy sucias"
+// (ver manual): el personal de limpieza las atiende y, al finalizar, vuelven a Disponible.
+const CLEANABLE = ['CLEANING', 'LIMPIEZA_EN_ESPERA', 'LIMPIEZA_EN_CURSO', 'LIMPIEZA_SOLICITADA', 'REQUIERE_REPASO', 'MAINTENANCE'];
 
 export const startSchema = z.object({
   inspections: z
@@ -86,6 +88,7 @@ export const cleaningService = {
       status: r.status,
       typeName: r.roomType.name,
       repaso: r.status === 'REQUIERE_REPASO',
+      mantenimiento: r.status === 'MAINTENANCE',
       enCurso: r.status === 'LIMPIEZA_EN_CURSO' || taskByRoom.has(r.id),
       revision: r.status === 'REVISION',
       taskId: taskByRoom.get(r.id) ?? null,

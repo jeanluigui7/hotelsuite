@@ -8,6 +8,8 @@ import type { RoomStatus } from '../services/operations.models';
  */
 export interface RoomStateConfig {
   label: string;
+  /** texto corto del badge superior (si difiere del label) */
+  badge?: string;
   /** color base del estado (para badges y acentos) */
   color: string;
   /** degradado de fondo de la tarjeta */
@@ -35,9 +37,10 @@ export const ROOM_STATES: Record<string, RoomStateConfig> = {
   },
   CLEANING: {
     label: 'Limpieza en espera',
-    color: '#f59e0b',
-    gradient: 'linear-gradient(160deg, #ea8a0b 0%, #c2640a 100%)',
-    icon: 'pi pi-sparkles',
+    badge: 'Limpieza',
+    color: '#f97316',
+    gradient: 'linear-gradient(160deg, #ff7e1d 0%, #f4610a 100%)',
+    icon: 'pi pi-users',
     caption: 'Limpieza en espera',
   },
   MAINTENANCE: {
@@ -78,12 +81,16 @@ export const ROOM_STATES: Record<string, RoomStateConfig> = {
   },
   INSPECCIONANDO: {
     label: 'Inspeccionando',
+    badge: 'Inspeccionando',
     color: '#94a3b8',
-    gradient: 'linear-gradient(160deg, #475569 0%, #334155 100%)',
-    icon: 'pi pi-search',
+    gradient: 'linear-gradient(160deg, #5e6878 0%, #4c5563 100%)',
+    icon: 'pi pi-check-square',
     caption: 'Inspección en curso',
   },
 };
+
+// Alias de estados con nomenclatura alterna que comparten diseño.
+ROOM_STATES['LIMPIEZA_EN_ESPERA'] = ROOM_STATES['CLEANING'];
 
 export function roomState(status: RoomStatus | string): RoomStateConfig {
   return ROOM_STATES[status] ?? ROOM_STATES['INSPECCIONANDO'];

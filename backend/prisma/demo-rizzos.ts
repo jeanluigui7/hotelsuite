@@ -79,8 +79,10 @@ async function main(): Promise<void> {
       create: { id: r.id, branchId: RZ, roomTypeId: r.roomTypeId, number: r.number, floor: r.floor, status: r.status },
     });
   }
-  // Ajusta estados de las habitaciones base para variar el tablero
-  await prisma.room.update({ where: { id: 'rz-room-102' }, data: { status: 'CLEANING' } });
+  // Ajusta estados de las habitaciones base para mostrar el set de diseños RIZZOS:
+  // 101 = Limpieza en espera (naranja), 102 = Inspeccionando (gris), 202 = Mantenimiento.
+  await prisma.room.update({ where: { id: 'rz-room-101' }, data: { status: 'CLEANING' } });
+  await prisma.room.update({ where: { id: 'rz-room-102' }, data: { status: 'INSPECCIONANDO' } });
   await prisma.room.update({ where: { id: 'rz-room-202' }, data: { status: 'MAINTENANCE' } });
 
   // 4. Estancia activa en la 301 (nuevo huésped)

@@ -119,20 +119,21 @@ const MANT_CATS = [
             </article>
           } @else {
             <article class="card" [style.background]="st(r).gradient">
-              <div class="card-head">
-                <span class="num"># {{ r.number }}</span>
-                <span class="piso"><i class="pi pi-building"></i> {{ r.floor || '-' }}° piso</span>
+              <div class="rc-head">
+                <span class="rc-left"><span class="num"># {{ r.number }}</span><span class="piso"><i class="pi pi-building"></i> {{ r.floor || '-' }}º piso</span></span>
+                <span class="rc-badges"><span class="rc-type">{{ r.roomType.name }}</span><span class="rc-state">● {{ st(r).badge ?? st(r).label }}</span></span>
               </div>
-              <div class="type">{{ r.roomType.name }}</div>
-              <div class="state"><i [class]="st(r).icon"></i> {{ st(r).label }}</div>
-              <div class="body"><div class="caption">{{ st(r).caption }}</div></div>
-              <div class="foot">
+              <div class="rc-line"></div>
+              <div class="rc-body"><i [class]="st(r).icon"></i><div class="caption">{{ st(r).caption }}</div></div>
+              <div class="rc-foot">
+                <span class="rc-attrs">Sin atributos</span>
                 @if (r.status === 'FREE' || r.status === 'RESERVADA') {
-                  <div class="foot-row end">
-                    <button class="cta estado-btn" (click)="openEstado(r)">Estado <i class="pi pi-arrow-right"></i></button>
-                  </div>
+                  <button class="cta estado-btn" (click)="openEstado(r)">Estado <i class="pi pi-arrow-right"></i></button>
                 } @else {
-                  <button class="cta ghost" (click)="openEstado(r)"><i class="pi pi-pencil"></i> Editar</button>
+                  <span class="rc-acts">
+                    <button class="cta sm light" (click)="openEstado(r)"><i class="pi pi-pencil"></i> Editar</button>
+                    @if (isAdminProfile()) { <button class="cta sm trash" (click)="deleteRoom(r)" pTooltip="Eliminar habitación"><i class="pi pi-trash"></i></button> }
+                  </span>
                 }
               </div>
             </article>
@@ -282,20 +283,33 @@ const MANT_CATS = [
       :host ::ng-deep .dk .p-select-label { color: #cdd8e6; }
       .refresh { background: #131b27; border: 1px solid #243245; color: #cdd8e6; border-radius: 8px; padding: 0.55rem 0.7rem; cursor: pointer; }
 
-      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.1rem; }
-      .grid.compacta { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.75rem; }
-      .grid.real { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
-      .card { border-radius: 16px; padding: 1.1rem; color: #fff; display: flex; flex-direction: column; gap: 0.5rem; min-height: 200px; box-shadow: 0 8px 22px rgba(0,0,0,0.35); }
+      .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.1rem; }
+      .grid.compacta { grid-template-columns: repeat(4, 1fr); gap: 0.75rem; }
+      .grid.real { grid-template-columns: repeat(3, 1fr); }
+      @media (max-width: 1100px) { .grid, .grid.real { grid-template-columns: repeat(2, 1fr); } .grid.compacta { grid-template-columns: repeat(3, 1fr); } }
+      @media (max-width: 680px) { .grid, .grid.real, .grid.compacta { grid-template-columns: 1fr; } }
+      .card { border-radius: 16px; padding: 1.1rem 1.2rem; color: #fff; display: flex; flex-direction: column; gap: 0.5rem; min-height: 230px; box-shadow: 0 8px 22px rgba(0,0,0,0.35); }
       .grid.compacta .card { min-height: 150px; padding: 0.85rem; gap: 0.35rem; }
       .grid.real .card { min-height: 260px; }
-      .card-head { display: flex; align-items: center; justify-content: space-between; }
-      .num { font-size: 1.25rem; font-weight: 800; }
-      .piso { font-size: 0.78rem; background: rgba(0,0,0,0.25); padding: 0.2rem 0.6rem; border-radius: 999px; }
-      .type { font-size: 0.82rem; font-weight: 700; letter-spacing: 0.04em; opacity: 0.95; text-transform: uppercase; }
-      .state { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; background: rgba(0,0,0,0.22); width: fit-content; padding: 0.25rem 0.7rem; border-radius: 999px; }
-      .body { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 0.2rem; text-align: center; }
-      .grid.compacta .body { display: none; }
-      .caption { opacity: 0.85; font-size: 0.9rem; }
+      /* Cabecera estilo RIZZOS: número + piso a la izquierda; tipo + estado a la derecha */
+      .rc-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
+      .rc-left { display: inline-flex; align-items: center; gap: 0.6rem; }
+      .rc-badges { display: inline-flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end; }
+      .num { font-size: 1.45rem; font-weight: 800; }
+      .piso { font-size: 0.75rem; background: rgba(0,0,0,0.28); padding: 0.22rem 0.6rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 0.3rem; }
+      .rc-type { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; background: rgba(0,0,0,0.32); padding: 0.28rem 0.7rem; border-radius: 999px; }
+      .rc-state { font-size: 0.78rem; font-weight: 700; background: rgba(255,255,255,0.16); padding: 0.28rem 0.7rem; border-radius: 999px; white-space: nowrap; }
+      .rc-line { height: 1px; background: rgba(255,255,255,0.22); margin: 0.35rem 0; }
+      .rc-body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem; text-align: center; }
+      .rc-body > i { font-size: 1.7rem; opacity: 0.9; }
+      .grid.compacta .rc-line, .grid.compacta .rc-body > i { display: none; }
+      .caption { font-size: 1.05rem; font-weight: 600; }
+      .rc-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding-top: 0.6rem; }
+      .rc-attrs { font-style: italic; font-size: 0.8rem; opacity: 0.85; }
+      .rc-acts { display: inline-flex; gap: 0.45rem; }
+      .cta.light { background: rgba(255,255,255,0.95); color: #0b1018; }
+      .cta.trash { background: rgba(0,0,0,0.28); color: #fecaca; border: 1px solid rgba(239,68,68,0.5); }
+      .cta.trash:hover { background: #ef4444; color: #fff; }
       .guest { font-weight: 700; }
       .cap { font-size: 0.8rem; }
       .debe { margin-top: 0.3rem; background: rgba(0,0,0,0.3); color: #fde68a; border: 1px solid rgba(251,191,36,0.5); padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem; }
@@ -551,6 +565,15 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     this.ops.changeRoomStatus(r.id, value).subscribe({
       next: () => { this.savingEstado.set(false); this.estadoVisible = false; this.toast.add({ severity: 'success', summary: 'Estado actualizado', detail: `Hab. ${r.number}` }); this.reload(); },
       error: (err) => { this.savingEstado.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo cambiar el estado' }); },
+    });
+  }
+
+  deleteRoom(r: RoomMapItem): void {
+    if (!this.isAdminProfile()) return;
+    if (!confirm(`¿Eliminar la habitación ${r.number}? Esta acción no se puede deshacer.`)) return;
+    this.ops.rooms.remove(r.id).subscribe({
+      next: () => { this.toast.add({ severity: 'success', summary: 'Habitación eliminada', detail: `Hab. ${r.number}` }); this.reload(); },
+      error: (err) => { this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo eliminar la habitación' }); },
     });
   }
 

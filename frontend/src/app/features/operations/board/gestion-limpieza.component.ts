@@ -8,7 +8,7 @@ import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 
-interface CleanRoom { id: string; number: string; floor?: string | null; status: string; typeName: string; repaso: boolean; enCurso: boolean; revision?: boolean; taskId: string | null; startedAt?: string | null; }
+interface CleanRoom { id: string; number: string; floor?: string | null; status: string; typeName: string; repaso: boolean; mantenimiento?: boolean; enCurso: boolean; revision?: boolean; taskId: string | null; startedAt?: string | null; }
 interface LinenItem { id: string; type: string; name: string; color?: string | null; reusable: boolean; }
 interface InspRow { item: LinenItem; tipo: 'BASE' | 'EXTRA'; state: 'OK' | 'ROBADA' | 'DETERIORADA'; pickup: boolean; }
 interface RepoRow { section: string; tipo: string; name: string; code: string; type: string | null; color: string | null; cant: number; mantiene: boolean; motivo: string; subName?: string; subIndex?: number; }
@@ -63,6 +63,19 @@ const ACCIONES_PERIODICAS = [
               <div class="ty">{{ r.typeName }}</div><div class="pi-flo">Piso {{ r.floor || '-' }}</div>
               <div class="timer rev-t"><i class="pi pi-clock"></i><div><span class="t">{{ elapsed(r.startedAt) }}</span><small>Revisión en curso</small></div></div>
               <button class="cta rev-btn" (click)="openRevPer(r)"><i class="pi pi-check"></i> Finalizar Revisión PERIÓDICA</button>
+            </article>
+          }
+        </div>
+      }
+
+      @if (mantenimientoRooms().length) {
+        <h3 class="mnt"><i class="pi pi-wrench"></i> Enviadas a Mantenimiento <span class="count red">{{ mantenimientoRooms().length }}</span></h3>
+        <div class="grid">
+          @for (r of mantenimientoRooms(); track r.id) {
+            <article class="card mantenimiento">
+              <div class="num">Hab. {{ r.number }}</div><div class="ty">{{ r.typeName }}</div><div class="pi-flo">Piso {{ r.floor || '-' }}</div>
+              <div class="st">En mantenimiento</div>
+              <button class="cta" (click)="openIniciar(r)"><i class="pi pi-play"></i> Iniciar Limpieza</button>
             </article>
           }
         </div>
@@ -295,6 +308,8 @@ const ACCIONES_PERIODICAS = [
       .card.curso { background: linear-gradient(160deg, #6b5d12, #4a3f0c); border-color: #a3870b; }
       .card.repaso { background: linear-gradient(160deg, #5b1a1a, #3a0d0d); border-color: #b91c1c; }
       .card.revision { background: linear-gradient(160deg, #3b1c63, #1e1040); border-color: #7c3aed; }
+      .card.mantenimiento { background: linear-gradient(160deg, #b91c1c, #7f1d1d); border-color: #ef4444; }
+      .count.red { background: #ef4444; }
       h3.ges { color: #fbbf24; } h3.rev { color: #a78bfa; }
       .count.purple { background: #5b21b6; color: #fff; }
       .dot-purple { width: 12px; height: 12px; border-radius: 50%; background: #a78bfa; box-shadow: 0 0 0 4px rgba(167,139,250,0.2); }
@@ -439,7 +454,8 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
 
   readonly repasoRooms = computed(() => this.rooms().filter((r) => r.repaso));
   readonly revisionRooms = computed(() => this.rooms().filter((r) => r.revision));
-  readonly normalRooms = computed(() => this.rooms().filter((r) => !r.repaso && !r.revision));
+  readonly mantenimientoRooms = computed(() => this.rooms().filter((r) => r.mantenimiento && !r.enCurso));
+  readonly normalRooms = computed(() => this.rooms().filter((r) => !r.repaso && !r.revision && !(r.mantenimiento && !r.enCurso)));
 
   ngOnInit(): void {
     this.reload();
