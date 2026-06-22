@@ -304,12 +304,15 @@ const MANT_CATS = [
       .rc-body > i { font-size: 1.7rem; opacity: 0.9; }
       .grid.compacta .rc-line, .grid.compacta .rc-body > i { display: none; }
       .caption { font-size: 1.05rem; font-weight: 600; }
-      .rc-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding-top: 0.6rem; }
+      .rc-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding-top: 0.6rem; flex-wrap: wrap; }
       .rc-attrs { font-style: italic; font-size: 0.8rem; opacity: 0.85; }
       .rc-acts { display: inline-flex; gap: 0.45rem; }
       .cta.light { background: rgba(255,255,255,0.95); color: #0b1018; }
       .cta.trash { background: rgba(0,0,0,0.28); color: #fecaca; border: 1px solid rgba(239,68,68,0.5); }
       .cta.trash:hover { background: #ef4444; color: #fff; }
+      /* En el pie las acciones miden por contenido (no 100%) para no desbordar la card */
+      .rc-foot .cta { width: auto; flex: 0 0 auto; padding: 0.5rem 0.85rem; white-space: nowrap; }
+      .rc-attrs { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .guest { font-weight: 700; }
       .cap { font-size: 0.8rem; }
       .debe { margin-top: 0.3rem; background: rgba(0,0,0,0.3); color: #fde68a; border: 1px solid rgba(251,191,36,0.5); padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem; }
