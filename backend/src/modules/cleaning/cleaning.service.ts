@@ -522,6 +522,106 @@ export const cleaningService = {
     return shifts;
   },
 
+  /**
+   * Reporte por Turno (uno por turno de limpieza, navegable). Cuenta limpiezas y
+   * mantenimientos del turno y agrega la ropa recolectada (Toallas/Sábanas/Edredones)
+   * en BASE/EXTRAS + ROBADAS/MANCHADAS, con detalle por artículo.
+   */
+  async shiftReport(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const shifts = await prisma.cleaningShift.findMany({ where: { branchId }, orderBy: { openedAt: 'desc' }, take: 60 });
+    if (!shifts.length) return [];
+    const userIds = [...new Set(shifts.map((s) => s.userId))];
+    const [users, linenItems] = await Promise.all([
+      prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }),
+      prisma.linenItem.findMany({ where: { branchId }, select: { id: true, type: true, name: true } }),
+    ]);
+    const umap = new Map(users.map((u) => [u.id, u.name]));
+    const itemById = new Map(linenItems.map((i) => [i.id, i]));
+    const dateLabel = (d: Date) => `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getFullYear()}`;
+    const CATS = [{ key: 'TOALLA', label: 'Toallas' }, { key: 'SABANA', label: 'Sábanas' }, { key: 'EDREDON', label: 'Edredones' }, { key: 'FUNDA', label: 'Fundas' }];
+    const catOf = (type: string, name: string): string => {
+      if (CATS.some((c) => c.key === type)) return type;
+      const n = `${type} ${name}`.toUpperCase();
+      if (n.includes('TOALLA')) return 'TOALLA';
+      if (n.includes('SABANA') || n.includes('SÁBANA')) return 'SABANA';
+      if (n.includes('EDRED')) return 'EDREDON';
+      if (n.includes('FUNDA')) return 'FUNDA';
+      return 'TOALLA';
+    };
+
+    const reports = [];
+    for (const shift of shifts) {
+      const start = shift.openedAt;
+      const end = shift.closedAt ?? new Date();
+      const [tasks, maintenances, supplies] = await Promise.all([
+        prisma.housekeepingTask.findMany({ where: { branchId, status: { in: ['DONE', 'INSPECTED'] }, completedAt: { gte: start, lte: end } }, include: { linenInspections: true } }),
+        prisma.maintenance.count({ where: { branchId, createdAt: { gte: start, lte: end } } }),
+        prisma.roomSupply.findMany({ where: { branchId, status: 'DELIVERED', deliveredAt: { gte: start, lte: end } } }),
+      ]);
+
+      // Acumulador por artículo: estandar(OK), manchada(DETERIORADA), robperd(ROBADA), extras(suministros).
+      const art = new Map<string, { name: string; cat: string; estandar: number; manchada: number; robperd: number; extras: number }>();
+      const ensure = (key: string, name: string, cat: string) => {
+        if (!art.has(key)) art.set(key, { name, cat, estandar: 0, manchada: 0, robperd: 0, extras: 0 });
+        return art.get(key)!;
+      };
+      for (const t of tasks) {
+        for (const insp of t.linenInspections) {
+          if (!insp.pickup) continue;
+          const li = insp.linenItemId ? itemById.get(insp.linenItemId) : undefined;
+          const name = (li?.name ?? insp.description ?? 'Otro').toUpperCase();
+          const cat = catOf(li?.type ?? '', name);
+          const a = ensure(name, name, cat);
+          if (insp.state === 'DETERIORADA') a.manchada += 1;
+          else if (insp.state === 'ROBADA') a.robperd += 1;
+          else a.estandar += 1;
+        }
+      }
+      for (const s of supplies) {
+        const li = linenItems.find((i) => s.description.toUpperCase().includes(i.name.toUpperCase()) || i.name.toUpperCase().includes(s.description.toUpperCase()));
+        const name = (li?.name ?? s.description).toUpperCase();
+        const cat = catOf(li?.type ?? '', name);
+        ensure(name, name, cat).extras += s.quantity;
+      }
+
+      const byArticle = [...art.values()]
+        .map((a) => ({ name: a.name, cat: a.cat, estandar: a.estandar, manchada: a.manchada, extras: a.extras, robperd: a.robperd, total: a.estandar + a.extras + a.manchada - a.robperd }))
+        .filter((a) => a.estandar || a.manchada || a.extras || a.robperd)
+        .sort((x, y) => x.name.localeCompare(y.name));
+
+      const categories = CATS.map((c) => {
+        const items = byArticle.filter((a) => a.cat === c.key);
+        const base = items.reduce((n, a) => n + a.estandar, 0);
+        const extras = items.reduce((n, a) => n + a.extras, 0);
+        const manchada = items.reduce((n, a) => n + a.manchada, 0);
+        const robada = items.reduce((n, a) => n + a.robperd, 0);
+        return { key: c.key, label: c.label, base, extras, manchada, robada, total: base + extras };
+      });
+      const robadas = byArticle.reduce((n, a) => n + a.robperd, 0);
+      const manchadas = byArticle.reduce((n, a) => n + a.manchada, 0);
+      // Lote a lavandería: base + extras + manchada de Toallas/Sábanas/Edredones (las robadas no se envían).
+      const laundryTotal = categories.filter((c) => c.key !== 'FUNDA').reduce((n, c) => n + c.base + c.extras + c.manchada, 0);
+
+      reports.push({
+        id: shift.id,
+        shiftType: shift.shiftType,
+        turnoLabel: shift.shiftType === 'MANANA' ? 'Turno Mañana' : 'Turno Tarde',
+        dateISO: shift.openedAt.toISOString(),
+        dateLabel: dateLabel(shift.openedAt),
+        userName: umap.get(shift.userId) ?? '—',
+        openedAt: shift.openedAt,
+        closedAt: shift.closedAt,
+        status: shift.status,
+        laundrySent: shift.laundrySent,
+        activities: { cleanings: tasks.length, maintenances },
+        ropa: { categories, robadas, manchadas, byArticle },
+        laundryTotal,
+      });
+    }
+    return reports;
+  },
+
   /** Inventario de ropa por pisos: REM (remanente) y SUM (suministrado) por tipo/ítem. */
   async linenInventory(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);

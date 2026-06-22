@@ -103,9 +103,11 @@ async function main(): Promise<void> {
 
   // 5. Turno de limpieza ACTIVO para el usuario de limpieza (Gestión de Turno)
   if (limpUser) {
+    // Cierra turnos previos del usuario (de sesiones anteriores) para que solo quede uno abierto.
+    await prisma.cleaningShift.updateMany({ where: { branchId: RZ, userId: limpUser.id, status: 'OPEN', id: { not: 'rz-shift-limp' } }, data: { status: 'CLOSED', closedAt: ago(3 * HOUR) } });
     await prisma.cleaningShift.upsert({
       where: { id: 'rz-shift-limp' },
-      update: { status: 'OPEN', laundrySent: false },
+      update: { status: 'OPEN', laundrySent: false, openedAt: ago(2 * HOUR), closedAt: null },
       create: { id: 'rz-shift-limp', branchId: RZ, userId: limpUser.id, shiftType: 'MANANA', status: 'OPEN', laundrySent: false, openedAt: ago(2 * HOUR) },
     });
 
