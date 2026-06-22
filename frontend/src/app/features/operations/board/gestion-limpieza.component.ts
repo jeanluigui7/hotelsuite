@@ -114,7 +114,7 @@ const ACCIONES_PERIODICAS = [
         <div class="instr">
           <strong><i class="pi pi-info-circle"></i> Instrucciones</strong>
           <p>☑ <b>RECOGER:</b> Sábanas/toallas van a lavandería y se reponen. Edredones van a lavandería pero NO se reponen automáticamente.</p>
-          <p>☐ <b>DEJAR:</b> Items permanecen en habitación. Edredones regresan al almacén. Sin reposición en FASE 3.</p>
+          <p>☐ <b>DEJAR:</b> Los items permanecen en la habitación. Edredones regresan al almacén. Sin reposición.</p>
           <p><b>ROBADA/AUSENTE:</b> Se marca como "—". Sábanas/toallas se reponen automáticamente. Edredones solo por orden de Recepción.</p>
           <p><b>DETERIORADA:</b> Fuerza ☑ RECOGER. Sábanas/toallas se reponen. Edredones solo por orden de Recepción.</p>
         </div>
@@ -513,12 +513,12 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   private effPickup(row: InspRow): boolean { return row.state === 'ROBADA' ? false : (this.forced(row) || row.pickup); }
   noteFor(row: InspRow): string {
     if (row.state === 'ROBADA') return 'Marcado como ausente "—" → reposición automática (sábanas/toallas).';
-    if (row.state === 'DETERIORADA') return 'Deteriorada → se recoge. Reposición de sábanas/toallas.';
-    if (row.tipo === 'EXTRA') return 'Item EXTRA (suministro adicional) → Se recoge obligatoriamente. FASE 3: Sin reposición (no es item base)';
-    if (row.item.type === 'AMENITY') return 'Item se recoge → Va a inventario correspondiente';
+    if (row.state === 'DETERIORADA') return 'Deteriorada → se recoge y se repone.';
+    if (row.tipo === 'EXTRA') return 'Suministro adicional → se recoge obligatoriamente (no se repone).';
+    if (row.item.type === 'AMENITY') return 'Se recoge → va al inventario correspondiente.';
     return this.effPickup(row)
-      ? 'Ropa se recoge → Va a lavandería. FASE 3: Sistema autorrellena reposición'
-      : 'Ropa se deja (no recomendado) → Permanece hasta próxima limpieza. FASE 3: Sin reposición (—)';
+      ? 'Se recoge → va a lavandería y se repone automáticamente.'
+      : 'Se deja en la habitación → permanece hasta la próxima limpieza (sin reposición).';
   }
   recogerList(): InspRow[] { return this.rows().filter((r) => this.effPickup(r)); }
   dejarList(): InspRow[] { return this.rows().filter((r) => !this.effPickup(r)); }
