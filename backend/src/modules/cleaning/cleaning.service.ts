@@ -264,9 +264,10 @@ export const cleaningService = {
     const rev = pending
       ? await prisma.revision.update({ where: { id: pending.id }, data: { status: dto.status, notes: detail, createdByUserId: scope.userId } })
       : await prisma.revision.create({ data: { branchId, roomId: dto.roomId, status: dto.status, notes: detail, createdByUserId: scope.userId } });
-    // Si la revisión deja la habitación OK y estaba en revisión/mantenimiento, vuelve a disponible.
-    if (dto.status === 'OK' && ['REVISION', 'MANTENIMIENTO', 'MAINTENANCE', 'REQUIERE_REPASO', 'LIMPIEZA_EN_CURSO'].includes(room.status)) {
-      await prisma.room.update({ where: { id: dto.roomId }, data: { status: 'FREE' } });
+    // "Todo OK" certifica la habitación → Disponible (salvo que esté ocupada).
+    // Con observación → queda en MAINTENANCE para que se resuelva la falla.
+    if (room.status !== 'OCCUPIED') {
+      await prisma.room.update({ where: { id: dto.roomId }, data: { status: dto.status === 'OK' ? 'FREE' : 'MAINTENANCE' } });
     }
     return { id: rev.id };
   },

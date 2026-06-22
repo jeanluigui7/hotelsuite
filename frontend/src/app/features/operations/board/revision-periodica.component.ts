@@ -112,9 +112,20 @@ export class RevisionPeriodicaComponent implements OnInit {
   onPhoto(ev: Event): void {
     const file = (ev.target as HTMLInputElement).files?.[0];
     if (!file) return;
-    if (file.size > 1_500_000) { this.toast.add({ severity: 'warn', summary: 'Foto muy grande', detail: 'Usa una imagen menor a 1.5 MB.' }); return; }
+    if (!file.type.startsWith('image/')) { this.toast.add({ severity: 'warn', summary: 'Archivo inválido', detail: 'Selecciona una imagen.' }); return; }
+    if (file.size > 15_000_000) { this.toast.add({ severity: 'warn', summary: 'Foto muy grande', detail: 'Usa una imagen menor a 15 MB.' }); return; }
     const reader = new FileReader();
-    reader.onload = () => this.photo.set(reader.result as string);
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const max = 1024, scale = Math.min(1, max / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale); canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height);
+        this.photo.set(canvas.toDataURL('image/jpeg', 0.6));
+      };
+      img.src = reader.result as string;
+    };
     reader.readAsDataURL(file);
   }
 
@@ -122,7 +133,8 @@ export class RevisionPeriodicaComponent implements OnInit {
     if (!this.roomId) { this.toast.add({ severity: 'warn', summary: 'Falta habitación', detail: 'Selecciona una habitación.' }); return; }
     this.busy.set(true);
     this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/revision`, {
-      roomId: this.roomId, status, tipoFalla: this.tipoFalla || undefined, acciones: [...this.selAcc], observaciones: this.observaciones || undefined, photo: this.photo() || undefined,
+      // Solo marca de foto (no base64) para no exceder el límite del servidor.
+      roomId: this.roomId, status, tipoFalla: this.tipoFalla || undefined, acciones: [...this.selAcc], observaciones: this.observaciones || undefined, photo: this.photo() ? 'foto-adjunta' : undefined,
     }).subscribe({
       next: () => {
         this.busy.set(false);
