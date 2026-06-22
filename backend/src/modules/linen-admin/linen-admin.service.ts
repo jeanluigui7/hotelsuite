@@ -14,16 +14,42 @@ export const transferSchema = z.object({
 });
 export type TransferDto = z.infer<typeof transferSchema>;
 
+/** Almacén central de ropa (origen de los suministros del administrador). */
+export const LINEN_CENTRAL = 'ALMACEN';
+
+/**
+ * Suministra ropa del almacén central a un piso: valida y descuenta el remanente del
+ * almacén central, e incrementa el remanente (rem) y el acumulado suministrado (sum)
+ * del piso destino. Registra los dos movimientos (salida del central + entrada al piso).
+ */
 async function supplyToFloor(branchId: string, linenItemId: string, floor: string, quantity: number, userId: string, type: string, reference: string) {
-  await prisma.linenStock.upsert({
-    where: { linenItemId_floor: { linenItemId, floor } },
-    update: { sum: { increment: quantity } },
-    create: { branchId, linenItemId, floor, rem: 0, sum: quantity },
-  });
-  await prisma.linenMovement.create({
-    data: { branchId, linenItemId, type, quantity, floor, areaTo: floor, reference, createdByUserId: userId },
+  if (floor === LINEN_CENTRAL) throw new ValidationError('El destino no puede ser el almacén central');
+  await prisma.$transaction(async (tx) => {
+    const central = await tx.linenStock.findUnique({ where: { linenItemId_floor: { linenItemId, floor: LINEN_CENTRAL } } });
+    if (!central || central.rem < quantity) {
+      throw new ValidationError(`Stock insuficiente en el almacén central de ropa (disponible ${central?.rem ?? 0}, solicitado ${quantity}).`);
+    }
+    await tx.linenStock.update({ where: { linenItemId_floor: { linenItemId, floor: LINEN_CENTRAL } }, data: { rem: { decrement: quantity } } });
+    await tx.linenStock.upsert({
+      where: { linenItemId_floor: { linenItemId, floor } },
+      update: { rem: { increment: quantity }, sum: { increment: quantity } },
+      create: { branchId, linenItemId, floor, rem: quantity, sum: quantity },
+    });
+    await tx.linenMovement.create({
+      data: { branchId, linenItemId, type: 'OUT', quantity: -quantity, floor: LINEN_CENTRAL, areaFrom: 'Almacén de Ropa', areaTo: floor, reference, createdByUserId: userId },
+    });
+    await tx.linenMovement.create({
+      data: { branchId, linenItemId, type, quantity, floor, areaFrom: 'Almacén de Ropa', areaTo: floor, reference, createdByUserId: userId },
+    });
   });
 }
+
+/** Repone el almacén central de ropa (compra/ingreso del administrador). */
+export const replenishSchema = z.object({
+  linenItemId: z.string().min(1),
+  quantity: z.coerce.number().int().min(1),
+});
+export type ReplenishDto = z.infer<typeof replenishSchema>;
 
 export const linenAdminService = {
   /** Solicitudes de ropa pendientes (enviadas por limpieza). */
@@ -60,6 +86,35 @@ export const linenAdminService = {
     const item = await prisma.linenItem.findUnique({ where: { id: dto.linenItemId } });
     if (!item || item.branchId !== branchId) throw new ValidationError('Ropa no encontrada');
     await supplyToFloor(branchId, dto.linenItemId, dto.toFloor, dto.quantity, scope.userId, 'TRANSFER', 'Transferencia de ropa');
+    return { ok: true };
+  },
+
+  /** Stock disponible en el almacén central de ropa (por ítem). */
+  async central(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const [items, stocks] = await Promise.all([
+      prisma.linenItem.findMany({ where: { branchId, status: 'active' }, orderBy: [{ type: 'asc' }, { name: 'asc' }] }),
+      prisma.linenStock.findMany({ where: { branchId, floor: LINEN_CENTRAL } }),
+    ]);
+    const smap = new Map(stocks.map((s) => [s.linenItemId, s.rem]));
+    return items.map((it) => ({ linenItemId: it.id, type: it.type, name: it.name, rem: smap.get(it.id) ?? 0 }));
+  },
+
+  /** Repone el almacén central de ropa (ingreso/compra del administrador). */
+  async replenish(scope: RequestScope, dto: ReplenishDto) {
+    const branchId = requireActiveBranch(scope);
+    const item = await prisma.linenItem.findUnique({ where: { id: dto.linenItemId } });
+    if (!item || item.branchId !== branchId) throw new ValidationError('Ropa no encontrada');
+    await prisma.$transaction(async (tx) => {
+      await tx.linenStock.upsert({
+        where: { linenItemId_floor: { linenItemId: dto.linenItemId, floor: LINEN_CENTRAL } },
+        update: { rem: { increment: dto.quantity }, sum: { increment: dto.quantity } },
+        create: { branchId, linenItemId: dto.linenItemId, floor: LINEN_CENTRAL, rem: dto.quantity, sum: dto.quantity },
+      });
+      await tx.linenMovement.create({
+        data: { branchId, linenItemId: dto.linenItemId, type: 'IN', quantity: dto.quantity, floor: LINEN_CENTRAL, areaTo: 'Almacén de Ropa', reference: 'Ingreso/compra de ropa', createdByUserId: scope.userId },
+      });
+    });
     return { ok: true };
   },
 };

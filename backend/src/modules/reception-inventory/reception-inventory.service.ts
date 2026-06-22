@@ -4,6 +4,8 @@ import { ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { notifyAdmin } from '../../shared/notify';
+import { applyStockTx, createMovementTx } from '../movements/movements.repository';
+import { productsRepository } from '../products/products.repository';
 
 /** Inventario de Recepción: stock en el almacén de recepción, con flujo de
  *  solicitud → envío (admin) → recepción (suma stock), y baja de stock. */
@@ -95,13 +97,41 @@ export const receptionInventoryService = {
     }));
   },
 
-  /** Admin envía lo solicitado (REQUESTED → SENT). */
+  /**
+   * Admin envía lo solicitado (REQUESTED → SENT): descuenta del almacén central de
+   * productos (valida stock) y registra la salida; la ropa queda "en tránsito" hasta
+   * que recepción la confirme (receiveRequest la suma al almacén de recepción).
+   */
   async sendRequest(scope: RequestScope, id: string) {
     const branchId = requireActiveBranch(scope);
-    const req = await prisma.productRequest.findUnique({ where: { id } });
+    const req = await prisma.productRequest.findUnique({ where: { id }, include: { items: true } });
     if (!req || req.branchId !== branchId) throw new ValidationError('Solicitud no encontrada');
     if (req.status !== 'REQUESTED') throw new ValidationError('La solicitud ya fue procesada');
-    return prisma.productRequest.update({ where: { id }, data: { status: 'SENT' } });
+
+    const central = await productsRepository.defaultWarehouse(branchId);
+    const receptionId = await receptionWarehouseId(branchId);
+    const [stocks, prods] = await Promise.all([
+      prisma.stock.findMany({ where: { warehouseId: central.id, productId: { in: req.items.map((i) => i.productId) } } }),
+      prisma.product.findMany({ where: { id: { in: req.items.map((i) => i.productId) } }, select: { id: true, name: true } }),
+    ]);
+    const stockMap = new Map(stocks.map((s) => [s.productId, s.quantity]));
+    const nameMap = new Map(prods.map((p) => [p.id, p.name]));
+    for (const it of req.items) {
+      if ((stockMap.get(it.productId) ?? 0) < it.quantity) {
+        throw new ValidationError(`Stock insuficiente en el almacén central para "${nameMap.get(it.productId) ?? 'producto'}" (disponible ${stockMap.get(it.productId) ?? 0}, solicitado ${it.quantity}).`);
+      }
+    }
+    await prisma.$transaction(async (tx) => {
+      for (const it of req.items) {
+        await applyStockTx(tx, it.productId, central.id, -it.quantity);
+        await createMovementTx(tx, {
+          branchId, productId: it.productId, warehouseId: central.id, type: 'TRANSFER', quantity: -it.quantity,
+          reference: `Enviado a recepción ${id.slice(0, 8)}`, relatedWarehouseId: receptionId, createdByUserId: scope.userId,
+        });
+      }
+      await tx.productRequest.update({ where: { id }, data: { status: 'SENT' } });
+    });
+    return { sent: req.items.length };
   },
 
   /** Recepción confirma recepción (SENT → RECEIVED): suma stock + movimiento + cola de impresión. */

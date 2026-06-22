@@ -636,7 +636,7 @@ export const cleaningService = {
     const branchId = requireActiveBranch(scope);
     const [items, stocks] = await Promise.all([
       prisma.linenItem.findMany({ where: { branchId, status: 'active' }, orderBy: [{ type: 'asc' }, { name: 'asc' }] }),
-      prisma.linenStock.findMany({ where: { branchId } }),
+      prisma.linenStock.findMany({ where: { branchId, floor: { not: 'ALMACEN' } } }),
     ]);
     const floors = [...new Set(stocks.map((s) => s.floor))].sort();
     const key = (li: string, f: string) => `${li}|${f}`;

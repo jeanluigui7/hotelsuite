@@ -10,5 +10,7 @@ export const linenAdminRouter = Router();
 linenAdminRouter.use(authenticate(), tenant());
 
 linenAdminRouter.get('/admin/linen/requests', requirePermission('inventory', 'view'), asyncHandler(linenAdminController.requests));
+linenAdminRouter.get('/admin/linen/central', requirePermission('inventory', 'view'), asyncHandler(linenAdminController.central));
 linenAdminRouter.post('/admin/linen/requests/:id/fulfill', requirePermission('inventory', 'edit'), asyncHandler(linenAdminController.fulfill));
 linenAdminRouter.post('/admin/linen/transfer', requirePermission('inventory', 'edit'), asyncHandler(linenAdminController.transfer));
+linenAdminRouter.post('/admin/linen/replenish', requirePermission('inventory', 'edit'), asyncHandler(linenAdminController.replenish));
