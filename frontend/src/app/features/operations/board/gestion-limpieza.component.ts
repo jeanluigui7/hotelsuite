@@ -5,10 +5,13 @@ import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
+import { forkJoin } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 
 interface CleanRoom { id: string; number: string; floor?: string | null; status: string; typeName: string; repaso: boolean; mantenimiento?: boolean; enCurso: boolean; revision?: boolean; taskId: string | null; startedAt?: string | null; }
+interface Supply { id: string; roomId: string; room: string; floor?: string | null; roomType?: string; description: string; category?: string; quantity: number; }
+interface SupplyGroup { roomId: string; room: string; floor?: string | null; roomType?: string; items: Supply[]; }
 interface LinenItem { id: string; type: string; name: string; color?: string | null; reusable: boolean; }
 interface InspRow { item: LinenItem; tipo: 'BASE' | 'EXTRA'; state: 'OK' | 'ROBADA' | 'DETERIORADA'; pickup: boolean; }
 interface RepoRow { section: string; tipo: string; name: string; code: string; type: string | null; color: string | null; cant: number; mantiene: boolean; motivo: string; subName?: string; subIndex?: number; }
@@ -41,6 +44,19 @@ const ACCIONES_PERIODICAS = [
   template: `
     <section class="gl">
       <header class="top"><h1>Gestión de Habitaciones</h1><button class="refresh" (click)="reload()"><i class="pi pi-refresh"></i> Actualizar</button></header>
+
+      @if (supplyGroups().length) {
+        <h3 class="sup-t"><i class="pi pi-box"></i> Suministros Pendientes <span class="count amber">{{ supplyGroups().length }}</span></h3>
+        <div class="grid">
+          @for (g of supplyGroups(); track g.roomId) {
+            <article class="card sup-pend">
+              <span class="sp-badge"><i class="pi pi-box"></i> Suministro Pendiente</span>
+              <div class="num">Hab. {{ g.room }}</div><div class="ty">{{ g.roomType }}</div><div class="pi-flo">Piso {{ g.floor || '-' }}</div>
+              <button class="cta suministrar" (click)="openDeliver(g)"><i class="pi pi-box"></i> Suministrar Habitación</button>
+            </article>
+          }
+        </div>
+      }
 
       @if (repasoRooms().length) {
         <h3 class="rep"><i class="pi pi-replay"></i> Requieren Repaso <span class="count">{{ repasoRooms().length }}</span></h3>
@@ -299,6 +315,24 @@ const ACCIONES_PERIODICAS = [
     <p-dialog [visible]="!!fotoZoom()" (visibleChange)="fotoZoom.set(null)" [modal]="true" header="Foto capturada" [style]="{ width: 'auto', maxWidth: '95vw' }" [dismissableMask]="true" styleClass="dk-dialog">
       @if (fotoZoom(); as f) { <img [src]="f" class="foto-zoom" alt="foto capturada" /> }
     </p-dialog>
+
+    <!-- Confirmar entrega de suministro -->
+    <p-dialog [(visible)]="delVisible" [modal]="true" [style]="{ width: '40rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      <ng-template pTemplate="header"><div class="del-head"><i class="pi pi-box"></i> Confirmar Entrega - Habitación {{ delGroup?.room }}</div></ng-template>
+      <div class="instr"><strong>Instrucciones:</strong> Los siguientes items fueron solicitados desde recepción. Por favor, confirma que los has entregado a la habitación.</div>
+      <h4 class="del-h">Items a entregar:</h4>
+      @for (it of delGroup?.items || []; track it.id) {
+        <div class="del-item">
+          <i class="pi pi-check-circle"></i>
+          <div><strong>{{ it.description }}</strong><div class="muted">Cantidad: <b>{{ it.quantity }}</b> unidad</div><div class="muted">Categoría: {{ it.category }}</div></div>
+        </div>
+      }
+      <ng-template pTemplate="footer">
+        <p-button label="Rechazar Entrega" icon="pi pi-times-circle" severity="danger" [loading]="busy()" (onClick)="confirmReject()" />
+        <p-button label="Cerrar" severity="secondary" [text]="true" (onClick)="delVisible = false" />
+        <p-button label="Confirmar Entrega" icon="pi pi-check-circle" severity="success" [loading]="busy()" (onClick)="confirmDeliver()" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -314,7 +348,18 @@ const ACCIONES_PERIODICAS = [
       .card.repaso { background: linear-gradient(160deg, #5b1a1a, #3a0d0d); border-color: #b91c1c; }
       .card.revision { background: linear-gradient(160deg, #3b1c63, #1e1040); border-color: #7c3aed; }
       .card.mantenimiento { background: linear-gradient(160deg, #b91c1c, #7f1d1d); border-color: #ef4444; }
-      .count.red { background: #ef4444; }
+      .count.red { background: #ef4444; } .count.amber { background: #ea7a0b; }
+      h3.sup-t { color: #fbbf24; } h3.sup-t .pi { color: #ea7a0b; }
+      .card.sup-pend { background: #11202c; border-color: #1c3340; text-align: center; align-items: center; }
+      .card.sup-pend .sp-badge { align-self: center; background: #ea7a0b; color: #fff; font-weight: 800; font-size: 0.7rem; border-radius: 999px; padding: 0.22rem 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem; margin-bottom: 0.3rem; }
+      .card.sup-pend .num { font-size: 1.7rem; }
+      .cta.suministrar { background: #10b981; color: #06281c; }
+      .cta.suministrar:hover { background: #34d399; }
+      .del-head { display: flex; align-items: center; gap: 0.5rem; font-size: 1.25rem; font-weight: 800; color: #fff; } .del-head .pi { color: #ea7a0b; }
+      .instr { background: rgba(37,99,235,0.1); border: 1px solid rgba(37,99,235,0.4); border-radius: 10px; padding: 0.8rem 1rem; color: #cdd8e6; font-size: 0.88rem; margin-bottom: 0.8rem; } .instr strong { color: #93c5fd; }
+      .del-h { margin: 0 0 0.5rem; color: #cdd8e6; font-size: 0.9rem; }
+      .del-item { display: flex; gap: 0.7rem; background: #0e241c; border: 1px solid #1f3a2c; border-radius: 12px; padding: 0.9rem 1rem; margin-bottom: 0.5rem; }
+      .del-item .pi { color: #34d399; font-size: 1.2rem; } .del-item strong { font-size: 1rem; } .del-item .muted { color: #8aa499; }
       h3.ges { color: #fbbf24; } h3.rev { color: #a78bfa; }
       .count.purple { background: #5b21b6; color: #fff; }
       .dot-purple { width: 12px; height: 12px; border-radius: 50%; background: #a78bfa; box-shadow: 0 0 0 4px rgba(167,139,250,0.2); }
@@ -426,6 +471,19 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   readonly linen = signal<LinenItem[]>([]);
   readonly rows = signal<InspRow[]>([]);
   readonly busy = signal(false);
+  // Suministros pendientes (agrupados por habitación) para "Suministrar Habitación"
+  readonly supplies = signal<Supply[]>([]);
+  readonly supplyGroups = computed<SupplyGroup[]>(() => {
+    const map = new Map<string, SupplyGroup>();
+    for (const s of this.supplies()) {
+      let g = map.get(s.roomId);
+      if (!g) { g = { roomId: s.roomId, room: s.room, floor: s.floor, roomType: s.roomType, items: [] }; map.set(s.roomId, g); }
+      g.items.push(s);
+    }
+    return [...map.values()];
+  });
+  delVisible = false;
+  delGroup: SupplyGroup | null = null;
   iniciarVisible = false;
   iniStep: 'fase1' | 'confirmar' = 'fase1';
   selRoom: CleanRoom | null = null;
@@ -487,7 +545,33 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     return `${p(h)}:${p(m)}:${p(sec)}`;
   }
 
-  reload(): void { this.http.get<ApiResponse<CleanRoom[]>>(`${this.api}/cleaning/rooms`).subscribe((r) => this.rooms.set(r.data ?? [])); }
+  reload(): void {
+    this.http.get<ApiResponse<CleanRoom[]>>(`${this.api}/cleaning/rooms`).subscribe((r) => this.rooms.set(r.data ?? []));
+    this.http.get<ApiResponse<Supply[]>>(`${this.api}/services/supplies?status=PENDING`).subscribe((r) => this.supplies.set(r.data ?? []));
+  }
+
+  openDeliver(g: SupplyGroup): void { this.delGroup = g; this.delVisible = true; }
+
+  /** Confirma la entrega de los suministros de la habitación (descuenta del inventario). */
+  confirmDeliver(): void {
+    const g = this.delGroup;
+    if (!g) return;
+    this.busy.set(true);
+    forkJoin(g.items.map((it) => this.http.post<ApiResponse<unknown>>(`${this.api}/services/supplies/${it.id}/deliver`, {}))).subscribe({
+      next: () => { this.busy.set(false); this.delVisible = false; this.toast.add({ severity: 'success', summary: 'Entregado', detail: `Hab. ${g.room}: suministro entregado y descontado del inventario.` }); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
+    });
+  }
+
+  confirmReject(): void {
+    const g = this.delGroup;
+    if (!g) return;
+    this.busy.set(true);
+    forkJoin(g.items.map((it) => this.http.post<ApiResponse<unknown>>(`${this.api}/services/supplies/${it.id}/reject`, {}))).subscribe({
+      next: () => { this.busy.set(false); this.delVisible = false; this.toast.add({ severity: 'warn', summary: 'Rechazado', detail: `Hab. ${g.room}: entrega rechazada.` }); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
+    });
+  }
   loadLinen(): void { this.http.get<ApiResponse<LinenItem[]>>(`${this.api}/cleaning/linen-items`).subscribe((r) => this.linen.set(r.data ?? [])); }
   typeLabel(t: string): string { return TYPE_LABEL[t] ?? t; }
 
