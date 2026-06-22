@@ -21,6 +21,30 @@ import { roomState } from './room-states';
 
 type ViewMode = 'normal' | 'compacta' | 'real';
 
+/** Catálogo de fallas por categoría para el registro de mantenimiento (igual a Revisión de Mantenimiento). */
+const MANT_FALLAS: Record<string, string[]> = {
+  MOBILIARIO: ['Mueble roto', 'Cajón dañado', 'Silla inestable', 'Closet/puerta dañada', 'Mesa de noche dañada', 'Otro'],
+  ARTEFACTOS: ['TV no enciende', 'Frigobar no enfría', 'Aire acondicionado no funciona', 'Control remoto dañado', 'Secadora dañada', 'Otro'],
+  BANO: ['Fuga de agua', 'Inodoro tapado', 'Grifo goteando', 'Ducha dañada', 'Espejo roto', 'Falta presión de agua', 'Otro'],
+  CAMA: ['Colchón manchado', 'Cama rota', 'Cabecera suelta', 'Base dañada', 'Otro'],
+  ELECTRICIDAD: ['Foco quemado', 'Tomacorriente dañado', 'Interruptor no funciona', 'Cableado expuesto', 'Otro'],
+  PAREDES: ['Mancha/humedad', 'Pintura descascarada', 'Hueco o grieta', 'Papel mural dañado', 'Otro'],
+  PUERTA: ['Cerradura dañada', 'Bisagra suelta', 'Puerta no cierra', 'Tarjeta/llave no funciona', 'Otro'],
+  VENTANAS: ['Vidrio roto', 'Cortina dañada', 'Ventana no cierra', 'Espejo rajado', 'Otro'],
+  REPARACION: ['Remodelación pendiente', 'Reparación mayor', 'Cambio de equipo', 'Otro'],
+};
+const MANT_CATS = [
+  { key: 'MOBILIARIO', label: 'MOBILIARIO', hint: 'Muebles, cajones, sillas.' },
+  { key: 'ARTEFACTOS', label: 'ARTEFACTOS ELÉCTRICOS', hint: 'TV, frigobar, A/C, control remoto.' },
+  { key: 'BANO', label: 'BAÑO', hint: 'Fugas, goteos, inodoro.' },
+  { key: 'CAMA', label: 'CAMA/COLCHÓN/CABECERA', hint: 'Estado de cama, colchón, cabecera.' },
+  { key: 'ELECTRICIDAD', label: 'ELECTRICIDAD/ILUMINACIÓN', hint: 'Focos, tomas, interruptores.' },
+  { key: 'PAREDES', label: 'PAREDES', hint: 'Manchas, humedad, pintura.' },
+  { key: 'PUERTA', label: 'PUERTA/CERRADURAS', hint: 'Chapas, seguros, bisagras.' },
+  { key: 'VENTANAS', label: 'VENTANAS/ESPEJOS', hint: 'Vidrios, espejos, cortinas.' },
+  { key: 'REPARACION', label: 'REPARACIÓN / REMODELACIÓN', hint: 'Trabajos mayores pendientes.' },
+];
+
 @Component({
   selector: 'app-habitaciones-board',
   standalone: true,
@@ -204,9 +228,34 @@ type ViewMode = 'normal' | 'compacta' | 'real';
         <button class="est-r" [disabled]="savingEstado()" (click)="applyEstado('RESERVADA')"><span class="d purple"></span> Reservada</button>
         <button class="est-r" [disabled]="savingEstado()" (click)="applyEstado('OCUPADA')"><span class="d blue"></span> Ocupada</button>
         <button class="est-r" [disabled]="savingEstado()" (click)="applyEstado('LIMPIEZA_SOLICITADA')"><span class="d amber"></span> Limpieza solicitada</button>
-        <button class="est-r" [disabled]="savingEstado()" (click)="applyEstado('MAINTENANCE')"><span class="d red"></span> Mantenimiento</button>
+        <button class="est-r" [disabled]="savingEstado()" (click)="openMantenimiento()"><span class="d red"></span> Mantenimiento</button>
       </div>
       <ng-template pTemplate="footer"><p-button label="Cancelar" [text]="true" (onClick)="estadoVisible = false" /></ng-template>
+    </p-dialog>
+
+    <!-- Registrar mantenimiento de la habitación -->
+    <p-dialog [(visible)]="mantVisible" [modal]="true" header="Registrar Mantenimiento" [style]="{ width: '46rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      <p class="muted" style="margin:0 0 0.8rem">Registra el mantenimiento de la habitación <strong>{{ mantRoom?.roomType?.name }} - {{ mantRoom?.number }}</strong>. Selecciona una o más categorías e indica la falla.</p>
+      <div class="mant-cats">
+        @for (c of mantCats; track c.key) {
+          <div class="mant-cat" [class.on]="c.selected">
+            <label class="mant-head"><input type="checkbox" [(ngModel)]="c.selected" /> <span>{{ c.label }}</span></label>
+            <small class="muted">{{ c.hint }}</small>
+            @if (c.selected) {
+              <div class="mant-sec">
+                <p-select [options]="fallasFor(c.key)" [(ngModel)]="c.falla" placeholder="Selecciona la falla..." styleClass="wsel" appendTo="body" />
+                @if (!c.falla) { <div class="req"><i class="pi pi-exclamation-triangle"></i> Selecciona la falla específica</div> }
+                <input pInputText [(ngModel)]="c.observacion" placeholder="Observación (opcional)" class="mant-obs" />
+              </div>
+            }
+          </div>
+        }
+      </div>
+      <label class="mant-crit"><input type="checkbox" [(ngModel)]="mantCritical" /> <span>Mantenimiento crítico</span> <small class="muted">— bloquea la habitación hasta resolverlo</small></label>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="mantVisible = false" />
+        <p-button label="Confirmar Mantenimiento" icon="pi pi-wrench" [disabled]="!canMant() || savingMant()" [loading]="savingMant()" (onClick)="confirmMantenimiento()" />
+      </ng-template>
     </p-dialog>
 
     <app-folio-estancia [(visible)]="folioVisible" [stayId]="folioStayId" />
@@ -325,6 +374,16 @@ type ViewMode = 'normal' | 'compacta' | 'real';
       .d.green { background: #10b981; } .d.purple { background: #a855f7; } .d.blue { background: #3b82f6; } .d.amber { background: #f59e0b; } .d.red { background: #ef4444; }
       .foot-row.end { justify-content: flex-end; }
       .estado-btn { background: rgba(255,255,255,0.92); color: #0b1018; font-weight: 700; flex: 0 0 auto; }
+      .mant-cats { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+      .mant-cat { background: #131b27; border: 1px solid #243245; border-radius: 10px; padding: 0.7rem 0.8rem; }
+      .mant-cat.on { border-color: #ef4444; }
+      .mant-head { display: flex; align-items: center; gap: 0.5rem; color: #e6e9ef; font-weight: 600; font-size: 0.9rem; cursor: pointer; }
+      .mant-cat small { display: block; margin: 0.15rem 0 0 1.4rem; }
+      .mant-sec { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.4rem; }
+      .mant-sec .mant-obs { width: 100%; background: #0b1220; border: 1px solid #243245; color: #e6e9ef; border-radius: 8px; padding: 0.5rem 0.6rem; }
+      .req { color: #f59e0b; font-size: 0.78rem; display: flex; align-items: center; gap: 0.35rem; }
+      .mant-crit { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.9rem; color: #e6e9ef; font-size: 0.9rem; cursor: pointer; }
+      :host ::ng-deep .wsel { width: 100%; }
       .est-note { background: #2a1d12; border: 1px solid #6b4f2a; color: #fbbf24; border-radius: 8px; padding: 0.5rem 0.7rem; font-size: 0.8rem; margin: 0; }
     `,
   ],
@@ -380,6 +439,13 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   estadoVisible = false;
   estadoRoom: RoomMapItem | null = null;
   readonly savingEstado = signal(false);
+
+  // Registro de mantenimiento
+  mantVisible = false;
+  mantRoom: RoomMapItem | null = null;
+  mantCritical = true;
+  mantCats: { key: string; label: string; hint: string; selected: boolean; falla: string; observacion: string }[] = [];
+  readonly savingMant = signal(false);
   private timer?: ReturnType<typeof setInterval>;
 
   readonly stateOptions = [
@@ -485,6 +551,44 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     this.ops.changeRoomStatus(r.id, value).subscribe({
       next: () => { this.savingEstado.set(false); this.estadoVisible = false; this.toast.add({ severity: 'success', summary: 'Estado actualizado', detail: `Hab. ${r.number}` }); this.reload(); },
       error: (err) => { this.savingEstado.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo cambiar el estado' }); },
+    });
+  }
+
+  // ---- Registro de mantenimiento ----
+  openMantenimiento(): void {
+    this.mantRoom = this.estadoRoom;
+    this.estadoVisible = false;
+    this.mantCritical = true;
+    this.mantCats = MANT_CATS.map((c) => ({ ...c, selected: false, falla: '', observacion: '' }));
+    this.mantVisible = true;
+  }
+
+  fallasFor(key: string): string[] { return MANT_FALLAS[key] ?? ['Otro']; }
+
+  /** Habilita Confirmar: al menos una categoría marcada y cada una con su falla. */
+  canMant(): boolean {
+    const sel = this.mantCats.filter((c) => c.selected);
+    return sel.length > 0 && sel.every((c) => !!c.falla);
+  }
+
+  confirmMantenimiento(): void {
+    const r = this.mantRoom;
+    if (!r || !this.canMant()) return;
+    const sel = this.mantCats.filter((c) => c.selected);
+    const title = `Mantenimiento Hab. ${r.number}: ${sel.map((c) => c.falla).join(', ')}`.slice(0, 150);
+    const description = sel
+      .map((c) => `${c.label}: ${c.falla}${c.observacion ? ` (${c.observacion})` : ''}`)
+      .join(' · ')
+      .slice(0, 500);
+    this.savingMant.set(true);
+    this.ops.maintenances.create({ roomId: r.id, title, description, status: 'OPEN', critical: this.mantCritical }).subscribe({
+      next: () => {
+        this.savingMant.set(false);
+        this.mantVisible = false;
+        this.toast.add({ severity: 'success', summary: 'Mantenimiento registrado', detail: 'El estado de la habitación se ha actualizado correctamente.' });
+        this.reload();
+      },
+      error: (err) => { this.savingMant.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo registrar el mantenimiento' }); },
     });
   }
 

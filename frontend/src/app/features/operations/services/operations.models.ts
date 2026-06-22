@@ -140,6 +140,8 @@ export interface MaintenanceUpsert {
   description?: string;
   status: 'OPEN' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
   cost?: number;
+  /** Mantenimiento crítico: bloquea la habitación hasta resolverlo. */
+  critical?: boolean;
 }
 
 export interface Revision {
