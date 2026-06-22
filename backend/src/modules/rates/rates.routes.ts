@@ -2,15 +2,15 @@ import { Router } from 'express';
 import { asyncHandler } from '../../shared/async-handler';
 import { authenticate } from '../../middlewares/auth.middleware';
 import { tenant } from '../../middlewares/tenant.middleware';
-import { requirePermission } from '../../middlewares/rbac.middleware';
+import { requirePermission, requireAnyPermission } from '../../middlewares/rbac.middleware';
 import { ratesController } from './rates.controller';
 
 export const ratesRouter = Router();
 
 ratesRouter.use(authenticate(), tenant());
 
-// Base rates
-ratesRouter.get('/rates', requirePermission('settings', 'view'), asyncHandler(ratesController.listRates));
+// Base rates — la lectura la usan settings (configuración) y operations (check-in).
+ratesRouter.get('/rates', requireAnyPermission(['settings', 'view'], ['operations', 'view']), asyncHandler(ratesController.listRates));
 ratesRouter.post('/rates', requirePermission('settings', 'create'), asyncHandler(ratesController.createRate));
 ratesRouter.put('/rates/:id', requirePermission('settings', 'edit'), asyncHandler(ratesController.updateRate));
 ratesRouter.delete('/rates/:id', requirePermission('settings', 'delete'), asyncHandler(ratesController.removeRate));

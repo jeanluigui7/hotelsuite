@@ -85,6 +85,24 @@ async function main(): Promise<void> {
   await prisma.room.update({ where: { id: 'rz-room-102' }, data: { status: 'INSPECCIONANDO' } });
   await prisma.room.update({ where: { id: 'rz-room-202' }, data: { status: 'MAINTENANCE' } });
 
+  // 3b. Tarifas por tipo de habitación (Duración / Tarifa del check-in). Incluye Pernoctación.
+  // Upsert por clave única (branch+roomType+duración) para renombrar/añadir sin chocar con el seed base.
+  const rates = [
+    { roomTypeId: 'rz-rt-simple', label: '3 horas', durationMinutes: 180, price: 30 },
+    { roomTypeId: 'rz-rt-simple', label: '12 horas', durationMinutes: 720, price: 45 },
+    { roomTypeId: 'rz-rt-simple', label: 'DIA HOTELERO', durationMinutes: 1440, price: 50 },
+    { roomTypeId: 'rz-rt-doble', label: '3 horas', durationMinutes: 180, price: 40 },
+    { roomTypeId: 'rz-rt-doble', label: '12 horas', durationMinutes: 720, price: 60 },
+    { roomTypeId: 'rz-rt-doble', label: 'DIA HOTELERO', durationMinutes: 1440, price: 80 },
+  ];
+  for (const t of rates) {
+    await prisma.rate.upsert({
+      where: { branchId_roomTypeId_durationMinutes: { branchId: RZ, roomTypeId: t.roomTypeId, durationMinutes: t.durationMinutes } },
+      update: { label: t.label, price: t.price, status: 'active' },
+      create: { branchId: RZ, roomTypeId: t.roomTypeId, label: t.label, durationMinutes: t.durationMinutes, price: t.price, status: 'active' },
+    });
+  }
+
   // 4. Estancia activa en la 301 (nuevo huésped)
   await prisma.guest.upsert({
     where: { id: 'rz-guest-4' },
