@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output, inject, signal } from '@angular/core';
+import { Component, EventEmitter, Input, Output, computed, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
@@ -93,9 +93,15 @@ const PAY_TYPES = [
           <div class="fld"><label>Teléfono</label><input pInputText [(ngModel)]="phone" placeholder="Número de contacto" /></div>
           <div class="fld"><label>Placa de vehículo (opcional)</label><input pInputText [(ngModel)]="vehiclePlate" placeholder="ABC-123" style="text-transform:uppercase" /></div>
           <div class="fld"><label>Duración / Tarifa</label>
-            <p-select [options]="rates()" [(ngModel)]="selectedRateId" optionValue="id" (onChange)="onRate()" placeholder="Seleccionar tarifa" styleClass="w">
-              <ng-template let-r pTemplate="item"><span class="rate-it">{{ r.label }} @if (isPernocta(r)) { <span class="pn-badge">🌙 Pernoctación</span> } <strong>S/ {{ +r.price | number: '1.2-2' }}</strong></span></ng-template>
-              <ng-template let-r pTemplate="selectedItem">{{ r.label }} @if (isPernocta(r)) { <span class="pn-badge">🌙 Pernoctación</span> } · S/ {{ +r.price | number: '1.2-2' }}</ng-template>
+            <p-select [options]="rateOptions()" [(ngModel)]="selectedRateId" optionValue="id" (onChange)="onRate()" placeholder="Seleccionar tarifa" styleClass="w">
+              <ng-template let-r pTemplate="item">
+                @if (r.id === CUSTOM_RATE) { <span class="rate-it"><i class="pi pi-cog"></i> {{ r.label }}</span> }
+                @else { <span class="rate-it">{{ r.label }} @if (isPernocta(r)) { <span class="pn-badge">🌙 Pernoctación</span> } @if (r.special) { <span class="sp-badge">★ Especial</span> } <strong>S/ {{ +r.price | number: '1.2-2' }}</strong></span> }
+              </ng-template>
+              <ng-template let-r pTemplate="selectedItem">
+                @if (r.id === CUSTOM_RATE) { <span><i class="pi pi-cog"></i> {{ r.label }}</span> }
+                @else { {{ r.label }} @if (isPernocta(r)) { <span class="pn-badge">🌙 Pernoctación</span> } · S/ {{ +r.price | number: '1.2-2' }} }
+              </ng-template>
             </p-select>
           </div>
           <div class="fld"><label>Tier (opcional)</label><p-select [options]="tiers()" optionLabel="name" optionValue="id" [(ngModel)]="selectedTierId" [showClear]="true" (onChange)="onRate()" placeholder="Sin tier" styleClass="w" /></div>
@@ -122,9 +128,28 @@ const PAY_TYPES = [
                 <div class="np-final"><label>Precio final:</label><span class="cur">S/</span><input type="number" [(ngModel)]="finalPrice" min="0" /></div>
               </div>
             </div>
+
+            <!-- Early Check-in (solo pernoctación) -->
+            <div class="early span2">
+              <div class="e-head"><i class="pi pi-moon"></i> Early Check-in (Opcional)</div>
+              <p class="e-desc">Servicio de cortesía o cargo adicional por ingreso anticipado. El monto se configurará en la pestaña "Métodos de Pago".</p>
+              <label class="e-chk"><input type="checkbox" [(ngModel)]="applyEarly" /> <span>Aplicar Early Check-in</span></label>
+            </div>
           }
 
-          <div class="fld"><label>Fecha y hora de salida</label><input type="datetime-local" [(ngModel)]="checkoutAt" /></div>
+          @if (isCustom()) {
+            <!-- Configurar Tarifa Personalizada -->
+            <div class="custom span2">
+              <div class="c-head"><i class="pi pi-cog"></i> Configurar Tarifa Personalizada</div>
+              <div class="c-grid">
+                <div class="c-fld"><label>Fecha y Hora de Salida</label><input type="datetime-local" [(ngModel)]="checkoutAt" /><small>Check-out: {{ checkoutAt ? (checkoutAt | date: 'dd/MM/yyyy HH:mm') : '—' }}</small></div>
+                <div class="c-fld"><label>Precio a Cobrar (S/)</label><div class="c-price"><span>S/</span><input type="number" [(ngModel)]="customPrice" min="0" /></div><small>Ingrese el monto total a cobrar por esta estadía</small></div>
+              </div>
+              <div class="c-tot"><div><span>Duración estimada:</span><strong>{{ customDurationLabel() }}</strong></div><div class="r"><span>Total a cobrar:</span><strong class="amt">S/ {{ (customPrice || 0) | number: '1.2-2' }}</strong></div></div>
+            </div>
+          }
+
+          @if (!isCustom()) { <div class="fld"><label>Fecha y hora de salida</label><input type="datetime-local" [(ngModel)]="checkoutAt" /></div> }
           <div class="fld span2"><label>Notas Adicionales</label><textarea [(ngModel)]="notes" rows="3" placeholder="Alergias, preferencias, motivo de estancia, solicitudes especiales..."></textarea></div>
         </div>
       }
@@ -283,6 +308,20 @@ const PAY_TYPES = [
       .muted { color: #8aa0bd; font-size: 0.82rem; }
       .pn-badge { background: #5b21b6; color: #e9d5ff; font-size: 0.66rem; font-weight: 700; padding: 0.05rem 0.4rem; border-radius: 999px; }
       .nights { background: #fbfbfe; color: #1e1b4b; border: 1px solid #c4b5fd; border-radius: 14px; padding: 1rem; }
+      .sp-badge { background: rgba(168,85,247,0.16); color: #a855f7; font-size: 0.66rem; font-weight: 700; padding: 0.05rem 0.4rem; border-radius: 999px; margin-left: 0.3rem; }
+      .early { background: linear-gradient(135deg, #2a1a4a, #1c1233); border: 1px solid #6d28d9; border-radius: 14px; padding: 1rem; color: #e9d5ff; }
+      .early .e-head { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; color: #fbbf24; }
+      .early .e-desc { font-size: 0.8rem; color: #c4b5fd; margin: 0.4rem 0 0.6rem; }
+      .early .e-chk { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+      .custom { background: #0e1622; border: 1px solid #3a2a12; border-radius: 14px; padding: 1rem; color: #e6efe9; }
+      .custom .c-head { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; color: #f59e0b; margin-bottom: 0.7rem; }
+      .custom .c-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+      .custom .c-fld { display: flex; flex-direction: column; gap: 0.3rem; } .custom .c-fld label { font-size: 0.82rem; color: #f59e0b; }
+      .custom .c-fld input, .custom .c-price input { width: 100%; background: #0b1220; border: 1px solid #3a2a12; color: #fff; border-radius: 8px; padding: 0.55rem 0.7rem; }
+      .custom .c-fld small { color: #f59e0b; font-size: 0.74rem; }
+      .custom .c-price { display: flex; align-items: center; gap: 0.4rem; } .custom .c-price span { color: #f59e0b; font-weight: 700; }
+      .custom .c-tot { display: flex; justify-content: space-between; align-items: center; background: #0b1220; border: 1px solid #3a2a12; border-radius: 10px; padding: 0.8rem 1rem; margin-top: 0.8rem; }
+      .custom .c-tot .r { text-align: right; } .custom .c-tot span { display: block; font-size: 0.78rem; color: #8aa499; } .custom .c-tot .amt { color: #f59e0b; font-size: 1.3rem; }
       .n-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.7rem; }
       .n-head > span:first-child { color: #6d28d9; font-weight: 700; display: inline-flex; align-items: center; gap: 0.4rem; }
       .n-out { color: #7c3aed; font-size: 0.82rem; }
@@ -403,12 +442,22 @@ export class CheckInDialogComponent {
   nights = 1;
   manualNights = false;
   finalPrice: number | null = null;
+  // Tarifa personalizada + early check-in
+  readonly CUSTOM_RATE = '__custom__';
+  customPrice: number | null = null;
+  applyEarly = false;
+  readonly rateOptions = computed<Rate[]>(() => [
+    ...this.rates(),
+    { id: this.CUSTOM_RATE, roomTypeId: '', label: 'Tarifa personalizada', durationMinutes: 0, price: 0, status: 'active' } as Rate,
+  ]);
+  isCustom(): boolean { return this.selectedRateId === this.CUSTOM_RATE; }
 
   private init(room: RoomMapItem): void {
     this.tab.set('huesped');
     this.targetRoomId = room.id;
     this.docType = 'DNI'; this.docNumber = ''; this.guestName = ''; this.phone = ''; this.vehiclePlate = '';
     this.selectedRateId = null; this.selectedTierId = null; this.checkoutAt = ''; this.notes = '';
+    this.customPrice = null; this.applyEarly = false; this.finalPrice = null;
     this.prodSearch = ''; this.categoryFilter = null; this.comprobante = false;
     this.nights = 1; this.manualNights = false; this.finalPrice = null;
     this.lines.set([]); this.addGuests.set([]); this.pays.set([]); this.debts.set({ items: [], total: 0 }); this.foundGuestId = null;
@@ -445,7 +494,7 @@ export class CheckInDialogComponent {
 
   // --- Pernoctación / noches de estadía ---
   isPernocta(r: Rate): boolean {
-    return (r.durationMinutes ?? 0) >= 1440 || /hotelero|noche|pernocta/i.test(r.label);
+    return !!r.pernocta || (r.durationMinutes ?? 0) >= 1440 || /hotelero|noche|pernocta/i.test(r.label);
   }
   selectedRate(): Rate | undefined {
     return this.rates().find((r) => r.id === this.selectedRateId);
@@ -478,6 +527,14 @@ export class CheckInDialogComponent {
   }
 
   onRate(): void {
+    this.applyEarly = false;
+    if (this.isCustom()) {
+      // Tarifa personalizada: el usuario define salida y precio.
+      this.finalPrice = null;
+      this.customPrice = this.customPrice ?? 0;
+      if (!this.checkoutAt) this.syncCheckoutInput(new Date(Date.now() + 60 * 60_000));
+      return;
+    }
     const rate = this.selectedRate();
     if (!rate) return;
     if (this.isPernocta(rate)) {
@@ -489,8 +546,17 @@ export class CheckInDialogComponent {
       this.syncCheckoutInput(new Date(Date.now() + rate.durationMinutes * 60_000));
     }
   }
-  rateLabel(): string { return this.rates().find((r) => r.id === this.selectedRateId)?.label ?? '—'; }
+
+  /** Duración estimada (texto) entre ahora y la salida elegida (tarifa personalizada). */
+  customDurationLabel(): string {
+    if (!this.checkoutAt) return '—';
+    const mins = Math.max(0, Math.round((new Date(this.checkoutAt).getTime() - Date.now()) / 60_000));
+    const h = Math.floor(mins / 60), m = mins % 60;
+    return h > 0 ? `${h} hora${h === 1 ? '' : 's'}${m ? ' ' + m + ' min' : ''}` : `${m} min`;
+  }
+  rateLabel(): string { return this.isCustom() ? 'Tarifa personalizada' : (this.rates().find((r) => r.id === this.selectedRateId)?.label ?? '—'); }
   precioBase(): number {
+    if (this.isCustom()) return this.customPrice ?? 0;
     const rate = this.rates().find((r) => r.id === this.selectedRateId);
     if (!rate) return 0;
     // Pernoctación: usa el precio final (noches × tarifa, editable).
@@ -539,6 +605,7 @@ export class CheckInDialogComponent {
   confirm(): void {
     if (!this.room) return;
     if (!this.selectedRateId) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Falta tarifa', detail: 'Selecciona una tarifa.' }); return; }
+    if (this.isCustom() && (!this.checkoutAt || this.customPrice == null)) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Tarifa personalizada', detail: 'Indica la fecha de salida y el precio a cobrar.' }); return; }
     if (!this.docNumber || !this.guestName) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Datos incompletos', detail: 'Completa documento y nombre del huésped.' }); return; }
     const badRef = this.pays().find((p) => this.payMeta(p.type).ref && !p.reference.trim());
     if (badRef) { this.tab.set('pago'); this.messages.add({ severity: 'warn', summary: 'Falta referencia', detail: 'Los pagos con tarjeta/transferencia requieren referencia.' }); return; }
@@ -563,9 +630,10 @@ export class CheckInDialogComponent {
   }
 
   private doCheckIn(additionalGuestIds: string[]): void {
+    const custom = this.isCustom();
     const input: CheckInInput = {
       roomId: this.targetRoomId ?? this.room!.id,
-      rateId: this.selectedRateId!,
+      rateId: custom ? undefined : this.selectedRateId!,
       tierId: this.selectedTierId ?? null,
       additionalGuestIds,
       adults: 1 + additionalGuestIds.length,
@@ -573,7 +641,9 @@ export class CheckInDialogComponent {
       vehiclePlate: this.vehiclePlate || undefined,
       notes: this.notes || undefined,
       nights: this.isPernoctaRate() ? this.nights : undefined,
-      priceOverride: this.isPernoctaRate() && this.finalPrice != null ? this.finalPrice : undefined,
+      priceOverride: custom ? (this.customPrice ?? 0) : (this.isPernoctaRate() && this.finalPrice != null ? this.finalPrice : undefined),
+      earlyCheckin: this.isPernoctaRate() && this.applyEarly ? true : undefined,
+      customCheckoutAt: custom && this.checkoutAt ? new Date(this.checkoutAt).toISOString() : undefined,
     };
     // Si el documento ya existe en la BD, usamos su id; si no, creamos huésped nuevo.
     if (this.foundGuestId) {

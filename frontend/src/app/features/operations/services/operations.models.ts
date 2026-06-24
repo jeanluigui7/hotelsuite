@@ -72,7 +72,7 @@ export interface NewGuestInput {
 
 export interface CheckInInput {
   roomId: string;
-  rateId: string;
+  rateId?: string; // opcional: si no viene es "Tarifa personalizada"
   tierId?: string | null;
   guestId?: string;
   newGuest?: NewGuestInput;
@@ -83,6 +83,8 @@ export interface CheckInInput {
   notes?: string;
   nights?: number;
   priceOverride?: number;
+  earlyCheckin?: boolean;
+  customCheckoutAt?: string;
 }
 
 export type ReservationStatus = 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'FULFILLED';

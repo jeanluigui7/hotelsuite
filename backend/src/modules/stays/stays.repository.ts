@@ -35,7 +35,7 @@ export const staysRepository = {
     branchId: string;
     roomId: string;
     guestId: string;
-    rateId: string;
+    rateId: string | null;
     tierId: string | null;
     durationMinutes: number;
     priceAgreed: number;

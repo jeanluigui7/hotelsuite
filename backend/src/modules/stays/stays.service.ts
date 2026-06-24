@@ -77,10 +77,16 @@ export const staysService = {
     // Se puede hacer check-in de una habitación libre o reservada.
     if (room.status !== 'FREE' && room.status !== 'RESERVADA') throw new ConflictError('La habitación no está disponible para check-in');
 
-    const rate = await prisma.rate.findUnique({ where: { id: dto.rateId } });
-    if (!rate || rate.branchId !== branchId) throw new ValidationError('Tarifa inválida');
-    if (rate.roomTypeId !== room.roomTypeId) {
-      throw new ValidationError('La tarifa no corresponde al tipo de la habitación');
+    // Tarifa del catálogo o "Tarifa personalizada" (sin rateId → salida + precio propios).
+    let rate = null as Awaited<ReturnType<typeof prisma.rate.findUnique>> | null;
+    if (dto.rateId) {
+      rate = await prisma.rate.findUnique({ where: { id: dto.rateId } });
+      if (!rate || rate.branchId !== branchId) throw new ValidationError('Tarifa inválida');
+      if (rate.roomTypeId !== room.roomTypeId) {
+        throw new ValidationError('La tarifa no corresponde al tipo de la habitación');
+      }
+    } else if (!dto.customCheckoutAt || dto.priceOverride == null) {
+      throw new ValidationError('Tarifa personalizada: indica la fecha de salida y el precio');
     }
 
     let discount = 0;
@@ -114,28 +120,36 @@ export const staysService = {
     if (!guestId) throw new ValidationError('Huésped requerido');
 
     const checkInAt = new Date();
-    // Día hotelero / pernoctación: lo define el flag de la tarifa (con respaldo en la
-    // heurística para tarifas antiguas). El corte se rige por la hora de corte de la
-    // sucursal (settings/pernoctación), no por la duración.
-    const isDiaHotelero = rate.pernocta || rate.durationMinutes >= 1440 || /hotelero|noche|pernocta/i.test(rate.label);
     let plannedCheckoutAt: Date;
     let balanceDue: number | null = null;
     let earlyNote = '';
-    let durationMinutes = rate.durationMinutes;
-    let basePrice = Number(rate.price);
-    if (isDiaHotelero) {
-      // Pernoctación: el nº de noches define la salida (día hotelero) y multiplica el precio.
-      const nights = dto.nights ?? Math.max(1, Math.round(rate.durationMinutes / 1440));
-      durationMinutes = nights * 1440;
-      basePrice = Number(rate.price) * nights;
-      const q = await pernoctaService.quoteCheckIn(scope, checkInAt, nights);
-      plannedCheckoutAt = q.plannedCheckoutAt;
-      if (q.earlyCharge > 0) {
-        balanceDue = q.earlyCharge;
-        earlyNote = ` Early check-in: ${q.earlyHours}h = ${q.earlyCharge}.`;
-      }
+    let durationMinutes: number;
+    let basePrice: number;
+    if (!rate) {
+      // Tarifa personalizada: salida y precio definidos por el usuario.
+      plannedCheckoutAt = new Date(dto.customCheckoutAt!);
+      durationMinutes = Math.max(1, Math.round((plannedCheckoutAt.getTime() - checkInAt.getTime()) / 60_000));
+      basePrice = Number(dto.priceOverride);
     } else {
-      plannedCheckoutAt = new Date(checkInAt.getTime() + rate.durationMinutes * 60_000);
+      // Día hotelero / pernoctación: lo define el flag de la tarifa. El corte se rige por la
+      // hora de corte de la sucursal (settings/pernoctación), no por la duración.
+      const isDiaHotelero = rate.pernocta || rate.durationMinutes >= 1440 || /hotelero|noche|pernocta/i.test(rate.label);
+      durationMinutes = rate.durationMinutes;
+      basePrice = Number(rate.price);
+      if (isDiaHotelero) {
+        const nights = dto.nights ?? Math.max(1, Math.round(rate.durationMinutes / 1440));
+        durationMinutes = nights * 1440;
+        basePrice = Number(rate.price) * nights;
+        const q = await pernoctaService.quoteCheckIn(scope, checkInAt, nights);
+        plannedCheckoutAt = q.plannedCheckoutAt;
+        // El cargo de early check-in solo se aplica si el usuario lo marca (opcional).
+        if (dto.earlyCheckin && q.earlyCharge > 0) {
+          balanceDue = q.earlyCharge;
+          earlyNote = ` Early check-in: ${q.earlyHours}h = ${q.earlyCharge}.`;
+        }
+      } else {
+        plannedCheckoutAt = new Date(checkInAt.getTime() + rate.durationMinutes * 60_000);
+      }
     }
     // Precio final editable (priceOverride) o tarifa con descuento de tier.
     const priceAgreed = dto.priceOverride != null ? round2(dto.priceOverride) : applyDiscount(basePrice, discount);
@@ -144,7 +158,7 @@ export const staysService = {
       branchId,
       roomId: room.id,
       guestId,
-      rateId: rate.id,
+      rateId: rate?.id ?? null,
       tierId: dto.tierId ?? null,
       durationMinutes,
       priceAgreed,

@@ -12,7 +12,8 @@ const newGuestSchema = z.object({
 export const checkInSchema = z
   .object({
     roomId: z.string().min(1),
-    rateId: z.string().min(1),
+    // rateId opcional: si no viene, es "Tarifa personalizada" (salida + precio propios).
+    rateId: z.string().min(1).optional(),
     tierId: z.string().min(1).optional().nullable(),
     guestId: z.string().min(1).optional(),
     newGuest: newGuestSchema.optional(),
@@ -24,10 +25,18 @@ export const checkInSchema = z
     // Pernoctación / día hotelero: nº de noches y precio final editable.
     nights: z.coerce.number().int().min(1).max(60).optional(),
     priceOverride: z.coerce.number().min(0).optional(),
+    // Early check-in opcional (solo aplica el cargo si se marca).
+    earlyCheckin: z.coerce.boolean().optional().default(false),
+    // Tarifa personalizada: fecha/hora de salida elegida por el usuario.
+    customCheckoutAt: z.coerce.date().optional(),
   })
   .refine((v) => v.guestId || v.newGuest, {
     message: 'Debe indicar un huésped existente (guestId) o los datos de uno nuevo (newGuest)',
     path: ['guestId'],
+  })
+  .refine((v) => v.rateId || (v.customCheckoutAt && v.priceOverride != null), {
+    message: 'Indica una tarifa, o (tarifa personalizada) la fecha de salida y el precio',
+    path: ['rateId'],
   });
 
 export const checkOutSchema = z.object({
