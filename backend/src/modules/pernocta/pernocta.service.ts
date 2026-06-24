@@ -77,24 +77,21 @@ export const pernoctaService = {
    * Cotiza el día hotelero para un check-in: salida prevista (horario fijo) + cargo de
    * early check-in si ingresa antes de la hora oficial. `nights` = noches hoteleras (def. 1).
    */
-  async quoteCheckIn(scope: RequestScope, checkInAt: Date, nights = 1): Promise<{
+  async quoteCheckIn(scope: RequestScope, checkInAt: Date, nights = 1, earlyCheckin = false): Promise<{
     plannedCheckoutAt: Date;
-    earlyHours: number;
-    earlyCharge: number;
     config: PernoctaConfig;
   }> {
     const cfg = await this.get(scope);
     const ci = new Date(checkInAt);
-    // Regla de corte de pernoctación: si ingresa HASTA la hora de corte, la estadía vence
-    // ese mismo día a la hora de corte; si ingresa DESPUÉS del corte, vence al día siguiente.
-    // Cada noche adicional suma un día. La hora de corte es por sucursal (pernocta.checkOutHour).
+    // Regla de corte de pernoctación (hora fija de corte, p.ej. 12:00):
+    //  - Ingreso DESPUÉS de la hora de corte → vence al día siguiente a esa hora.
+    //  - Ingreso HASTA la hora de corte y SIN early check-in → vence ese mismo día.
+    //  - Ingreso HASTA la hora de corte CON early check-in → vence al día siguiente (se le
+    //    reconoce la pernoctación completa). Cada noche adicional suma un día.
     const tod = ci.getHours() + ci.getMinutes() / 60;
-    const baseDayOffset = tod <= cfg.checkOutHour ? 0 : 1;
+    const baseDayOffset = tod > cfg.checkOutHour ? 1 : (earlyCheckin ? 1 : 0);
     const planned = new Date(ci.getFullYear(), ci.getMonth(), ci.getDate() + baseDayOffset + (nights - 1), cfg.checkOutHour, 0, 0, 0);
-    // Early check-in: horas (o fracción → se redondea hacia arriba) antes de la hora oficial.
-    const earlyHours = tod < cfg.checkInHour ? Math.ceil(cfg.checkInHour - tod) : 0;
-    const earlyCharge = round(earlyHours * cfg.earlyRatePerHour);
-    return { plannedCheckoutAt: planned, earlyHours, earlyCharge, config: cfg };
+    return { plannedCheckoutAt: planned, config: cfg };
   },
 
   /** Cotiza la salida tardía (late check-out) comparando la salida real con la prevista. */

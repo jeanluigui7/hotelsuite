@@ -121,7 +121,7 @@ export const staysService = {
 
     const checkInAt = new Date();
     let plannedCheckoutAt: Date;
-    let balanceDue: number | null = null;
+    const balanceDue: number | null = null;
     let earlyNote = '';
     let durationMinutes: number;
     let basePrice: number;
@@ -137,16 +137,15 @@ export const staysService = {
       durationMinutes = rate.durationMinutes;
       basePrice = Number(rate.price);
       if (isDiaHotelero) {
-        const nights = dto.nights ?? Math.max(1, Math.round(rate.durationMinutes / 1440));
+        // Pernoctación: 1 = hasta la próxima hora de corte; cada noche extra suma un día.
+        const nights = dto.nights ?? 1;
         durationMinutes = nights * 1440;
         basePrice = Number(rate.price) * nights;
-        const q = await pernoctaService.quoteCheckIn(scope, checkInAt, nights);
+        // El early check-in (manual) mueve la salida al día siguiente; el monto se cobra como
+        // línea de venta desde recepción (no hay cálculo automático por horas).
+        const q = await pernoctaService.quoteCheckIn(scope, checkInAt, nights, dto.earlyCheckin ?? false);
         plannedCheckoutAt = q.plannedCheckoutAt;
-        // El cargo de early check-in solo se aplica si el usuario lo marca (opcional).
-        if (dto.earlyCheckin && q.earlyCharge > 0) {
-          balanceDue = q.earlyCharge;
-          earlyNote = ` Early check-in: ${q.earlyHours}h = ${q.earlyCharge}.`;
-        }
+        if (dto.earlyCheckin) earlyNote = ' Early check-in aplicado.';
       } else {
         plannedCheckoutAt = new Date(checkInAt.getTime() + rate.durationMinutes * 60_000);
       }

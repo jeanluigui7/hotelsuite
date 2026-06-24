@@ -132,8 +132,8 @@ const PAY_TYPES = [
             <!-- Early Check-in (solo pernoctación) -->
             <div class="early span2">
               <div class="e-head"><i class="pi pi-moon"></i> Early Check-in (Opcional)</div>
-              <p class="e-desc">Servicio de cortesía o cargo adicional por ingreso anticipado. El monto se configurará en la pestaña "Métodos de Pago".</p>
-              <label class="e-chk"><input type="checkbox" [(ngModel)]="applyEarly" /> <span>Aplicar Early Check-in</span></label>
+              <p class="e-desc">Reconoce la pernoctación hasta las {{ CUTOFF_HOUR }}:00 del <b>día siguiente</b> aunque ingrese antes de la hora de corte. El monto (o cortesía) se define en la pestaña "Métodos de Pago".</p>
+              <label class="e-chk"><input type="checkbox" [(ngModel)]="applyEarly" (change)="recomputeNights()" /> <span>Aplicar Early Check-in</span></label>
             </div>
           }
 
@@ -239,6 +239,14 @@ const PAY_TYPES = [
               <h4>Resumen de Pago</h4>
               <div class="kv"><span>Tarifa seleccionada:</span><strong>{{ rateLabel() }}</strong></div>
               <div class="kv"><span>Precio base:</span><strong>S/ {{ precioBase() | number: '1.2-2' }}</strong></div>
+              @if (isPernoctaRate() && applyEarly) {
+                <div class="early-charge">
+                  <div class="ec-head"><i class="pi pi-moon"></i> Early Check-in</div>
+                  <label class="ec-cort"><input type="checkbox" [(ngModel)]="earlyCortesia" (change)="onEarlyCortesia()" /> Cortesía (S/ 0.00)</label>
+                  <div class="ec-amt"><label>Monto Early Check-in</label><span class="cur">S/</span><input type="number" [(ngModel)]="earlyAmount" [disabled]="earlyCortesia" min="0" placeholder="0.00" /></div>
+                </div>
+                <div class="kv"><span>Early Check-in:</span><strong>S/ {{ (earlyCortesia ? 0 : (earlyAmount || 0)) | number: '1.2-2' }}{{ earlyCortesia ? ' (cortesía)' : '' }}</strong></div>
+              }
               <div class="kv"><span>Total Productos:</span><strong>S/ {{ totalProductos() | number: '1.2-2' }}</strong></div>
               @if (commissionTotal() > 0) { <div class="kv comm"><span>💳 Comisión POS:</span><strong>S/ {{ commissionTotal() | number: '1.2-2' }}</strong></div> }
               <div class="kv"><span>Total a pagar:</span><strong>S/ {{ totalAPagar() | number: '1.2-2' }}</strong></div>
@@ -313,6 +321,11 @@ const PAY_TYPES = [
       .early .e-head { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; color: #fbbf24; }
       .early .e-desc { font-size: 0.8rem; color: #c4b5fd; margin: 0.4rem 0 0.6rem; }
       .early .e-chk { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+      .early-charge { background: rgba(124,58,237,0.08); border: 1px solid #c4b5fd; border-radius: 10px; padding: 0.7rem 0.8rem; margin: 0.5rem 0; }
+      .early-charge .ec-head { display: flex; align-items: center; gap: 0.4rem; font-weight: 700; color: #7c3aed; font-size: 0.85rem; }
+      .early-charge .ec-cort { display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; margin: 0.4rem 0; cursor: pointer; }
+      .early-charge .ec-amt { display: flex; align-items: center; gap: 0.4rem; } .early-charge .ec-amt label { flex: 1; font-size: 0.82rem; } .early-charge .ec-amt .cur { font-weight: 700; }
+      .early-charge .ec-amt input { width: 90px; padding: 0.35rem 0.5rem; border: 1px solid #c4b5fd; border-radius: 6px; }
       .custom { background: #0e1622; border: 1px solid #3a2a12; border-radius: 14px; padding: 1rem; color: #e6efe9; }
       .custom .c-head { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; color: #f59e0b; margin-bottom: 0.7rem; }
       .custom .c-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
@@ -446,6 +459,8 @@ export class CheckInDialogComponent {
   readonly CUSTOM_RATE = '__custom__';
   customPrice: number | null = null;
   applyEarly = false;
+  earlyAmount: number | null = null;
+  earlyCortesia = false;
   readonly rateOptions = computed<Rate[]>(() => [
     ...this.rates(),
     { id: this.CUSTOM_RATE, roomTypeId: '', label: 'Tarifa personalizada', durationMinutes: 0, price: 0, status: 'active' } as Rate,
@@ -458,6 +473,7 @@ export class CheckInDialogComponent {
     this.docType = 'DNI'; this.docNumber = ''; this.guestName = ''; this.phone = ''; this.vehiclePlate = '';
     this.selectedRateId = null; this.selectedTierId = null; this.checkoutAt = ''; this.notes = '';
     this.customPrice = null; this.applyEarly = false; this.finalPrice = null;
+    this.earlyAmount = null; this.earlyCortesia = false;
     this.prodSearch = ''; this.categoryFilter = null; this.comprobante = false;
     this.nights = 1; this.manualNights = false; this.finalPrice = null;
     this.lines.set([]); this.addGuests.set([]); this.pays.set([]); this.debts.set({ items: [], total: 0 }); this.foundGuestId = null;
@@ -506,10 +522,18 @@ export class CheckInDialogComponent {
   ratePrice(): number {
     return Number(this.selectedRate()?.price ?? 0);
   }
+  readonly CUTOFF_HOUR = 12; // hora de corte de pernoctación (12:00)
+  /**
+   * Salida de pernoctación: hora fija de corte (12:00). Si ingresa después del corte, sale
+   * mañana; si ingresa hasta el corte sin early, sale hoy; con early, sale mañana. Cada
+   * noche adicional suma un día.
+   */
   checkoutDate(): Date {
     const d = new Date(this.now);
-    d.setDate(d.getDate() + this.nights);
-    d.setHours(12, 0, 0, 0);
+    const tod = d.getHours() + d.getMinutes() / 60;
+    const offset = tod > this.CUTOFF_HOUR ? 1 : (this.applyEarly ? 1 : 0);
+    d.setDate(d.getDate() + offset + (this.nights - 1));
+    d.setHours(this.CUTOFF_HOUR, 0, 0, 0);
     return d;
   }
   setNights(n: number): void {
@@ -538,7 +562,8 @@ export class CheckInDialogComponent {
     const rate = this.selectedRate();
     if (!rate) return;
     if (this.isPernocta(rate)) {
-      this.nights = Math.max(1, Math.round((rate.durationMinutes || 1440) / 1440));
+      // Pernoctación = hasta la próxima hora de corte (1). No se deriva de la duración.
+      this.nights = 1;
       this.manualNights = false;
       this.recomputeNights();
     } else {
@@ -589,7 +614,10 @@ export class CheckInDialogComponent {
   payMeta(type: string): (typeof PAY_TYPES)[number] { return PAY_TYPES.find((t) => t.value === type) ?? PAY_TYPES[0]; }
   addPay(): void { this.pays.set([...this.pays(), { type: 'CASH', amount: Math.max(0, this.baseTotal() - this.totalPagado()), received: null, reference: '', notes: '' }]); }
   removePay(i: number): void { const n = [...this.pays()]; n.splice(i, 1); this.pays.set(n); }
-  baseTotal(): number { return Math.round((this.precioBase() + this.totalProductos()) * 100) / 100; }
+  /** Cargo manual de early check-in (0 si es cortesía o no aplica). */
+  earlyCharge(): number { return this.isPernoctaRate() && this.applyEarly && !this.earlyCortesia ? Math.max(0, this.earlyAmount || 0) : 0; }
+  onEarlyCortesia(): void { if (this.earlyCortesia) this.earlyAmount = 0; }
+  baseTotal(): number { return Math.round((this.precioBase() + this.totalProductos() + this.earlyCharge()) * 100) / 100; }
   commissionTotal(): number { return Math.round(this.pays().reduce((a, p) => a + (p.amount || 0) * this.payMeta(p.type).commission / 100, 0) * 100) / 100; }
   totalAPagar(): number { return Math.round((this.baseTotal() + this.commissionTotal()) * 100) / 100; }
   totalPagado(): number { return Math.round(this.pays().reduce((a, p) => a + (p.amount || 0), 0) * 100) / 100; }
@@ -656,6 +684,7 @@ export class CheckInDialogComponent {
         const stay = res.data as Stay | undefined;
         const items = [
           { description: `Tarifa: ${this.rateLabel()}`, unitPrice: this.precioBase(), quantity: 1 },
+          ...(this.earlyCharge() > 0 ? [{ description: 'Early Check-in', unitPrice: this.earlyCharge(), quantity: 1 }] : []),
           ...this.lines().map((l) => ({ productId: l.product.id, quantity: l.quantity })),
         ];
         const payments = this.pays().filter((p) => (p.amount || 0) > 0).map((p) => ({ method: this.payMeta(p.type).backend, amount: p.amount }));
