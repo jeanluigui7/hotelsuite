@@ -131,9 +131,10 @@ export const staysService = {
       durationMinutes = Math.max(1, Math.round((plannedCheckoutAt.getTime() - checkInAt.getTime()) / 60_000));
       basePrice = Number(dto.priceOverride);
     } else {
-      // Día hotelero / pernoctación: lo define el flag de la tarifa. El corte se rige por la
-      // hora de corte de la sucursal (settings/pernoctación), no por la duración.
-      const isDiaHotelero = rate.pernocta || rate.durationMinutes >= 1440 || /hotelero|noche|pernocta/i.test(rate.label);
+      // Día hotelero / pernoctación: lo define el FLAG de la tarifa (el sistema obvia la
+      // duración listada). El corte se rige por la hora de corte de la sucursal. El texto
+      // queda como respaldo solo para tarifas antiguas sin el flag.
+      const isDiaHotelero = rate.pernocta || /hotelero|pernocta|pernoctaci/i.test(rate.label);
       durationMinutes = rate.durationMinutes;
       basePrice = Number(rate.price);
       if (isDiaHotelero) {

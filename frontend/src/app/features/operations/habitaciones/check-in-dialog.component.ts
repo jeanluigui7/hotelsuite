@@ -510,7 +510,9 @@ export class CheckInDialogComponent {
 
   // --- Pernoctación / noches de estadía ---
   isPernocta(r: Rate): boolean {
-    return !!r.pernocta || (r.durationMinutes ?? 0) >= 1440 || /hotelero|noche|pernocta/i.test(r.label);
+    // La pernoctación la define el flag (el sistema obvia la duración listada). El texto
+    // queda como respaldo solo para tarifas antiguas sin el flag.
+    return !!r.pernocta || /hotelero|pernocta|pernoctaci/i.test(r.label);
   }
   selectedRate(): Rate | undefined {
     return this.rates().find((r) => r.id === this.selectedRateId);
