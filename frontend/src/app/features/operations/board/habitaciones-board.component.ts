@@ -12,6 +12,8 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { PrintingService } from '../../../core/printing/printing.service';
 import { profileForRole } from '../../../layout/menu';
 import { OperationsApiService } from '../services/operations-api.service';
+import { CatalogApiService } from '../../settings/catalogs/catalog-api.service';
+import type { RoomType } from '../../settings/catalogs/catalog.models';
 import type { ActiveStay, CheckoutSummary, RoomMapItem } from '../services/operations.models';
 import { CheckInDialogComponent } from '../habitaciones/check-in-dialog.component';
 import { VentaProductosComponent } from './venta-productos.component';
@@ -60,6 +62,7 @@ const MANT_CATS = [
             <button [class.active]="view() === 'real'" (click)="view.set('real')"><i class="pi pi-image"></i> Real</button>
           </div>
           <div class="actions">
+            @if (isAdminProfile()) { <button class="act new" (click)="openNewRoom()"><i class="pi pi-plus"></i> Nueva Habitación</button> }
             <button class="act" (click)="vehiculosVisible = true"><i class="pi pi-car"></i> Vehículos</button>
             <button class="act" (click)="checkInHint()"><i class="pi pi-sign-in"></i> Check-in</button>
             <button class="act" (click)="ventaVisible = true"><i class="pi pi-shopping-cart"></i> Venta Productos</button>
@@ -262,6 +265,22 @@ const MANT_CATS = [
       <ng-template pTemplate="footer"><p-button label="Cancelar" [text]="true" (onClick)="estadoVisible = false" /></ng-template>
     </p-dialog>
 
+    <!-- Nueva habitación (admin) -->
+    <p-dialog [(visible)]="newRoomVisible" [modal]="true" header="Nueva Habitación" [style]="{ width: '32rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      <div class="nr-form">
+        <div class="fld"><label>Número</label><input pInputText [(ngModel)]="newRoom.number" placeholder="Ej: 104" /></div>
+        <div class="fld"><label>Piso</label><input pInputText [(ngModel)]="newRoom.floor" placeholder="Ej: 1" /></div>
+        <div class="fld wide"><label>Tipo de habitación</label>
+          <p-select [options]="roomTypes()" optionLabel="name" optionValue="id" [(ngModel)]="newRoom.roomTypeId" placeholder="Selecciona el tipo" styleClass="w" appendTo="body" />
+          @if (roomTypes().length === 0) { <small class="req"><i class="pi pi-exclamation-triangle"></i> No hay tipos de habitación. Créalos en Configuraciones › Tipos de Habitación.</small> }
+        </div>
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="newRoomVisible = false" />
+        <p-button label="Crear" icon="pi pi-check" [disabled]="!newRoom.number || !newRoom.roomTypeId || savingRoom()" [loading]="savingRoom()" (onClick)="saveNewRoom()" />
+      </ng-template>
+    </p-dialog>
+
     <!-- Registrar mantenimiento de la habitación -->
     <p-dialog [(visible)]="mantVisible" [modal]="true" header="Registrar Mantenimiento" [style]="{ width: '46rem', maxWidth: '95vw' }" styleClass="dk-dialog">
       <p class="muted" style="margin:0 0 0.8rem">Registra el mantenimiento de la habitación <strong>{{ mantRoom?.roomType?.name }} - {{ mantRoom?.number }}</strong>. Selecciona una o más categorías e indica la falla.</p>
@@ -352,6 +371,13 @@ const MANT_CATS = [
       .foot-row { display: flex; gap: 0.4rem; }
       .foot-row .cta { flex: 1; }
       .cta.sm { flex: 0 0 auto; width: auto; padding: 0.6rem 0.7rem; }
+      .act.new { background: #10b981; color: #06281c; border-color: #10b981; font-weight: 700; }
+      .nr-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; }
+      .nr-form .fld { display: flex; flex-direction: column; gap: 0.35rem; } .nr-form .fld.wide { grid-column: 1 / -1; }
+      .nr-form label { font-size: 0.82rem; color: #9fb0c3; }
+      .nr-form input[pInputText] { width: 100%; }
+      :host ::ng-deep .nr-form .w { width: 100%; }
+      .nr-form .req { color: #f59e0b; font-size: 0.78rem; display: flex; align-items: center; gap: 0.3rem; }
       .ch-form { display: flex; flex-direction: column; gap: 0.4rem; }
       .ch-form label { font-size: 0.82rem; color: #9fb0c3; margin-top: 0.3rem; }
       :host ::ng-deep .ch-form .w .p-select { width: 100%; }
@@ -459,7 +485,14 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly printing = inject(PrintingService);
   private readonly auth = inject(AuthService);
+  private readonly catalog = inject(CatalogApiService);
   readonly nowTick = signal(Date.now());
+
+  // Nueva habitación (admin)
+  readonly roomTypes = signal<RoomType[]>([]);
+  readonly savingRoom = signal(false);
+  newRoomVisible = false;
+  newRoom: { number: string; floor: string; roomTypeId: string | null } = { number: '', floor: '', roomTypeId: null };
   readonly busyStay = signal<string | null>(null);
   readonly receptionPerms = signal<{ allowChangeRoom: boolean; allowWriteOff: boolean; allowViewCash: boolean }>({ allowChangeRoom: false, allowWriteOff: false, allowViewCash: true });
   private clock?: ReturnType<typeof setInterval>;
@@ -549,8 +582,23 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.reload();
+    if (this.isAdminProfile()) this.catalog.roomTypes.list({ pageSize: 100, sortBy: 'name' }).subscribe((res) => this.roomTypes.set(res.data ?? []));
     this.timer = setInterval(() => this.reload(), 15_000);
     this.clock = setInterval(() => this.nowTick.set(Date.now()), 1000);
+  }
+
+  openNewRoom(): void {
+    this.newRoom = { number: '', floor: '', roomTypeId: this.roomTypes()[0]?.id ?? null };
+    this.newRoomVisible = true;
+  }
+
+  saveNewRoom(): void {
+    if (!this.newRoom.number || !this.newRoom.roomTypeId) return;
+    this.savingRoom.set(true);
+    this.ops.rooms.create({ roomTypeId: this.newRoom.roomTypeId, number: this.newRoom.number.trim(), floor: this.newRoom.floor.trim() || undefined } as never).subscribe({
+      next: () => { this.savingRoom.set(false); this.newRoomVisible = false; this.toast.add({ severity: 'success', summary: 'Habitación creada', detail: `Hab. ${this.newRoom.number} agregada.` }); this.reload(); },
+      error: (err) => { this.savingRoom.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo crear la habitación' }); },
+    });
   }
   ngOnDestroy(): void {
     if (this.timer) clearInterval(this.timer);
