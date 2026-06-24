@@ -19,7 +19,7 @@ const BASE_ROLES: { name: string; description: string; modules: AppModule[] }[] 
   {
     name: 'Gerente',
     description: 'Administrador de sucursal',
-    modules: ['dashboard', 'operations', 'finance', 'inventory', 'logistics', 'hr', 'reports'],
+    modules: ['dashboard', 'operations', 'finance', 'inventory', 'logistics', 'hr', 'reports', 'settings'],
   },
   {
     name: 'Recepcionista',
@@ -96,8 +96,12 @@ async function main(): Promise<void> {
       create: { name: def.name, description: def.description },
     });
     for (const module of def.modules) {
-      // 'view' always; 'create'/'edit' for operational modules
-      const grant = module === 'reports' || module === 'dashboard' ? ['view'] : ['view', 'create', 'edit'];
+      // 'view' siempre; settings (config de sucursal: tarifas, tipos, etc.) gestión completa;
+      // reports/dashboard solo lectura; el resto operativo (view/create/edit).
+      const grant =
+        module === 'settings' ? ['view', 'create', 'edit', 'delete']
+          : module === 'reports' || module === 'dashboard' ? ['view']
+            : ['view', 'create', 'edit'];
       for (const action of ACTIONS) {
         if (!grant.includes(action)) continue;
         const permId = permByKey.get(`${module}:${action}`);

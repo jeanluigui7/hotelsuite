@@ -22,7 +22,7 @@ async function main(): Promise<void> {
   });
 
   // 2. Acceso de los usuarios demo a esta sucursal (para poder cambiar de sucursal)
-  for (const email of ['admin@hotelsuite.local', 'recepcion@rizzos.local', 'limpieza@rizzos.local']) {
+  for (const email of ['admin@hotelsuite.local', 'recepcion@rizzos.local', 'limpieza@rizzos.local', 'gerente@rizzos.local']) {
     const u = await prisma.user.findUnique({ where: { email } });
     if (u) await prisma.userBranch.upsert({ where: { userId_branchId: { userId: u.id, branchId: B2 } }, update: {}, create: { userId: u.id, branchId: B2 } });
   }

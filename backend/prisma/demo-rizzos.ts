@@ -70,16 +70,20 @@ async function main(): Promise<void> {
   // 1. Roles base (creados por seed.ts)
   const recepRole = await prisma.role.findFirst({ where: { name: 'Recepcionista' } });
   const limpRole = await prisma.role.findFirst({ where: { name: 'Supervisor de Limpieza' } });
+  const gerenteRole = await prisma.role.findFirst({ where: { name: 'Gerente' } });
   if (!recepRole || !limpRole) throw new Error('Faltan roles base. Corre primero `npx prisma db seed`.');
 
   // Recepción: inventario (ver/solicitar/recepcionar/baja).
   for (const action of ['view', 'create', 'edit', 'delete']) await ensureRolePermission(recepRole.id, 'inventory', action);
+  // Gerente: gestión completa de configuración (tarifas, tipos de habitación, etc.).
+  if (gerenteRole) for (const action of ['view', 'create', 'edit', 'delete']) await ensureRolePermission(gerenteRole.id, 'settings', action);
 
   // 2. Usuarios por perfil (contraseña Rizzos123!)
   const passwordHash = await bcrypt.hash('Rizzos123!', 10);
   const users = [
     { id: 'rz-user-recep', name: 'Lea Briceño Rojas', email: 'recepcion@rizzos.local', roleId: recepRole.id },
     { id: 'rz-user-limp', name: 'Carlos Mendoza', email: 'limpieza@rizzos.local', roleId: limpRole.id },
+    ...(gerenteRole ? [{ id: 'rz-user-gerente', name: 'Rubén Gerente', email: 'gerente@rizzos.local', roleId: gerenteRole.id }] : []),
   ];
   for (const u of users) {
     await prisma.user.upsert({
