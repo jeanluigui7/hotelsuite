@@ -122,36 +122,43 @@ const EMPTY: Form = {
           <h3>Tarifas base (por duración)</h3>
           <table class="rates">
             <thead>
-              <tr><th>Etiqueta</th><th>Duración</th><th>Precio</th><th></th></tr>
+              <tr><th>Etiqueta</th><th>Duración</th><th>Precio</th><th>Pernoctación</th><th>Especial</th><th>Estado</th><th></th></tr>
             </thead>
             <tbody>
               @for (rate of rates(); track rate.id) {
                 <tr>
                   <td>{{ rate.label }}</td>
-                  <td>{{ rate.durationMinutes }} min</td>
+                  <td>{{ rate.pernocta ? 'Pernoctación' : rate.durationMinutes + ' min' }}</td>
                   <td>{{ rate.price }}</td>
+                  <td>{{ rate.pernocta ? 'Sí' : 'No' }}</td>
+                  <td>{{ rate.special ? 'Sí' : 'No' }}</td>
+                  <td>{{ rate.status === 'active' ? 'Activa' : 'Inactiva' }}</td>
                   <td>
-                    @if (canDelete) {
-                      <p-button icon="pi pi-trash" severity="danger" [text]="true" (onClick)="deleteRate(rate)" />
-                    }
+                    @if (canEdit) { <p-button icon="pi pi-pencil" [text]="true" (onClick)="openEditRate(rate)" /> }
+                    @if (canDelete) { <p-button icon="pi pi-trash" severity="danger" [text]="true" (onClick)="deleteRate(rate)" /> }
                   </td>
                 </tr>
               }
               @if (rates().length === 0) {
-                <tr><td colspan="4" class="muted center">Sin tarifas. Agrega una abajo.</td></tr>
+                <tr><td colspan="7" class="muted center">Sin tarifas. Agrega una abajo.</td></tr>
               }
             </tbody>
           </table>
 
           @if (canCreate) {
             <div class="rate-add">
-              <p-select [options]="durationPresets" optionLabel="label" optionValue="value"
-                        [(ngModel)]="newRate.durationMinutes" placeholder="Duración" styleClass="rate-dur"
-                        (onChange)="onPresetChange()" />
+              @if (!newRate.pernocta) {
+                <p-select [options]="durationPresets" optionLabel="label" optionValue="value"
+                          [(ngModel)]="newRate.durationMinutes" placeholder="Duración" styleClass="rate-dur"
+                          (onChange)="onPresetChange()" />
+              }
               <input pInputText placeholder="Etiqueta" [(ngModel)]="newRate.label" class="rate-label" />
               <p-inputNumber [(ngModel)]="newRate.price" mode="currency" currency="PEN" locale="es-PE" placeholder="Precio" styleClass="rate-price" />
+              <label class="rate-chk"><input type="checkbox" [(ngModel)]="newRate.pernocta" /> Pernoctación</label>
+              <label class="rate-chk"><input type="checkbox" [(ngModel)]="newRate.special" /> Especial</label>
               <p-button icon="pi pi-plus" label="Agregar" (onClick)="addRate()" [loading]="addingRate()" />
             </div>
+            <p class="muted hint">Marca <b>Pernoctación</b> si la salida se rige por la hora de corte de la sucursal (no por la duración).</p>
           }
         } @else {
           <p class="muted hint">Guarda el tipo de habitación para agregar sus tarifas base.</p>
@@ -162,9 +169,35 @@ const EMPTY: Form = {
         <p-button label="Guardar" icon="pi pi-check" [loading]="saving()" (onClick)="save()" />
       </ng-template>
     </p-dialog>
+
+    <!-- Editar tarifa -->
+    <p-dialog [(visible)]="rateEditVisible" [modal]="true" [style]="{ width: '28rem', maxWidth: '95vw' }" header="Editar tarifa">
+      <div class="re-form">
+        <label>Etiqueta</label>
+        <input pInputText [(ngModel)]="rateEdit.label" />
+        <label class="re-chk"><input type="checkbox" [(ngModel)]="rateEdit.pernocta" /> Pernoctación <small class="muted">(sigue la hora de corte de la sucursal)</small></label>
+        @if (!rateEdit.pernocta) {
+          <label>Duración (minutos)</label>
+          <p-inputNumber [(ngModel)]="rateEdit.durationMinutes" [min]="1" styleClass="w-full" />
+        }
+        <label>Precio (S/)</label>
+        <p-inputNumber [(ngModel)]="rateEdit.price" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w-full" />
+        <label class="re-chk"><input type="checkbox" [(ngModel)]="rateEdit.special" /> Tarifa especial</label>
+        <label class="re-chk"><input type="checkbox" [checked]="rateEdit.status === 'active'" (change)="rateEdit.status = rateEdit.status === 'active' ? 'inactive' : 'active'" /> Activa</label>
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="rateEditVisible = false" />
+        <p-button label="Guardar" icon="pi pi-check" [loading]="savingRate()" (onClick)="saveRateEdit()" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
+      .re-form { display: flex; flex-direction: column; gap: 0.4rem; }
+      .re-form label { font-size: 0.85rem; font-weight: 600; margin-top: 0.4rem; }
+      .re-form label.re-chk { display: flex; align-items: center; gap: 0.5rem; font-weight: 500; cursor: pointer; }
+      .re-form input:not([type=checkbox]), :host ::ng-deep .re-form .w-full { width: 100%; }
+      .rate-chk { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer; }
       h3 {
         margin: 1.25rem 0 0.5rem;
         font-size: 1rem;
@@ -225,7 +258,11 @@ export class RoomTypesComponent implements OnInit {
 
   dialogVisible = false;
   form: Form = { ...EMPTY };
-  newRate = { label: '', durationMinutes: 180, price: null as number | null };
+  newRate = { label: '', durationMinutes: 180, price: null as number | null, pernocta: false, special: false };
+  // Edición de una tarifa existente
+  rateEditVisible = false;
+  rateEdit: { id: string; label: string; durationMinutes: number; price: number; pernocta: boolean; special: boolean; status: string } = { id: '', label: '', durationMinutes: 180, price: 0, pernocta: false, special: false, status: 'active' };
+  readonly savingRate = signal(false);
 
   readonly canCreate = this.auth.can('settings', 'create');
   readonly canEdit = this.auth.can('settings', 'edit');
@@ -316,13 +353,15 @@ export class RoomTypesComponent implements OnInit {
       .create({
         roomTypeId: this.form.id,
         label: this.newRate.label,
-        durationMinutes: this.newRate.durationMinutes,
+        durationMinutes: this.newRate.pernocta ? 1440 : this.newRate.durationMinutes,
         price: this.newRate.price,
-      })
+        pernocta: this.newRate.pernocta,
+        special: this.newRate.special,
+      } as unknown as Rate)
       .subscribe({
         next: () => {
           this.addingRate.set(false);
-          this.newRate = { label: '', durationMinutes: 180, price: null };
+          this.newRate = { label: '', durationMinutes: 180, price: null, pernocta: false, special: false };
           this.loadRates(this.form.id!);
           this.reload();
         },
@@ -331,6 +370,30 @@ export class RoomTypesComponent implements OnInit {
           this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo agregar la tarifa.' });
         },
       });
+  }
+
+  openEditRate(rate: Rate): void {
+    this.rateEdit = { id: rate.id, label: rate.label, durationMinutes: rate.durationMinutes, price: Number(rate.price), pernocta: !!rate.pernocta, special: !!rate.special, status: rate.status };
+    this.rateEditVisible = true;
+  }
+
+  saveRateEdit(): void {
+    if (!this.rateEdit.label || (!this.rateEdit.pernocta && !this.rateEdit.durationMinutes)) {
+      this.messages.add({ severity: 'warn', summary: 'Datos incompletos', detail: 'Etiqueta y duración (si no es pernoctación) son obligatorios.' });
+      return;
+    }
+    this.savingRate.set(true);
+    this.catalog.rates.update(this.rateEdit.id, {
+      label: this.rateEdit.label,
+      durationMinutes: this.rateEdit.pernocta ? 1440 : this.rateEdit.durationMinutes,
+      price: this.rateEdit.price,
+      pernocta: this.rateEdit.pernocta,
+      special: this.rateEdit.special,
+      status: this.rateEdit.status,
+    } as unknown as Partial<Rate>).subscribe({
+      next: () => { this.savingRate.set(false); this.rateEditVisible = false; this.loadRates(this.form.id!); this.reload(); this.messages.add({ severity: 'success', summary: 'Tarifa actualizada', detail: '' }); },
+      error: (err: HttpErrorResponse) => { this.savingRate.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo actualizar.' }); },
+    });
   }
 
   deleteRate(rate: Rate): void {

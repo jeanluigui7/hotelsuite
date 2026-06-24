@@ -286,6 +286,8 @@ model Rate {
   label           String // "3 horas", "12 horas", "Noche", etc.
   durationMinutes Int
   price           Decimal  @db.Decimal(10, 2)
+  pernocta        Boolean  @default(false) // tarifa de pernoctación: el corte sigue la hora de corte de la sucursal (no la duración)
+  special         Boolean  @default(false) // tarifa especial (promocional / negociada)
   status          String   @default("active")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

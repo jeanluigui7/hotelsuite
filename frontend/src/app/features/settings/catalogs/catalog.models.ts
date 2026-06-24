@@ -52,6 +52,8 @@ export interface Rate {
   label: string;
   durationMinutes: number;
   price: string | number;
+  pernocta?: boolean;
+  special?: boolean;
   status: string;
 }
 

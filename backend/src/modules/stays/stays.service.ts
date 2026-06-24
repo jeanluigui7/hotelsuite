@@ -114,9 +114,10 @@ export const staysService = {
     if (!guestId) throw new ValidationError('Huésped requerido');
 
     const checkInAt = new Date();
-    // Día hotelero: tarifas de día completo (>=1440 min) o etiquetadas "hotelero/noche"
-    // usan horario fijo de pernocta (no 24h) y pueden generar cargo de early check-in.
-    const isDiaHotelero = rate.durationMinutes >= 1440 || /hotelero|noche|pernocta/i.test(rate.label);
+    // Día hotelero / pernoctación: lo define el flag de la tarifa (con respaldo en la
+    // heurística para tarifas antiguas). El corte se rige por la hora de corte de la
+    // sucursal (settings/pernoctación), no por la duración.
+    const isDiaHotelero = rate.pernocta || rate.durationMinutes >= 1440 || /hotelero|noche|pernocta/i.test(rate.label);
     let plannedCheckoutAt: Date;
     let balanceDue: number | null = null;
     let earlyNote = '';

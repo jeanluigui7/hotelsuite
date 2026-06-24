@@ -125,18 +125,18 @@ async function main(): Promise<void> {
 
   // 3b. Tarifas por tipo de habitación (Duración / Tarifa del check-in). Incluye Pernoctación.
   const rates = [
-    { roomTypeId: 'rz-rt-simple', label: '3 horas', durationMinutes: 180, price: 30 },
-    { roomTypeId: 'rz-rt-simple', label: '12 horas', durationMinutes: 720, price: 45 },
-    { roomTypeId: 'rz-rt-simple', label: 'DIA HOTELERO', durationMinutes: 1440, price: 50 },
-    { roomTypeId: 'rz-rt-doble', label: '3 horas', durationMinutes: 180, price: 40 },
-    { roomTypeId: 'rz-rt-doble', label: '12 horas', durationMinutes: 720, price: 60 },
-    { roomTypeId: 'rz-rt-doble', label: 'DIA HOTELERO', durationMinutes: 1440, price: 80 },
+    { roomTypeId: 'rz-rt-simple', label: '3 horas', durationMinutes: 180, price: 30, pernocta: false },
+    { roomTypeId: 'rz-rt-simple', label: '12 horas', durationMinutes: 720, price: 45, pernocta: false },
+    { roomTypeId: 'rz-rt-simple', label: 'DIA HOTELERO', durationMinutes: 1440, price: 50, pernocta: true },
+    { roomTypeId: 'rz-rt-doble', label: '3 horas', durationMinutes: 180, price: 40, pernocta: false },
+    { roomTypeId: 'rz-rt-doble', label: '12 horas', durationMinutes: 720, price: 60, pernocta: false },
+    { roomTypeId: 'rz-rt-doble', label: 'DIA HOTELERO', durationMinutes: 1440, price: 80, pernocta: true },
   ];
   for (const t of rates) {
     await prisma.rate.upsert({
       where: { branchId_roomTypeId_durationMinutes: { branchId: RZ, roomTypeId: t.roomTypeId, durationMinutes: t.durationMinutes } },
-      update: { label: t.label, price: t.price, status: 'active' },
-      create: { branchId: RZ, roomTypeId: t.roomTypeId, label: t.label, durationMinutes: t.durationMinutes, price: t.price, status: 'active' },
+      update: { label: t.label, price: t.price, status: 'active', pernocta: t.pernocta },
+      create: { branchId: RZ, roomTypeId: t.roomTypeId, label: t.label, durationMinutes: t.durationMinutes, price: t.price, status: 'active', pernocta: t.pernocta },
     });
   }
 

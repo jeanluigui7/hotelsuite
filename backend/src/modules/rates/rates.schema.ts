@@ -5,6 +5,8 @@ export const createRateSchema = z.object({
   label: z.string().min(1).max(80),
   durationMinutes: z.coerce.number().int().min(1),
   price: z.coerce.number().min(0),
+  pernocta: z.coerce.boolean().optional().default(false),
+  special: z.coerce.boolean().optional().default(false),
   status: z.enum(['active', 'inactive']).default('active'),
 });
 
