@@ -180,6 +180,7 @@ export const ADMIN_MENU: MenuItem[] = [
       { label: 'Pool WiFi', route: '/settings/wifi' },
       { label: 'Clientes', route: '/settings/clientes' },
       { label: 'Tiers de Clientes', route: '/settings/tiers' },
+      { label: 'Tarifas', route: '/settings/tarifas-base' },
       { label: 'Tipos de Habitación', route: '/settings/tipos-habitacion' },
       { label: 'Atributos de Habitación', route: '/settings/atributos' },
       { label: 'Tarifa Personalizada', route: '/settings/tarifas' },

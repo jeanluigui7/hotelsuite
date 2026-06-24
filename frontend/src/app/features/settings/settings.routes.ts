@@ -36,6 +36,10 @@ const routes: Routes = [
     loadComponent: () => import('./clientes/guests.component').then((m) => m.GuestsComponent),
   },
   {
+    path: 'tarifas-base',
+    loadComponent: () => import('./tarifas/rates.component').then((m) => m.RatesComponent),
+  },
+  {
     path: 'tarifas',
     loadComponent: () => import('./tarifas/custom-rates.component').then((m) => m.CustomRatesComponent),
   },
