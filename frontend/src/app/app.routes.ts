@@ -30,6 +30,11 @@ export const routes: Routes = [
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
       // Ruta interna vacía para reinstanciar la vista actual (cambio de sucursal).
       { path: '_reload', component: BlankComponent },
+      // Configuración de perfil (cualquier usuario autenticado).
+      {
+        path: 'perfil',
+        loadComponent: () => import('./features/profile/profile-settings.component').then((m) => m.ProfileSettingsComponent),
+      },
       {
         path: 'dashboard',
         loadChildren: () => import('./features/dashboard/dashboard.routes'),

@@ -15,6 +15,8 @@ export function toAuthUser(user: UserWithRelations): AuthUser {
   return {
     userId: user.id,
     email: user.email,
+    name: user.name,
+    phone: user.phone ?? null,
     roleId: user.roleId,
     roleName: user.role.name,
     isSuperAdmin: user.role.name === SUPER_ADMIN_ROLE,

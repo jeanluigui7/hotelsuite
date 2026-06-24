@@ -56,6 +56,21 @@ export class AuthService {
       .pipe(tap(() => this.clearSession()));
   }
 
+  /** Actualiza el perfil propio (nombre, correo, teléfono) y refresca la sesión. */
+  updateProfile(dto: { name: string; email: string; phone?: string }): Observable<ApiResponse<{ user: AuthUser }>> {
+    return this.http
+      .patch<ApiResponse<{ user: AuthUser }>>(`${this.api}/auth/profile`, dto)
+      .pipe(tap((res) => {
+        const current = this.session();
+        if (current && res.data?.user) this.session.set({ ...current, user: res.data.user });
+      }));
+  }
+
+  /** Cambia la contraseña del propio usuario. */
+  changePassword(dto: { currentPassword: string; newPassword: string }): Observable<ApiResponse<{ success: boolean }>> {
+    return this.http.post<ApiResponse<{ success: boolean }>>(`${this.api}/auth/change-password`, dto);
+  }
+
   loadBranches(): Observable<ApiResponse<Branch[]>> {
     return this.http
       .get<ApiResponse<Branch[]>>(`${this.api}/branches`, { params: { pageSize: 100 } })

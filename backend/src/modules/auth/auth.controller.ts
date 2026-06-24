@@ -4,7 +4,7 @@ import { ok } from '../../shared/response';
 import { UnauthorizedError } from '../../shared/errors';
 import { ttlToMs } from '../../shared/tokens';
 import { authService } from './auth.service';
-import { loginSchema } from './auth.schema';
+import { loginSchema, updateProfileSchema, changePasswordSchema } from './auth.schema';
 
 function refreshCookieOptions(): CookieOptions {
   // secure sigue a NODE_ENV salvo que COOKIE_SECURE lo fuerce (p. ej. preview por HTTP).
@@ -52,5 +52,19 @@ export const authController = {
     if (!req.user) throw new UnauthorizedError();
     const user = await authService.me(req.user.userId);
     res.status(200).json(ok({ user }));
+  },
+
+  async updateProfile(req: Request, res: Response): Promise<void> {
+    if (!req.user) throw new UnauthorizedError();
+    const dto = updateProfileSchema.parse(req.body);
+    const user = await authService.updateProfile(req.user.userId, dto);
+    res.status(200).json(ok({ user }));
+  },
+
+  async changePassword(req: Request, res: Response): Promise<void> {
+    if (!req.user) throw new UnauthorizedError();
+    const dto = changePasswordSchema.parse(req.body);
+    await authService.changePassword(req.user.userId, dto);
+    res.status(200).json(ok({ success: true }));
   },
 };

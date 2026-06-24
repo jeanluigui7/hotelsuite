@@ -36,15 +36,33 @@ const NAVY_SURFACE = {
 
 const DARK_KEY = 'rz_theme_dark';
 const ACCENT_KEY = 'rz_theme_accent';
+const MODE_KEY = 'rz_theme_mode';
+
+export type ThemeMode = 'claro' | 'oscuro' | 'sistema';
 
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
   readonly accents = ACCENTS;
   readonly dark = signal<boolean>(this.readDark());
   readonly accent = signal<string>(localStorage.getItem(ACCENT_KEY) ?? 'emerald');
+  readonly mode = signal<ThemeMode>((localStorage.getItem(MODE_KEY) as ThemeMode) || (this.readDark() ? 'oscuro' : 'claro'));
+  private readonly media = window.matchMedia('(prefers-color-scheme: dark)');
 
   constructor() {
-    this.apply();
+    this.applyMode(this.mode());
+    this.media.addEventListener('change', () => { if (this.mode() === 'sistema') this.applyMode('sistema'); });
+  }
+
+  /** Apariencia: Claro / Oscuro / Sistema (Sistema sigue al SO). */
+  setMode(mode: ThemeMode): void {
+    this.mode.set(mode);
+    localStorage.setItem(MODE_KEY, mode);
+    this.applyMode(mode);
+  }
+
+  private applyMode(mode: ThemeMode): void {
+    const dark = mode === 'oscuro' || (mode === 'sistema' && this.media.matches);
+    this.setDark(dark);
   }
 
   private readDark(): boolean {

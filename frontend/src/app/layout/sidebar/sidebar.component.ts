@@ -67,14 +67,26 @@ import { LayoutService } from '../layout.service';
         }
       </ul>
 
-      <!-- Pie: usuario -->
-      <div class="user-foot">
-        <span class="avatar">{{ initials() }}</span>
-        <span class="meta">
-          <strong>{{ displayName() }}</strong>
-          <small>{{ auth.user()?.roleName }}</small>
-        </span>
-        <i class="pi pi-angle-up"></i>
+      <!-- Pie: usuario (menú desplegable) -->
+      <div class="user-wrap">
+        @if (userMenuOpen()) {
+          <div class="user-menu">
+            <div class="um-head">
+              <span class="avatar">{{ initials() }}</span>
+              <span class="meta"><strong>{{ displayName() }}</strong><small class="role">{{ auth.user()?.roleName }}</small><small>{{ auth.user()?.email }}</small></span>
+            </div>
+            <button class="um-item" (click)="goProfile()"><i class="pi pi-cog"></i> Configuración</button>
+            <button class="um-item danger" (click)="logout()"><i class="pi pi-sign-out"></i> Salir</button>
+          </div>
+        }
+        <button type="button" class="user-foot" (click)="userMenuOpen.set(!userMenuOpen())">
+          <span class="avatar">{{ initials() }}</span>
+          <span class="meta">
+            <strong>{{ displayName() }}</strong>
+            <small>{{ auth.user()?.roleName }}</small>
+          </span>
+          <i class="pi" [class.pi-angle-up]="!userMenuOpen()" [class.pi-angle-down]="userMenuOpen()"></i>
+        </button>
       </div>
     </nav>
   `,
@@ -148,14 +160,27 @@ import { LayoutService } from '../layout.service';
         background: linear-gradient(90deg, var(--rz-accent, #10b981), color-mix(in srgb, var(--rz-accent, #10b981) 60%, #ffffff));
       }
 
+      .user-wrap { position: relative; }
       .user-foot {
-        display: flex; align-items: center; gap: 0.55rem; padding: 0.85rem 1rem;
+        width: 100%; display: flex; align-items: center; gap: 0.55rem; padding: 0.85rem 1rem;
         border-top: 1px solid var(--p-content-border-color, #1c2c44);
+        background: transparent; border-left: 0; border-right: 0; border-bottom: 0; cursor: pointer; color: inherit; text-align: left;
       }
-      .user-foot .avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--rz-accent, #10b981); color: #04130d; font-weight: 700; font-size: 0.78rem; display: inline-flex; align-items: center; justify-content: center; }
-      .user-foot .meta { display: flex; flex-direction: column; line-height: 1.15; flex: 1; min-width: 0; }
-      .user-foot .meta strong { font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .user-foot .meta small { color: var(--p-text-muted-color, #8aa0bd); font-size: 0.72rem; }
+      .user-foot:hover { background: var(--p-content-hover-background, rgba(255,255,255,0.04)); }
+      .user-foot .avatar, .um-head .avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--rz-accent, #10b981); color: #04130d; font-weight: 700; font-size: 0.78rem; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+      .user-foot .meta, .um-head .meta { display: flex; flex-direction: column; line-height: 1.15; flex: 1; min-width: 0; }
+      .user-foot .meta strong, .um-head .meta strong { font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .user-foot .meta small, .um-head .meta small { color: var(--p-text-muted-color, #8aa0bd); font-size: 0.72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .um-head .meta small.role { color: #a855f7; }
+      .user-menu {
+        position: absolute; left: 0.6rem; right: 0.6rem; bottom: calc(100% + 0.4rem);
+        background: var(--p-content-background, #0e1622); border: 1px solid var(--p-content-border-color, #1c2c44);
+        border-radius: 12px; box-shadow: 0 10px 28px rgba(0,0,0,0.4); padding: 0.4rem; z-index: 50;
+      }
+      .um-head { display: flex; gap: 0.55rem; align-items: center; padding: 0.6rem; border-bottom: 1px solid var(--p-content-border-color, #1c2c44); margin-bottom: 0.3rem; }
+      .um-item { width: 100%; text-align: left; background: transparent; border: 0; border-radius: 9px; padding: 0.65rem 0.7rem; cursor: pointer; color: var(--p-text-color, #e6eef7); display: flex; align-items: center; gap: 0.6rem; font-size: 0.9rem; }
+      .um-item:hover { background: var(--p-content-hover-background, rgba(255,255,255,0.05)); }
+      .um-item.danger { color: #f87171; }
     `,
   ],
 })
@@ -209,8 +234,25 @@ export class SidebarComponent {
     this.openGroups.set(next);
   }
 
+  readonly userMenuOpen = signal(false);
+
+  goProfile(): void {
+    this.userMenuOpen.set(false);
+    this.layout.closeSidebar();
+    void this.router.navigateByUrl('/perfil');
+  }
+
+  logout(): void {
+    this.userMenuOpen.set(false);
+    this.auth.logout().subscribe({
+      next: () => this.router.navigateByUrl('/login'),
+      error: () => this.router.navigateByUrl('/login'),
+    });
+  }
+
   displayName(): string {
-    return this.auth.user()?.email?.split('@')[0] ?? 'Usuario';
+    const u = this.auth.user();
+    return u?.name?.trim() || u?.email?.split('@')[0] || 'Usuario';
   }
 
   initials(): string {

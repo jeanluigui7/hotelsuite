@@ -2,6 +2,8 @@
 export interface AuthUser {
   userId: string;
   email: string;
+  name: string;
+  phone: string | null;
   roleId: string;
   roleName: string;
   isSuperAdmin: boolean;

@@ -82,6 +82,7 @@ model User {
   id           String   @id @default(uuid())
   name         String
   email        String   @unique
+  phone        String? // teléfono de contacto (perfil)
   passwordHash String
   status       String   @default("active") // active | inactive
   roleId       String

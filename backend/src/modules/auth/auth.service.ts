@@ -1,7 +1,8 @@
 import type { AuthUser } from '../../shared/context';
 import { env } from '../../config/env';
-import { UnauthorizedError, ForbiddenError } from '../../shared/errors';
-import { verifyPassword } from '../../shared/password';
+import { prisma } from '../../config/prisma';
+import { UnauthorizedError, ForbiddenError, ConflictError, ValidationError } from '../../shared/errors';
+import { verifyPassword, hashPassword } from '../../shared/password';
 import {
   generateRefreshToken,
   hashRefreshToken,
@@ -9,7 +10,7 @@ import {
   ttlToMs,
 } from '../../shared/tokens';
 import { authRepository, toAuthUser } from './auth.repository';
-import type { LoginDto } from './auth.schema';
+import type { LoginDto, UpdateProfileDto, ChangePasswordDto } from './auth.schema';
 
 export interface AuthResult {
   user: AuthUser;
@@ -88,5 +89,23 @@ export const authService = {
       throw new UnauthorizedError('Sesión no válida');
     }
     return toAuthUser(record);
+  },
+
+  /** Actualiza el perfil del propio usuario (nombre, correo, teléfono). */
+  async updateProfile(userId: string, dto: UpdateProfileDto): Promise<AuthUser> {
+    const existing = await prisma.user.findUnique({ where: { email: dto.email } });
+    if (existing && existing.id !== userId) throw new ConflictError('El correo ya está en uso por otro usuario');
+    await prisma.user.update({ where: { id: userId }, data: { name: dto.name.trim(), email: dto.email.trim(), phone: dto.phone?.trim() || null } });
+    return this.me(userId);
+  },
+
+  /** Cambia la contraseña del propio usuario (verifica la actual). */
+  async changePassword(userId: string, dto: ChangePasswordDto): Promise<void> {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedError('Sesión no válida');
+    const valid = await verifyPassword(dto.currentPassword, user.passwordHash);
+    if (!valid) throw new ValidationError('La contraseña actual es incorrecta');
+    await prisma.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(dto.newPassword) } });
+    await authRepository.revokeAllForUser(userId);
   },
 };
