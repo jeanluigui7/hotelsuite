@@ -40,7 +40,10 @@ export interface RoomMapItem {
   floor?: string | null;
   status: RoomStatus;
   roomType: { id: string; name: string };
+  attributes?: { name: string; icon?: string | null }[];
   notes?: string | null;
+  imageUrl?: string | null;
+  frigobarEnabled?: boolean;
   activeStay: ActiveStay | null;
 }
 
@@ -59,6 +62,8 @@ export interface RoomUpsert {
   number: string;
   floor?: string;
   notes?: string;
+  imageUrl?: string;
+  frigobarEnabled?: boolean;
 }
 
 export interface NewGuestInput {

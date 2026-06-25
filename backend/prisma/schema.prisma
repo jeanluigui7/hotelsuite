@@ -413,6 +413,8 @@ model Room {
   status     String   @default("FREE")
   blocked    Boolean  @default(false) // habitación crítica bloqueada hasta resolver mantenimiento
   notes      String?
+  imageUrl        String?  @db.NVarChar(Max)
+  frigobarEnabled Boolean  @default(false)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 

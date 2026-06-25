@@ -22,8 +22,11 @@ function serializeMap(room: RoomForMap) {
     number: room.number,
     floor: room.floor,
     status: room.status,
-    roomType: room.roomType,
+    roomType: { id: room.roomType.id, name: room.roomType.name },
+    attributes: room.roomType.attributes.map((a) => ({ name: a.attribute.name, icon: a.attribute.icon })),
     notes: room.notes,
+    imageUrl: room.imageUrl,
+    frigobarEnabled: room.frigobarEnabled,
     activeStay: stay
       ? {
           id: stay.id,
@@ -102,6 +105,8 @@ export const roomsService = {
         number: dto.number,
         floor: dto.floor || null,
         notes: dto.notes || null,
+        imageUrl: dto.imageUrl || null,
+        frigobarEnabled: dto.frigobarEnabled ?? false,
       });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
@@ -120,6 +125,8 @@ export const roomsService = {
         number: dto.number,
         floor: dto.floor === '' ? null : dto.floor,
         notes: dto.notes === '' ? null : dto.notes,
+        ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl === '' ? null : dto.imageUrl } : {}),
+        ...(dto.frigobarEnabled !== undefined ? { frigobarEnabled: dto.frigobarEnabled } : {}),
         ...(dto.roomTypeId ? { roomType: { connect: { id: dto.roomTypeId } } } : {}),
       });
     } catch (err) {

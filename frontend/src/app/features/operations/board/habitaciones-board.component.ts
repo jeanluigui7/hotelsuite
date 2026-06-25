@@ -117,7 +117,7 @@ const MANT_CATS = [
               </div>
               <div class="oc-foot">
                 <button class="cta out" (click)="confirmCheckout(r)"><i class="pi pi-sign-out"></i> Pre Checkout</button>
-                <button class="cta out ghost2" (click)="openFolio(r)"><i class="pi pi-pencil"></i> Editar</button>
+                <button class="cta out ghost2" (click)="openEdit(r)"><i class="pi pi-pencil"></i> Editar</button>
               </div>
             </article>
           } @else {
@@ -129,15 +129,13 @@ const MANT_CATS = [
               <div class="rc-line"></div>
               <div class="rc-body"><i [class]="st(r).icon"></i><div class="caption">{{ st(r).caption }}</div></div>
               <div class="rc-foot">
-                <span class="rc-attrs">Sin atributos</span>
-                @if (r.status === 'FREE' || r.status === 'RESERVADA') {
-                  <button class="cta estado-btn" (click)="openEstado(r)">Estado <i class="pi pi-arrow-right"></i></button>
-                } @else {
-                  <span class="rc-acts">
-                    <button class="cta sm light" (click)="openEstado(r)"><i class="pi pi-pencil"></i> Editar</button>
-                    @if (isAdminProfile()) { <button class="cta sm trash" (click)="deleteRoom(r)" pTooltip="Eliminar habitación"><i class="pi pi-trash"></i></button> }
-                  </span>
-                }
+                <span class="rc-attrs">
+                  @if (r.attributes?.length) { {{ attrLabel(r) }} } @else { Sin atributos }
+                </span>
+                <span class="rc-acts">
+                  <button class="cta sm light" (click)="openEdit(r)"><i class="pi pi-pencil"></i> Editar</button>
+                  @if (isAdminProfile()) { <button class="cta sm trash" (click)="deleteRoom(r)" pTooltip="Eliminar habitación"><i class="pi pi-trash"></i></button> }
+                </span>
               </div>
             </article>
           }
@@ -252,17 +250,43 @@ const MANT_CATS = [
       </ng-template>
     </p-dialog>
 
-    <!-- Cambiar estado de habitación (Editar) -->
-    <p-dialog [(visible)]="estadoVisible" [modal]="true" header="Cambiar Estado de Habitación" [style]="{ width: '40rem', maxWidth: '95vw' }" styleClass="dk-dialog">
-      <p class="muted" style="margin:0 0 1rem">Selecciona el nuevo estado para la habitación {{ estadoRoom?.roomType?.name }} - {{ estadoRoom?.number }}.</p>
-      <div class="est-rows">
-        <button class="est-r" [disabled]="savingEstado()" (click)="applyEstado('FREE')"><span class="d green"></span> Disponible</button>
-        <button class="est-r" [disabled]="savingEstado()" (click)="applyEstado('RESERVADA')"><span class="d purple"></span> Reservada</button>
-        <button class="est-r" [disabled]="savingEstado()" (click)="applyEstado('OCUPADA')"><span class="d blue"></span> Ocupada</button>
-        <button class="est-r" [disabled]="savingEstado()" (click)="applyEstado('LIMPIEZA_SOLICITADA')"><span class="d amber"></span> Limpieza solicitada</button>
-        <button class="est-r" [disabled]="savingEstado()" (click)="openMantenimiento()"><span class="d red"></span> Mantenimiento</button>
+    <!-- Editar habitación (cualquier estado) -->
+    <p-dialog [(visible)]="editVisible" [modal]="true" header="Editar Habitación" [style]="{ width: '34rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      <p class="ed-sub">Modifica los detalles de la habitación.</p>
+      <div class="ed-form">
+        <div class="ed-grid">
+          <div class="fld"><label>Número</label><input pInputText [(ngModel)]="editForm.number" placeholder="103" /></div>
+          <div class="fld"><label>Piso</label><input pInputText [(ngModel)]="editForm.floor" placeholder="1" /></div>
+        </div>
+        <div class="ed-grid">
+          <div class="fld"><label>Tipo de Habitación</label>
+            <p-select [options]="roomTypes()" optionLabel="name" optionValue="id" [(ngModel)]="editForm.roomTypeId" placeholder="Selecciona" styleClass="w" appendTo="body" />
+          </div>
+          <div class="fld"><label>Estado</label>
+            @if (editRoom?.status === 'OCCUPIED') {
+              <input pInputText value="Ocupada" disabled pTooltip="Una habitación ocupada se gestiona desde el Check-out" />
+            } @else {
+              <p-select [options]="editStatusOptions" optionLabel="label" optionValue="value" [(ngModel)]="editForm.status" styleClass="w" appendTo="body" />
+            }
+          </div>
+        </div>
+        <div class="fld"><label>URL de Imagen</label><input pInputText [(ngModel)]="editForm.imageUrl" placeholder="https://ejemplo.com/habitacion.jpg" /></div>
+        <div class="fld">
+          <label>Atributos de Habitación</label>
+          <div class="ed-attrs">
+            @for (a of editAttributes(); track a.name) { <span class="ed-attr">{{ a.name }}</span> }
+            @if (!editAttributes().length) { <span class="muted">El tipo seleccionado no tiene atributos. Configúralos en Tipos de Habitación.</span> }
+          </div>
+        </div>
+        <label class="ed-toggle">
+          <span class="ed-tg-body"><strong><i class="pi pi-snowflake"></i> Fríobar</strong><small>Habilitar control de fríobar para esta habitación</small></span>
+          <input type="checkbox" [(ngModel)]="editForm.frigobarEnabled" />
+        </label>
       </div>
-      <ng-template pTemplate="footer"><p-button label="Cancelar" [text]="true" (onClick)="estadoVisible = false" /></ng-template>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" severity="secondary" [text]="true" [disabled]="savingEdit()" (onClick)="editVisible = false" />
+        <p-button label="Guardar Cambios" icon="pi pi-check" [disabled]="!editForm.number || !editForm.roomTypeId || savingEdit()" [loading]="savingEdit()" (onClick)="saveEdit()" />
+      </ng-template>
     </p-dialog>
 
     <!-- Nueva habitación (admin) -->
@@ -465,6 +489,21 @@ const MANT_CATS = [
       .d.green { background: #10b981; } .d.purple { background: #a855f7; } .d.blue { background: #3b82f6; } .d.amber { background: #f59e0b; } .d.red { background: #ef4444; }
       .foot-row.end { justify-content: flex-end; }
       .estado-btn { background: rgba(255,255,255,0.92); color: #0b1018; font-weight: 700; flex: 0 0 auto; }
+      /* Editar habitación */
+      .ed-sub { margin: 0 0 1.1rem; color: #9fb0c3; font-size: 0.86rem; }
+      .ed-form { display: flex; flex-direction: column; gap: 1rem; }
+      .ed-form .ed-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+      .ed-form .fld { display: flex; flex-direction: column; gap: 0.35rem; }
+      .ed-form label { font-size: 0.82rem; color: #9fb0c3; font-weight: 600; }
+      .ed-form input[pInputText] { width: 100%; }
+      :host ::ng-deep .ed-form .w { width: 100%; }
+      .ed-attrs { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+      .ed-attr { background: #1a2333; border: 1px solid #2c3a4f; color: #cdd7e4; border-radius: 999px; padding: 0.25rem 0.7rem; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; }
+      .ed-toggle { display: flex; align-items: center; justify-content: space-between; gap: 1rem; background: #131b27; border: 1px solid #243245; border-radius: 12px; padding: 0.9rem 1rem; cursor: pointer; }
+      .ed-tg-body { display: flex; flex-direction: column; gap: 0.2rem; }
+      .ed-tg-body strong { color: #e6e9ef; font-size: 0.95rem; display: flex; align-items: center; gap: 0.45rem; }
+      .ed-tg-body small { color: #9fb0c3; font-size: 0.78rem; }
+      .ed-toggle input { width: 20px; height: 20px; accent-color: #10b981; cursor: pointer; }
       .mant-cats { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
       .mant-cat { background: #131b27; border: 1px solid #243245; border-radius: 10px; padding: 0.7rem 0.8rem; }
       .mant-cat.on { border-color: #ef4444; }
@@ -538,6 +577,23 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   estadoRoom: RoomMapItem | null = null;
   readonly savingEstado = signal(false);
 
+  // Editar habitación (cualquier estado)
+  editVisible = false;
+  editRoom: RoomMapItem | null = null;
+  readonly savingEdit = signal(false);
+  editForm: { number: string; floor: string; roomTypeId: string | null; status: string; imageUrl: string; frigobarEnabled: boolean } = {
+    number: '', floor: '', roomTypeId: null, status: 'FREE', imageUrl: '', frigobarEnabled: false,
+  };
+  readonly editStatusOptions = [
+    { label: 'Disponible', value: 'FREE' },
+    { label: 'Reservada', value: 'RESERVADA' },
+    { label: 'Ocupada', value: 'OCUPADA' },
+    { label: 'Limpieza solicitada', value: 'LIMPIEZA_SOLICITADA' },
+    { label: 'Limpieza en espera', value: 'CLEANING' },
+    { label: 'Limpieza en curso', value: 'LIMPIEZA_EN_CURSO' },
+    { label: 'Mantenimiento', value: 'MAINTENANCE' },
+  ];
+
   // Registro de mantenimiento
   mantVisible = false;
   mantRoom: RoomMapItem | null = null;
@@ -582,7 +638,8 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.reload();
-    if (this.isAdminProfile()) this.catalog.roomTypes.list({ pageSize: 100, sortBy: 'name' }).subscribe((res) => this.roomTypes.set(res.data ?? []));
+    // Tipos (con atributos) para el alta y la edición de habitaciones — disponible para todos los perfiles.
+    this.catalog.roomTypes.list({ pageSize: 100, sortBy: 'name' }).subscribe((res) => this.roomTypes.set(res.data ?? []));
     this.timer = setInterval(() => this.reload(), 15_000);
     this.clock = setInterval(() => this.nowTick.set(Date.now()), 1000);
   }
@@ -648,6 +705,87 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   openEstado(r: RoomMapItem): void {
     this.estadoRoom = r;
     this.estadoVisible = true;
+  }
+
+  // ---- Editar habitación (cualquier estado) ----
+  openEdit(r: RoomMapItem): void {
+    this.editRoom = r;
+    this.editForm = {
+      number: r.number,
+      floor: r.floor ?? '',
+      roomTypeId: r.roomType.id,
+      status: r.status,
+      imageUrl: r.imageUrl ?? '',
+      frigobarEnabled: !!r.frigobarEnabled,
+    };
+    this.editVisible = true;
+  }
+
+  /** Atributos a mostrar: los del tipo seleccionado (fuente única = Tipos de Habitación). */
+  editAttributes(): { name: string; icon?: string | null }[] {
+    const rt = this.roomTypes().find((t) => t.id === this.editForm.roomTypeId);
+    if (rt) return rt.attributes ?? [];
+    return this.editRoom?.attributes ?? [];
+  }
+
+  /** Resumen de atributos para el pie de la tarjeta. */
+  attrLabel(r: RoomMapItem): string {
+    const names = (r.attributes ?? []).map((a) => a.name);
+    if (names.length <= 3) return names.join(' · ');
+    return `${names.slice(0, 3).join(' · ')} +${names.length - 3}`;
+  }
+
+  saveEdit(): void {
+    const r = this.editRoom;
+    if (!r || !this.editForm.number || !this.editForm.roomTypeId) return;
+    this.savingEdit.set(true);
+    // 1) Guardar datos de la habitación (número, piso, tipo, imagen, fríobar).
+    this.ops.rooms
+      .update(r.id, {
+        roomTypeId: this.editForm.roomTypeId,
+        number: this.editForm.number.trim(),
+        floor: this.editForm.floor.trim() || undefined,
+        imageUrl: this.editForm.imageUrl.trim(),
+        frigobarEnabled: this.editForm.frigobarEnabled,
+      } as never)
+      .subscribe({
+        next: () => this.applyEditStatus(r),
+        error: (err) => { this.savingEdit.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo guardar la habitación' }); },
+      });
+  }
+
+  /** Tras guardar datos, aplica el cambio de estado si corresponde (con las reglas del negocio). */
+  private applyEditStatus(r: RoomMapItem): void {
+    const next = this.editForm.status;
+    // En habitaciones ocupadas el estado no se cambia manualmente (se gestiona en check-out).
+    if (r.status === 'OCCUPIED' || next === r.status) { this.finishEdit(r); return; }
+    // "Ocupada" no es un estado manual: abre el check-in (requiere huésped).
+    if (next === 'OCUPADA') { this.savingEdit.set(false); this.editVisible = false; this.openCheckIn(r); return; }
+    // "Mantenimiento" abre el registro de mantenimiento (no fija el estado directamente).
+    if (next === 'MAINTENANCE') {
+      this.savingEdit.set(false); this.editVisible = false;
+      this.mantRoom = r; this.mantCritical = true;
+      this.mantCats = MANT_CATS.map((c) => ({ ...c, selected: false, falla: '', observacion: '' }));
+      this.mantVisible = true;
+      return;
+    }
+    // Recepción no puede pasar una habitación en limpieza a Disponible.
+    if (next === 'FREE' && !this.canSetFree(r.status)) {
+      this.savingEdit.set(false);
+      this.toast.add({ severity: 'warn', summary: 'No permitido', detail: 'Una habitación en limpieza solo la libera Limpieza o el Administrador.' });
+      return;
+    }
+    this.ops.changeRoomStatus(r.id, next as RoomMapItem['status']).subscribe({
+      next: () => this.finishEdit(r),
+      error: (err) => { this.savingEdit.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo cambiar el estado' }); },
+    });
+  }
+
+  private finishEdit(r: RoomMapItem): void {
+    this.savingEdit.set(false);
+    this.editVisible = false;
+    this.toast.add({ severity: 'success', summary: 'Habitación actualizada', detail: `Hab. ${r.number}` });
+    this.reload();
   }
 
   applyEstado(value: 'FREE' | 'RESERVADA' | 'OCUPADA' | 'LIMPIEZA_SOLICITADA' | 'MAINTENANCE'): void {

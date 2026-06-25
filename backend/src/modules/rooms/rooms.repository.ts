@@ -4,7 +4,13 @@ import { prisma } from '../../config/prisma';
 const listInclude = { roomType: { select: { id: true, name: true } } } satisfies Prisma.RoomInclude;
 
 const mapInclude = {
-  roomType: { select: { id: true, name: true } },
+  roomType: {
+    select: {
+      id: true,
+      name: true,
+      attributes: { include: { attribute: { select: { name: true, icon: true } } } },
+    },
+  },
   stays: {
     where: { status: 'OPEN' },
     take: 1,
