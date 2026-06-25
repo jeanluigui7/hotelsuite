@@ -28,6 +28,7 @@ services:
     env_file: .env
     environment:
       NODE_ENV: production
+      TZ: America/Lima
     depends_on:
       db:
         condition: service_healthy

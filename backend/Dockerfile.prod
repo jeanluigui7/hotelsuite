@@ -9,8 +9,11 @@ RUN npx prisma generate && npm run build
 
 FROM node:20-alpine AS runtime
 WORKDIR /app
-RUN apk add --no-cache openssl
+# tzdata: necesario para que TZ (hora de Perú) funcione en Alpine; las salidas de
+# pernoctación se calculan en hora local del hotel (no UTC).
+RUN apk add --no-cache openssl tzdata
 ENV NODE_ENV=production
+ENV TZ=America/Lima
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
