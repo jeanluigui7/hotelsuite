@@ -701,6 +701,11 @@ export class CheckInDialogComponent {
     // Si el documento ya existe en la BD, usamos su id; si no, creamos huésped nuevo.
     if (this.foundGuestId) {
       input.guestId = this.foundGuestId;
+      // El huésped puede haber cambiado de teléfono: actualizamos el dato del registro
+      // existente (antes se quedaba el teléfono anterior).
+      if (this.phone.trim()) {
+        this.catalog.guests.update(this.foundGuestId, { phone: this.phone.trim() } as never).subscribe({ error: () => {} });
+      }
     } else {
       input.newGuest = { documentType: this.docType as never, documentNumber: this.docNumber, firstName: this.guestName, lastName: '', phone: this.phone || '', email: '' };
     }
