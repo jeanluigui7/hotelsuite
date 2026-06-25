@@ -5,11 +5,20 @@
  *  - PERFIL RECEPCIONISTA → RECEPCION_MENU
  *  - PERFIL ADMINISTRADOR → ADMIN_MENU (acceso total)
  */
+export interface MenuLeaf {
+  label: string;
+  route: string;
+  queryParams?: Record<string, string>;
+}
+export interface MenuChild extends MenuLeaf {
+  /** Subgrupo expandible (segundo nivel), p. ej. Inventario › Almacenes › … */
+  children?: MenuLeaf[];
+}
 export interface MenuItem {
   label: string;
   icon: string;
   route: string;
-  children?: { label: string; route: string }[];
+  children?: MenuChild[];
 }
 
 /** PERFIL LIMPIEZA (img. 1 del documento). */
@@ -111,14 +120,41 @@ export const ADMIN_MENU: MenuItem[] = [
     icon: 'pi pi-box',
     route: '/inventory',
     children: [
-      { label: 'Configuración', route: '/inventory/configuracion' },
-      { label: 'Áreas', route: '/inventory/areas' },
-      { label: 'Categorías', route: '/inventory/categorias' },
-      { label: 'Artículos', route: '/inventory/articulos' },
-      { label: 'Movimientos', route: '/inventory/movimientos' },
-      { label: 'Movimientos de Limpieza', route: '/inventory/movimientos-limpieza' },
-      { label: 'Almacenes', route: '/inventory/almacenes' },
-      { label: 'Inventario de Limpieza', route: '/inventory/inventario-limpieza' },
+      { label: 'Resumen', route: '/inventory/almacen' },
+      {
+        label: 'Almacenes',
+        route: '/inventory/_almacenes',
+        children: [
+          { label: 'Almacén de Productos', route: '/operations/almacen-productos' },
+          { label: 'Recepción', route: '/operations/inventario-recepcion' },
+          { label: 'Productos - Limpieza', route: '/inventory/almacen', queryParams: { type: 'CLEANING' } },
+          { label: 'Almacén de Ropa', route: '/inventory/almacen', queryParams: { type: 'CLOTHING' } },
+          { label: 'Ropa - Limpieza', route: '/operations/transferencia-ropa' },
+          { label: 'Amenities', route: '/inventory/almacen', queryParams: { type: 'AMENITIES' } },
+          { label: 'Inventario de Limpieza', route: '/inventory/inventario-limpieza' },
+          { label: 'Lavandería', route: '/inventory/almacen', queryParams: { type: 'LAUNDRY' } },
+        ],
+      },
+      {
+        label: 'Movimientos',
+        route: '/inventory/_movimientos',
+        children: [
+          { label: 'Movimientos de Productos', route: '/inventory/movimientos' },
+          { label: 'Movimientos de Limpieza', route: '/inventory/movimientos-limpieza' },
+          { label: 'Movimientos de Lavandería', route: '/inventory/movimientos', queryParams: { type: 'LAUNDRY' } },
+        ],
+      },
+      {
+        label: 'Configuración',
+        route: '/inventory/_config',
+        children: [
+          { label: 'Áreas', route: '/inventory/areas' },
+          { label: 'Categorías', route: '/inventory/categorias' },
+          { label: 'Artículos', route: '/inventory/articulos' },
+          { label: 'Almacenes', route: '/inventory/almacenes' },
+          { label: 'Configuración General', route: '/inventory/configuracion' },
+        ],
+      },
     ],
   },
   {

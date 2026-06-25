@@ -52,7 +52,23 @@ import { LayoutService } from '../layout.service';
               @if (isOpen(item.route)) {
                 <ul class="submenu">
                   @for (child of item.children; track child.route) {
-                    <li><a [routerLink]="child.route" routerLinkActive="active" (click)="layout.closeSidebar()">{{ child.label }}</a></li>
+                    @if (child.children?.length) {
+                      <li>
+                        <button type="button" class="subgroup" [class.active]="isOpen(child.route)" (click)="toggle(child.route)">
+                          <span class="label">{{ child.label }}</span>
+                          <i class="chevron pi" [class.pi-chevron-down]="isOpen(child.route)" [class.pi-chevron-right]="!isOpen(child.route)"></i>
+                        </button>
+                        @if (isOpen(child.route)) {
+                          <ul class="submenu nested">
+                            @for (leaf of child.children; track leaf.route + (leaf.queryParams ? '?' + (leaf.queryParams)['type'] : '')) {
+                              <li><a [routerLink]="leaf.route" [queryParams]="leaf.queryParams ?? null" routerLinkActive="active" (click)="layout.closeSidebar()">{{ leaf.label }}</a></li>
+                            }
+                          </ul>
+                        }
+                      </li>
+                    } @else {
+                      <li><a [routerLink]="child.route" [queryParams]="child.queryParams ?? null" routerLinkActive="active" (click)="layout.closeSidebar()">{{ child.label }}</a></li>
+                    }
                   }
                 </ul>
               }
@@ -153,6 +169,16 @@ import { LayoutService } from '../layout.service';
       .menu-header .label { flex: 1; }
       .chevron { font-size: 0.7rem; opacity: 0.7; }
       .submenu { list-style: none; margin: 0 0 0.3rem; padding: 0; }
+      .subgroup {
+        width: 100%; display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.8rem 0.5rem 2.6rem;
+        background: transparent; border: 0; color: var(--p-text-color, #c8d3e2); cursor: pointer; font-size: 0.84rem;
+        text-align: left; border-radius: 8px; font-weight: 600;
+      }
+      .subgroup:hover { background: var(--p-content-hover-background, #142339); }
+      .subgroup.active { color: var(--rz-accent, #10b981); }
+      .subgroup .label { flex: 1; }
+      .submenu.nested { margin: 0; }
+      .submenu.nested a { padding-left: 3.4rem; font-size: 0.82rem; }
       .submenu a { display: block; padding: 0.5rem 0.8rem 0.5rem 2.6rem; font-size: 0.84rem; color: var(--p-text-muted-color, #8aa0bd); border-radius: 8px; }
       .submenu a:hover { background: var(--p-content-hover-background, #142339); color: var(--p-text-color, #e6edf5); }
       .submenu a.active {
@@ -208,17 +234,22 @@ export class SidebarComponent {
     });
   });
 
-  /** Filtra por el buscador de menú. */
+  /** Filtra por el buscador de menú (hasta 2 niveles de hijos). */
   readonly filteredMenu = computed<MenuItem[]>(() => {
     const q = this.query().trim().toLowerCase();
     const menu = this.visibleMenu();
     if (!q) return menu;
     return menu
       .map((item) => {
-        const children = (item.children ?? []).filter((c) => c.label.toLowerCase().includes(q));
         if (item.label.toLowerCase().includes(q)) return item;
-        if (children.length) return { ...item, children };
-        return null;
+        const children = (item.children ?? [])
+          .map((c) => {
+            if (c.label.toLowerCase().includes(q)) return c;
+            const leaves = (c.children ?? []).filter((l) => l.label.toLowerCase().includes(q));
+            return leaves.length ? { ...c, children: leaves } : null;
+          })
+          .filter((c): c is NonNullable<typeof c> => c !== null);
+        return children.length ? { ...item, children } : null;
       })
       .filter((x): x is MenuItem => x !== null);
   });

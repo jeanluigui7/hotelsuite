@@ -331,17 +331,21 @@ model CustomRate {
 
 /// Área operativa / física (por sucursal). Usada por inventario y limpieza.
 model Area {
-  id          String   @id @default(uuid())
-  branchId    String
-  name        String
-  description String?
-  status      String   @default("active")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String   @id @default(uuid())
+  branchId      String
+  name          String
+  description   String?
+  managesFloors Boolean  @default(false)
+  warehouseId   String?
+  status        String   @default("active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch    Branch     @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  warehouse Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([branchId])
+  @@index([warehouseId])
 }
 
 /// Categoría de inventario (por sucursal).
@@ -568,6 +572,7 @@ model Warehouse {
 
   branch Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
   stock  Stock[]
+  areas  Area[]
 
   @@index([branchId])
 }

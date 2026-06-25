@@ -10,6 +10,7 @@ import { SelectModule } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
+import { ActivatedRoute } from '@angular/router';
 import { AuthService } from '../../../core/auth/auth.service';
 import { InventoryApiService } from '../services/inventory-api.service';
 import type { InventoryMovement, Product, Warehouse } from '../services/inventory.models';
@@ -125,6 +126,7 @@ export class MovementsComponent implements OnInit {
   private readonly inventory = inject(InventoryApiService);
   private readonly auth = inject(AuthService);
   private readonly messages = inject(MessageService);
+  private readonly route = inject(ActivatedRoute);
 
   readonly items = signal<InventoryMovement[]>([]);
   readonly productOptions = signal<Product[]>([]);
@@ -144,7 +146,16 @@ export class MovementsComponent implements OnInit {
 
   ngOnInit(): void {
     this.inventory.products.list({ pageSize: 200, sortBy: 'name' }).subscribe((res) => this.productOptions.set(res.data ?? []));
-    this.inventory.warehouses.list({ pageSize: 100, sortBy: 'name' }).subscribe((res) => this.warehouses.set(res.data ?? []));
+    this.inventory.warehouses.list({ pageSize: 100, sortBy: 'name' }).subscribe((res) => {
+      const ws = res.data ?? [];
+      this.warehouses.set(ws);
+      // Preselección de almacén por query param (?wh=<id> o ?type=<TYPE>) para deep-links del menú.
+      const pm = this.route.snapshot.queryParamMap;
+      const wh = pm.get('wh');
+      const type = pm.get('type');
+      const match = (wh && ws.find((w) => w.id === wh)) || (type && ws.find((w) => w.type === type));
+      if (match) { this.filterWarehouse = match.id; this.reload(); }
+    });
     this.reload();
   }
 

@@ -37,6 +37,10 @@ const routes: Routes = [
     path: 'inventario-limpieza',
     loadComponent: () => import('./inventario-limpieza/cleaning-stock.component').then((m) => m.CleaningStockComponent),
   },
+  {
+    path: 'almacen',
+    loadComponent: () => import('./almacen-stock/warehouse-stock.component').then((m) => m.WarehouseStockComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 

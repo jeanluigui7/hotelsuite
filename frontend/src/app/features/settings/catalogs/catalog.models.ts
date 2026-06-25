@@ -75,6 +75,10 @@ export interface Area {
   id: string;
   name: string;
   description?: string | null;
+  managesFloors?: boolean;
+  warehouseId?: string | null;
+  warehouse?: { id: string; name: string; type: string } | null;
+  itemCount?: number;
   status: string;
 }
 
