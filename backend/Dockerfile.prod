@@ -22,5 +22,6 @@ COPY --from=build /app/src ./src
 COPY --from=build /app/tsconfig.json ./tsconfig.json
 COPY --from=build /app/package.json ./package.json
 EXPOSE 3000
-# Aplica migraciones pendientes, siembra datos base (idempotente) y arranca.
-CMD ["sh", "-c", "npx prisma migrate deploy && npx prisma db seed && node dist/server.js"]
+# Aplica migraciones pendientes, siembra datos base + ropa por sucursal
+# (idempotente) y arranca.
+CMD ["sh", "-c", "npx prisma migrate deploy && npx prisma db seed && npx tsx prisma/seed-linen.ts && node dist/server.js"]
