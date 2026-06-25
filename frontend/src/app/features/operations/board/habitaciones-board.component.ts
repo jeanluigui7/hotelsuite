@@ -133,6 +133,9 @@ const MANT_CATS = [
                   @if (r.attributes?.length) { {{ attrLabel(r) }} } @else { Sin atributos }
                 </span>
                 <span class="rc-acts">
+                  @if (r.status === 'FREE' || r.status === 'RESERVADA') {
+                    <button class="cta sm reg" (click)="openCheckIn(r)"><i class="pi pi-sign-in"></i> Registrar</button>
+                  }
                   <button class="cta sm light" (click)="openEdit(r)"><i class="pi pi-pencil"></i> Editar</button>
                   @if (isAdminProfile()) { <button class="cta sm trash" (click)="deleteRoom(r)" pTooltip="Eliminar habitación"><i class="pi pi-trash"></i></button> }
                 </span>
@@ -379,6 +382,8 @@ const MANT_CATS = [
       .rc-attrs { font-style: italic; font-size: 0.8rem; opacity: 0.85; }
       .rc-acts { display: inline-flex; gap: 0.45rem; }
       .cta.light { background: rgba(255,255,255,0.95); color: #0b1018; }
+      .cta.reg { background: #10b981; color: #04130d; }
+      .cta.reg:hover { filter: brightness(1.08); }
       .cta.trash { background: rgba(0,0,0,0.28); color: #fecaca; border: 1px solid rgba(239,68,68,0.5); }
       .cta.trash:hover { background: #ef4444; color: #fff; }
       /* En el pie las acciones miden por contenido (no 100%) para no desbordar la card */
