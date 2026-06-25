@@ -10,6 +10,11 @@ export type ProductWithRelations = Prisma.ProductGetPayload<{ include: typeof in
 
 export const productsRepository = {
   async defaultWarehouse(branchId: string) {
+    // El "almacén de productos" canónico es el de tipo PRODUCTS. Es el que se muestra
+    // y sobre el que opera la pantalla Almacén de Productos (ingresos/bajas), de modo
+    // que el stock mostrado y los movimientos siempre apunten al mismo almacén.
+    const products = await prisma.warehouse.findFirst({ where: { branchId, type: 'PRODUCTS' } });
+    if (products) return products;
     const existing = await prisma.warehouse.findFirst({
       where: { branchId },
       orderBy: { createdAt: 'asc' },

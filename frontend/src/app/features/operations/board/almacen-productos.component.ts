@@ -63,13 +63,13 @@ interface Form { id?: string; name: string; sku: string; categoryId: string | nu
           </tr></thead>
           <tbody>
             @for (p of filtered(); track p.id) {
-              <tr [class.sel]="selected().has(p.id)">
+              <tr [class.sel]="selected().has(p.id)" [class.low-row]="isLow(p)">
                 <td class="ck"><input type="checkbox" [checked]="selected().has(p.id)" (change)="toggle(p.id)" /></td>
                 <td class="code"><strong>{{ p.sku || '—' }}</strong><span class="niu">NIU</span></td>
                 <td class="art"><span class="ico"><i class="pi pi-box"></i></span> {{ p.name }}</td>
                 <td><div>{{ p.category?.name || 'Sin categoría' }}</div><small class="muted">Producto</small></td>
                 <td><div>Venta: S/{{ +p.salePrice | number: '1.2-2' }}</div><small class="muted">Compra: S/{{ +(p.cost || 0) | number: '1.2-2' }}</small></td>
-                <td><div [class.low]="p.stock <= p.reorderPoint">{{ p.stock }}</div><small class="muted">Gestión de stock</small></td>
+                <td><div [class.low]="isLow(p)">{{ p.stock }}</div><small class="muted">Mín: {{ p.reorderPoint }}</small></td>
                 <td class="ac">
                   <button class="ia" (click)="openView(p)" title="Ver"><i class="pi pi-eye"></i></button>
                   <button class="ia" (click)="openEdit(p)" title="Editar"><i class="pi pi-pencil"></i></button>
@@ -151,6 +151,9 @@ interface Form { id?: string; name: string; sku: string; categoryId: string | nu
       .tbl th { text-align: left; padding: 0.8rem 1rem; color: #9fb0c3; font-weight: 600; border-bottom: 1px solid #1f2a3a; background: #101a28; font-size: 0.75rem; }
       .tbl td { padding: 0.7rem 1rem; border-bottom: 1px solid #16202e; vertical-align: top; }
       .tbl tr.sel { background: rgba(16,185,129,0.06); }
+      .tbl tr.low-row { background: rgba(239,68,68,0.09); }
+      .tbl tr.low-row:hover { background: rgba(239,68,68,0.14); }
+      .tbl tr.low-row.sel { background: rgba(239,68,68,0.16); }
       .ck { width: 5rem; } .code strong { display: block; } .niu { font-size: 0.7rem; color: #8b97a8; }
       .art { font-weight: 600; } .art .ico { background: #1a2333; padding: 0.3rem; border-radius: 6px; margin-right: 0.4rem; color: #8b97a8; }
       .low { color: #f87171; font-weight: 700; }
@@ -208,6 +211,11 @@ export class AlmacenProductosComponent implements OnInit {
     return [...map].map(([value, label]) => ({ label, value }));
   });
 
+  /** Stock bajo: hay un mínimo definido y la cantidad actual está en o por debajo de él. */
+  isLow(p: Product): boolean {
+    return p.reorderPoint > 0 && p.stock <= p.reorderPoint;
+  }
+
   // Método (no computed) para reaccionar a los filtros con props no-signal.
   filtered(): Product[] {
     const q = this.search.toLowerCase();
@@ -215,7 +223,7 @@ export class AlmacenProductosComponent implements OnInit {
       if (q && !(p.name.toLowerCase().includes(q) || (p.sku ?? '').toLowerCase().includes(q))) return false;
       if (this.categoryFilter && p.categoryId !== this.categoryFilter) return false;
       if (this.statusFilter !== 'all' && p.status !== this.statusFilter) return false;
-      if (this.lowStockOnly && p.stock > p.reorderPoint) return false;
+      if (this.lowStockOnly && !this.isLow(p)) return false;
       return true;
     });
     return [...list].sort((a, b) =>
