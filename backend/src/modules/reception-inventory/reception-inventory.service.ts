@@ -50,10 +50,10 @@ export const receptionInventoryService = {
         categoryId: p.categoryId,
         categoryName: p.category?.name ?? null,
         stock: stockMap.get(p.id) ?? 0,
-        min: p.reorderPoint,
+        min: p.receptionReorderPoint,
         ingresos: inMap.get(p.id) ?? 0,
         salidas: outMap.get(p.id) ?? 0,
-        belowMin: (stockMap.get(p.id) ?? 0) <= p.reorderPoint,
+        belowMin: (stockMap.get(p.id) ?? 0) <= p.receptionReorderPoint,
       })),
     };
   },

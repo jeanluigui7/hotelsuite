@@ -39,9 +39,19 @@ export const productsRepository = {
       categoryId: string | null;
       name: string;
       sku: string | null;
+      barcode: string | null;
+      imageUrl: string | null;
+      brand: string | null;
+      reusable: boolean;
+      productType: string;
+      unit: string;
+      igvType: string;
+      igvPercent: number;
+      taxable: boolean;
       salePrice: number;
       cost: number | null;
       reorderPoint: number;
+      receptionReorderPoint: number;
       status: string;
     },
     warehouseId: string,

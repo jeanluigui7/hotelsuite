@@ -577,9 +577,19 @@ model Product {
   categoryId String?
   name         String
   sku          String?
+  barcode      String? // código de barras (EAN-13, etc.)
+  imageUrl     String?  @db.NVarChar(Max) // imagen del artículo (data URL o URL)
+  brand        String? // marca
+  reusable     Boolean  @default(false) // ¿es reutilizable?
+  productType  String   @default("PRODUCTO") // PRODUCTO | SERVICIO | AMENITY | INSUMO
+  unit         String   @default("NIU") // unidad SUNAT (NIU, ZZ, KGM, ...)
+  igvType      String   @default("GRAVADO") // GRAVADO | EXONERADO | INAFECTO
+  igvPercent   Decimal  @default(18) @db.Decimal(5, 2) // % de IGV
+  taxable      Boolean  @default(true) // ¿es tributable?
   salePrice    Decimal  @db.Decimal(10, 2)
   cost         Decimal? @db.Decimal(10, 2)
-  reorderPoint Int      @default(0)
+  reorderPoint Int      @default(0) // stock mínimo en el almacén
+  receptionReorderPoint Int @default(0) // stock mínimo en el almacén de recepción
   status       String   @default("active")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

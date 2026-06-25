@@ -2,11 +2,21 @@ export interface Product {
   id: string;
   name: string;
   sku?: string | null;
+  barcode?: string | null;
+  imageUrl?: string | null;
+  brand?: string | null;
+  reusable?: boolean;
+  productType?: string;
+  unit?: string;
+  igvType?: string;
+  igvPercent?: string | number;
+  taxable?: boolean;
   category?: { id: string; name: string } | null;
   categoryId?: string | null;
   salePrice: string | number;
   cost?: string | number | null;
   reorderPoint: number;
+  receptionReorderPoint?: number;
   status: string;
   stock: number;
 }
@@ -14,12 +24,23 @@ export interface Product {
 export interface ProductUpsert {
   name: string;
   sku?: string;
+  barcode?: string;
+  imageUrl?: string;
+  brand?: string;
+  reusable?: boolean;
+  productType?: string;
+  unit?: string;
+  igvType?: string;
+  igvPercent?: number;
+  taxable?: boolean;
   categoryId?: string | null;
   salePrice: number;
   cost?: number;
   reorderPoint?: number;
+  receptionReorderPoint?: number;
   status: 'active' | 'inactive';
   stock?: number;
+  initialWarehouseId?: string;
 }
 
 export type WarehouseType = 'PRODUCTS' | 'CLOTHING' | 'RECEPTION' | 'CLEANING' | 'LAUNDRY' | 'AMENITIES';

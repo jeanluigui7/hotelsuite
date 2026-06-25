@@ -20,11 +20,21 @@ function serialize(p: ProductWithRelations, warehouseId: string) {
     id: p.id,
     name: p.name,
     sku: p.sku,
+    barcode: p.barcode,
+    imageUrl: p.imageUrl,
+    brand: p.brand,
+    reusable: p.reusable,
+    productType: p.productType,
+    unit: p.unit,
+    igvType: p.igvType,
+    igvPercent: p.igvPercent,
+    taxable: p.taxable,
     category: p.category,
     categoryId: p.categoryId,
     salePrice: p.salePrice,
     cost: p.cost,
     reorderPoint: p.reorderPoint,
+    receptionReorderPoint: p.receptionReorderPoint,
     status: p.status,
     stock: stockRow?.quantity ?? 0,
   };
@@ -59,22 +69,39 @@ export const productsService = {
   async create(scope: RequestScope, dto: CreateProductDto) {
     const branchId = requireActiveBranch(scope);
     await assertCategoryInBranch(dto.categoryId, branchId);
-    const wh = await productsRepository.defaultWarehouse(branchId);
+    const defaultWh = await productsRepository.defaultWarehouse(branchId);
+    // Área inicial: almacén donde se coloca el stock inicial (validado por sucursal).
+    let initialWh = defaultWh;
+    if (dto.initialWarehouseId) {
+      const w = await prisma.warehouse.findUnique({ where: { id: dto.initialWarehouseId } });
+      if (!w || w.branchId !== branchId) throw new ValidationError('Almacén (área inicial) inválido');
+      initialWh = w;
+    }
     const p = await productsRepository.create(
       {
         branchId,
         categoryId: dto.categoryId ?? null,
         name: dto.name,
         sku: dto.sku || null,
+        barcode: dto.barcode || null,
+        imageUrl: dto.imageUrl || null,
+        brand: dto.brand || null,
+        reusable: dto.reusable,
+        productType: dto.productType,
+        unit: dto.unit,
+        igvType: dto.igvType,
+        igvPercent: dto.igvPercent,
+        taxable: dto.taxable,
         salePrice: dto.salePrice,
         cost: dto.cost ?? null,
         reorderPoint: dto.reorderPoint,
+        receptionReorderPoint: dto.receptionReorderPoint,
         status: dto.status,
       },
-      wh.id,
+      initialWh.id,
       dto.stock,
     );
-    return serialize(p, wh.id);
+    return serialize(p, defaultWh.id);
   },
 
   async update(scope: RequestScope, id: string, dto: UpdateProductDto) {
@@ -87,9 +114,19 @@ export const productsService = {
       {
         name: dto.name,
         sku: dto.sku === '' ? null : dto.sku,
+        barcode: dto.barcode === '' ? null : dto.barcode,
+        imageUrl: dto.imageUrl === '' ? null : dto.imageUrl,
+        brand: dto.brand === '' ? null : dto.brand,
+        reusable: dto.reusable,
+        productType: dto.productType,
+        unit: dto.unit,
+        igvType: dto.igvType,
+        igvPercent: dto.igvPercent,
+        taxable: dto.taxable,
         salePrice: dto.salePrice,
         cost: dto.cost,
         reorderPoint: dto.reorderPoint,
+        receptionReorderPoint: dto.receptionReorderPoint,
         status: dto.status,
         ...(dto.categoryId !== undefined
           ? dto.categoryId
