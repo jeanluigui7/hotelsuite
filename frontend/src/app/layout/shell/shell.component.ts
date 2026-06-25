@@ -2,12 +2,13 @@ import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { SidebarComponent } from '../sidebar/sidebar.component';
 import { TopbarComponent } from '../topbar/topbar.component';
+import { QuickPillsComponent } from '../quick-pills/quick-pills.component';
 import { LayoutService } from '../layout.service';
 
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, SidebarComponent, TopbarComponent],
+  imports: [RouterOutlet, SidebarComponent, TopbarComponent, QuickPillsComponent],
   template: `
     <div class="shell">
       <app-sidebar></app-sidebar>
@@ -16,6 +17,7 @@ import { LayoutService } from '../layout.service';
       }
       <div class="main">
         <app-topbar></app-topbar>
+        <app-quick-pills></app-quick-pills>
         <main class="content">
           <router-outlet></router-outlet>
         </main>
