@@ -639,6 +639,13 @@ export class CheckInDialogComponent {
     if (!this.docNumber || !this.guestName) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Datos incompletos', detail: 'Completa documento y nombre del huésped.' }); return; }
     const badRef = this.pays().find((p) => this.payMeta(p.type).ref && !p.reference.trim());
     if (badRef) { this.tab.set('pago'); this.messages.add({ severity: 'warn', summary: 'Falta referencia', detail: 'Los pagos con tarjeta/transferencia requieren referencia.' }); return; }
+    // Debe registrarse el pago del cliente antes de confirmar.
+    if (this.totalAPagar() > 0 && this.totalPagado() <= 0) {
+      this.tab.set('pago'); this.messages.add({ severity: 'warn', summary: 'Falta el pago', detail: 'Agrega el método e ingresa con cuánto paga el cliente.' }); return;
+    }
+    // Efectivo: exige "con cuánto paga el cliente" (recibido) y que cubra el monto a cobrar.
+    const badCash = this.pays().find((p) => this.payMeta(p.type).value === 'CASH' && (p.amount || 0) > 0 && (p.received == null || p.received < (p.amount || 0)));
+    if (badCash) { this.tab.set('pago'); this.messages.add({ severity: 'warn', summary: 'Falta el efectivo recibido', detail: 'Ingresa con cuánto paga el cliente (debe cubrir el monto a cobrar).' }); return; }
 
     this.saving.set(true);
     // 1. Crear huéspedes adicionales (los que tengan documento) y luego check-in.
