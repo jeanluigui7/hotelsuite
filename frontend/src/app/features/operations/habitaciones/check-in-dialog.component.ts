@@ -271,7 +271,7 @@ const PAY_TYPES = [
                       </p-select>
                     </div>
                     <div class="fld"><label>{{ payMeta(p.type).commission ? 'Monto (incluye ' + payMeta(p.type).commission + '% comisión)' : 'Monto a cobrar' }}</label>
-                      <p-inputNumber [(ngModel)]="p.amount" mode="decimal" [minFractionDigits]="2" [min]="0" /></div>
+                      <p-inputNumber [(ngModel)]="p.amount" (onInput)="onPayAmount(i, $event.value)" mode="decimal" [minFractionDigits]="2" [min]="0" /></div>
                     @if (payMeta(p.type).value === 'CASH') {
                       <div class="fld"><label>💰 Con cuánto paga el cliente</label><p-inputNumber [(ngModel)]="p.received" mode="decimal" [minFractionDigits]="2" [min]="0" /></div>
                       <div class="fld"><label>🔁 Vuelto a entregar</label><div class="vuelto">S/ {{ vuelto(p) | number: '1.2-2' }}</div></div>
@@ -616,6 +616,22 @@ export class CheckInDialogComponent {
   payMeta(type: string): (typeof PAY_TYPES)[number] { return PAY_TYPES.find((t) => t.value === type) ?? PAY_TYPES[0]; }
   addPay(): void { this.pays.set([...this.pays(), { type: 'CASH', amount: Math.max(0, this.baseTotal() - this.totalPagado()), received: null, reference: '', notes: '' }]); }
   removePay(i: number): void { const n = [...this.pays()]; n.splice(i, 1); this.pays.set(n); }
+
+  /** Al cambiar el monto de un método, el último método absorbe automáticamente el restante. */
+  onPayAmount(i: number, val: number | string | null): void {
+    const rows = this.pays();
+    if (rows[i]) rows[i].amount = Number(val) || 0;
+    this.redistribute(i);
+  }
+  private redistribute(editedIndex: number): void {
+    const rows = this.pays();
+    if (rows.length < 2) return;
+    const last = rows.length - 1;
+    // Si se edita el último método, se respeta su valor manual (no se sobreescribe).
+    if (editedIndex === last) return;
+    const sumOthers = rows.reduce((a, p, idx) => (idx === last ? a : a + (p.amount || 0)), 0);
+    rows[last].amount = Math.max(0, Math.round((this.baseTotal() - sumOthers) * 100) / 100);
+  }
   /** Cargo manual de early check-in (0 si es cortesía o no aplica). */
   earlyCharge(): number { return this.isPernoctaRate() && this.applyEarly && !this.earlyCortesia ? Math.max(0, this.earlyAmount || 0) : 0; }
   onEarlyCortesia(): void { if (this.earlyCortesia) this.earlyAmount = 0; }
