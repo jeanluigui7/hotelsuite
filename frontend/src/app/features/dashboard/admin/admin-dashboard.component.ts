@@ -24,15 +24,7 @@ interface StatCard {
   template: `
     @if (isAdmin()) {
     <section class="dash">
-      <!-- Pills de función rápida (solo perfil administrador, gateados por permiso) -->
-      <div class="pills">
-          @if (can('inventory')) { <button class="pill purple" (click)="go('/operations/almacen-productos')"><i class="pi pi-box"></i> Productos</button> }
-          @if (can('operations')) { <button class="pill red" (click)="go('/operations/inventario-recepcion')"><i class="pi pi-inbox"></i> Recepción</button> }
-          @if (can('operations')) { <button class="pill orange" (click)="go('/operations/transferencia-ropa')"><i class="pi pi-sync"></i> Ropa</button> }
-          @if (can('inventory')) { <button class="pill green" (click)="go('/inventory/inventario-limpieza')"><i class="pi pi-sparkles"></i> Amenidades</button> }
-          @if (can('operations')) { <button class="pill blue" (click)="go('/operations/gestion-limpieza')"><i class="pi pi-check-circle"></i> Limpieza</button> }
-        </div>
-
+      <!-- Los atajos rápidos viven ahora en la barra global (shell), comunes a todos los perfiles. -->
       <h1>Dashboard</h1>
 
       <div class="panels">
@@ -109,14 +101,6 @@ interface StatCard {
     `
       .dash { color: var(--p-text-color, #e6edf5); }
       h1 { margin: 0 0 1rem; font-size: 1.7rem; font-weight: 800; }
-      .pills { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.6rem; margin-bottom: 1.25rem; }
-      .pill {
-        display: inline-flex; align-items: center; gap: 0.45rem; border: 0; cursor: pointer;
-        color: #fff; font-weight: 700; font-size: 0.82rem; padding: 0.5rem 1rem; border-radius: 999px;
-      }
-      .pill:hover { filter: brightness(1.1); }
-      .pill.purple { background: #7c3aed; } .pill.red { background: #e5484d; }
-      .pill.orange { background: #f97316; } .pill.green { background: #10b981; } .pill.blue { background: #3b82f6; }
 
       .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; align-items: start; }
       @media (max-width: 900px) { .panels { grid-template-columns: 1fr; } }
@@ -158,9 +142,6 @@ export class AdminDashboardComponent implements OnInit {
     const u = this.auth.user();
     return profileForRole(u?.roleName, u?.isSuperAdmin ?? false) === 'admin';
   }
-  can(module: string): boolean {
-    return this.auth.can(module, 'view');
-  }
 
   readonly now = new Date();
   readonly recepcion = signal<RecepcionSummary | null>(null);
@@ -191,10 +172,6 @@ export class AdminDashboardComponent implements OnInit {
       this.limpieza.set(res.limpieza.data);
       this.caja.set(res.caja.data);
     });
-  }
-
-  go(route: string): void {
-    void this.router.navigateByUrl(route);
   }
 
   recepcionCards(): StatCard[] {
