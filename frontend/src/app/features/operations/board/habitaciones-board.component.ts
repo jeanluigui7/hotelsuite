@@ -8,6 +8,8 @@ import { TooltipModule } from 'primeng/tooltip';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { Router } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
+import { environment } from '../../../../environments/environment';
 import { AuthService } from '../../../core/auth/auth.service';
 import { PrintingService } from '../../../core/printing/printing.service';
 import { profileForRole } from '../../../layout/menu';
@@ -308,6 +310,16 @@ const MANT_CATS = [
       </ng-template>
     </p-dialog>
 
+    <!-- Carga inicial de dotación BASE tras crear habitación -->
+    <p-dialog [(visible)]="dotacionVisible" [modal]="true" header="Carga inicial de inventario" [style]="{ width: '30rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      <p class="muted" style="margin:0 0 1rem">¿Deseas realizar la carga inicial de <strong>dotación base</strong> para la habitación <strong>{{ createdRoomNumber }}</strong>?</p>
+      <div class="dot-opts">
+        <button class="dot-opt green" [disabled]="loadingDotacion()" (click)="loadDotacionBase()"><i class="pi pi-box"></i><span><strong>Cargar dotación inicial</strong><small>Deja la habitación con la dotación base de su tipo</small></span></button>
+        <button class="dot-opt" [disabled]="loadingDotacion()" (click)="editDotacionInicial()"><i class="pi pi-pencil"></i><span><strong>Editar cantidades antes de confirmar</strong><small>Abre el inventario inicial para ajustar</small></span></button>
+        <button class="dot-opt" [disabled]="loadingDotacion()" (click)="dotacionVisible = false"><i class="pi pi-times"></i><span><strong>Crear sin stock</strong><small>La habitación queda sin inventario inicial</small></span></button>
+      </div>
+    </p-dialog>
+
     <!-- Registrar mantenimiento de la habitación -->
     <p-dialog [(visible)]="mantVisible" [modal]="true" header="Registrar Mantenimiento" [style]="{ width: '46rem', maxWidth: '95vw' }" styleClass="dk-dialog">
       <p class="muted" style="margin:0 0 0.8rem">Registra el mantenimiento de la habitación <strong>{{ mantRoom?.roomType?.name }} - {{ mantRoom?.number }}</strong>. Selecciona una o más categorías e indica la falla.</p>
@@ -509,6 +521,12 @@ const MANT_CATS = [
       .ed-tg-body strong { color: #e6e9ef; font-size: 0.95rem; display: flex; align-items: center; gap: 0.45rem; }
       .ed-tg-body small { color: #9fb0c3; font-size: 0.78rem; }
       .ed-toggle input { width: 20px; height: 20px; accent-color: #10b981; cursor: pointer; }
+      .dot-opts { display: flex; flex-direction: column; gap: 0.6rem; }
+      .dot-opt { display: flex; align-items: center; gap: 0.8rem; text-align: left; background: #131b27; border: 1px solid #243245; color: #e6e9ef; border-radius: 12px; padding: 0.9rem 1rem; cursor: pointer; }
+      .dot-opt:hover:not(:disabled) { background: #1a2333; } .dot-opt:disabled { opacity: 0.5; cursor: not-allowed; }
+      .dot-opt.green { border-color: #14633f; } .dot-opt.green i { color: #34d399; }
+      .dot-opt i { font-size: 1.2rem; color: #93b3d1; flex: 0 0 auto; }
+      .dot-opt span { display: flex; flex-direction: column; } .dot-opt strong { font-size: 0.95rem; } .dot-opt small { color: #9fb0c3; font-size: 0.78rem; }
       .mant-cats { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
       .mant-cat { background: #131b27; border: 1px solid #243245; border-radius: 10px; padding: 0.7rem 0.8rem; }
       .mant-cat.on { border-color: #ef4444; }
@@ -530,12 +548,19 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   private readonly printing = inject(PrintingService);
   private readonly auth = inject(AuthService);
   private readonly catalog = inject(CatalogApiService);
+  private readonly http = inject(HttpClient);
+  private readonly apiUrl = environment.apiUrl;
   readonly nowTick = signal(Date.now());
 
   // Nueva habitación (admin)
   readonly roomTypes = signal<RoomType[]>([]);
   readonly savingRoom = signal(false);
   newRoomVisible = false;
+  // Carga inicial de dotación tras crear habitación
+  dotacionVisible = false;
+  createdRoomId: string | null = null;
+  createdRoomNumber = '';
+  readonly loadingDotacion = signal(false);
   newRoom: { number: string; floor: string; roomTypeId: string | null } = { number: '', floor: '', roomTypeId: null };
   readonly busyStay = signal<string | null>(null);
   readonly receptionPerms = signal<{ allowChangeRoom: boolean; allowWriteOff: boolean; allowViewCash: boolean }>({ allowChangeRoom: false, allowWriteOff: false, allowViewCash: true });
@@ -658,9 +683,34 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     if (!this.newRoom.number || !this.newRoom.roomTypeId) return;
     this.savingRoom.set(true);
     this.ops.rooms.create({ roomTypeId: this.newRoom.roomTypeId, number: this.newRoom.number.trim(), floor: this.newRoom.floor.trim() || undefined } as never).subscribe({
-      next: () => { this.savingRoom.set(false); this.newRoomVisible = false; this.toast.add({ severity: 'success', summary: 'Habitación creada', detail: `Hab. ${this.newRoom.number} agregada.` }); this.reload(); },
+      next: (res) => {
+        this.savingRoom.set(false);
+        this.newRoomVisible = false;
+        const room = (res as { data?: { id: string } } | null)?.data;
+        this.toast.add({ severity: 'success', summary: 'Habitación creada', detail: `Hab. ${this.newRoom.number} agregada.` });
+        this.reload();
+        // Preguntar por la carga inicial de dotación base.
+        this.createdRoomId = room?.id ?? null;
+        this.createdRoomNumber = this.newRoom.number.trim();
+        if (this.createdRoomId) this.dotacionVisible = true;
+      },
       error: (err) => { this.savingRoom.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo crear la habitación' }); },
     });
+  }
+
+  // ---- Carga inicial de dotación al crear habitación ----
+  loadDotacionBase(): void {
+    if (!this.createdRoomId) return;
+    this.loadingDotacion.set(true);
+    this.http.post(`${this.apiUrl}/rooms/${this.createdRoomId}/inventory/load-base`, {}).subscribe({
+      next: () => { this.loadingDotacion.set(false); this.dotacionVisible = false; this.toast.add({ severity: 'success', summary: 'Dotación cargada', detail: `Hab. ${this.createdRoomNumber} con su dotación base.` }); },
+      error: (err: { error?: { error?: { message?: string } } }) => { this.loadingDotacion.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo cargar la dotación' }); },
+    });
+  }
+  editDotacionInicial(): void {
+    const id = this.createdRoomId;
+    this.dotacionVisible = false;
+    if (id) void this.router.navigate(['/inventory/inventario-inicial'], { queryParams: { room: id } });
   }
   ngOnDestroy(): void {
     if (this.timer) clearInterval(this.timer);

@@ -152,6 +152,7 @@ export const ADMIN_MENU: MenuItem[] = [
           { label: 'Categorías', route: '/inventory/categorias' },
           { label: 'Artículos', route: '/inventory/articulos' },
           { label: 'Almacenes', route: '/inventory/almacenes' },
+          { label: 'Inventario Inicial (Habitaciones)', route: '/inventory/inventario-inicial' },
           { label: 'Configuración General', route: '/inventory/configuracion' },
         ],
       },

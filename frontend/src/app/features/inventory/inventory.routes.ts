@@ -41,6 +41,10 @@ const routes: Routes = [
     path: 'almacen',
     loadComponent: () => import('./almacen-stock/warehouse-stock.component').then((m) => m.WarehouseStockComponent),
   },
+  {
+    path: 'inventario-inicial',
+    loadComponent: () => import('./inventario-inicial/inventario-inicial.component').then((m) => m.InventarioInicialComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 
