@@ -45,10 +45,18 @@ export const ROOM_STATES: Record<string, RoomStateConfig> = {
   },
   MAINTENANCE: {
     label: 'Mantenimiento',
-    color: '#ef4444',
-    gradient: 'linear-gradient(160deg, #b91c1c 0%, #7f1d1d 100%)',
+    color: '#a855f7',
+    gradient: 'linear-gradient(160deg, #9333ea 0%, #6b21a8 100%)',
     icon: 'pi pi-wrench',
     caption: 'En mantenimiento',
+  },
+  // Adicionales (servicios/insumos extra solicitados) — turquesa.
+  ADICIONALES: {
+    label: 'Adicionales',
+    color: '#14b8a6',
+    gradient: 'linear-gradient(160deg, #0d9488 0%, #0f766e 100%)',
+    icon: 'pi pi-plus-circle',
+    caption: 'Servicios adicionales',
   },
   // Estados RIZZOS (se activan al construir sus flujos)
   RESERVADA: {
@@ -60,15 +68,15 @@ export const ROOM_STATES: Record<string, RoomStateConfig> = {
   },
   LIMPIEZA_EN_CURSO: {
     label: 'Limpieza en curso',
-    color: '#eab308',
-    gradient: 'linear-gradient(160deg, #ca8a04 0%, #a16207 100%)',
+    color: '#facc15',
+    gradient: 'linear-gradient(160deg, #eab308 0%, #ca8a04 100%)',
     icon: 'pi pi-spin pi-cog',
     caption: 'Limpieza en curso',
   },
   LIMPIEZA_SOLICITADA: {
     label: 'Limpieza solicitada',
-    color: '#f59e0b',
-    gradient: 'linear-gradient(160deg, #b45309 0%, #92400e 100%)',
+    color: '#d946ef',
+    gradient: 'linear-gradient(160deg, #c026d3 0%, #86198f 100%)',
     icon: 'pi pi-bell',
     caption: 'Limpieza solicitada',
   },
