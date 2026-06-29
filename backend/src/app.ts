@@ -21,6 +21,7 @@ import { ratesRouter } from './modules/rates/rates.routes';
 import { areasRouter } from './modules/areas/areas.routes';
 import { dotacionRouter } from './modules/dotacion/dotacion.routes';
 import { roomInventoryRouter } from './modules/room-inventory/room-inventory.routes';
+import { roomCleaningRouter } from './modules/room-cleaning/room-cleaning.routes';
 import { inventoryCategoriesRouter } from './modules/inventory-categories/inventory-categories.routes';
 import { itemsRouter } from './modules/items/items.routes';
 import { schedulesRouter } from './modules/schedules/schedules.routes';
@@ -100,6 +101,7 @@ export function createApp(): Application {
   app.use('/api', areasRouter);
   app.use('/api', dotacionRouter);
   app.use('/api', roomInventoryRouter);
+  app.use('/api', roomCleaningRouter);
   app.use('/api', inventoryCategoriesRouter);
   app.use('/api', itemsRouter);
   app.use('/api', schedulesRouter);

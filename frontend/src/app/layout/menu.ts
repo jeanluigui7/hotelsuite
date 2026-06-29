@@ -25,6 +25,7 @@ export interface MenuItem {
 export const LIMPIEZA_MENU: MenuItem[] = [
   { label: 'Inicio', icon: 'pi pi-th-large', route: '/dashboard/limpieza' },
   { label: 'Habitaciones', icon: 'pi pi-building', route: '/operations/gestion-limpieza' },
+  { label: 'Limpieza por Inventario', icon: 'pi pi-box', route: '/operations/limpieza-inventario' },
   { label: 'Historial', icon: 'pi pi-history', route: '/operations/limpiezas' },
   { label: 'Inventario Limpieza', icon: 'pi pi-box', route: '/operations/inventario-limpieza' },
   { label: 'Revisiones', icon: 'pi pi-verified', route: '/operations/revisiones' },
@@ -92,6 +93,7 @@ export const ADMIN_MENU: MenuItem[] = [
       { label: 'Caja', route: '/operations/caja' },
       { label: 'Inventario Recepción', route: '/operations/inventario-recepcion' },
       { label: 'Gestión de Limpieza', route: '/operations/gestion-limpieza' },
+      { label: 'Limpieza por Inventario', route: '/operations/limpieza-inventario' },
       { label: 'Inventario Limpieza', route: '/operations/inventario-limpieza' },
       { label: 'Reporte Turno (Limpieza)', route: '/operations/turno-limpieza' },
       { label: 'Revisión Periódica', route: '/operations/revision-periodica' },
