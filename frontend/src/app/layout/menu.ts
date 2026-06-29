@@ -125,6 +125,7 @@ export const ADMIN_MENU: MenuItem[] = [
     route: '/inventory',
     children: [
       { label: 'Resumen', route: '/inventory/almacen' },
+      { label: 'Mapa de Almacenes', route: '/inventory/mapa-almacenes' },
       {
         label: 'Almacenes',
         route: '/inventory/_almacenes',

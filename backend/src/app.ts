@@ -23,6 +23,7 @@ import { dotacionRouter } from './modules/dotacion/dotacion.routes';
 import { roomInventoryRouter } from './modules/room-inventory/room-inventory.routes';
 import { roomCleaningRouter } from './modules/room-cleaning/room-cleaning.routes';
 import { laundryRouter } from './modules/laundry/laundry.routes';
+import { inventoryMapRouter } from './modules/inventory-map/inventory-map.routes';
 import { inventoryCategoriesRouter } from './modules/inventory-categories/inventory-categories.routes';
 import { itemsRouter } from './modules/items/items.routes';
 import { schedulesRouter } from './modules/schedules/schedules.routes';
@@ -104,6 +105,7 @@ export function createApp(): Application {
   app.use('/api', roomInventoryRouter);
   app.use('/api', roomCleaningRouter);
   app.use('/api', laundryRouter);
+  app.use('/api', inventoryMapRouter);
   app.use('/api', inventoryCategoriesRouter);
   app.use('/api', itemsRouter);
   app.use('/api', schedulesRouter);

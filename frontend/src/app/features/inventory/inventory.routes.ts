@@ -49,6 +49,10 @@ const routes: Routes = [
     path: 'kardex-inventario',
     loadComponent: () => import('./kardex-inventario/kardex-inventario.component').then((m) => m.KardexInventarioComponent),
   },
+  {
+    path: 'mapa-almacenes',
+    loadComponent: () => import('./mapa-almacenes/mapa-almacenes.component').then((m) => m.MapaAlmacenesComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 
