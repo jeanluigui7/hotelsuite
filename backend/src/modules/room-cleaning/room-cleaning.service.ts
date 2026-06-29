@@ -2,6 +2,7 @@ import type { RequestScope } from '../../shared/context';
 import { NotFoundError, ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
+import { addLocationStock } from '../laundry/location-stock';
 import type { RetiroDto, ReposicionDto, FinalizarDto } from './room-cleaning.schema';
 
 const DIRTY = 'Ropa Sucia Pendiente';
@@ -43,6 +44,10 @@ export const roomCleaningService = {
             createdByUserId: scope.userId,
           },
         });
+        // La ropa reutilizable sin daño/pérdida entra al stock de "Ropa Sucia Pendiente".
+        if (type === 'LIMPIEZA_RETIRO' && it.articleKind === 'LINEN_REUSABLE') {
+          await addLocationStock(tx, branchId, 'DIRTY', it.articleKind, it.name, removed);
+        }
       }
     });
     return { ok: true };

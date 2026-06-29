@@ -26,6 +26,7 @@ export const LIMPIEZA_MENU: MenuItem[] = [
   { label: 'Inicio', icon: 'pi pi-th-large', route: '/dashboard/limpieza' },
   { label: 'Habitaciones', icon: 'pi pi-building', route: '/operations/gestion-limpieza' },
   { label: 'Limpieza por Inventario', icon: 'pi pi-box', route: '/operations/limpieza-inventario' },
+  { label: 'Lavandería (Ropa)', icon: 'pi pi-sync', route: '/operations/lavanderia-ropa' },
   { label: 'Historial', icon: 'pi pi-history', route: '/operations/limpiezas' },
   { label: 'Inventario Limpieza', icon: 'pi pi-box', route: '/operations/inventario-limpieza' },
   { label: 'Revisiones', icon: 'pi pi-verified', route: '/operations/revisiones' },
@@ -94,6 +95,7 @@ export const ADMIN_MENU: MenuItem[] = [
       { label: 'Inventario Recepción', route: '/operations/inventario-recepcion' },
       { label: 'Gestión de Limpieza', route: '/operations/gestion-limpieza' },
       { label: 'Limpieza por Inventario', route: '/operations/limpieza-inventario' },
+      { label: 'Lavandería (Ropa)', route: '/operations/lavanderia-ropa' },
       { label: 'Inventario Limpieza', route: '/operations/inventario-limpieza' },
       { label: 'Reporte Turno (Limpieza)', route: '/operations/turno-limpieza' },
       { label: 'Revisión Periódica', route: '/operations/revision-periodica' },
@@ -144,6 +146,7 @@ export const ADMIN_MENU: MenuItem[] = [
           { label: 'Movimientos de Productos', route: '/inventory/movimientos' },
           { label: 'Movimientos de Limpieza', route: '/inventory/movimientos-limpieza' },
           { label: 'Movimientos de Lavandería', route: '/inventory/movimientos', queryParams: { type: 'LAUNDRY' } },
+          { label: 'Kardex de Inventario (Ropa)', route: '/inventory/kardex-inventario' },
         ],
       },
       {

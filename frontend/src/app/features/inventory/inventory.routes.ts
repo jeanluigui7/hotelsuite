@@ -45,6 +45,10 @@ const routes: Routes = [
     path: 'inventario-inicial',
     loadComponent: () => import('./inventario-inicial/inventario-inicial.component').then((m) => m.InventarioInicialComponent),
   },
+  {
+    path: 'kardex-inventario',
+    loadComponent: () => import('./kardex-inventario/kardex-inventario.component').then((m) => m.KardexInventarioComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 

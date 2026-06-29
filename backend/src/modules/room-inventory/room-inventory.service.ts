@@ -11,6 +11,38 @@ async function getRoom(scope: RequestScope, roomId: string) {
 }
 
 export const roomInventoryService = {
+  /** Kardex consolidado del inventario por habitación / ubicación, con filtros. */
+  async kardex(scope: RequestScope, filters: { name?: string; roomId?: string; type?: string; from?: string; to?: string }) {
+    const branchId = requireActiveBranch(scope);
+    const where: Record<string, unknown> = { branchId };
+    if (filters.name) where.name = { contains: filters.name };
+    if (filters.roomId) where.roomId = filters.roomId;
+    if (filters.type) where.type = filters.type;
+    if (filters.from || filters.to) {
+      where.createdAt = {
+        ...(filters.from ? { gte: new Date(filters.from) } : {}),
+        ...(filters.to ? { lte: new Date(`${filters.to}T23:59:59`) } : {}),
+      };
+    }
+    const rows = await prisma.roomInventoryMovement.findMany({ where, orderBy: { createdAt: 'desc' }, take: 500 });
+    const roomIds = [...new Set(rows.map((r) => r.roomId).filter((x): x is string => !!x))];
+    const rooms = roomIds.length ? await prisma.room.findMany({ where: { id: { in: roomIds } }, select: { id: true, number: true } }) : [];
+    const rmap = new Map(rooms.map((r) => [r.id, r.number]));
+    return rows.map((m) => ({
+      id: m.id,
+      createdAt: m.createdAt,
+      type: m.type,
+      articleKind: m.articleKind,
+      name: m.name,
+      quantity: m.quantity,
+      room: m.roomId ? (rmap.get(m.roomId) ?? null) : null,
+      fromLocation: m.fromLocation,
+      toLocation: m.toLocation,
+      reference: m.reference,
+      note: m.note,
+    }));
+  },
+
   /** Devuelve el inventario de la habitación: dotación esperada (por tipo) vs stock actual. */
   async get(scope: RequestScope, roomId: string) {
     const room = await getRoom(scope, roomId);

@@ -9,6 +9,7 @@ export const roomInventoryRouter = Router();
 
 roomInventoryRouter.use(authenticate(), tenant());
 
+roomInventoryRouter.get('/room-inventory/kardex', requireAnyPermission(['operations', 'view'], ['inventory', 'view']), asyncHandler(roomInventoryController.kardex));
 roomInventoryRouter.get('/rooms/:id/inventory', requireAnyPermission(['operations', 'view'], ['inventory', 'view']), asyncHandler(roomInventoryController.get));
 roomInventoryRouter.post('/rooms/:id/inventory/initial', requireAnyPermission(['operations', 'edit'], ['inventory', 'edit']), asyncHandler(roomInventoryController.saveInitial));
 roomInventoryRouter.post('/rooms/:id/inventory/load-base', requireAnyPermission(['operations', 'edit'], ['inventory', 'edit']), asyncHandler(roomInventoryController.loadBase));

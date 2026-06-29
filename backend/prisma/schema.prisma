@@ -76,6 +76,7 @@ model Branch {
   roomTypeDotaciones     RoomTypeDotacion[]
   roomInventories        RoomInventory[]
   roomInventoryMovements RoomInventoryMovement[]
+  linenLocationStocks    LinenLocationStock[]
 
   @@index([status])
 }
@@ -514,6 +515,24 @@ model RoomInventoryMovement {
   @@index([branchId])
   @@index([roomId])
   @@index([type])
+}
+
+/// FASE L4 — Stock de ubicaciones no-habitación del ciclo de ropa.
+/// location: DIRTY (Ropa Sucia Pendiente) | LAUNDRY (Lavandería) | CLEAN_CENTRAL (Ropa Limpia Central)
+model LinenLocationStock {
+  id          String   @id @default(uuid())
+  branchId    String
+  location    String
+  articleKind String   @default("LINEN_REUSABLE")
+  name        String
+  quantity    Int      @default(0)
+  updatedAt   DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, location, articleKind, name])
+  @@index([branchId])
+  @@index([location])
 }
 
 /// Estancia: ocupación de una habitación por un huésped, con tarifa congelada.
