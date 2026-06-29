@@ -180,7 +180,7 @@ export class LimpiezaInventarioComponent implements OnInit {
   }
 
   doRetiro(): void {
-    const items = this.retiroRows().filter((r) => r.retiroQty > 0).map((r) => ({ name: r.name, articleKind: r.articleKind, quantity: r.retiroQty, incidencia: r.incidencia }));
+    const items = this.retiroRows().filter((r) => r.retiroQty > 0).map((r) => ({ name: r.name, articleKind: r.articleKind, quantity: r.retiroQty, incidencia: r.incidencia, linenItemId: r.linenItemId || undefined }));
     if (!items.length) { this.messages.add({ severity: 'warn', summary: 'Nada que retirar', detail: 'Indica las cantidades a retirar.' }); return; }
     this.busy.set(true);
     this.http.post<ApiResponse<unknown>>(`${this.api}/rooms/${this.roomId}/cleaning/retiro`, { items }).subscribe({

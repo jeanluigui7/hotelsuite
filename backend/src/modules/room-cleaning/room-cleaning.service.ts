@@ -45,8 +45,10 @@ export const roomCleaningService = {
           },
         });
         // La ropa reutilizable sin daño/pérdida entra al stock de "Ropa Sucia Pendiente".
+        // Se conserva el vínculo al ítem legado (lo trae el front o el inventario de la habitación).
         if (type === 'LIMPIEZA_RETIRO' && it.articleKind === 'LINEN_REUSABLE') {
-          await addLocationStock(tx, branchId, 'DIRTY', it.articleKind, it.name, removed);
+          const inv = await tx.roomInventory.findUnique({ where: { roomId_articleKind_name: { roomId, articleKind: it.articleKind, name: it.name } } });
+          await addLocationStock(tx, branchId, 'DIRTY', it.articleKind, it.name, removed, it.linenItemId || inv?.linenItemId || null);
         }
       }
     });

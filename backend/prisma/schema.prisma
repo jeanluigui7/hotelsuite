@@ -525,6 +525,7 @@ model LinenLocationStock {
   location    String
   articleKind String   @default("LINEN_REUSABLE")
   name        String
+  linenItemId String? // vínculo al ítem de ropa legado, para re-acreditar el central
   quantity    Int      @default(0)
   updatedAt   DateTime @updatedAt
 

@@ -16,13 +16,14 @@ export async function addLocationStock(
   articleKind: string,
   name: string,
   delta: number,
+  linenItemId?: string | null,
 ): Promise<void> {
   const key = { branchId_location_articleKind_name: { branchId, location, articleKind, name } };
   const existing = await tx.linenLocationStock.findUnique({ where: key });
   const next = Math.max(0, (existing?.quantity ?? 0) + delta);
   await tx.linenLocationStock.upsert({
     where: key,
-    update: { quantity: next },
-    create: { branchId, location, articleKind, name, quantity: Math.max(0, delta) },
+    update: { quantity: next, ...(linenItemId ? { linenItemId } : {}) },
+    create: { branchId, location, articleKind, name, quantity: Math.max(0, delta), linenItemId: linenItemId ?? null },
   });
 }
