@@ -73,6 +73,9 @@ model Branch {
   productRequests  ProductRequest[]
   stockWriteOffs   StockWriteOff[]
   printJobs        PrintJob[]
+  roomTypeDotaciones     RoomTypeDotacion[]
+  roomInventories        RoomInventory[]
+  roomInventoryMovements RoomInventoryMovement[]
 
   @@index([status])
 }
@@ -203,6 +206,7 @@ model RoomType {
   customRates  CustomRate[]
   rooms        Room[]
   reservations Reservation[]
+  dotaciones   RoomTypeDotacion[]
 
   @@index([branchId])
   @@index([status])
@@ -428,11 +432,88 @@ model Room {
   reservations      Reservation[]
   observations      Observation[]
   conciergeRequests ConciergeRequest[]
+  inventory         RoomInventory[]
+  invMovements      RoomInventoryMovement[]
 
   @@unique([branchId, number])
   @@index([branchId])
   @@index([roomTypeId])
   @@index([status])
+}
+
+/// FASE L1 — Dotación BASE por tipo de habitación: el estándar de ropa/amenities/
+/// productos/activos que cada habitación de ese tipo debe tener. Sirve para sugerir
+/// carga inicial, reposición y comparar stock esperado vs actual.
+/// articleKind: LINEN_REUSABLE | AMENITY | SALE | ASSET
+model RoomTypeDotacion {
+  id          String   @id @default(uuid())
+  branchId    String
+  roomTypeId  String
+  category    String? // categoría (texto): "Ropa", "Amenities", etc.
+  articleKind String   @default("LINEN_REUSABLE")
+  name        String // artículo: "Sábana", "Jabón Premium"…
+  linenItemId String? // vínculo opcional a un LinenItem (ropa/amenity existente)
+  productId   String? // vínculo opcional a un Product (producto de venta/amenity)
+  baseQty     Int      @default(1)
+  required    Boolean  @default(false) // obligatorio para dejar la habitación disponible
+  allowExtra  Boolean  @default(false) // permite cantidad adicional
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([branchId])
+  @@index([roomTypeId])
+}
+
+/// FASE L1 — La habitación como almacén virtual: stock por habitación × artículo.
+/// La unicidad por nombre+tipo evita duplicar el mismo artículo en una habitación.
+model RoomInventory {
+  id          String   @id @default(uuid())
+  branchId    String
+  roomId      String
+  articleKind String   @default("LINEN_REUSABLE")
+  name        String
+  linenItemId String?
+  productId   String?
+  quantity    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([roomId, articleKind, name])
+  @@index([branchId])
+  @@index([roomId])
+}
+
+/// FASE L1 — Kardex del inventario por habitación (movimientos). type incluye:
+/// INITIAL | ROOM_LOAD | TRANSFER | LIMPIEZA_RETIRO | LIMPIEZA_REPO | LAUNDRY_OUT |
+/// LAUNDRY_IN | ADJUST_POS | ADJUST_NEG | DAMAGED | LOST | AMENITY_CONSUMO | EXTRA | RETURN
+model RoomInventoryMovement {
+  id            String   @id @default(uuid())
+  branchId      String
+  roomId        String?
+  type          String
+  articleKind   String   @default("LINEN_REUSABLE")
+  name          String
+  quantity      Int // positivo entra a la habitación, negativo sale
+  fromLocation  String? // origen (almacén/área) en texto
+  toLocation    String? // destino en texto
+  reference     String?
+  note          String?
+  createdByUserId String?
+  createdAt     DateTime @default(now())
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  room   Room?  @relation(fields: [roomId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([branchId])
+  @@index([roomId])
+  @@index([type])
 }
 
 /// Estancia: ocupación de una habitación por un huésped, con tarifa congelada.
