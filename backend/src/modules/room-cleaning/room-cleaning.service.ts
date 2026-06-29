@@ -53,25 +53,47 @@ export const roomCleaningService = {
     return { ok: true };
   },
 
-  /** FASE 2 — Reposición de la habitación desde el Almacén de Limpieza. */
+  /**
+   * FASE 2 — Reposición de la habitación desde el Almacén de Limpieza.
+   * Si el artículo está vinculado a un ítem de ropa (linenItemId), descuenta el stock
+   * REAL del almacén de limpieza del piso (sistema legado) y registra su movimiento.
+   */
   async reposicion(scope: RequestScope, roomId: string, dto: ReposicionDto) {
     const room = await getRoom(scope, roomId);
     const branchId = room.branchId;
+    const floor = room.floor || 'SIN PISO';
+
+    // Valida stock del piso para los artículos vinculados, antes de mover nada.
+    for (const it of dto.items) {
+      if (!it.linenItemId) continue;
+      const st = await prisma.linenStock.findUnique({ where: { linenItemId_floor: { linenItemId: it.linenItemId, floor } } });
+      if (!st || st.rem < it.quantity) {
+        throw new ValidationError(`Stock insuficiente de "${it.name}" en el Almacén de Limpieza del piso ${floor} (disponible ${st?.rem ?? 0}, solicitado ${it.quantity}). Suminístralo primero al piso.`);
+      }
+    }
+
     await prisma.$transaction(async (tx) => {
       for (const it of dto.items) {
         const key = { roomId_articleKind_name: { roomId, articleKind: it.articleKind, name: it.name } };
         await tx.roomInventory.upsert({
           where: key,
-          update: { quantity: { increment: it.quantity } },
-          create: { branchId, roomId, articleKind: it.articleKind, name: it.name, quantity: it.quantity },
+          update: { quantity: { increment: it.quantity }, ...(it.linenItemId ? { linenItemId: it.linenItemId } : {}) },
+          create: { branchId, roomId, articleKind: it.articleKind, name: it.name, quantity: it.quantity, linenItemId: it.linenItemId || null },
         });
         await tx.roomInventoryMovement.create({
           data: {
             branchId, roomId, type: 'LIMPIEZA_REPO', articleKind: it.articleKind, name: it.name, quantity: it.quantity,
-            fromLocation: CLEAN_WH, toLocation: `Habitación ${room.number}`,
+            fromLocation: it.linenItemId ? `Almacén Limpieza Piso ${floor}` : CLEAN_WH, toLocation: `Habitación ${room.number}`,
             reference: 'Reposición por limpieza', note: dto.note || null, createdByUserId: scope.userId,
           },
         });
+        // Descuento real del almacén de limpieza del piso (sistema legado de ropa).
+        if (it.linenItemId) {
+          await tx.linenStock.update({ where: { linenItemId_floor: { linenItemId: it.linenItemId, floor } }, data: { rem: { decrement: it.quantity } } });
+          await tx.linenMovement.create({
+            data: { branchId, linenItemId: it.linenItemId, type: 'SUPPLY', quantity: -it.quantity, floor, roomId, areaFrom: `Almacén Limpieza Piso ${floor}`, areaTo: `Habitación ${room.number}`, reference: 'Reposición por limpieza', createdByUserId: scope.userId },
+          });
+        }
       }
     });
     return { ok: true };

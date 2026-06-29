@@ -62,13 +62,14 @@ export const roomInventoryService = {
       baseQty: d.baseQty,
       required: d.required,
       allowExtra: d.allowExtra,
+      linenItemId: d.linenItemId,
       quantity: invMap.get(`${d.articleKind}|${d.name}`) ?? 0,
       source: 'dotacion' as const,
     }));
     // Artículos presentes en la habitación que no están en la dotación (extras).
     for (const i of inv) {
       if (!dotKeys.has(`${i.articleKind}|${i.name}`)) {
-        rows.push({ name: i.name, articleKind: i.articleKind, category: null, baseQty: 0, required: false, allowExtra: true, quantity: i.quantity, source: 'extra' as never });
+        rows.push({ name: i.name, articleKind: i.articleKind, category: null, baseQty: 0, required: false, allowExtra: true, linenItemId: i.linenItemId, quantity: i.quantity, source: 'extra' as never });
       }
     }
     return { room: { id: room.id, number: room.number, floor: room.floor, roomType: room.roomType }, rows };

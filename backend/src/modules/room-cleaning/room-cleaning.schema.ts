@@ -24,6 +24,8 @@ export const reposicionSchema = z.object({
         name: z.string().min(1).max(120),
         articleKind: z.string().min(1).max(30),
         quantity: z.coerce.number().int().min(1),
+        // Vínculo opcional al artículo de ropa legado: si viene, descuenta el almacén del piso.
+        linenItemId: z.string().min(1).optional().or(z.literal('')),
       }),
     )
     .min(1),

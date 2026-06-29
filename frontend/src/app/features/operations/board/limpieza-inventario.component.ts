@@ -14,7 +14,7 @@ import type { Room } from '../services/operations.models';
 
 interface Row {
   name: string; articleKind: string; category?: string | null;
-  baseQty: number; required: boolean; allowExtra: boolean; quantity: number; source: string;
+  baseQty: number; required: boolean; allowExtra: boolean; quantity: number; source: string; linenItemId?: string | null;
 }
 interface InvResp {
   room: { id: string; number: string; floor?: string | null; roomType: { id: string; name: string } };
@@ -190,7 +190,7 @@ export class LimpiezaInventarioComponent implements OnInit {
   }
 
   doReposicion(): void {
-    const items = this.repoRows().filter((r) => r.repoQty > 0).map((r) => ({ name: r.name, articleKind: r.articleKind, quantity: r.repoQty }));
+    const items = this.repoRows().filter((r) => r.repoQty > 0).map((r) => ({ name: r.name, articleKind: r.articleKind, quantity: r.repoQty, linenItemId: r.linenItemId || undefined }));
     if (!items.length) { this.messages.add({ severity: 'warn', summary: 'Nada que reponer', detail: 'Indica las cantidades a reponer.' }); return; }
     this.busy.set(true);
     this.http.post<ApiResponse<unknown>>(`${this.api}/rooms/${this.roomId}/cleaning/reposicion`, { items }).subscribe({

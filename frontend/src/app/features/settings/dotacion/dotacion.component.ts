@@ -19,16 +19,19 @@ interface Dotacion {
   category?: string | null;
   articleKind: string;
   name: string;
+  linenItemId?: string | null;
   baseQty: number;
   required: boolean;
   allowExtra: boolean;
   status: string;
 }
+interface LinenItem { id: string; type: string; name: string; }
 interface Form {
   id?: string;
   category: string;
   articleKind: string;
   name: string;
+  linenItemId: string | null;
   baseQty: number;
   required: boolean;
   allowExtra: boolean;
@@ -41,7 +44,7 @@ const KINDS = [
   { label: 'Inventario / activo', value: 'ASSET' },
 ];
 function emptyForm(): Form {
-  return { category: '', articleKind: 'LINEN_REUSABLE', name: '', baseQty: 1, required: false, allowExtra: false, status: 'active' };
+  return { category: '', articleKind: 'LINEN_REUSABLE', name: '', linenItemId: null, baseQty: 1, required: false, allowExtra: false, status: 'active' };
 }
 
 @Component({
@@ -100,6 +103,14 @@ function emptyForm(): Form {
           <p-select [options]="kinds" optionLabel="label" optionValue="value" [(ngModel)]="form.articleKind" styleClass="w" appendTo="body" />
         </div>
         <div class="fld"><label>Artículo *</label><input pInputText [(ngModel)]="form.name" placeholder="Sábana, Jabón Premium, Toalla…" /></div>
+        @if (form.articleKind === 'LINEN_REUSABLE' || form.articleKind === 'AMENITY') {
+          <div class="fld"><label>Vínculo con ropa/almacén (opcional)</label>
+            <p-select [options]="linenItems()" optionLabel="name" optionValue="id" [(ngModel)]="form.linenItemId" [showClear]="true" [filter]="true" filterBy="name" placeholder="Sin vínculo" styleClass="w" appendTo="body">
+              <ng-template let-l pTemplate="item">{{ l.type }} · {{ l.name }}</ng-template>
+            </p-select>
+            <small>Si lo vinculas, la reposición en limpieza descontará del Almacén de Limpieza del piso (stock real).</small>
+          </div>
+        }
         <div class="fld"><label>Cantidad BASE</label><p-inputNumber [(ngModel)]="form.baseQty" [min]="0" styleClass="w" /></div>
         <label class="chk"><input type="checkbox" [(ngModel)]="form.required" /> <span>Obligatorio para dejar la habitación disponible</span></label>
         <label class="chk"><input type="checkbox" [(ngModel)]="form.allowExtra" /> <span>Permite cantidad adicional</span></label>
@@ -158,6 +169,7 @@ export class DotacionComponent implements OnInit {
 
   readonly roomTypes = signal<RoomType[]>([]);
   readonly items = signal<Dotacion[]>([]);
+  readonly linenItems = signal<LinenItem[]>([]);
   readonly saving = signal(false);
   readonly kinds = KINDS;
   readonly statusOptions = [{ label: 'Activo', value: 'active' }, { label: 'Inactivo', value: 'inactive' }];
@@ -174,6 +186,7 @@ export class DotacionComponent implements OnInit {
       this.roomTypes.set(res.data ?? []);
       if (!this.roomTypeId && res.data?.length) { this.roomTypeId = res.data[0].id; this.reload(); }
     });
+    this.http.get<ApiResponse<LinenItem[]>>(`${this.api}/cleaning/linen-items`).subscribe((r) => this.linenItems.set(r.data ?? []));
   }
 
   kindLabel(v: string): string { return KINDS.find((k) => k.value === v)?.label ?? v; }
@@ -187,16 +200,18 @@ export class DotacionComponent implements OnInit {
 
   openNew(): void { this.form = emptyForm(); this.dialogVisible = true; }
   openEdit(d: Dotacion): void {
-    this.form = { id: d.id, category: d.category ?? '', articleKind: d.articleKind, name: d.name, baseQty: d.baseQty, required: d.required, allowExtra: d.allowExtra, status: d.status as 'active' | 'inactive' };
+    this.form = { id: d.id, category: d.category ?? '', articleKind: d.articleKind, name: d.name, linenItemId: d.linenItemId ?? null, baseQty: d.baseQty, required: d.required, allowExtra: d.allowExtra, status: d.status as 'active' | 'inactive' };
     this.dialogVisible = true;
   }
 
   save(): void {
     if (!this.roomTypeId) return;
     if (!this.form.name.trim()) { this.messages.add({ severity: 'warn', summary: 'Falta el artículo', detail: 'Indica el nombre del artículo.' }); return; }
+    const linked = this.form.articleKind === 'LINEN_REUSABLE' || this.form.articleKind === 'AMENITY';
     const dto = {
       roomTypeId: this.roomTypeId, category: this.form.category, articleKind: this.form.articleKind,
-      name: this.form.name.trim(), baseQty: this.form.baseQty, required: this.form.required,
+      name: this.form.name.trim(), linenItemId: linked ? (this.form.linenItemId || '') : '',
+      baseQty: this.form.baseQty, required: this.form.required,
       allowExtra: this.form.allowExtra, status: this.form.status,
     };
     this.saving.set(true);
