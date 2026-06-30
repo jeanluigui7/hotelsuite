@@ -73,7 +73,12 @@ const PAY_TYPES = [
         <div class="grid2">
           <div class="fld"><label>Documento</label>
             <div class="doc-row">
-              <input pInputText [(ngModel)]="docNumber" placeholder="Número de documento" (keyup.enter)="lookupDoc()" (blur)="lookupDoc()" />
+              <input pInputText [(ngModel)]="docNumber" placeholder="Número de documento" (keyup.enter)="lookupDoc(); reniec()" (blur)="lookupDoc()" />
+              @if (docType === 'DNI') {
+                <button type="button" class="reniec-btn" [disabled]="reniecBusy()" (click)="reniec()" title="Buscar en RENIEC">
+                  <i class="pi" [class.pi-search]="!reniecBusy()" [class.pi-spin]="reniecBusy()" [class.pi-spinner]="reniecBusy()"></i> RENIEC
+                </button>
+              }
               @if (debts().items.length) { <span class="doc-badge" title="Observaciones de deuda"><i class="pi pi-exclamation-triangle"></i> {{ debts().items.length }}</span> }
             </div>
           </div>
@@ -352,6 +357,8 @@ const PAY_TYPES = [
       .np-final .cur { font-weight: 700; }
       .doc-row { display: flex; gap: 0.5rem; align-items: stretch; }
       .doc-row input { flex: 1; }
+      .reniec-btn { flex: 0 0 auto; background: #13243a; border: 1px solid #274468; color: #a9c7ef; border-radius: 8px; padding: 0 0.8rem; font-weight: 700; font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+      .reniec-btn:hover:not(:disabled) { background: #1a2f4a; } .reniec-btn:disabled { opacity: 0.6; cursor: default; }
       .doc-badge { display: inline-flex; align-items: center; gap: 0.3rem; background: #78350f; color: #fcd34d; border: 1px solid #b45309; border-radius: 8px; padding: 0 0.6rem; font-weight: 700; font-size: 0.85rem; }
       .debt { background: rgba(120,53,15,0.25); border: 1px solid #b45309; border-radius: 10px; padding: 0.8rem 1rem; }
       .debt-head { display: flex; justify-content: space-between; align-items: center; color: #fbbf24; font-weight: 700; }
@@ -434,6 +441,7 @@ export class CheckInDialogComponent {
   readonly addGuests = signal<AddGuest[]>([]);
   readonly pays = signal<PayRow[]>([]);
   readonly debts = signal<Debts>({ items: [], total: 0 });
+  readonly reniecBusy = signal(false);
   readonly saving = signal(false);
   private foundGuestId: string | null = null;
 
@@ -505,6 +513,32 @@ export class CheckInDialogComponent {
         if (!this.phone && g.phone) this.phone = g.phone;
       }
       this.debts.set(res.data?.debts ?? { items: [], total: 0 });
+    });
+  }
+
+  /** Consulta RENIEC por DNI y autocompleta el nombre del huésped. */
+  reniec(): void {
+    const doc = this.docNumber.trim();
+    if (this.docType !== 'DNI' || !/^\d{8}$/.test(doc)) {
+      this.messages.add({ severity: 'warn', summary: 'DNI inválido', detail: 'Ingresa un DNI de 8 dígitos.' });
+      return;
+    }
+    this.reniecBusy.set(true);
+    this.http.get<ApiResponse<{ firstName: string; lastName: string; fullName: string; documentNumber: string }>>(
+      `${this.apiUrl}/reniec/dni`, { params: { numero: doc } },
+    ).subscribe({
+      next: (res) => {
+        this.reniecBusy.set(false);
+        const d = res.data;
+        if (d) {
+          this.guestName = d.fullName || `${d.firstName} ${d.lastName}`.trim();
+          this.messages.add({ severity: 'success', summary: 'RENIEC', detail: this.guestName });
+        }
+      },
+      error: (e: HttpErrorResponse) => {
+        this.reniecBusy.set(false);
+        this.messages.add({ severity: 'error', summary: 'RENIEC', detail: e.error?.error?.message ?? 'No se pudo consultar el DNI.' });
+      },
     });
   }
 
