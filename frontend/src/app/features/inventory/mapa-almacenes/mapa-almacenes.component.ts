@@ -6,9 +6,10 @@ import type { ApiResponse } from '../../../core/models/api-response.model';
 interface Item { name: string; qty: number; }
 interface Floor { floor: string; items: Item[]; }
 interface RoomBox { number: string; floor?: string | null; items: Item[]; }
+interface SubWBox { name: string; roomCount: number; items: Item[]; }
 interface MapData {
   general: { products: Item[]; clothingCentral: Item[]; amenities: Item[] };
-  cleaning: { floors: Floor[]; products: Item[] };
+  cleaning: { floors: Floor[]; products: Item[]; subWarehouses: SubWBox[] };
   laundry: { dirty: Item[]; inLaundry: Item[]; cleanCentral: Item[] };
   reception: Item[];
   rooms: RoomBox[];
@@ -54,7 +55,13 @@ interface MapData {
                 <div class="box floor"><div class="box-h">Inventario Limpieza · Piso {{ f.floor }}</div>
                   @for (i of f.items; track i.name) { <div class="li"><span>{{ i.name }}</span><b>{{ i.qty }}</b></div> } @empty { <div class="empty">—</div> }
                 </div>
-              } @empty { <div class="box floor"><div class="box-h">Pisos</div><div class="empty">Sin stock por piso</div></div> }
+              }
+              @for (s of d.cleaning.subWarehouses; track s.name) {
+                <div class="box sub"><div class="box-h">Subalmacén · {{ s.name }} <small>({{ s.roomCount }} hab.)</small></div>
+                  @for (i of s.items; track i.name) { <div class="li"><span>{{ i.name }}</span><b>{{ i.qty }}</b></div> } @empty { <div class="empty">Sin stock</div> }
+                </div>
+              }
+              @if (!d.cleaning.floors.length && !d.cleaning.subWarehouses.length) { <div class="box floor"><div class="box-h">Pisos / Subalmacenes</div><div class="empty">Sin stock</div></div> }
             </div>
           </div>
 
@@ -119,6 +126,7 @@ interface MapData {
       .box-h small { color: #8b97a8; font-weight: 600; }
       .box.clothing .box-h { color: #93c5fd; } .box.amen .box-h { color: #6ee7b7; }
       .box.floor .box-h { color: #fbbf24; } .box.dirty .box-h { color: #fbbf24; } .box.wash .box-h { color: #93c5fd; } .box.clean .box-h { color: #34d399; }
+      .box.sub { border-color: #2563eb; } .box.sub .box-h { color: #60a5fa; } .box.sub .box-h small { color: #8b97a8; }
       .box.room.zero { opacity: 0.55; } .box.room.zero .box-h { color: #fca5a5; }
       .li { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.8rem; padding: 0.12rem 0; }
       .li span { color: #cdd8e6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .li b { color: #fff; }

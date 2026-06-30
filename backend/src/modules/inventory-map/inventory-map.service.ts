@@ -26,7 +26,7 @@ export const inventoryMapService = {
   async snapshot(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);
 
-    const [products, amenities, cleaningProducts, reception, linen, locStock, roomInv, rooms] = await Promise.all([
+    const [products, amenities, cleaningProducts, reception, linen, locStock, roomInv, rooms, subWh] = await Promise.all([
       warehouseStock(branchId, 'PRODUCTS'),
       warehouseStock(branchId, 'AMENITIES'),
       warehouseStock(branchId, 'CLEANING'),
@@ -35,6 +35,11 @@ export const inventoryMapService = {
       prisma.linenLocationStock.findMany({ where: { branchId, quantity: { gt: 0 } } }),
       prisma.roomInventory.findMany({ where: { branchId, quantity: { gt: 0 } } }),
       prisma.room.findMany({ where: { branchId }, select: { id: true, number: true, floor: true }, orderBy: [{ floor: 'asc' }, { number: 'asc' }] }),
+      prisma.subWarehouse.findMany({
+        where: { branchId, area: { type: 'LIMPIEZA' } },
+        include: { _count: { select: { rooms: true } }, stock: { where: { quantity: { gt: 0 } } } },
+        orderBy: { name: 'asc' },
+      }),
     ]);
 
     // Ropa legada: central (ALMACEN) y por piso.
@@ -69,9 +74,15 @@ export const inventoryMapService = {
     }
     const roomBoxes = rooms.map((r) => ({ number: r.number, floor: r.floor, items: invByRoom.get(r.id) ?? [] }));
 
+    const subWarehouses = subWh.map((s) => ({
+      name: s.name,
+      roomCount: s._count.rooms,
+      items: s.stock.map((x) => ({ name: x.name, qty: x.quantity })),
+    }));
+
     return {
       general: { products, clothingCentral, amenities },
-      cleaning: { floors, products: cleaningProducts },
+      cleaning: { floors, products: cleaningProducts, subWarehouses },
       laundry: { dirty, inLaundry, cleanCentral },
       reception,
       rooms: roomBoxes,

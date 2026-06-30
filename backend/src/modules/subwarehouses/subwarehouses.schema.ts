@@ -28,5 +28,16 @@ export const setStockSchema = z.object({
 
 export type CreateSubWarehouseDto = z.infer<typeof createSubWarehouseSchema>;
 export type UpdateSubWarehouseDto = z.infer<typeof updateSubWarehouseSchema>;
+export const supplySchema = z.object({
+  items: z.array(
+    z.object({
+      articleKind: z.string().min(1).max(30).default('LINEN_REUSABLE'),
+      name: z.string().min(1).max(120),
+      quantity: z.coerce.number().int().min(1),
+    }),
+  ).min(1),
+});
+
 export type SetRoomsDto = z.infer<typeof setRoomsSchema>;
 export type SetStockDto = z.infer<typeof setStockSchema>;
+export type SupplyDto = z.infer<typeof supplySchema>;

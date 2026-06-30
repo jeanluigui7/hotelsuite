@@ -13,7 +13,7 @@ import { CatalogApiService } from '../../settings/catalogs/catalog-api.service';
 import type { Area } from '../../settings/catalogs/catalog.models';
 
 interface SubW { id: string; name: string; coverageType: string; status: string; roomIds: string[]; roomCount: number; }
-interface StockRow { articleKind: string; name: string; quantity: number; }
+interface StockRow { articleKind: string; name: string; quantity: number; bring?: number; }
 const KINDS = [
   { label: 'Ropa reutilizable', value: 'LINEN_REUSABLE' },
   { label: 'Amenity', value: 'AMENITY' },
@@ -54,19 +54,26 @@ interface Group { key: string; rooms: CovRoom[]; }
         <div class="stockp">
           <div class="stockp-h"><strong>Stock del subalmacén</strong><small class="muted">Lo que este subalmacén puede suministrar a sus habitaciones.</small></div>
           <table class="stk">
-            <thead><tr><th>Artículo</th><th>Tipo</th><th class="cn">Cantidad</th><th></th></tr></thead>
+            <thead><tr><th>Artículo</th><th>Tipo</th><th class="cn">En subalmacén</th><th class="cn">Traer de central</th><th></th></tr></thead>
             <tbody>
               @for (r of stockRows(); track $index) {
                 <tr>
                   <td><input pInputText [(ngModel)]="r.name" placeholder="Sábana, Toalla…" /></td>
                   <td><p-select [options]="kinds" optionLabel="label" optionValue="value" [(ngModel)]="r.articleKind" styleClass="w" appendTo="body" /></td>
                   <td class="cn"><p-inputNumber [(ngModel)]="r.quantity" [min]="0" inputStyleClass="q" /></td>
+                  <td class="cn"><p-inputNumber [(ngModel)]="r.bring" [min]="0" inputStyleClass="q" /></td>
                   <td><button class="ia del" (click)="removeStockRow($index)"><i class="pi pi-trash"></i></button></td>
                 </tr>
-              } @empty { <tr><td colspan="4" class="muted center">Sin stock. Agrega artículos.</td></tr> }
+              } @empty { <tr><td colspan="5" class="muted center">Sin stock. Agrega artículos.</td></tr> }
             </tbody>
           </table>
-          <div class="stockp-f"><button class="btn ghost sm" (click)="addStockRow()"><i class="pi pi-plus"></i> Agregar artículo</button><button class="btn green sm" [disabled]="savingStock()" (click)="saveStock()"><i class="pi pi-save"></i> Guardar stock</button></div>
+          <div class="stockp-f">
+            <button class="btn ghost sm" (click)="addStockRow()"><i class="pi pi-plus"></i> Agregar artículo</button>
+            <span class="spacer"></span>
+            <button class="btn ghost sm" [disabled]="savingStock()" (click)="supplyFromCentral()"><i class="pi pi-download"></i> Suministrar desde Central</button>
+            <button class="btn green sm" [disabled]="savingStock()" (click)="saveStock()"><i class="pi pi-save"></i> Guardar stock</button>
+          </div>
+          <p class="muted" style="font-size:0.74rem;margin:0.4rem 0 0">"Traer de central" toma ropa limpia del Almacén Central y la suma al subalmacén.</p>
         </div>
       }
 
@@ -239,6 +246,17 @@ export class CoberturaComponent implements OnInit {
   }
   addStockRow(): void { this.stockRows.set([...this.stockRows(), { articleKind: 'LINEN_REUSABLE', name: '', quantity: 0 }]); }
   removeStockRow(i: number): void { const n = [...this.stockRows()]; n.splice(i, 1); this.stockRows.set(n); }
+  supplyFromCentral(): void {
+    if (!this.currentSubId) return;
+    const items = this.stockRows().filter((r) => r.name.trim() && (r.bring ?? 0) > 0).map((r) => ({ articleKind: r.articleKind, name: r.name.trim(), quantity: r.bring as number }));
+    if (!items.length) { this.messages.add({ severity: 'warn', summary: 'Nada que traer', detail: 'Indica cuánto traer de central.' }); return; }
+    this.savingStock.set(true);
+    this.http.post<ApiResponse<unknown>>(`${this.api}/subwarehouses/${this.currentSubId}/supply`, { items }).subscribe({
+      next: () => { this.savingStock.set(false); this.messages.add({ severity: 'success', summary: 'Suministrado', detail: 'Ropa traída de la central.' }); this.stockRows.set(this.stockRows().map((r) => ({ ...r, bring: 0 }))); this.loadStock(); },
+      error: (e: HttpErrorResponse) => { this.savingStock.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
+    });
+  }
+
   saveStock(): void {
     if (!this.currentSubId) return;
     const items = this.stockRows().filter((r) => r.name.trim()).map((r) => ({ articleKind: r.articleKind, name: r.name.trim(), quantity: r.quantity }));

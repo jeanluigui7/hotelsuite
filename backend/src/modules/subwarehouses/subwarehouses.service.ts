@@ -2,7 +2,8 @@ import type { RequestScope } from '../../shared/context';
 import { NotFoundError, ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
-import type { CreateSubWarehouseDto, UpdateSubWarehouseDto, SetRoomsDto, SetStockDto } from './subwarehouses.schema';
+import { addLocationStock } from '../laundry/location-stock';
+import type { CreateSubWarehouseDto, UpdateSubWarehouseDto, SetRoomsDto, SetStockDto, SupplyDto } from './subwarehouses.schema';
 
 async function getArea(scope: RequestScope, areaId: string) {
   const area = await prisma.area.findUnique({ where: { id: areaId } });
@@ -109,5 +110,33 @@ export const subWarehousesService = {
       }
     });
     return { ok: true };
+  },
+
+  /** Suministra ropa desde la Ropa Limpia Central al subalmacén (Central → Subalmacén). */
+  async supply(scope: RequestScope, id: string, dto: SupplyDto) {
+    const sub = await getSub(scope, id);
+    const branchId = sub.branchId;
+    // Validar disponibilidad en el central de ropa limpia.
+    for (const it of dto.items) {
+      const c = await prisma.linenLocationStock.findUnique({ where: { branchId_location_articleKind_name: { branchId, location: 'CLEAN_CENTRAL', articleKind: it.articleKind, name: it.name } } });
+      if (!c || c.quantity < it.quantity) {
+        throw new ValidationError(`Stock insuficiente de "${it.name}" en la Ropa Limpia Central (disponible ${c?.quantity ?? 0}, solicitado ${it.quantity}).`);
+      }
+    }
+    await prisma.$transaction(async (tx) => {
+      for (const it of dto.items) {
+        await addLocationStock(tx, branchId, 'CLEAN_CENTRAL', it.articleKind, it.name, -it.quantity);
+        const key = { subWarehouseId_articleKind_name: { subWarehouseId: id, articleKind: it.articleKind, name: it.name } };
+        await tx.subWarehouseStock.upsert({
+          where: key,
+          update: { quantity: { increment: it.quantity } },
+          create: { branchId, subWarehouseId: id, articleKind: it.articleKind, name: it.name, quantity: it.quantity },
+        });
+        await tx.roomInventoryMovement.create({
+          data: { branchId, roomId: null, type: 'TRANSFER', articleKind: it.articleKind, name: it.name, quantity: it.quantity, fromLocation: 'Almacén de Ropa Limpia Central', toLocation: `Subalmacén ${sub.name}`, reference: 'Suministro a subalmacén', createdByUserId: scope.userId },
+        });
+      }
+    });
+    return { supplied: dto.items.length };
   },
 };
