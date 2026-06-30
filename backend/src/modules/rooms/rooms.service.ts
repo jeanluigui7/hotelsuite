@@ -41,6 +41,9 @@ function serializeMap(room: RoomForMap) {
           priceAgreed: stay.priceAgreed,
           balanceDue: stay.balanceDue,
           vehiclePlate: stay.vehiclePlate,
+          renewed: !!stay.renewedAt,
+          renewalCount: stay.renewalCount,
+          cleaningRequested: stay.cleaningRequested,
         }
       : null,
   };

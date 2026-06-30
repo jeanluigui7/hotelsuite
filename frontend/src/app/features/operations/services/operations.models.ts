@@ -22,6 +22,9 @@ export interface ActiveStay {
   pending?: number;
   consumosTotal?: number;
   vehiclePlate?: string | null;
+  renewed?: boolean;
+  renewalCount?: number;
+  cleaningRequested?: boolean;
 }
 
 export interface CheckoutSummary {

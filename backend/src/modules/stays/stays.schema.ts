@@ -50,6 +50,14 @@ export const changeRoomSchema = z.object({
   originStatus: z.enum(['CLEANING', 'FREE']).default('CLEANING'),
 });
 
+export const renewSchema = z.object({
+  amount: z.coerce.number().min(0).optional(), // monto de la renovación (default = precio de la estancia)
+  chargeNow: z.coerce.boolean().default(false), // cobrar en el momento o dejar pendiente
+  paymentMethod: z.enum(['CASH', 'CARD', 'TRANSFER', 'WALLET']).optional(),
+  requestCleaning: z.coerce.boolean().default(false), // limpieza de renovación (no libera la habitación)
+});
+
 export type CheckInDto = z.infer<typeof checkInSchema>;
 export type CheckOutDto = z.infer<typeof checkOutSchema>;
 export type ChangeRoomDto = z.infer<typeof changeRoomSchema>;
+export type RenewDto = z.infer<typeof renewSchema>;

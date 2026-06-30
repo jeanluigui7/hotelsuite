@@ -614,6 +614,9 @@ model Stay {
   vehiclePlate      String? // placa del vehículo (búsqueda por placa)
   balanceDue        Decimal?  @db.Decimal(10, 2) // adeudo / saldo pendiente
   notes             String?
+  renewedAt         DateTime? // última renovación (OCUPADA - RENOVADA)
+  renewalCount      Int       @default(0)
+  cleaningRequested Boolean   @default(false) // limpieza de renovación pendiente (no libera la habitación)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 

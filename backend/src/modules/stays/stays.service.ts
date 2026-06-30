@@ -11,8 +11,9 @@ import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { guestsRepository } from '../guests/guests.repository';
 import { pernoctaService } from '../pernocta/pernocta.service';
+import { cashRepository } from '../cash/cash.repository';
 import { staysRepository, type StayWithRelations } from './stays.repository';
-import type { ChangeRoomDto, CheckInDto, CheckOutDto } from './stays.schema';
+import type { ChangeRoomDto, CheckInDto, CheckOutDto, RenewDto } from './stays.schema';
 
 const SORTABLE = ['checkInAt', 'plannedCheckoutAt', 'status'] as const;
 
@@ -241,13 +242,17 @@ export const staysService = {
     const movs: Mov[] = [];
     const products: { name: string; quantity: number; amount: number; at: Date; paid: boolean }[] = [];
     let consumos = 0;
+    let renovacionesSales = 0; // cargos de renovación (líneas de venta "Renovación")
+    let renewalCount = 0;
     for (const s of sales) {
       const paidSale = s.payments.reduce((a, p) => a + Number(p.amount), 0);
       const fullyPaid = paidSale + 0.001 >= Number(s.total);
       for (const it of s.items) {
         const sub = Number(it.subtotal);
+        const isRenewal = /renovaci/i.test(it.description);
         movs.push({ at: s.createdAt, type: isRoomLine(it.description) ? 'Estadía' : 'Producto', description: it.description, charge: sub, payment: 0, by: uname(s.createdByUserId) });
-        if (!isRoomLine(it.description)) {
+        if (isRenewal) { renovacionesSales += sub; renewalCount += it.quantity; }
+        else if (!isRoomLine(it.description)) {
           consumos += sub;
           products.push({ name: it.description, quantity: it.quantity, amount: sub, at: s.createdAt, paid: fullyPaid });
         }
@@ -267,7 +272,8 @@ export const staysService = {
     const cleaningLog = tasks.map((t) => ({ at: t.completedAt ?? t.createdAt, action: t.status === 'PENDING' ? 'Solicitó' : t.status === 'IN_PROGRESS' ? 'Inició' : 'Finalizó', by: uname(t.assignedToUserId) }));
 
     const habitacion = round2(Number(stay.priceAgreed));
-    const renovaciones = round2(stay.balanceDue ? Number(stay.balanceDue) : 0);
+    // Renovaciones: cargos de renovación registrados como venta (con respaldo legacy en balanceDue).
+    const renovaciones = renovacionesSales > 0 ? round2(renovacionesSales) : round2(stay.balanceDue ? Number(stay.balanceDue) : 0);
     const total = round2(habitacion + renovaciones + consumos);
     const paid = round2(sales.flatMap((s) => s.payments).reduce((a, p) => a + Number(p.amount), 0));
     const hospedaje = round2(habitacion + renovaciones);
@@ -282,7 +288,7 @@ export const staysService = {
       checkInAt: stay.checkInAt,
       plannedCheckoutAt: stay.plannedCheckoutAt,
       durationMinutes: stay.durationMinutes,
-      renewals: renovaciones > 0 ? Math.max(1, Math.round(renovaciones / (habitacion || 1))) : 0,
+      renewals: renewalCount > 0 ? renewalCount : (renovaciones > 0 ? Math.max(1, Math.round(renovaciones / (habitacion || 1))) : 0),
       amounts: { habitacion, renovaciones, consumos: round2(consumos), total, paid },
       cleaning: { done: cleaningDone, allowed: cleaningAllowed },
       cleaningLog,
@@ -298,14 +304,53 @@ export const staysService = {
   },
 
   /** Renueva/extiende la pernocta: agrega otra duración de tarifa y suma su precio al adeudo. */
-  async renew(scope: RequestScope, id: string) {
+  /**
+   * Renovación de pernocta: extiende la salida, registra el cargo (cobrado ahora o pendiente),
+   * marca la estancia como RENOVADA y, si se pide, deja una limpieza de renovación pendiente
+   * (que NO libera la habitación: el huésped sigue dentro).
+   */
+  async renew(scope: RequestScope, id: string, dto: RenewDto) {
+    const branchId = requireActiveBranch(scope);
+    const stay = await staysRepository.findById(id);
+    if (!stay || stay.branchId !== branchId) throw new ConflictError('Estancia no encontrada');
+    if (stay.status !== 'OPEN') throw new ConflictError('La estancia ya está cerrada');
+
+    const newCheckout = new Date(new Date(stay.plannedCheckoutAt).getTime() + stay.durationMinutes * 60_000);
+    const price = round2(dto.amount != null ? dto.amount : Number(stay.priceAgreed));
+
+    // Si se cobra ahora, el cargo se registra como venta PAGADA con su pago (atada al turno de caja).
+    let sessionId: string | null = null;
+    if (dto.chargeNow && price > 0) {
+      const session = await cashRepository.findOpen(branchId);
+      if (!session) throw new ConflictError('Para cobrar la renovación debe haber un turno de caja abierto.');
+      sessionId = session.id;
+    }
+    const paying = dto.chargeNow && price > 0;
+
+    await prisma.$transaction([
+      prisma.stay.update({
+        where: { id },
+        data: { plannedCheckoutAt: newCheckout, renewedAt: new Date(), renewalCount: { increment: 1 }, ...(dto.requestCleaning ? { cleaningRequested: true } : {}) },
+      }),
+      prisma.sale.create({
+        data: {
+          branchId, stayId: id, guestId: stay.guestId, total: price,
+          status: paying ? 'PAID' : 'OPEN', cashSessionId: sessionId, createdByUserId: scope.userId,
+          items: { create: [{ description: 'Renovación de estadía', quantity: 1, unitPrice: price, subtotal: price }] },
+          ...(paying ? { payments: { create: [{ branchId, method: dto.paymentMethod ?? 'CASH', amount: price, cashSessionId: sessionId, createdByUserId: scope.userId }] } } : {}),
+        },
+      }),
+    ]);
+    const updated = await staysRepository.findById(id);
+    return serialize(updated as StayWithRelations);
+  },
+
+  /** Marca la limpieza de renovación como realizada. La habitación sigue OCUPADA (no se libera). */
+  async renewalCleaningDone(scope: RequestScope, id: string) {
     const branchId = requireActiveBranch(scope);
     const stay = await staysRepository.findById(id);
     if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
-    if (stay.status !== 'OPEN') throw new ConflictError('La estancia ya está cerrada');
-    const newCheckout = new Date(new Date(stay.plannedCheckoutAt).getTime() + stay.durationMinutes * 60_000);
-    const bd = (stay.balanceDue ? Number(stay.balanceDue) : 0) + Number(stay.priceAgreed);
-    await prisma.stay.update({ where: { id }, data: { plannedCheckoutAt: newCheckout, balanceDue: round2(bd) } });
+    await prisma.stay.update({ where: { id }, data: { cleaningRequested: false } });
     const updated = await staysRepository.findById(id);
     return serialize(updated as StayWithRelations);
   },

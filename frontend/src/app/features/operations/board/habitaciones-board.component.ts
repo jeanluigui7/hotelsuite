@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
+import { InputNumberModule } from 'primeng/inputnumber';
 import { TooltipModule } from 'primeng/tooltip';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
@@ -52,7 +53,7 @@ const MANT_CATS = [
 @Component({
   selector: 'app-habitaciones-board',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, TooltipModule, DialogModule, CheckInDialogComponent, VentaProductosComponent, ServiciosPenalidadesComponent, FolioEstanciaComponent],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, InputNumberModule, TooltipModule, DialogModule, CheckInDialogComponent, VentaProductosComponent, ServiciosPenalidadesComponent, FolioEstanciaComponent],
   template: `
     <section class="board">
       <header class="top">
@@ -93,12 +94,14 @@ const MANT_CATS = [
               <div class="oc-badges">
                 <span class="ob type">{{ r.roomType.name }}</span>
                 <span class="ob occ">● Ocupada</span>
+                @if (r.activeStay.renewed) { <span class="ob renov">↻ Renovada{{ (r.activeStay.renewalCount || 0) > 1 ? ' ×' + r.activeStay.renewalCount : '' }}</span> }
+                @if (r.activeStay.cleaningRequested) { <span class="ob limp">🧹 Limpieza de renovación</span> }
               </div>
               <div class="oc-timer">
                 <span class="t" [class.red]="isExpired(r.activeStay)"><i class="pi pi-clock"></i> {{ remainingLabel(r.activeStay) }}</span>
                 @if (isExpired(r.activeStay)) { <span class="exp-badge">Tiempo Expirado</span> }
                 <span class="spacer"></span>
-                <button class="mini" (click)="renew(r)" [disabled]="busyStay() === r.activeStay.id"><i class="pi pi-refresh"></i> Renovar</button>
+                <button class="mini" (click)="openRenovar(r)"><i class="pi pi-refresh"></i> Renovar</button>
                 <button class="mini" (click)="ticket(r)"><i class="pi pi-dollar"></i> Ticket</button>
                 @if (canChangeRoom()) { <button class="mini" (click)="openChange(r)"><i class="pi pi-arrow-right-arrow-left"></i> Cambiar</button> }
               </div>
@@ -118,6 +121,9 @@ const MANT_CATS = [
                 <button class="chip total clickable" (click)="openFolio(r)" pTooltip="Ver folio de estancia"><i class="pi pi-search"></i> Total S/ {{ stayTotal(r.activeStay) | number: '1.2-2' }}</button>
               </div>
               <div class="oc-foot">
+                @if (r.activeStay.cleaningRequested) {
+                  <button class="cta out clean-ok" [disabled]="busyStay() === r.activeStay.id" (click)="renewalCleaningDone(r)"><i class="pi pi-check"></i> Limpieza lista</button>
+                }
                 <button class="cta out" (click)="confirmCheckout(r)"><i class="pi pi-sign-out"></i> Pre Checkout</button>
                 <button class="cta out ghost2" (click)="openEdit(r)"><i class="pi pi-pencil"></i> Editar</button>
               </div>
@@ -311,6 +317,28 @@ const MANT_CATS = [
       </ng-template>
     </p-dialog>
 
+    <!-- Renovación de estancia -->
+    <p-dialog [(visible)]="renovarVisible" [modal]="true" header="Renovar estancia" [style]="{ width: '30rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      @if (renovarRoom?.activeStay; as s) {
+        <p class="muted" style="margin:0 0 1rem">Hab. <strong>{{ renovarRoom?.number }}</strong> · {{ s.guestName }}. El huésped <strong>no</strong> hace check-out; se extiende la salida.</p>
+        <div class="rnv">
+          <div class="rnv-kv"><span>Salida actual</span><strong>{{ s.plannedCheckoutAt | date: 'dd/MM HH:mm' }}</strong></div>
+          <div class="fld"><label>Monto de la renovación (S/)</label><p-inputNumber [(ngModel)]="renovarAmount" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w" /></div>
+          <label class="rnv-toggle"><span><strong>¿Cobrar ahora?</strong><small>Si no, queda pendiente por cobrar.</small></span><input type="checkbox" [(ngModel)]="renovarCharge" /></label>
+          @if (renovarCharge) {
+            <div class="fld"><label>Método de pago</label>
+              <p-select [options]="renovarPayMethods" optionLabel="label" optionValue="value" [(ngModel)]="renovarMethod" styleClass="w" appendTo="body" />
+            </div>
+          }
+          <label class="rnv-toggle"><span><strong>¿Desea limpieza de renovación?</strong><small>La habitación sigue ocupada; no pasa a Disponible.</small></span><input type="checkbox" [(ngModel)]="renovarCleaning" /></label>
+        </div>
+      }
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" severity="secondary" [text]="true" [disabled]="savingRenovar()" (onClick)="renovarVisible = false" />
+        <p-button label="Confirmar Renovación" icon="pi pi-refresh" [loading]="savingRenovar()" (onClick)="confirmRenovar()" />
+      </ng-template>
+    </p-dialog>
+
     <!-- Carga inicial de dotación BASE tras crear habitación -->
     <p-dialog [(visible)]="dotacionVisible" [modal]="true" header="Carga inicial de inventario" [style]="{ width: '30rem', maxWidth: '95vw' }" styleClass="dk-dialog">
       <p class="muted" style="margin:0 0 1rem">¿Deseas realizar la carga inicial de <strong>dotación base</strong> para la habitación <strong>{{ createdRoomNumber }}</strong>?</p>
@@ -477,6 +505,16 @@ const MANT_CATS = [
       .oc-badges { display: flex; gap: 0.4rem; flex-wrap: wrap; }
       .ob { font-size: 0.72rem; font-weight: 700; padding: 0.25rem 0.6rem; border-radius: 999px; background: rgba(0,0,0,0.25); }
       .ob.type { background: rgba(124,58,237,0.55); }
+      .ob.renov { background: rgba(16,185,129,0.85); color: #04130d; }
+      .ob.limp { background: rgba(245,158,11,0.85); color: #2a1a04; }
+      .oc-foot .cta.out.clean-ok { flex: 0 0 auto; background: #f59e0b; color: #2a1a04; }
+      .rnv { display: flex; flex-direction: column; gap: 0.8rem; }
+      .rnv-kv { display: flex; justify-content: space-between; font-size: 0.88rem; color: #9fb0c3; }
+      .rnv .fld { display: flex; flex-direction: column; gap: 0.35rem; } .rnv label { font-size: 0.82rem; color: #9fb0c3; }
+      :host ::ng-deep .rnv .w, :host ::ng-deep .rnv .p-inputnumber { width: 100%; }
+      .rnv-toggle { display: flex; align-items: center; justify-content: space-between; gap: 1rem; background: #131b27; border: 1px solid #243245; border-radius: 10px; padding: 0.7rem 0.9rem; cursor: pointer; }
+      .rnv-toggle span { display: flex; flex-direction: column; } .rnv-toggle strong { font-size: 0.9rem; } .rnv-toggle small { color: #9fb0c3; font-size: 0.76rem; }
+      .rnv-toggle input { width: 20px; height: 20px; accent-color: #10b981; }
       .oc-timer { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; background: rgba(0,0,0,0.22); border-radius: 10px; padding: 0.5rem 0.7rem; }
       .oc-timer .t { font-weight: 800; font-size: 1rem; display: inline-flex; align-items: center; gap: 0.35rem; } .oc-timer .t.red { color: #fca5a5; }
       .exp-badge { background: #dc2626; color: #fff; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 6px; }
@@ -557,6 +595,18 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   readonly roomTypes = signal<RoomType[]>([]);
   readonly savingRoom = signal(false);
   newRoomVisible = false;
+  // Renovación de estancia
+  renovarVisible = false;
+  renovarRoom: RoomMapItem | null = null;
+  renovarAmount: number | null = null;
+  renovarCharge = false;
+  renovarMethod = 'CASH';
+  renovarCleaning = false;
+  readonly savingRenovar = signal(false);
+  readonly renovarPayMethods = [
+    { label: 'Efectivo', value: 'CASH' }, { label: 'Tarjeta', value: 'CARD' },
+    { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Billetera', value: 'WALLET' },
+  ];
   // Carga inicial de dotación tras crear habitación
   dotacionVisible = false;
   createdRoomId: string | null = null;
@@ -743,12 +793,43 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     return Math.round((Number(s.priceAgreed) + (s.consumosTotal ?? 0)) * 100) / 100;
   }
 
-  renew(r: RoomMapItem): void {
+  openRenovar(r: RoomMapItem): void {
+    if (!r.activeStay) return;
+    this.renovarRoom = r;
+    this.renovarAmount = Math.round(Number(r.activeStay.priceAgreed) * 100) / 100;
+    this.renovarCharge = false;
+    this.renovarMethod = 'CASH';
+    this.renovarCleaning = false;
+    this.renovarVisible = true;
+  }
+
+  confirmRenovar(): void {
+    const r = this.renovarRoom;
+    if (!r?.activeStay) return;
+    this.savingRenovar.set(true);
+    this.ops.renew(r.activeStay.id, {
+      amount: this.renovarAmount ?? undefined,
+      chargeNow: this.renovarCharge,
+      paymentMethod: this.renovarCharge ? this.renovarMethod : undefined,
+      requestCleaning: this.renovarCleaning,
+    }).subscribe({
+      next: () => {
+        this.savingRenovar.set(false); this.renovarVisible = false;
+        const extra = this.renovarCharge ? ' (cobrada)' : ' (pendiente de cobro)';
+        this.toast.add({ severity: 'success', summary: 'Renovada', detail: `Hab. ${r.number}: salida extendida${extra}.` });
+        this.reload();
+      },
+      error: (err) => { this.savingRenovar.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo renovar' }); },
+    });
+  }
+
+  /** Marca la limpieza de renovación como hecha; la habitación sigue ocupada. */
+  renewalCleaningDone(r: RoomMapItem): void {
     if (!r.activeStay) return;
     this.busyStay.set(r.activeStay.id);
-    this.ops.renew(r.activeStay.id).subscribe({
-      next: () => { this.busyStay.set(null); this.toast.add({ severity: 'success', summary: 'Renovado', detail: `Hab. ${r.number}: pernocta extendida.` }); this.reload(); },
-      error: (err) => { this.busyStay.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo renovar' }); },
+    this.ops.renewalCleaningDone(r.activeStay.id).subscribe({
+      next: () => { this.busyStay.set(null); this.toast.add({ severity: 'success', summary: 'Limpieza lista', detail: `Hab. ${r.number} sigue ocupada (renovada).` }); this.reload(); },
+      error: (err) => { this.busyStay.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo actualizar' }); },
     });
   }
 
