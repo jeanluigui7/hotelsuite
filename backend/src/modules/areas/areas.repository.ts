@@ -1,7 +1,10 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../config/prisma';
 
-const include = { warehouse: { select: { id: true, name: true, type: true } } } satisfies Prisma.AreaInclude;
+const include = {
+  warehouse: { select: { id: true, name: true, type: true } },
+  subWarehouses: { include: { _count: { select: { rooms: true } } } },
+} satisfies Prisma.AreaInclude;
 export type AreaWithRelations = Prisma.AreaGetPayload<{ include: typeof include }>;
 
 export const areasRepository = {

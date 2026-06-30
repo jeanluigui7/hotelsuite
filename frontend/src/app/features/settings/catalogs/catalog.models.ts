@@ -71,13 +71,24 @@ export interface CustomRate {
   status: string;
 }
 
+export interface AreaSubWarehouse {
+  id: string;
+  name: string;
+  coverageType: string;
+  roomCount: number;
+  status: string;
+}
 export interface Area {
   id: string;
   name: string;
   description?: string | null;
+  type?: string;
+  managesSubwarehouses?: boolean;
   managesFloors?: boolean;
   warehouseId?: string | null;
   warehouse?: { id: string; name: string; type: string } | null;
+  subWarehouses?: AreaSubWarehouse[];
+  coveredRooms?: number;
   itemCount?: number;
   status: string;
 }

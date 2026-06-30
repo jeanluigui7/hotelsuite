@@ -340,17 +340,55 @@ model Area {
   branchId      String
   name          String
   description   String?
+  type          String   @default("LIMPIEZA") // LIMPIEZA | RECEPCION | LAVANDERIA | ROPA | AMENITIES
+  managesSubwarehouses Boolean @default(false)
   managesFloors Boolean  @default(false)
   warehouseId   String?
   status        String   @default("active")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  branch    Branch     @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  warehouse Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  branch        Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  warehouse     Warehouse?     @relation(fields: [warehouseId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  subWarehouses SubWarehouse[]
 
   @@index([branchId])
   @@index([warehouseId])
+}
+
+/// FASE L6 — Subalmacén operativo dentro de un Área (ej. "Limpieza Torre B").
+/// Tiene su propio stock y atiende un conjunto de habitaciones (cobertura).
+/// coverageType: MANUAL | RANGE | ALL  (RANGE/MANUAL se resuelven al mismo set de habitaciones)
+model SubWarehouse {
+  id           String   @id @default(uuid())
+  branchId     String
+  areaId       String
+  name         String
+  coverageType String   @default("MANUAL")
+  status       String   @default("active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  area  Area               @relation(fields: [areaId], references: [id], onDelete: Cascade)
+  rooms SubWarehouseRoom[]
+
+  @@index([branchId])
+  @@index([areaId])
+}
+
+/// FASE L6 — Cobertura: qué habitaciones atiende un subalmacén (set explícito).
+model SubWarehouseRoom {
+  id             String @id @default(uuid())
+  branchId       String
+  subWarehouseId String
+  roomId         String
+
+  subWarehouse SubWarehouse @relation(fields: [subWarehouseId], references: [id], onDelete: Cascade)
+  room         Room         @relation(fields: [roomId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([subWarehouseId, roomId])
+  @@index([subWarehouseId])
+  @@index([roomId])
 }
 
 /// Categoría de inventario (por sucursal).
@@ -422,6 +460,7 @@ model Room {
   status     String   @default("FREE")
   blocked    Boolean  @default(false) // habitación crítica bloqueada hasta resolver mantenimiento
   notes      String?
+  tower      String? // Torre/Bloque (para agrupar la cobertura de subalmacenes)
   imageUrl        String?  @db.NVarChar(Max)
   frigobarEnabled Boolean  @default(false)
   createdAt  DateTime @default(now())
@@ -435,6 +474,7 @@ model Room {
   conciergeRequests ConciergeRequest[]
   inventory         RoomInventory[]
   invMovements      RoomInventoryMovement[]
+  subWarehouseRooms SubWarehouseRoom[]
 
   @@unique([branchId, number])
   @@index([branchId])

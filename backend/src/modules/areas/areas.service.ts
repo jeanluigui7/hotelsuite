@@ -15,13 +15,19 @@ import type { CreateAreaDto, UpdateAreaDto } from './areas.schema';
 const SORTABLE = ['name', 'createdAt', 'status'] as const;
 
 function serialize(a: AreaWithRelations, itemCount: number) {
+  const subWarehouses = a.subWarehouses.map((s) => ({ id: s.id, name: s.name, coverageType: s.coverageType, roomCount: s._count.rooms, status: s.status }));
+  const totalCovered = subWarehouses.reduce((acc, s) => acc + s.roomCount, 0);
   return {
     id: a.id,
     name: a.name,
     description: a.description,
+    type: a.type,
+    managesSubwarehouses: a.managesSubwarehouses,
     managesFloors: a.managesFloors,
     warehouseId: a.warehouseId,
     warehouse: a.warehouse,
+    subWarehouses,
+    coveredRooms: totalCovered,
     itemCount,
     status: a.status,
   };
@@ -65,14 +71,23 @@ export const areasService = {
   async create(scope: RequestScope, dto: CreateAreaDto) {
     const branchId = requireActiveBranch(scope);
     await assertWarehouseInBranch(dto.warehouseId || null, branchId);
-    return areasRepository.create({
+    const area = await areasRepository.create({
       branchId,
       name: dto.name,
       description: dto.description || null,
+      type: dto.type,
+      managesSubwarehouses: dto.managesSubwarehouses ?? false,
       managesFloors: dto.managesFloors ?? false,
       warehouseId: dto.warehouseId || null,
       status: dto.status,
     });
+    // Subalmacén inicial opcional (paso 1 del asistente). La cobertura se asigna en el paso 2.
+    if (dto.managesSubwarehouses && dto.firstSubWarehouse) {
+      await prisma.subWarehouse.create({
+        data: { branchId, areaId: area.id, name: dto.firstSubWarehouse, coverageType: dto.coverageType ?? 'MANUAL' },
+      });
+    }
+    return area;
   },
 
   async update(scope: RequestScope, id: string, dto: UpdateAreaDto) {
@@ -82,6 +97,8 @@ export const areasService = {
     return areasRepository.update(id, {
       name: dto.name,
       description: dto.description === '' ? null : dto.description,
+      ...(dto.type !== undefined ? { type: dto.type } : {}),
+      ...(dto.managesSubwarehouses !== undefined ? { managesSubwarehouses: dto.managesSubwarehouses } : {}),
       ...(dto.managesFloors !== undefined ? { managesFloors: dto.managesFloors } : {}),
       ...(dto.warehouseId !== undefined
         ? dto.warehouseId

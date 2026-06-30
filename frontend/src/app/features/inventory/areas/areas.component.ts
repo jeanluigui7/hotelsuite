@@ -16,13 +16,23 @@ interface Form {
   id?: string;
   name: string;
   description: string;
-  managesFloors: boolean;
+  type: string;
+  managesSubwarehouses: boolean;
+  coverageType: 'MANUAL' | 'RANGE' | 'ALL';
+  firstSubWarehouse: string;
   warehouseId: string | null;
   status: 'active' | 'inactive';
 }
 function emptyForm(): Form {
-  return { name: '', description: '', managesFloors: false, warehouseId: null, status: 'active' };
+  return { name: '', description: '', type: 'LIMPIEZA', managesSubwarehouses: false, coverageType: 'MANUAL', firstSubWarehouse: '', warehouseId: null, status: 'active' };
 }
+const TYPES = [
+  { label: 'Limpieza', value: 'LIMPIEZA', icon: 'pi pi-sparkles', cls: 'limpieza' },
+  { label: 'Recepción', value: 'RECEPCION', icon: 'pi pi-bell', cls: 'recepcion' },
+  { label: 'Lavandería', value: 'LAVANDERIA', icon: 'pi pi-sync', cls: 'lavanderia' },
+  { label: 'Ropa', value: 'ROPA', icon: 'pi pi-tag', cls: 'ropa' },
+  { label: 'Amenities', value: 'AMENITIES', icon: 'pi pi-shield', cls: 'amenities' },
+];
 
 @Component({
   selector: 'app-areas',
@@ -44,17 +54,22 @@ function emptyForm(): Form {
       <div class="tablewrap">
         <table class="tbl">
           <thead><tr>
-            <th class="num">#</th><th>Nombre</th><th>Descripción</th>
-            <th class="cn">Maneja Pisos</th><th class="cn">Items</th><th class="cn">Estado</th><th class="ac">Acciones</th>
+            <th class="num">#</th><th>Nombre</th><th>Tipo</th><th class="cn">Maneja Subalmacenes</th>
+            <th>Cobertura de habitaciones</th><th class="cn">Items</th><th class="cn">Estado</th><th class="ac">Acciones</th>
           </tr></thead>
           <tbody>
             @for (a of filtered(); track a.id; let i = $index) {
               <tr>
                 <td class="num">{{ i + 1 }}</td>
                 <td class="nm">{{ a.name }}</td>
-                <td class="desc muted">{{ a.description || '—' }}</td>
-                <td class="cn"><span class="pill" [class.yes]="a.managesFloors">{{ a.managesFloors ? 'Sí' : 'No' }}</span></td>
-                <td class="cn"><span class="pill items">{{ a.itemCount ?? 0 }} items</span></td>
+                <td><span class="kind" [class]="typeCls(a.type)"><i [class]="typeIcon(a.type)"></i> {{ typeLabel(a.type) }}</span></td>
+                <td class="cn"><span class="pill" [class.yes]="a.managesSubwarehouses">{{ a.managesSubwarehouses ? 'Sí' : 'No' }}</span></td>
+                <td class="cov">
+                  @if (a.managesSubwarehouses) {
+                    <span class="cov-chip"><i class="pi pi-sitemap"></i> {{ (a.subWarehouses || []).length }} subalmacén(es) · {{ a.coveredRooms || 0 }} hab.</span>
+                  } @else { <span class="muted">Aplica a toda la propiedad</span> }
+                </td>
+                <td class="cn"><span class="pill items">{{ a.itemCount ?? 0 }}</span></td>
                 <td class="cn"><span class="pill" [class.on]="a.status === 'active'" [class.off]="a.status !== 'active'">{{ a.status === 'active' ? 'Activo' : 'Inactivo' }}</span></td>
                 <td class="ac">
                   <button class="ia" (click)="openView(a)" title="Ver"><i class="pi pi-eye"></i></button>
@@ -62,46 +77,73 @@ function emptyForm(): Form {
                   @if (canDelete) { <button class="ia del" (click)="confirmDelete(a)" title="Eliminar"><i class="pi pi-trash"></i></button> }
                 </td>
               </tr>
-            } @empty { <tr><td colspan="7" class="muted center">Sin áreas.</td></tr> }
+            } @empty { <tr><td colspan="8" class="muted center">Sin áreas.</td></tr> }
           </tbody>
         </table>
       </div>
     </section>
 
     <!-- Nueva / Editar área -->
-    <p-dialog [(visible)]="dialogVisible" [modal]="true" [style]="{ width: '34rem', maxWidth: '95vw' }" [header]="form.id ? 'Editar Área' : 'Nueva Área'" styleClass="dk-dialog">
-      <p class="sub">Organiza y jerarquiza tu inventario por áreas.</p>
+    <p-dialog [(visible)]="dialogVisible" [modal]="true" [style]="{ width: '40rem', maxWidth: '96vw' }" [header]="form.id ? 'Editar Área de Inventario' : 'Nueva Área de Inventario'" styleClass="dk-dialog">
+      <p class="sub">Configura un área adaptable para cualquier sede, torre o bloque.</p>
       <div class="form">
-        <div class="fld"><label>Nombre</label><input pInputText [(ngModel)]="form.name" placeholder="Ej: Almacén Principal" /></div>
-        <div class="fld"><label>Descripción</label><input pInputText [(ngModel)]="form.description" placeholder="Descripción del área" /></div>
-        <div class="fld">
-          <label>Almacén vinculado</label>
-          <p-select [options]="warehouses()" optionLabel="name" optionValue="id" [(ngModel)]="form.warehouseId" [showClear]="true" placeholder="Sin almacén" styleClass="w" appendTo="body" />
-          <small>El conteo de "Items" usa el stock de este almacén.</small>
+        <div class="grid2">
+          <div class="fld"><label>Nombre del área</label><input pInputText [(ngModel)]="form.name" placeholder="Ej: Limpieza Torre B" /></div>
+          <div class="fld"><label>Tipo de área</label>
+            <p-select [options]="types" optionValue="value" [(ngModel)]="form.type" placeholder="Selecciona un tipo" styleClass="w" appendTo="body">
+              <ng-template let-t pTemplate="item"><i [class]="t.icon"></i> {{ t.label }}</ng-template>
+              <ng-template let-t pTemplate="selectedItem"><i [class]="t.icon"></i> {{ t.label }}</ng-template>
+            </p-select>
+          </div>
         </div>
+        <div class="fld"><label>Descripción</label><input pInputText [(ngModel)]="form.description" placeholder="Describe el propósito o alcance del área…" /></div>
+        <div class="grid2">
+          <div class="fld"><label>Almacén vinculado (Items)</label>
+            <p-select [options]="warehouses()" optionLabel="name" optionValue="id" [(ngModel)]="form.warehouseId" [showClear]="true" placeholder="Sin almacén" styleClass="w" appendTo="body" />
+          </div>
+          <div class="fld"><label>Estado</label>
+            <p-select [options]="statusOptions" optionLabel="label" optionValue="value" [(ngModel)]="form.status" styleClass="w" appendTo="body" />
+          </div>
+        </div>
+
         <label class="toggle">
-          <span class="tg-body"><strong><i class="pi pi-building"></i> Maneja Pisos</strong><small>El área se organiza por pisos (p. ej. Habitaciones, Limpieza).</small></span>
-          <input type="checkbox" [(ngModel)]="form.managesFloors" />
+          <span class="tg-body"><strong><i class="pi pi-sitemap"></i> ¿Maneja subalmacenes?</strong><small>El área se divide en subalmacenes (p. ej. por torre o piso) que atienden ciertas habitaciones.</small></span>
+          <input type="checkbox" [(ngModel)]="form.managesSubwarehouses" />
         </label>
-        <div class="fld"><label>Estado</label>
-          <p-select [options]="statusOptions" optionLabel="label" optionValue="value" [(ngModel)]="form.status" styleClass="w" appendTo="body" />
-        </div>
+
+        @if (form.managesSubwarehouses) {
+          <div class="cover">
+            <div class="cover-h">Configuración de cobertura</div>
+            <p class="muted sm">Define cómo se cubrirán las habitaciones desde esta área.</p>
+            <div class="cover-opts">
+              <label class="cov-opt" [class.on]="form.coverageType === 'MANUAL'"><input type="radio" name="cov" value="MANUAL" [(ngModel)]="form.coverageType" /><span><strong>Selección manual de habitaciones</strong><small>Eliges manualmente qué habitaciones abastece cada subalmacén.</small></span></label>
+              <label class="cov-opt" [class.on]="form.coverageType === 'RANGE'"><input type="radio" name="cov" value="RANGE" [(ngModel)]="form.coverageType" /><span><strong>Asignación por rango o filtro</strong><small>Defines rangos de numeración, torres o filtros.</small></span></label>
+            </div>
+            @if (!form.id) {
+              <div class="fld"><label>Nombre del primer subalmacén (opcional)</label><input pInputText [(ngModel)]="form.firstSubWarehouse" placeholder="Ej: Limpieza Torre B" /></div>
+              <p class="muted sm">Podrás agregar más subalmacenes y asignar las habitaciones después, desde "Cobertura".</p>
+            }
+          </div>
+        }
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="dialogVisible = false" />
-        <p-button [label]="form.id ? 'Guardar Cambios' : 'Crear Área'" icon="pi pi-check" [loading]="saving()" (onClick)="save()" />
+        <p-button [label]="form.id ? 'Guardar Cambios' : 'Guardar y continuar'" icon="pi pi-check" [loading]="saving()" (onClick)="save()" />
       </ng-template>
     </p-dialog>
 
     <!-- Ver área -->
-    <p-dialog [(visible)]="viewVisible" [modal]="true" [style]="{ width: '28rem' }" [header]="'Área · ' + (viewA?.name || '')" styleClass="dk-dialog">
+    <p-dialog [(visible)]="viewVisible" [modal]="true" [style]="{ width: '30rem' }" [header]="'Área · ' + (viewA?.name || '')" styleClass="dk-dialog">
       @if (viewA; as a) {
-        <div class="kv"><span>Nombre</span><strong>{{ a.name }}</strong></div>
+        <div class="kv"><span>Tipo</span><strong>{{ typeLabel(a.type) }}</strong></div>
         <div class="kv"><span>Descripción</span><strong>{{ a.description || '—' }}</strong></div>
-        <div class="kv"><span>Maneja pisos</span><strong>{{ a.managesFloors ? 'Sí' : 'No' }}</strong></div>
-        <div class="kv"><span>Almacén</span><strong>{{ a.warehouse?.name || '—' }}</strong></div>
-        <div class="kv"><span>Items en stock</span><strong>{{ a.itemCount ?? 0 }}</strong></div>
-        <div class="kv"><span>Estado</span><strong>{{ a.status === 'active' ? 'Activo' : 'Inactivo' }}</strong></div>
+        <div class="kv"><span>Maneja subalmacenes</span><strong>{{ a.managesSubwarehouses ? 'Sí' : 'No' }}</strong></div>
+        <div class="kv"><span>Almacén (Items)</span><strong>{{ a.warehouse?.name || '—' }} ({{ a.itemCount ?? 0 }})</strong></div>
+        @if (a.managesSubwarehouses && (a.subWarehouses || []).length) {
+          <div class="subs"><strong>Subalmacenes:</strong>
+            @for (s of a.subWarehouses; track s.id) { <div class="sub-row"><span>{{ s.name }}</span><span class="muted">{{ s.roomCount }} hab.</span></div> }
+          </div>
+        }
       }
       <ng-template pTemplate="footer"><p-button label="Cerrar" [text]="true" (onClick)="viewVisible = false" /></ng-template>
     </p-dialog>
@@ -110,8 +152,7 @@ function emptyForm(): Form {
     `
       .ar { background: #0b1018; min-height: 100%; margin: -1.5rem; padding: 1.5rem; color: #e6e9ef; }
       .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.2rem; }
-      h1 { margin: 0; color: #fff; font-size: 1.7rem; }
-      .muted { color: #8b97a8; } .center { text-align: center; }
+      h1 { margin: 0; color: #fff; font-size: 1.7rem; } .muted { color: #8b97a8; } .muted.sm { font-size: 0.78rem; } .center { text-align: center; }
       .new-btn { background: #10b981; color: #04130d; border: 0; border-radius: 8px; padding: 0.6rem 1rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.45rem; }
       .bar { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 1rem; }
       .spacer { flex: 1; }
@@ -120,33 +161,41 @@ function emptyForm(): Form {
       .search input { background: #131b27; border: 1px solid #243245; color: #e6e9ef; border-radius: 8px; padding: 0.55rem 2.2rem 0.55rem 0.8rem; width: 260px; }
       .search i { position: absolute; right: 0.7rem; top: 50%; transform: translateY(-50%); color: #6b7a90; }
       .tablewrap { background: #0e1622; border: 1px solid #1f2a3a; border-radius: 12px; overflow-x: auto; }
-      .tbl { width: 100%; border-collapse: collapse; font-size: 0.88rem; min-width: 820px; }
+      .tbl { width: 100%; border-collapse: collapse; font-size: 0.88rem; min-width: 920px; }
       .tbl th { text-align: left; padding: 0.85rem 1.1rem; color: #9fb0c3; font-weight: 600; border-bottom: 1px solid #1f2a3a; font-size: 0.8rem; }
       .tbl td { padding: 0.85rem 1.1rem; border-bottom: 1px solid #16202e; vertical-align: middle; }
-      .tbl tr:last-child td { border-bottom: 0; }
-      .tbl tr:hover td { background: rgba(255,255,255,0.02); }
+      .tbl tr:last-child td { border-bottom: 0; } .tbl tr:hover td { background: rgba(255,255,255,0.02); }
       .num { width: 3rem; color: #8b97a8; } th.cn, td.cn { text-align: center; } th.ac, td.ac { text-align: right; white-space: nowrap; }
       .nm { font-weight: 600; color: #fff; }
-      .desc { max-width: 380px; }
-      .pill { display: inline-block; border-radius: 999px; padding: 0.18rem 0.7rem; font-size: 0.74rem; font-weight: 700; background: #1a2333; color: #9fb0c3; border: 1px solid #2c3a4f; }
-      .pill.yes { background: rgba(37,99,235,0.22); color: #60a5fa; border-color: transparent; }
-      .pill.items { background: rgba(99,102,241,0.2); color: #a5b4fc; border-color: transparent; }
-      .pill.on { background: rgba(16,185,129,0.2); color: #6ee7b7; border-color: transparent; }
-      .pill.off { background: rgba(239,68,68,0.18); color: #fca5a5; border-color: transparent; }
+      .kind { display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 999px; padding: 0.2rem 0.7rem; font-size: 0.74rem; font-weight: 700; }
+      .kind.limpieza { background: rgba(59,130,246,0.2); color: #93c5fd; }
+      .kind.recepcion { background: rgba(168,85,247,0.2); color: #d8b4fe; }
+      .kind.lavanderia { background: rgba(245,158,11,0.2); color: #fcd34d; }
+      .kind.ropa { background: rgba(59,130,246,0.2); color: #93c5fd; }
+      .kind.amenities { background: rgba(16,185,129,0.2); color: #6ee7b7; }
+      .cov-chip { display: inline-flex; align-items: center; gap: 0.4rem; background: #131b27; border: 1px solid #2c3a4f; border-radius: 8px; padding: 0.25rem 0.6rem; font-size: 0.78rem; color: #cdd8e6; }
+      .pill { display: inline-block; border-radius: 999px; padding: 0.18rem 0.7rem; font-size: 0.74rem; font-weight: 700; background: #1a2333; color: #9fb0c3; }
+      .pill.yes { background: rgba(37,99,235,0.22); color: #60a5fa; }
+      .pill.items { background: rgba(99,102,241,0.2); color: #a5b4fc; }
+      .pill.on { background: rgba(16,185,129,0.2); color: #6ee7b7; } .pill.off { background: rgba(239,68,68,0.18); color: #fca5a5; }
       .ia { background: transparent; border: 0; color: #93b3d1; cursor: pointer; padding: 0.35rem; } .ia.del { color: #f87171; } .ia:hover { color: #fff; }
       .sub { margin: 0 0 1rem; color: #9fb0c3; font-size: 0.85rem; }
       .form { display: flex; flex-direction: column; gap: 0.9rem; }
+      .form .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
       .form .fld { display: flex; flex-direction: column; gap: 0.35rem; }
       .form label { font-size: 0.82rem; color: #9fb0c3; font-weight: 600; }
-      .form small { color: #8b97a8; font-size: 0.76rem; }
       .form input[pInputText] { width: 100%; }
       :host ::ng-deep .form .w { width: 100%; }
       .toggle { display: flex; align-items: center; justify-content: space-between; gap: 1rem; background: #131b27; border: 1px solid #243245; border-radius: 12px; padding: 0.85rem 1rem; cursor: pointer; }
-      .tg-body { display: flex; flex-direction: column; gap: 0.2rem; }
-      .tg-body strong { color: #e6e9ef; font-size: 0.92rem; display: flex; align-items: center; gap: 0.45rem; }
-      .tg-body small { color: #9fb0c3; font-size: 0.77rem; }
+      .tg-body { display: flex; flex-direction: column; gap: 0.2rem; } .tg-body strong { color: #e6e9ef; font-size: 0.92rem; display: flex; align-items: center; gap: 0.45rem; } .tg-body small { color: #9fb0c3; font-size: 0.77rem; }
       .toggle input { width: 20px; height: 20px; accent-color: #10b981; cursor: pointer; }
+      .cover { background: #0c1420; border: 1px solid #243245; border-radius: 12px; padding: 0.9rem; display: flex; flex-direction: column; gap: 0.7rem; }
+      .cover-h { font-weight: 700; color: #fff; }
+      .cover-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+      .cov-opt { display: flex; gap: 0.5rem; background: #131b27; border: 1px solid #2c3a4f; border-radius: 10px; padding: 0.6rem 0.7rem; cursor: pointer; }
+      .cov-opt.on { border-color: #2563eb; } .cov-opt input { margin-top: 0.2rem; } .cov-opt span { display: flex; flex-direction: column; } .cov-opt strong { font-size: 0.84rem; } .cov-opt small { color: #9fb0c3; font-size: 0.74rem; }
       .kv { display: flex; justify-content: space-between; padding: 0.45rem 0; border-bottom: 1px solid #16202e; font-size: 0.9rem; }
+      .subs { margin-top: 0.6rem; } .sub-row { display: flex; justify-content: space-between; padding: 0.3rem 0; border-bottom: 1px solid #16202e; font-size: 0.85rem; }
       :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1622; color: #e6e9ef; }
     `,
   ],
@@ -160,8 +209,8 @@ export class AreasComponent implements OnInit {
 
   readonly items = signal<Area[]>([]);
   readonly warehouses = signal<Warehouse[]>([]);
-  readonly loading = signal(false);
   readonly saving = signal(false);
+  readonly types = TYPES;
   readonly statusOptions = [{ label: 'Activo', value: 'active' }, { label: 'Inactivo', value: 'inactive' }];
   readonly statusFilters = [{ label: 'Todos los estados', value: 'all' }, { label: 'Activo', value: 'active' }, { label: 'Inactivo', value: 'inactive' }];
 
@@ -181,12 +230,12 @@ export class AreasComponent implements OnInit {
     this.inv.warehouses.list({ pageSize: 100, sortBy: 'name' }).subscribe((r) => this.warehouses.set(r.data ?? []));
   }
 
+  typeLabel(v?: string): string { return TYPES.find((t) => t.value === v)?.label ?? (v ?? '—'); }
+  typeIcon(v?: string): string { return TYPES.find((t) => t.value === v)?.icon ?? 'pi pi-box'; }
+  typeCls(v?: string): string { return TYPES.find((t) => t.value === v)?.cls ?? 'limpieza'; }
+
   reload(): void {
-    this.loading.set(true);
-    this.api.list({ pageSize: 200, sortBy: 'name' }).subscribe({
-      next: (res) => { this.items.set(res.data ?? []); this.loading.set(false); },
-      error: () => this.loading.set(false),
-    });
+    this.api.list({ pageSize: 200, sortBy: 'name' }).subscribe({ next: (res) => this.items.set(res.data ?? []), error: () => this.items.set([]) });
   }
 
   filtered(): Area[] {
@@ -202,9 +251,9 @@ export class AreasComponent implements OnInit {
   openView(a: Area): void { this.viewA = a; this.viewVisible = true; }
   openEdit(a: Area): void {
     this.form = {
-      id: a.id, name: a.name, description: a.description ?? '',
-      managesFloors: !!a.managesFloors, warehouseId: a.warehouseId ?? null,
-      status: a.status as 'active' | 'inactive',
+      id: a.id, name: a.name, description: a.description ?? '', type: a.type ?? 'LIMPIEZA',
+      managesSubwarehouses: !!a.managesSubwarehouses, coverageType: 'MANUAL', firstSubWarehouse: '',
+      warehouseId: a.warehouseId ?? null, status: a.status as 'active' | 'inactive',
     };
     this.dialogVisible = true;
   }
@@ -212,11 +261,10 @@ export class AreasComponent implements OnInit {
   save(): void {
     if (!this.form.name.trim()) { this.messages.add({ severity: 'warn', summary: 'Falta nombre', detail: 'Indica el nombre del área.' }); return; }
     const dto = {
-      name: this.form.name.trim(),
-      description: this.form.description,
-      managesFloors: this.form.managesFloors,
-      warehouseId: this.form.warehouseId ?? '',
+      name: this.form.name.trim(), description: this.form.description, type: this.form.type,
+      managesSubwarehouses: this.form.managesSubwarehouses, warehouseId: this.form.warehouseId ?? '',
       status: this.form.status,
+      ...(this.form.id ? {} : { firstSubWarehouse: this.form.managesSubwarehouses ? this.form.firstSubWarehouse : '', coverageType: this.form.coverageType }),
     };
     this.saving.set(true);
     const req$ = this.form.id ? this.api.update(this.form.id, dto) : this.api.create(dto);
