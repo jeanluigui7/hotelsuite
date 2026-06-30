@@ -2,7 +2,7 @@ import type { RequestScope } from '../../shared/context';
 import { NotFoundError, ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
-import type { CreateSubWarehouseDto, UpdateSubWarehouseDto, SetRoomsDto } from './subwarehouses.schema';
+import type { CreateSubWarehouseDto, UpdateSubWarehouseDto, SetRoomsDto, SetStockDto } from './subwarehouses.schema';
 
 async function getArea(scope: RequestScope, areaId: string) {
   const area = await prisma.area.findUnique({ where: { id: areaId } });
@@ -78,5 +78,36 @@ export const subWarehousesService = {
       }
     });
     return { assigned: dto.roomIds.length };
+  },
+
+  /** Stock propio del subalmacén. */
+  async getStock(scope: RequestScope, id: string) {
+    await getSub(scope, id);
+    const rows = await prisma.subWarehouseStock.findMany({ where: { subWarehouseId: id }, orderBy: [{ articleKind: 'asc' }, { name: 'asc' }] });
+    return rows.map((r) => ({ articleKind: r.articleKind, name: r.name, linenItemId: r.linenItemId, quantity: r.quantity }));
+  },
+
+  /** Fija (set absoluto) el stock del subalmacén y registra los ajustes en el kardex. */
+  async setStock(scope: RequestScope, id: string, dto: SetStockDto) {
+    const sub = await getSub(scope, id);
+    const branchId = sub.branchId;
+    await prisma.$transaction(async (tx) => {
+      for (const it of dto.items) {
+        const key = { subWarehouseId_articleKind_name: { subWarehouseId: id, articleKind: it.articleKind, name: it.name } };
+        const existing = await tx.subWarehouseStock.findUnique({ where: key });
+        const delta = it.quantity - (existing?.quantity ?? 0);
+        await tx.subWarehouseStock.upsert({
+          where: key,
+          update: { quantity: it.quantity, ...(it.linenItemId ? { linenItemId: it.linenItemId } : {}) },
+          create: { branchId, subWarehouseId: id, articleKind: it.articleKind, name: it.name, linenItemId: it.linenItemId || null, quantity: it.quantity },
+        });
+        if (delta !== 0) {
+          await tx.roomInventoryMovement.create({
+            data: { branchId, roomId: null, type: delta > 0 ? 'ADJUST_POS' : 'ADJUST_NEG', articleKind: it.articleKind, name: it.name, quantity: delta, toLocation: `Subalmacén ${sub.name}`, reference: 'Ajuste de stock del subalmacén', createdByUserId: scope.userId },
+          });
+        }
+      }
+    });
+    return { ok: true };
   },
 };

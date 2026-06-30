@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { ok } from '../../shared/response';
 import { UnauthorizedError, ValidationError } from '../../shared/errors';
 import { subWarehousesService } from './subwarehouses.service';
-import { createSubWarehouseSchema, updateSubWarehouseSchema, setRoomsSchema } from './subwarehouses.schema';
+import { createSubWarehouseSchema, updateSubWarehouseSchema, setRoomsSchema, setStockSchema } from './subwarehouses.schema';
 
 export const subWarehousesController = {
   async list(req: Request, res: Response): Promise<void> {
@@ -33,5 +33,13 @@ export const subWarehousesController = {
   async setRooms(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await subWarehousesService.setRooms(req.scope, req.params.id, setRoomsSchema.parse(req.body))));
+  },
+  async getStock(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await subWarehousesService.getStock(req.scope, req.params.id)));
+  },
+  async setStock(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await subWarehousesService.setStock(req.scope, req.params.id, setStockSchema.parse(req.body))));
   },
 };

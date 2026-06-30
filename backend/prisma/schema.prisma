@@ -371,9 +371,28 @@ model SubWarehouse {
 
   area  Area               @relation(fields: [areaId], references: [id], onDelete: Cascade)
   rooms SubWarehouseRoom[]
+  stock SubWarehouseStock[]
 
   @@index([branchId])
   @@index([areaId])
+}
+
+/// FASE L6c — Stock propio del subalmacén (lo que puede suministrar a sus habitaciones).
+model SubWarehouseStock {
+  id             String   @id @default(uuid())
+  branchId       String
+  subWarehouseId String
+  articleKind    String   @default("LINEN_REUSABLE")
+  name           String
+  linenItemId    String?
+  quantity       Int      @default(0)
+  updatedAt      DateTime @updatedAt
+
+  subWarehouse SubWarehouse @relation(fields: [subWarehouseId], references: [id], onDelete: Cascade)
+
+  @@unique([subWarehouseId, articleKind, name])
+  @@index([branchId])
+  @@index([subWarehouseId])
 }
 
 /// FASE L6 — Cobertura: qué habitaciones atiende un subalmacén (set explícito).

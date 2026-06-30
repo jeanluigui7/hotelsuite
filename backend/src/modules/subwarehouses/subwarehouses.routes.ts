@@ -14,4 +14,6 @@ subWarehousesRouter.get('/subwarehouses/coverage-rooms', requireAnyPermission(['
 subWarehousesRouter.post('/subwarehouses', requirePermission('inventory', 'create'), asyncHandler(subWarehousesController.create));
 subWarehousesRouter.put('/subwarehouses/:id', requirePermission('inventory', 'edit'), asyncHandler(subWarehousesController.update));
 subWarehousesRouter.put('/subwarehouses/:id/rooms', requirePermission('inventory', 'edit'), asyncHandler(subWarehousesController.setRooms));
+subWarehousesRouter.get('/subwarehouses/:id/stock', requireAnyPermission(['inventory', 'view'], ['operations', 'view']), asyncHandler(subWarehousesController.getStock));
+subWarehousesRouter.put('/subwarehouses/:id/stock', requirePermission('inventory', 'edit'), asyncHandler(subWarehousesController.setStock));
 subWarehousesRouter.delete('/subwarehouses/:id', requirePermission('inventory', 'delete'), asyncHandler(subWarehousesController.remove));

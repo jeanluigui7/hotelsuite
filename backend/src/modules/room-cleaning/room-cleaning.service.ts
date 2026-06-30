@@ -65,12 +65,26 @@ export const roomCleaningService = {
     const branchId = room.branchId;
     const floor = room.floor || 'SIN PISO';
 
-    // Valida stock del piso para los artículos vinculados, antes de mover nada.
+    // 1) ¿Hay un subalmacén de LIMPIEZA que cubra esta habitación? Esa es la fuente preferida.
+    const covering = await prisma.subWarehouseRoom.findFirst({
+      where: { roomId, subWarehouse: { area: { branchId, type: 'LIMPIEZA' } } },
+      include: { subWarehouse: true },
+    });
+    const subId = covering?.subWarehouseId ?? null;
+    const subName = covering?.subWarehouse.name ?? '';
+
+    // 2) Pre-validación de stock (subalmacén si cubre; si no, almacén de piso legado para vinculados).
     for (const it of dto.items) {
-      if (!it.linenItemId) continue;
-      const st = await prisma.linenStock.findUnique({ where: { linenItemId_floor: { linenItemId: it.linenItemId, floor } } });
-      if (!st || st.rem < it.quantity) {
-        throw new ValidationError(`Stock insuficiente de "${it.name}" en el Almacén de Limpieza del piso ${floor} (disponible ${st?.rem ?? 0}, solicitado ${it.quantity}). Suminístralo primero al piso.`);
+      if (subId) {
+        const st = await prisma.subWarehouseStock.findUnique({ where: { subWarehouseId_articleKind_name: { subWarehouseId: subId, articleKind: it.articleKind, name: it.name } } });
+        if (!st || st.quantity < it.quantity) {
+          throw new ValidationError(`Stock insuficiente de "${it.name}" en el subalmacén "${subName}" (disponible ${st?.quantity ?? 0}, solicitado ${it.quantity}). Abastécelo primero.`);
+        }
+      } else if (it.linenItemId) {
+        const st = await prisma.linenStock.findUnique({ where: { linenItemId_floor: { linenItemId: it.linenItemId, floor } } });
+        if (!st || st.rem < it.quantity) {
+          throw new ValidationError(`Stock insuficiente de "${it.name}" en el Almacén de Limpieza del piso ${floor} (disponible ${st?.rem ?? 0}, solicitado ${it.quantity}). Suminístralo primero al piso.`);
+        }
       }
     }
 
@@ -82,20 +96,26 @@ export const roomCleaningService = {
           update: { quantity: { increment: it.quantity }, ...(it.linenItemId ? { linenItemId: it.linenItemId } : {}) },
           create: { branchId, roomId, articleKind: it.articleKind, name: it.name, quantity: it.quantity, linenItemId: it.linenItemId || null },
         });
-        await tx.roomInventoryMovement.create({
-          data: {
-            branchId, roomId, type: 'LIMPIEZA_REPO', articleKind: it.articleKind, name: it.name, quantity: it.quantity,
-            fromLocation: it.linenItemId ? `Almacén Limpieza Piso ${floor}` : CLEAN_WH, toLocation: `Habitación ${room.number}`,
-            reference: 'Reposición por limpieza', note: dto.note || null, createdByUserId: scope.userId,
-          },
-        });
-        // Descuento real del almacén de limpieza del piso (sistema legado de ropa).
-        if (it.linenItemId) {
+        let fromLocation = CLEAN_WH;
+        if (subId) {
+          // Fuente = subalmacén que cubre la habitación (redistribución por subalmacén).
+          await tx.subWarehouseStock.update({ where: { subWarehouseId_articleKind_name: { subWarehouseId: subId, articleKind: it.articleKind, name: it.name } }, data: { quantity: { decrement: it.quantity } } });
+          fromLocation = `Subalmacén ${subName}`;
+        } else if (it.linenItemId) {
+          // Sin subalmacén: descuento del almacén de limpieza del piso (legado).
           await tx.linenStock.update({ where: { linenItemId_floor: { linenItemId: it.linenItemId, floor } }, data: { rem: { decrement: it.quantity } } });
           await tx.linenMovement.create({
             data: { branchId, linenItemId: it.linenItemId, type: 'SUPPLY', quantity: -it.quantity, floor, roomId, areaFrom: `Almacén Limpieza Piso ${floor}`, areaTo: `Habitación ${room.number}`, reference: 'Reposición por limpieza', createdByUserId: scope.userId },
           });
+          fromLocation = `Almacén Limpieza Piso ${floor}`;
         }
+        await tx.roomInventoryMovement.create({
+          data: {
+            branchId, roomId, type: 'LIMPIEZA_REPO', articleKind: it.articleKind, name: it.name, quantity: it.quantity,
+            fromLocation, toLocation: `Habitación ${room.number}`,
+            reference: 'Reposición por limpieza', note: dto.note || null, createdByUserId: scope.userId,
+          },
+        });
       }
     });
     return { ok: true };
