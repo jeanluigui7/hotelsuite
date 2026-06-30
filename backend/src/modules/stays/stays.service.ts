@@ -315,17 +315,31 @@ export const staysService = {
     if (!stay || stay.branchId !== branchId) throw new ConflictError('Estancia no encontrada');
     if (stay.status !== 'OPEN') throw new ConflictError('La estancia ya está cerrada');
 
-    const newCheckout = new Date(new Date(stay.plannedCheckoutAt).getTime() + stay.durationMinutes * 60_000);
-    const price = round2(dto.amount != null ? dto.amount : Number(stay.priceAgreed));
+    // Nueva salida: por calendario (newCheckoutAt) o por +horas; debe ser posterior a la actual.
+    const current = new Date(stay.plannedCheckoutAt);
+    let newCheckout: Date;
+    if (dto.newCheckoutAt) {
+      newCheckout = new Date(dto.newCheckoutAt);
+    } else if (dto.mode === 'HOURS' && dto.hours) {
+      newCheckout = new Date(current.getTime() + dto.hours * 3_600_000);
+    } else {
+      newCheckout = new Date(current.getTime() + (dto.nights ?? 1) * stay.durationMinutes * 60_000);
+    }
+    if (newCheckout.getTime() <= current.getTime()) throw new ValidationError('La nueva salida debe ser posterior a la salida actual.');
 
-    // Si se cobra ahora, el cargo se registra como venta PAGADA con su pago (atada al turno de caja).
+    const price = round2(dto.amount);
+    const payments = dto.payments.filter((p) => p.amount > 0);
+    const paidNow = round2(payments.reduce((a, p) => a + p.amount, 0));
+    if (paidNow > price) throw new ValidationError('Lo cobrado excede el monto de la renovación.');
+
+    // Si hay cobro ahora, el pago se registra atado a un turno de caja abierto.
     let sessionId: string | null = null;
-    if (dto.chargeNow && price > 0) {
+    if (paidNow > 0) {
       const session = await cashRepository.findOpen(branchId);
       if (!session) throw new ConflictError('Para cobrar la renovación debe haber un turno de caja abierto.');
       sessionId = session.id;
     }
-    const paying = dto.chargeNow && price > 0;
+    const ref = dto.mode === 'HOURS' ? 'Tiempo extra (horas)' : 'Renovación de estadía';
 
     await prisma.$transaction([
       prisma.stay.update({
@@ -335,9 +349,10 @@ export const staysService = {
       prisma.sale.create({
         data: {
           branchId, stayId: id, guestId: stay.guestId, total: price,
-          status: paying ? 'PAID' : 'OPEN', cashSessionId: sessionId, createdByUserId: scope.userId,
-          items: { create: [{ description: 'Renovación de estadía', quantity: 1, unitPrice: price, subtotal: price }] },
-          ...(paying ? { payments: { create: [{ branchId, method: dto.paymentMethod ?? 'CASH', amount: price, cashSessionId: sessionId, createdByUserId: scope.userId }] } } : {}),
+          // PAID solo si se cubrió todo; parcial o diferido quedan OPEN (el saldo es deuda).
+          status: price > 0 && paidNow >= price ? 'PAID' : 'OPEN', cashSessionId: sessionId, createdByUserId: scope.userId,
+          items: { create: [{ description: `${ref}${dto.notes ? ' — ' + dto.notes : ''}`, quantity: 1, unitPrice: price, subtotal: price }] },
+          ...(payments.length ? { payments: { create: payments.map((p) => ({ branchId, method: p.method, amount: round2(p.amount), reference: p.reference || null, cashSessionId: sessionId, createdByUserId: scope.userId })) } } : {}),
         },
       }),
     ]);

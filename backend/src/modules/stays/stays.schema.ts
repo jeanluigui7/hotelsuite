@@ -51,10 +51,25 @@ export const changeRoomSchema = z.object({
 });
 
 export const renewSchema = z.object({
-  amount: z.coerce.number().min(0).optional(), // monto de la renovación (default = precio de la estancia)
-  chargeNow: z.coerce.boolean().default(false), // cobrar en el momento o dejar pendiente
-  paymentMethod: z.enum(['CASH', 'CARD', 'TRANSFER', 'WALLET']).optional(),
-  requestCleaning: z.coerce.boolean().default(false), // limpieza de renovación (no libera la habitación)
+  mode: z.enum(['NIGHTS', 'HOURS']).default('NIGHTS'),
+  // Nueva fecha/hora de salida (la elige el calendario o el cálculo de horas).
+  newCheckoutAt: z.coerce.date().optional(),
+  nights: z.coerce.number().int().min(1).optional(),
+  hours: z.coerce.number().int().min(1).optional(),
+  // Monto a cobrar por la renovación (libre; el cálculo por noche/hora es solo guía).
+  amount: z.coerce.number().min(0),
+  // Pagos registrados ahora (pueden ser varios métodos; vacío = pago diferido / deuda).
+  payments: z
+    .array(
+      z.object({
+        method: z.enum(['CASH', 'CARD', 'TRANSFER', 'WALLET']),
+        amount: z.coerce.number().min(0),
+        reference: z.string().max(120).optional().or(z.literal('')),
+      }),
+    )
+    .default([]),
+  notes: z.string().max(300).optional().or(z.literal('')),
+  requestCleaning: z.coerce.boolean().default(false),
 });
 
 export type CheckInDto = z.infer<typeof checkInSchema>;

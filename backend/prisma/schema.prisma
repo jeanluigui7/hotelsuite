@@ -197,6 +197,7 @@ model RoomType {
   description String?
   capacity    Int      @default(2)
   basePrice   Decimal? @db.Decimal(10, 2)
+  extraHourPrice Decimal? @db.Decimal(10, 2) // tarifa por hora adicional (Tiempo Extra)
   status      String   @default("active")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

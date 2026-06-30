@@ -17,6 +17,7 @@ export interface RoomType {
   description?: string | null;
   capacity: number;
   basePrice?: string | number | null;
+  extraHourPrice?: string | number | null;
   status: string;
   rateCount: number;
   attributeIds: string[];

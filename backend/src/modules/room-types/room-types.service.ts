@@ -21,6 +21,7 @@ function serialize(rt: RoomTypeWithRelations) {
     description: rt.description,
     capacity: rt.capacity,
     basePrice: rt.basePrice,
+    extraHourPrice: rt.extraHourPrice,
     status: rt.status,
     rateCount: rt._count.rates,
     attributeIds: rt.attributes.map((a) => a.attributeId),
@@ -66,6 +67,7 @@ export const roomTypesService = {
       description: dto.description || null,
       capacity: dto.capacity,
       basePrice: dto.basePrice ?? null,
+      extraHourPrice: dto.extraHourPrice ?? null,
       status: dto.status,
       attributeIds: dto.attributeIds,
     });
@@ -79,6 +81,7 @@ export const roomTypesService = {
       description: dto.description === '' ? null : dto.description,
       capacity: dto.capacity,
       basePrice: dto.basePrice,
+      extraHourPrice: dto.extraHourPrice,
       status: dto.status,
       attributeIds: dto.attributeIds,
     });

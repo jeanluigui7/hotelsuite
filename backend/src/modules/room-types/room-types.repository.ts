@@ -32,6 +32,7 @@ export const roomTypesRepository = {
     description?: string | null;
     capacity: number;
     basePrice?: number | null;
+    extraHourPrice?: number | null;
     status: string;
     attributeIds: string[];
   }) {
@@ -42,6 +43,7 @@ export const roomTypesRepository = {
         description: data.description,
         capacity: data.capacity,
         basePrice: data.basePrice ?? null,
+        extraHourPrice: data.extraHourPrice ?? null,
         status: data.status,
         attributes: { create: data.attributeIds.map((attributeId) => ({ attributeId })) },
       },
@@ -56,6 +58,7 @@ export const roomTypesRepository = {
       description?: string | null;
       capacity?: number;
       basePrice?: number | null;
+      extraHourPrice?: number | null;
       status?: string;
       attributeIds?: string[];
     },
@@ -68,6 +71,7 @@ export const roomTypesRepository = {
           description: data.description,
           capacity: data.capacity,
           basePrice: data.basePrice,
+          extraHourPrice: data.extraHourPrice,
           status: data.status,
         },
       });

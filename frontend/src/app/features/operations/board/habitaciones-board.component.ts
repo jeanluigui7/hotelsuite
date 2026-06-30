@@ -5,6 +5,7 @@ import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
+import { DatePickerModule } from 'primeng/datepicker';
 import { TooltipModule } from 'primeng/tooltip';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
@@ -53,7 +54,7 @@ const MANT_CATS = [
 @Component({
   selector: 'app-habitaciones-board',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, InputNumberModule, TooltipModule, DialogModule, CheckInDialogComponent, VentaProductosComponent, ServiciosPenalidadesComponent, FolioEstanciaComponent],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, InputNumberModule, DatePickerModule, TooltipModule, DialogModule, CheckInDialogComponent, VentaProductosComponent, ServiciosPenalidadesComponent, FolioEstanciaComponent],
   template: `
     <section class="board">
       <header class="top">
@@ -317,25 +318,76 @@ const MANT_CATS = [
       </ng-template>
     </p-dialog>
 
-    <!-- Renovación de estancia -->
-    <p-dialog [(visible)]="renovarVisible" [modal]="true" header="Renovar estancia" [style]="{ width: '30rem', maxWidth: '95vw' }" styleClass="dk-dialog">
-      @if (renovarRoom?.activeStay; as s) {
-        <p class="muted" style="margin:0 0 1rem">Hab. <strong>{{ renovarRoom?.number }}</strong> · {{ s.guestName }}. El huésped <strong>no</strong> hace check-out; se extiende la salida.</p>
+    <!-- Opciones de renovación -->
+    <p-dialog [(visible)]="renovarVisible" [modal]="true" [style]="{ width: renovarStep === 'options' ? '34rem' : '32rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      <ng-template pTemplate="header"><div class="rh"><h2>Opciones para Habitación {{ renovarRoom?.number }}</h2><span class="muted">{{ renovarRoom?.activeStay?.guestName }}</span></div></ng-template>
+
+      @if (renovarStep === 'options') {
+        <div class="opt-grid">
+          <button class="opt red" (click)="pickMode('HOURS')"><i class="pi pi-clock"></i><strong>Tiempo Extra</strong><small>Agregar horas adicionales</small></button>
+          <button class="opt amber" (click)="pickMode('NIGHTS')"><i class="pi pi-refresh"></i><strong>Renovación (nueva)</strong><small>Extender estadía (noches)</small></button>
+        </div>
+      } @else if (renovarRoom?.activeStay) {
+        @let s = renovarRoom!.activeStay!;
         <div class="rnv">
-          <div class="rnv-kv"><span>Salida actual</span><strong>{{ s.plannedCheckoutAt | date: 'dd/MM HH:mm' }}</strong></div>
-          <div class="fld"><label>Monto de la renovación (S/)</label><p-inputNumber [(ngModel)]="renovarAmount" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w" /></div>
-          <label class="rnv-toggle"><span><strong>¿Cobrar ahora?</strong><small>Si no, queda pendiente por cobrar.</small></span><input type="checkbox" [(ngModel)]="renovarCharge" /></label>
-          @if (renovarCharge) {
-            <div class="fld"><label>Método de pago</label>
-              <p-select [options]="renovarPayMethods" optionLabel="label" optionValue="value" [(ngModel)]="renovarMethod" styleClass="w" appendTo="body" />
+          <div class="rnv-kv"><span>Salida actual</span><strong>{{ s.plannedCheckoutAt | date: 'dd/MM/yyyy, h:mm a' }}</strong></div>
+
+          @if (renovarMode === 'NIGHTS') {
+            <h4 class="rnv-h">Nueva fecha de salida</h4>
+            <p-datepicker [(ngModel)]="renovarDate" [inline]="true" [minDate]="renovarMinDate" dateFormat="dd/mm/yy" (onSelect)="recalcRenovar()" styleClass="w" />
+            <div class="rnv-kv"><span>Tarifa por noche</span><strong>S/ {{ nightlyRate() | number: '1.2-2' }}</strong></div>
+            <div class="rnv-kv"><span>Noches adicionales</span><strong>{{ renovarUnits() }} noche(s)</strong></div>
+          } @else {
+            <h4 class="rnv-h">Horas adicionales</h4>
+            <div class="hours-row">
+              @for (h of [1,2,3,4,6,12]; track h) { <button class="hbtn" [class.on]="renovarHours === h" (click)="renovarHours = h; recalcRenovar()">+{{ h }}h</button> }
+            </div>
+            <div class="rnv-kv"><span>Tarifa por hora</span><strong>S/ {{ hourlyRate() | number: '1.2-2' }}</strong>@if (hourlyRate() === 0) { <small class="warn">sin tarifa configurada</small> }</div>
+            <div class="rnv-kv"><span>Nueva salida</span><strong>{{ renovarNewCheckout() | date: 'dd/MM/yyyy, h:mm a' }}</strong></div>
+          }
+
+          <div class="guide">Total calculado (referencia): <b>S/ {{ renovarGuide() | number: '1.2-2' }}</b></div>
+
+          <div class="fld"><label>Monto a cobrar por esta renovación (S/)</label>
+            <p-inputNumber [(ngModel)]="renovarAmount" mode="decimal" [minFractionDigits]="2" [min]="0" placeholder="Ingrese el monto total a cobrar..." styleClass="w" />
+            <small>El monto es libre; el valor de arriba es solo una guía.</small>
+          </div>
+
+          <div class="fld"><label>Forma de pago</label>
+            <div class="paymode">
+              <label><input type="radio" name="pm" value="FULL" [(ngModel)]="renovarPayMode" (ngModelChange)="onPayModeChange()" /> Cobrar todo ahora</label>
+              <label><input type="radio" name="pm" value="PARTIAL" [(ngModel)]="renovarPayMode" (ngModelChange)="onPayModeChange()" /> Pago parcial</label>
+              <label><input type="radio" name="pm" value="DEFERRED" [(ngModel)]="renovarPayMode" (ngModelChange)="onPayModeChange()" /> Pago diferido (deuda)</label>
+            </div>
+          </div>
+
+          @if (renovarPayMode !== 'DEFERRED') {
+            <div class="methods">
+              @for (m of renovarPays; track $index) {
+                <div class="method">
+                  <div class="m-top"><span>Método {{ $index + 1 }}</span>@if (renovarPays.length > 1) { <button class="x" (click)="removePay($index)"><i class="pi pi-times"></i></button> }</div>
+                  <div class="m-grid">
+                    <div class="fld"><label>Tipo</label><p-select [options]="renovarPayMethods" optionLabel="label" optionValue="value" [(ngModel)]="m.method" styleClass="w" appendTo="body" /></div>
+                    <div class="fld"><label>Monto (S/)</label><p-inputNumber [(ngModel)]="m.amount" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w" /></div>
+                    @if (m.method === 'CASH') { <div class="fld"><label>Con cuánto paga</label><p-inputNumber [(ngModel)]="m.received" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w" /></div> }
+                    @else { <div class="fld"><label>Referencia</label><input pInputText [(ngModel)]="m.reference" placeholder="N° operación" /></div> }
+                  </div>
+                </div>
+              }
+              <button class="add-pay" (click)="addPay()"><i class="pi pi-plus"></i> Agregar método de pago</button>
+              <div class="pay-sum"><span>Cobrado ahora: <b>S/ {{ paidNow() | number: '1.2-2' }}</b></span>@if (renovarAmount && paidNow() < (renovarAmount || 0)) { <span class="debt">Queda deuda: S/ {{ (renovarAmount || 0) - paidNow() | number: '1.2-2' }}</span> }</div>
             </div>
           }
+
+          <div class="fld"><label>Notas (opcional)</label><input pInputText [(ngModel)]="renovarNotes" placeholder="Notas sobre la renovación..." /></div>
           <label class="rnv-toggle"><span><strong>¿Desea limpieza de renovación?</strong><small>La habitación sigue ocupada; no pasa a Disponible.</small></span><input type="checkbox" [(ngModel)]="renovarCleaning" /></label>
         </div>
       }
+
       <ng-template pTemplate="footer">
+        @if (renovarStep === 'form') { <p-button label="Volver" severity="secondary" [text]="true" icon="pi pi-arrow-left" (onClick)="renovarStep = 'options'" /> }
         <p-button label="Cancelar" severity="secondary" [text]="true" [disabled]="savingRenovar()" (onClick)="renovarVisible = false" />
-        <p-button label="Confirmar Renovación" icon="pi pi-refresh" [loading]="savingRenovar()" (onClick)="confirmRenovar()" />
+        @if (renovarStep === 'form') { <p-button label="Confirmar Renovación" icon="pi pi-check" [loading]="savingRenovar()" (onClick)="confirmRenovar()" /> }
       </ng-template>
     </p-dialog>
 
@@ -515,6 +567,24 @@ const MANT_CATS = [
       .rnv-toggle { display: flex; align-items: center; justify-content: space-between; gap: 1rem; background: #131b27; border: 1px solid #243245; border-radius: 10px; padding: 0.7rem 0.9rem; cursor: pointer; }
       .rnv-toggle span { display: flex; flex-direction: column; } .rnv-toggle strong { font-size: 0.9rem; } .rnv-toggle small { color: #9fb0c3; font-size: 0.76rem; }
       .rnv-toggle input { width: 20px; height: 20px; accent-color: #10b981; }
+      .rh h2 { margin: 0; font-size: 1.2rem; } .rh .muted { font-size: 0.85rem; }
+      .opt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+      .opt { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; border: 0; border-radius: 14px; padding: 1.6rem 1rem; cursor: pointer; color: #fff; }
+      .opt i { font-size: 1.6rem; margin-bottom: 0.3rem; } .opt strong { font-size: 1.15rem; } .opt small { opacity: 0.9; }
+      .opt.red { background: #ef4444; } .opt.amber { background: #f0a905; } .opt:hover { filter: brightness(1.06); }
+      .rnv-h { margin: 0.3rem 0 0; color: #cdd8e6; font-size: 0.92rem; }
+      .hours-row { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+      .hbtn { background: #131b27; border: 1px solid #243245; color: #cdd8e6; border-radius: 8px; padding: 0.45rem 0.8rem; cursor: pointer; font-weight: 700; }
+      .hbtn.on { background: #10b981; color: #04130d; border-color: transparent; }
+      .guide { background: rgba(37,99,235,0.12); border: 1px solid rgba(37,99,235,0.4); border-radius: 8px; padding: 0.5rem 0.7rem; font-size: 0.85rem; color: #93c5fd; } .guide b { color: #fff; }
+      .warn { color: #fbbf24; font-size: 0.72rem; margin-left: 0.3rem; }
+      .paymode { display: flex; flex-direction: column; gap: 0.3rem; } .paymode label { display: flex; align-items: center; gap: 0.45rem; font-size: 0.88rem; cursor: pointer; }
+      .methods { display: flex; flex-direction: column; gap: 0.6rem; }
+      .method { background: #0c1420; border: 1px solid #243245; border-radius: 10px; padding: 0.6rem 0.7rem; }
+      .m-top { display: flex; justify-content: space-between; color: #9fb0c3; font-size: 0.78rem; margin-bottom: 0.4rem; } .m-top .x { background: transparent; border: 0; color: #f87171; cursor: pointer; }
+      .m-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+      .add-pay { background: transparent; border: 1px dashed #2c3a4f; color: #93b3d1; border-radius: 8px; padding: 0.5rem; cursor: pointer; font-weight: 600; }
+      .pay-sum { display: flex; justify-content: space-between; font-size: 0.84rem; color: #9fb0c3; } .pay-sum b { color: #34d399; } .pay-sum .debt { color: #fbbf24; }
       .oc-timer { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; background: rgba(0,0,0,0.22); border-radius: 10px; padding: 0.5rem 0.7rem; }
       .oc-timer .t { font-weight: 800; font-size: 1rem; display: inline-flex; align-items: center; gap: 0.35rem; } .oc-timer .t.red { color: #fca5a5; }
       .exp-badge { background: #dc2626; color: #fff; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 6px; }
@@ -597,10 +667,16 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   newRoomVisible = false;
   // Renovación de estancia
   renovarVisible = false;
+  renovarStep: 'options' | 'form' = 'options';
+  renovarMode: 'NIGHTS' | 'HOURS' = 'NIGHTS';
   renovarRoom: RoomMapItem | null = null;
+  renovarDate: Date | null = null;
+  renovarMinDate: Date | null = null;
+  renovarHours = 1;
   renovarAmount: number | null = null;
-  renovarCharge = false;
-  renovarMethod = 'CASH';
+  renovarPayMode: 'FULL' | 'PARTIAL' | 'DEFERRED' = 'FULL';
+  renovarPays: { method: string; amount: number | null; received: number | null; reference: string }[] = [];
+  renovarNotes = '';
   renovarCleaning = false;
   readonly savingRenovar = signal(false);
   readonly renovarPayMethods = [
@@ -796,26 +872,81 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   openRenovar(r: RoomMapItem): void {
     if (!r.activeStay) return;
     this.renovarRoom = r;
-    this.renovarAmount = Math.round(Number(r.activeStay.priceAgreed) * 100) / 100;
-    this.renovarCharge = false;
-    this.renovarMethod = 'CASH';
+    this.renovarStep = 'options';
     this.renovarCleaning = false;
+    this.renovarNotes = '';
     this.renovarVisible = true;
   }
+
+  pickMode(mode: 'NIGHTS' | 'HOURS'): void {
+    this.renovarMode = mode;
+    const co = new Date(this.renovarRoom!.activeStay!.plannedCheckoutAt);
+    if (mode === 'NIGHTS') {
+      this.renovarMinDate = new Date(co.getFullYear(), co.getMonth(), co.getDate() + 1);
+      this.renovarDate = new Date(this.renovarMinDate);
+    } else {
+      this.renovarHours = 1;
+    }
+    this.renovarPayMode = 'FULL';
+    this.renovarPays = [{ method: 'CASH', amount: null, received: null, reference: '' }];
+    this.recalcRenovar();
+    this.renovarStep = 'form';
+  }
+
+  nightlyRate(): number { return Math.round(Number(this.renovarRoom?.activeStay?.priceAgreed ?? 0) * 100) / 100; }
+  hourlyRate(): number {
+    const rt = this.roomTypes().find((t) => t.id === this.renovarRoom?.roomType.id);
+    return rt?.extraHourPrice != null ? Number(rt.extraHourPrice) : 0;
+  }
+  renovarUnits(): number {
+    if (this.renovarMode !== 'NIGHTS' || !this.renovarDate) return 0;
+    const co = new Date(this.renovarRoom!.activeStay!.plannedCheckoutAt);
+    const a = new Date(co.getFullYear(), co.getMonth(), co.getDate()).getTime();
+    const b = new Date(this.renovarDate.getFullYear(), this.renovarDate.getMonth(), this.renovarDate.getDate()).getTime();
+    return Math.max(1, Math.round((b - a) / 86_400_000));
+  }
+  renovarNewCheckout(): Date {
+    const co = new Date(this.renovarRoom!.activeStay!.plannedCheckoutAt);
+    if (this.renovarMode === 'HOURS') return new Date(co.getTime() + this.renovarHours * 3_600_000);
+    const d = this.renovarDate ?? co;
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate(), co.getHours(), co.getMinutes());
+  }
+  renovarGuide(): number {
+    return this.renovarMode === 'NIGHTS' ? Math.round(this.renovarUnits() * this.nightlyRate() * 100) / 100 : Math.round(this.renovarHours * this.hourlyRate() * 100) / 100;
+  }
+  recalcRenovar(): void { this.renovarAmount = this.renovarGuide() || null; this.onPayModeChange(); }
+  paidNow(): number { return Math.round(this.renovarPays.reduce((a, p) => a + (p.amount || 0), 0) * 100) / 100; }
+
+  onPayModeChange(): void {
+    if (this.renovarPayMode === 'FULL' && this.renovarPays.length) {
+      this.renovarPays[0].amount = this.renovarAmount ?? 0;
+      this.renovarPays = [this.renovarPays[0]];
+    }
+  }
+  addPay(): void { this.renovarPays.push({ method: 'CASH', amount: null, received: null, reference: '' }); }
+  removePay(i: number): void { this.renovarPays.splice(i, 1); }
 
   confirmRenovar(): void {
     const r = this.renovarRoom;
     if (!r?.activeStay) return;
+    if (!this.renovarAmount || this.renovarAmount <= 0) { this.toast.add({ severity: 'warn', summary: 'Falta el monto', detail: 'Ingresa el monto a cobrar.' }); return; }
+    const payments = this.renovarPayMode === 'DEFERRED'
+      ? []
+      : this.renovarPays.filter((p) => (p.amount || 0) > 0).map((p) => ({ method: p.method, amount: p.amount as number, reference: p.reference || undefined }));
+    if (this.renovarPayMode !== 'DEFERRED' && !payments.length) { this.toast.add({ severity: 'warn', summary: 'Falta el pago', detail: 'Ingresa al menos un método con monto, o elige Pago diferido.' }); return; }
     this.savingRenovar.set(true);
     this.ops.renew(r.activeStay.id, {
-      amount: this.renovarAmount ?? undefined,
-      chargeNow: this.renovarCharge,
-      paymentMethod: this.renovarCharge ? this.renovarMethod : undefined,
+      mode: this.renovarMode,
+      newCheckoutAt: this.renovarNewCheckout().toISOString(),
+      amount: this.renovarAmount,
+      payments,
+      notes: this.renovarNotes || undefined,
       requestCleaning: this.renovarCleaning,
     }).subscribe({
       next: () => {
         this.savingRenovar.set(false); this.renovarVisible = false;
-        const extra = this.renovarCharge ? ' (cobrada)' : ' (pendiente de cobro)';
+        const pend = (this.renovarAmount || 0) - this.paidNow();
+        const extra = this.renovarPayMode === 'DEFERRED' ? ' (deuda)' : pend > 0.001 ? ` (queda S/ ${pend.toFixed(2)})` : ' (cobrada)';
         this.toast.add({ severity: 'success', summary: 'Renovada', detail: `Hab. ${r.number}: salida extendida${extra}.` });
         this.reload();
       },

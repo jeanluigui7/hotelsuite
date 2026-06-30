@@ -21,6 +21,7 @@ interface Form {
   description: string;
   capacity: number;
   basePrice: number | null;
+  extraHourPrice: number | null;
   status: 'active' | 'inactive';
   attributeIds: string[];
 }
@@ -30,6 +31,7 @@ const EMPTY: Form = {
   description: '',
   capacity: 2,
   basePrice: null,
+  extraHourPrice: null,
   status: 'active',
   attributeIds: [],
 };
@@ -110,6 +112,10 @@ const EMPTY: Form = {
           <div class="col">
             <label>Precio base (referencia)</label>
             <p-inputNumber [(ngModel)]="form.basePrice" mode="currency" currency="PEN" locale="es-PE" styleClass="w-full" />
+          </div>
+          <div class="col">
+            <label>Tarifa hora adicional (Tiempo Extra)</label>
+            <p-inputNumber [(ngModel)]="form.extraHourPrice" mode="currency" currency="PEN" locale="es-PE" styleClass="w-full" />
           </div>
         </div>
         <label>Atributos</label>
@@ -299,6 +305,7 @@ export class RoomTypesComponent implements OnInit {
       description: row.description ?? '',
       capacity: row.capacity,
       basePrice: row.basePrice != null ? Number(row.basePrice) : null,
+      extraHourPrice: row.extraHourPrice != null ? Number(row.extraHourPrice) : null,
       status: row.status as 'active' | 'inactive',
       attributeIds: [...row.attributeIds],
     };
@@ -321,6 +328,7 @@ export class RoomTypesComponent implements OnInit {
       description: this.form.description,
       capacity: this.form.capacity,
       basePrice: this.form.basePrice ?? undefined,
+      extraHourPrice: this.form.extraHourPrice ?? undefined,
       status: this.form.status,
       attributeIds: this.form.attributeIds,
     };
