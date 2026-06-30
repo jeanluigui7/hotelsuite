@@ -71,7 +71,7 @@ export class OperationsApiService {
   ): Observable<ApiResponse<Stay>> {
     return this.http.post<ApiResponse<Stay>>(`${this.api}/stays/${stayId}/renew`, dto);
   }
-  renewalCleaning(stayId: string, action: 'start' | 'finish' | 'reject'): Observable<ApiResponse<Stay>> {
+  renewalCleaning(stayId: string, action: 'start' | 'advance' | 'finish' | 'reject'): Observable<ApiResponse<Stay>> {
     return this.http.post<ApiResponse<Stay>>(`${this.api}/stays/${stayId}/renewal-cleaning/${action}`, {});
   }
 

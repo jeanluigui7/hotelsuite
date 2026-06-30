@@ -26,6 +26,8 @@ export interface ActiveStay {
   renewalCount?: number;
   cleaningRequested?: boolean;
   renewalCleaningStatus?: string; // NONE | SOLICITADA | EN_CURSO
+  renewalCleaningStep?: number;
+  renewalCleaningTotal?: number;
 }
 
 export interface CheckoutSummary {

@@ -45,6 +45,7 @@ function serializeMap(room: RoomForMap) {
           renewalCount: stay.renewalCount,
           cleaningRequested: stay.cleaningRequested,
           renewalCleaningStatus: stay.renewalCleaningStatus,
+          renewalCleaningStep: stay.renewalCleaningStep,
         }
       : null,
   };
@@ -66,6 +67,8 @@ export const roomsService = {
   async map(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);
     const rooms = await roomsRepository.map(branchId);
+    // Total de pasos de la limpieza de renovación (= ítems del checklist activos).
+    const cleaningTotal = Math.max(1, await prisma.checklistItem.count({ where: { branchId, status: 'active' } }));
     // Pendiente por estancia = recargos (balanceDue) + ventas OPEN no pagadas.
     const stayIds = rooms.map((r) => r.stays[0]?.id).filter((id): id is string => !!id);
     const sales = stayIds.length
@@ -86,7 +89,7 @@ export const roomsService = {
         const bd = m.activeStay.balanceDue ? Number(m.activeStay.balanceDue) : 0;
         const sp = salesPending.get(m.activeStay.id) ?? 0;
         const cons = Math.round((consumos.get(m.activeStay.id) ?? 0) * 100) / 100;
-        return { ...m, activeStay: { ...m.activeStay, pending: Math.round((bd + sp) * 100) / 100, consumosTotal: cons } };
+        return { ...m, activeStay: { ...m.activeStay, pending: Math.round((bd + sp) * 100) / 100, consumosTotal: cons, renewalCleaningTotal: cleaningTotal } };
       }
       return m;
     });

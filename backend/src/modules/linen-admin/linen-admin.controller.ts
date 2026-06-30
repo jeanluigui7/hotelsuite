@@ -12,6 +12,10 @@ export const linenAdminController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await linenAdminService.fulfill(req.scope, req.params.id)));
   },
+  async reject(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await linenAdminService.reject(req.scope, req.params.id)));
+  },
   async transfer(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const dto = transferSchema.parse(req.body);

@@ -29,7 +29,10 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana'
           <div class="req">
             <div><strong>{{ typeLabel(r.type) }} {{ r.name }}</strong> · Piso {{ r.floor }} · <span class="qty">x{{ r.quantity }}</span></div>
             <span class="muted">{{ r.createdAt | date: 'dd/MM HH:mm' }}</span>
-            <p-button label="Enviar Ropa" icon="pi pi-send" size="small" [loading]="busy()" (onClick)="fulfill(r)" />
+            <span class="req-acts">
+              <p-button label="Enviar Ropa" icon="pi pi-send" size="small" [loading]="busy()" (onClick)="fulfill(r)" />
+              <p-button label="Rechazar" icon="pi pi-times" size="small" severity="danger" [text]="true" [loading]="busy()" (onClick)="reject(r)" />
+            </span>
           </div>
         } @empty { <p class="muted">No hay solicitudes de ropa pendientes.</p> }
       </div>
@@ -101,6 +104,14 @@ export class TransferenciaRopaComponent implements OnInit {
     this.busy.set(true);
     this.http.post<ApiResponse<unknown>>(`${this.api}/admin/linen/requests/${r.id}/fulfill`, {}).subscribe({
       next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Ropa enviada', detail: `Piso ${r.floor}` }); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
+    });
+  }
+  /** Rechaza la solicitud (falta de tiempo/stock); solo la cancela. */
+  reject(r: Req): void {
+    this.busy.set(true);
+    this.http.post<ApiResponse<unknown>>(`${this.api}/admin/linen/requests/${r.id}/reject`, {}).subscribe({
+      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Solicitud rechazada', detail: '' }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
     });
   }

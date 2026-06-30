@@ -80,6 +80,15 @@ export const linenAdminService = {
     return { ok: true };
   },
 
+  /** Rechaza una solicitud de ropa pendiente (cleaning, por falta de tiempo/stock). Solo la cancela. */
+  async reject(scope: RequestScope, id: string) {
+    const branchId = requireActiveBranch(scope);
+    const mov = await prisma.linenMovement.findUnique({ where: { id } });
+    if (!mov || mov.branchId !== branchId || mov.type !== 'REQUEST') throw new ValidationError('Solicitud no encontrada');
+    await prisma.linenMovement.delete({ where: { id } });
+    return { ok: true };
+  },
+
   /** Transfiere ropa a un piso (suministrado). */
   async transfer(scope: RequestScope, dto: TransferDto) {
     const branchId = requireActiveBranch(scope);

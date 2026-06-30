@@ -619,6 +619,7 @@ model Stay {
   renewalCount      Int       @default(0)
   cleaningRequested Boolean   @default(false) // limpieza de renovación pendiente (no libera la habitación)
   renewalCleaningStatus String @default("NONE") // NONE | SOLICITADA | EN_CURSO (limpieza de renovación)
+  renewalCleaningStep   Int    @default(0) // progreso por pasos de la limpieza de renovación
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 

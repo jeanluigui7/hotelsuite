@@ -128,7 +128,15 @@ const MANT_CATS = [
                     <button class="cta out clean-start" [disabled]="busyStay() === r.activeStay.id" (click)="renewalCleaning(r, 'start')"><i class="pi pi-play"></i> Iniciar limpieza</button>
                     <button class="cta out clean-reject" [disabled]="busyStay() === r.activeStay.id" (click)="renewalCleaning(r, 'reject')"><i class="pi pi-times"></i> Rechazar</button>
                   } @else {
-                    <button class="cta out clean-ok" [disabled]="busyStay() === r.activeStay.id" (click)="renewalCleaning(r, 'finish')"><i class="pi pi-check"></i> Finalizar limpieza</button>
+                    <div class="clean-prog">
+                      <div class="cp-top">Limpieza · Progreso {{ r.activeStay.renewalCleaningStep || 0 }}/{{ r.activeStay.renewalCleaningTotal || 1 }}</div>
+                      <div class="cp-bar"><span [style.width.%]="((r.activeStay.renewalCleaningStep || 0) / (r.activeStay.renewalCleaningTotal || 1)) * 100"></span></div>
+                    </div>
+                    @if ((r.activeStay.renewalCleaningStep || 0) < (r.activeStay.renewalCleaningTotal || 1)) {
+                      <button class="cta out clean-start" [disabled]="busyStay() === r.activeStay.id" (click)="renewalCleaning(r, 'advance')"><i class="pi pi-check-circle"></i> Tomar {{ (r.activeStay.renewalCleaningStep || 0) + 1 }}/{{ r.activeStay.renewalCleaningTotal || 1 }}</button>
+                    } @else {
+                      <button class="cta out clean-ok" [disabled]="busyStay() === r.activeStay.id" (click)="renewalCleaning(r, 'finish')"><i class="pi pi-check"></i> Finalizar limpieza</button>
+                    }
                   }
                 </div>
               }
@@ -573,6 +581,11 @@ const MANT_CATS = [
       .oc-clean .cta.out.clean-start { background: #3b82f6; color: #fff; }
       .oc-clean .cta.out.clean-reject { background: rgba(0,0,0,0.3); color: #fecaca; border: 1px solid rgba(239,68,68,0.5); flex: 0 0 auto; }
       .oc-clean .cta.out.clean-ok { background: #f59e0b; color: #2a1a04; }
+      .oc-clean { flex-direction: column; align-items: stretch; }
+      .clean-prog { width: 100%; }
+      .cp-top { font-size: 0.72rem; color: #cdd8e6; margin-bottom: 0.25rem; }
+      .cp-bar { height: 6px; background: rgba(255,255,255,0.18); border-radius: 999px; overflow: hidden; }
+      .cp-bar span { display: block; height: 100%; background: #3b82f6; transition: width 0.2s; }
       .rnv { display: flex; flex-direction: column; gap: 0.8rem; }
       .rnv-kv { display: flex; justify-content: space-between; font-size: 0.88rem; color: #9fb0c3; }
       .rnv .fld { display: flex; flex-direction: column; gap: 0.35rem; } .rnv label { font-size: 0.82rem; color: #9fb0c3; }
@@ -968,10 +981,10 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   }
 
   /** Ciclo de limpieza de renovación: iniciar / finalizar / rechazar. La habitación sigue ocupada. */
-  renewalCleaning(r: RoomMapItem, action: 'start' | 'finish' | 'reject'): void {
+  renewalCleaning(r: RoomMapItem, action: 'start' | 'advance' | 'finish' | 'reject'): void {
     if (!r.activeStay) return;
     this.busyStay.set(r.activeStay.id);
-    const msg = { start: 'Limpieza iniciada', finish: 'Limpieza finalizada', reject: 'Limpieza rechazada' }[action];
+    const msg = { start: 'Limpieza iniciada', advance: 'Paso registrado', finish: 'Limpieza finalizada', reject: 'Limpieza rechazada' }[action];
     this.ops.renewalCleaning(r.activeStay.id, action).subscribe({
       next: () => { this.busyStay.set(null); this.toast.add({ severity: 'success', summary: msg, detail: `Hab. ${r.number} sigue ocupada.` }); this.reload(); },
       error: (err) => { this.busyStay.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo actualizar' }); },
