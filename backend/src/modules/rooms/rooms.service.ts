@@ -21,6 +21,7 @@ function serializeMap(room: RoomForMap) {
     id: room.id,
     number: room.number,
     floor: room.floor,
+    tower: room.tower,
     status: room.status,
     roomType: { id: room.roomType.id, name: room.roomType.name },
     attributes: room.roomType.attributes.map((a) => ({ name: a.attribute.name, icon: a.attribute.icon })),
@@ -104,6 +105,7 @@ export const roomsService = {
         roomTypeId: dto.roomTypeId,
         number: dto.number,
         floor: dto.floor || null,
+        tower: dto.tower || null,
         notes: dto.notes || null,
         imageUrl: dto.imageUrl || null,
         frigobarEnabled: dto.frigobarEnabled ?? false,
@@ -124,6 +126,7 @@ export const roomsService = {
       return await roomsRepository.update(id, {
         number: dto.number,
         floor: dto.floor === '' ? null : dto.floor,
+        ...(dto.tower !== undefined ? { tower: dto.tower === '' ? null : dto.tower } : {}),
         notes: dto.notes === '' ? null : dto.notes,
         ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl === '' ? null : dto.imageUrl } : {}),
         ...(dto.frigobarEnabled !== undefined ? { frigobarEnabled: dto.frigobarEnabled } : {}),

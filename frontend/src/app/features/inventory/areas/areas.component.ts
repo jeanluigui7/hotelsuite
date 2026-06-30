@@ -5,6 +5,7 @@ import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
+import { Router } from '@angular/router';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
 import { CatalogApiService } from '../../settings/catalogs/catalog-api.service';
@@ -72,6 +73,7 @@ const TYPES = [
                 <td class="cn"><span class="pill items">{{ a.itemCount ?? 0 }}</span></td>
                 <td class="cn"><span class="pill" [class.on]="a.status === 'active'" [class.off]="a.status !== 'active'">{{ a.status === 'active' ? 'Activo' : 'Inactivo' }}</span></td>
                 <td class="ac">
+                  @if (a.managesSubwarehouses) { <button class="ia" (click)="openCobertura(a)" title="Cobertura de habitaciones"><i class="pi pi-sitemap"></i></button> }
                   <button class="ia" (click)="openView(a)" title="Ver"><i class="pi pi-eye"></i></button>
                   @if (canEdit) { <button class="ia" (click)="openEdit(a)" title="Editar"><i class="pi pi-pencil"></i></button> }
                   @if (canDelete) { <button class="ia del" (click)="confirmDelete(a)" title="Eliminar"><i class="pi pi-trash"></i></button> }
@@ -206,6 +208,7 @@ export class AreasComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly messages = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
+  private readonly router = inject(Router);
 
   readonly items = signal<Area[]>([]);
   readonly warehouses = signal<Warehouse[]>([]);
@@ -249,6 +252,7 @@ export class AreasComponent implements OnInit {
 
   openNew(): void { this.form = emptyForm(); this.dialogVisible = true; }
   openView(a: Area): void { this.viewA = a; this.viewVisible = true; }
+  openCobertura(a: Area): void { void this.router.navigate(['/inventory/cobertura'], { queryParams: { area: a.id } }); }
   openEdit(a: Area): void {
     this.form = {
       id: a.id, name: a.name, description: a.description ?? '', type: a.type ?? 'LIMPIEZA',

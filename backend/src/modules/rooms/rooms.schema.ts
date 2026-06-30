@@ -4,6 +4,7 @@ export const createRoomSchema = z.object({
   roomTypeId: z.string().min(1),
   number: z.string().min(1).max(20),
   floor: z.string().max(20).optional().or(z.literal('')),
+  tower: z.string().max(40).optional().or(z.literal('')),
   notes: z.string().max(300).optional().or(z.literal('')),
   imageUrl: z.string().max(500_000).optional().or(z.literal('')),
   frigobarEnabled: z.coerce.boolean().optional(),

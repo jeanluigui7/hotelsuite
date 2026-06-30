@@ -38,6 +38,7 @@ export interface RoomMapItem {
   id: string;
   number: string;
   floor?: string | null;
+  tower?: string | null;
   status: RoomStatus;
   roomType: { id: string; name: string };
   attributes?: { name: string; icon?: string | null }[];

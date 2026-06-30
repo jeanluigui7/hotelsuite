@@ -53,6 +53,10 @@ const routes: Routes = [
     path: 'mapa-almacenes',
     loadComponent: () => import('./mapa-almacenes/mapa-almacenes.component').then((m) => m.MapaAlmacenesComponent),
   },
+  {
+    path: 'cobertura',
+    loadComponent: () => import('./cobertura/cobertura.component').then((m) => m.CoberturaComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 

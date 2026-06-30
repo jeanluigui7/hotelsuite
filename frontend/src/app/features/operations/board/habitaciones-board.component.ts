@@ -263,6 +263,7 @@ const MANT_CATS = [
           <div class="fld"><label>Número</label><input pInputText [(ngModel)]="editForm.number" placeholder="103" /></div>
           <div class="fld"><label>Piso</label><input pInputText [(ngModel)]="editForm.floor" placeholder="1" /></div>
         </div>
+        <div class="fld"><label>Torre / Bloque</label><input pInputText [(ngModel)]="editForm.tower" placeholder="Ej: Torre A" /></div>
         <div class="ed-grid">
           <div class="fld"><label>Tipo de Habitación</label>
             <p-select [options]="roomTypes()" optionLabel="name" optionValue="id" [(ngModel)]="editForm.roomTypeId" placeholder="Selecciona" styleClass="w" appendTo="body" />
@@ -611,8 +612,8 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   editVisible = false;
   editRoom: RoomMapItem | null = null;
   readonly savingEdit = signal(false);
-  editForm: { number: string; floor: string; roomTypeId: string | null; status: string; imageUrl: string; frigobarEnabled: boolean } = {
-    number: '', floor: '', roomTypeId: null, status: 'FREE', imageUrl: '', frigobarEnabled: false,
+  editForm: { number: string; floor: string; tower: string; roomTypeId: string | null; status: string; imageUrl: string; frigobarEnabled: boolean } = {
+    number: '', floor: '', tower: '', roomTypeId: null, status: 'FREE', imageUrl: '', frigobarEnabled: false,
   };
   readonly editStatusOptions = [
     { label: 'Disponible', value: 'FREE' },
@@ -768,6 +769,7 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     this.editForm = {
       number: r.number,
       floor: r.floor ?? '',
+      tower: r.tower ?? '',
       roomTypeId: r.roomType.id,
       status: r.status,
       imageUrl: r.imageUrl ?? '',
@@ -800,6 +802,7 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
         roomTypeId: this.editForm.roomTypeId,
         number: this.editForm.number.trim(),
         floor: this.editForm.floor.trim() || undefined,
+        tower: this.editForm.tower.trim(),
         imageUrl: this.editForm.imageUrl.trim(),
         frigobarEnabled: this.editForm.frigobarEnabled,
       } as never)
