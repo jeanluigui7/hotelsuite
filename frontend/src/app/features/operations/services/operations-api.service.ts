@@ -71,8 +71,8 @@ export class OperationsApiService {
   ): Observable<ApiResponse<Stay>> {
     return this.http.post<ApiResponse<Stay>>(`${this.api}/stays/${stayId}/renew`, dto);
   }
-  renewalCleaningDone(stayId: string): Observable<ApiResponse<Stay>> {
-    return this.http.post<ApiResponse<Stay>>(`${this.api}/stays/${stayId}/renewal-cleaning-done`, {});
+  renewalCleaning(stayId: string, action: 'start' | 'finish' | 'reject'): Observable<ApiResponse<Stay>> {
+    return this.http.post<ApiResponse<Stay>>(`${this.api}/stays/${stayId}/renewal-cleaning/${action}`, {});
   }
 
   receptionPermissions(): Observable<ApiResponse<{ allowChangeRoom: boolean; allowWriteOff: boolean; allowViewCash: boolean }>> {

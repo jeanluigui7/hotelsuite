@@ -29,9 +29,10 @@ export const staysController = {
     res.status(200).json(ok(await staysService.renew(req.scope, req.params.id, dto)));
   },
 
-  async renewalCleaningDone(req: Request, res: Response): Promise<void> {
+  async renewalCleaning(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
-    res.status(200).json(ok(await staysService.renewalCleaningDone(req.scope, req.params.id)));
+    const action = req.params.action as 'start' | 'finish' | 'reject';
+    res.status(200).json(ok(await staysService.renewalCleaning(req.scope, req.params.id, action)));
   },
 
   async changeRoom(req: Request, res: Response): Promise<void> {

@@ -618,6 +618,7 @@ model Stay {
   renewedAt         DateTime? // última renovación (OCUPADA - RENOVADA)
   renewalCount      Int       @default(0)
   cleaningRequested Boolean   @default(false) // limpieza de renovación pendiente (no libera la habitación)
+  renewalCleaningStatus String @default("NONE") // NONE | SOLICITADA | EN_CURSO (limpieza de renovación)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 

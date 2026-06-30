@@ -1,0 +1,19 @@
+BEGIN TRY
+
+BEGIN TRAN;
+
+-- AlterTable
+ALTER TABLE [dbo].[Stay] ADD [renewalCleaningStatus] NVARCHAR(1000) NOT NULL CONSTRAINT [Stay_renewalCleaningStatus_df] DEFAULT 'NONE';
+
+COMMIT TRAN;
+
+END TRY
+BEGIN CATCH
+
+IF @@TRANCOUNT > 0
+BEGIN
+    ROLLBACK TRAN;
+END;
+THROW
+
+END CATCH

@@ -344,7 +344,7 @@ export const staysService = {
     await prisma.$transaction([
       prisma.stay.update({
         where: { id },
-        data: { plannedCheckoutAt: newCheckout, renewedAt: new Date(), renewalCount: { increment: 1 }, ...(dto.requestCleaning ? { cleaningRequested: true } : {}) },
+        data: { plannedCheckoutAt: newCheckout, renewedAt: new Date(), renewalCount: { increment: 1 }, ...(dto.requestCleaning ? { cleaningRequested: true, renewalCleaningStatus: 'SOLICITADA' } : {}) },
       }),
       prisma.sale.create({
         data: {
@@ -360,12 +360,28 @@ export const staysService = {
     return serialize(updated as StayWithRelations);
   },
 
-  /** Marca la limpieza de renovación como realizada. La habitación sigue OCUPADA (no se libera). */
-  async renewalCleaningDone(scope: RequestScope, id: string) {
+  /**
+   * Ciclo de la limpieza de renovación (NO libera la habitación; el huésped sigue dentro):
+   *  start  → SOLICITADA → EN_CURSO
+   *  finish → EN_CURSO → NONE (vuelve a OCUPADA)
+   *  reject → SOLICITADA → NONE (cancela; solo si aún no inició). No afecta renovación/cobro/estadía.
+   */
+  async renewalCleaning(scope: RequestScope, id: string, action: 'start' | 'finish' | 'reject') {
     const branchId = requireActiveBranch(scope);
     const stay = await staysRepository.findById(id);
     if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
-    await prisma.stay.update({ where: { id }, data: { cleaningRequested: false } });
+    const st = stay.renewalCleaningStatus;
+    if (action === 'start') {
+      if (st !== 'SOLICITADA') throw new ConflictError('La limpieza no está en estado solicitada.');
+      await prisma.stay.update({ where: { id }, data: { renewalCleaningStatus: 'EN_CURSO' } });
+    } else if (action === 'reject') {
+      if (st !== 'SOLICITADA') throw new ConflictError('Solo se puede rechazar mientras está solicitada (no iniciada).');
+      await prisma.stay.update({ where: { id }, data: { renewalCleaningStatus: 'NONE', cleaningRequested: false } });
+    } else {
+      // finish
+      if (st !== 'EN_CURSO') throw new ConflictError('La limpieza no está en curso.');
+      await prisma.stay.update({ where: { id }, data: { renewalCleaningStatus: 'NONE', cleaningRequested: false } });
+    }
     const updated = await staysRepository.findById(id);
     return serialize(updated as StayWithRelations);
   },

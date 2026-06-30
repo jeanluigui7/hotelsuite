@@ -96,7 +96,8 @@ const MANT_CATS = [
                 <span class="ob type">{{ r.roomType.name }}</span>
                 <span class="ob occ">● Ocupada</span>
                 @if (r.activeStay.renewed) { <span class="ob renov">↻ Renovada{{ (r.activeStay.renewalCount || 0) > 1 ? ' ×' + r.activeStay.renewalCount : '' }}</span> }
-                @if (r.activeStay.cleaningRequested) { <span class="ob limp">🧹 Limpieza de renovación</span> }
+                @if (r.activeStay.renewalCleaningStatus === 'SOLICITADA') { <span class="ob limp">🧹 Limpieza solicitada</span> }
+                @if (r.activeStay.renewalCleaningStatus === 'EN_CURSO') { <span class="ob limp-curso">🧹 Limpieza en curso</span> }
               </div>
               <div class="oc-timer">
                 <span class="t" [class.red]="isExpired(r.activeStay)"><i class="pi pi-clock"></i> {{ remainingLabel(r.activeStay) }}</span>
@@ -121,10 +122,17 @@ const MANT_CATS = [
                 @if (r.activeStay.vehiclePlate) { <span class="chip plate"><i class="pi pi-car"></i> {{ r.activeStay.vehiclePlate }}</span> }
                 <button class="chip total clickable" (click)="openFolio(r)" pTooltip="Ver folio de estancia"><i class="pi pi-search"></i> Total S/ {{ stayTotal(r.activeStay) | number: '1.2-2' }}</button>
               </div>
+              @if (r.activeStay.renewalCleaningStatus === 'SOLICITADA' || r.activeStay.renewalCleaningStatus === 'EN_CURSO') {
+                <div class="oc-clean">
+                  @if (r.activeStay.renewalCleaningStatus === 'SOLICITADA') {
+                    <button class="cta out clean-start" [disabled]="busyStay() === r.activeStay.id" (click)="renewalCleaning(r, 'start')"><i class="pi pi-play"></i> Iniciar limpieza</button>
+                    <button class="cta out clean-reject" [disabled]="busyStay() === r.activeStay.id" (click)="renewalCleaning(r, 'reject')"><i class="pi pi-times"></i> Rechazar</button>
+                  } @else {
+                    <button class="cta out clean-ok" [disabled]="busyStay() === r.activeStay.id" (click)="renewalCleaning(r, 'finish')"><i class="pi pi-check"></i> Finalizar limpieza</button>
+                  }
+                </div>
+              }
               <div class="oc-foot">
-                @if (r.activeStay.cleaningRequested) {
-                  <button class="cta out clean-ok" [disabled]="busyStay() === r.activeStay.id" (click)="renewalCleaningDone(r)"><i class="pi pi-check"></i> Limpieza lista</button>
-                }
                 <button class="cta out" (click)="confirmCheckout(r)"><i class="pi pi-sign-out"></i> Pre Checkout</button>
                 <button class="cta out ghost2" (click)="openEdit(r)"><i class="pi pi-pencil"></i> Editar</button>
               </div>
@@ -559,7 +567,12 @@ const MANT_CATS = [
       .ob.type { background: rgba(124,58,237,0.55); }
       .ob.renov { background: rgba(16,185,129,0.85); color: #04130d; }
       .ob.limp { background: rgba(245,158,11,0.85); color: #2a1a04; }
-      .oc-foot .cta.out.clean-ok { flex: 0 0 auto; background: #f59e0b; color: #2a1a04; }
+      .ob.limp-curso { background: rgba(59,130,246,0.85); color: #fff; }
+      .oc-clean { display: flex; gap: 0.5rem; }
+      .oc-clean .cta.out { flex: 1; width: auto; background: rgba(255,255,255,0.92); color: #0b1018; border: 0; border-radius: 10px; padding: 0.55rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
+      .oc-clean .cta.out.clean-start { background: #3b82f6; color: #fff; }
+      .oc-clean .cta.out.clean-reject { background: rgba(0,0,0,0.3); color: #fecaca; border: 1px solid rgba(239,68,68,0.5); flex: 0 0 auto; }
+      .oc-clean .cta.out.clean-ok { background: #f59e0b; color: #2a1a04; }
       .rnv { display: flex; flex-direction: column; gap: 0.8rem; }
       .rnv-kv { display: flex; justify-content: space-between; font-size: 0.88rem; color: #9fb0c3; }
       .rnv .fld { display: flex; flex-direction: column; gap: 0.35rem; } .rnv label { font-size: 0.82rem; color: #9fb0c3; }
@@ -954,12 +967,13 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Marca la limpieza de renovación como hecha; la habitación sigue ocupada. */
-  renewalCleaningDone(r: RoomMapItem): void {
+  /** Ciclo de limpieza de renovación: iniciar / finalizar / rechazar. La habitación sigue ocupada. */
+  renewalCleaning(r: RoomMapItem, action: 'start' | 'finish' | 'reject'): void {
     if (!r.activeStay) return;
     this.busyStay.set(r.activeStay.id);
-    this.ops.renewalCleaningDone(r.activeStay.id).subscribe({
-      next: () => { this.busyStay.set(null); this.toast.add({ severity: 'success', summary: 'Limpieza lista', detail: `Hab. ${r.number} sigue ocupada (renovada).` }); this.reload(); },
+    const msg = { start: 'Limpieza iniciada', finish: 'Limpieza finalizada', reject: 'Limpieza rechazada' }[action];
+    this.ops.renewalCleaning(r.activeStay.id, action).subscribe({
+      next: () => { this.busyStay.set(null); this.toast.add({ severity: 'success', summary: msg, detail: `Hab. ${r.number} sigue ocupada.` }); this.reload(); },
       error: (err) => { this.busyStay.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo actualizar' }); },
     });
   }

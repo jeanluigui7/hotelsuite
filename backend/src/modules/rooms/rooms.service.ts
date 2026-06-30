@@ -44,6 +44,7 @@ function serializeMap(room: RoomForMap) {
           renewed: !!stay.renewedAt,
           renewalCount: stay.renewalCount,
           cleaningRequested: stay.cleaningRequested,
+          renewalCleaningStatus: stay.renewalCleaningStatus,
         }
       : null,
   };
