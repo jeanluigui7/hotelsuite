@@ -285,14 +285,18 @@ export class AlmacenProductosComponent implements OnInit {
   // Movimientos (Ingresar / Dar de baja) sobre los seleccionados
   openMov(type: 'IN' | 'OUT'): void { this.movType = type; this.movQty = 1; this.movRef = ''; this.movVisible = true; }
   applyMov(): void {
-    if (!this.warehouseId) { this.toast.add({ severity: 'error', summary: 'Sin almacén', detail: 'No hay almacén de productos.' }); return; }
     const ids = [...this.selected()];
     if (!ids.length) return;
     this.busy.set(true);
     const qty = this.movType === 'IN' ? this.movQty : -this.movQty;
+    const byId = new Map(this.products().map((p) => [p.id, p]));
     const send = (i: number): void => {
       if (i >= ids.length) { this.busy.set(false); this.movVisible = false; this.selected.set(new Set()); this.toast.add({ severity: 'success', summary: 'Listo', detail: `${ids.length} artículo(s) actualizados.` }); this.reload(); return; }
-      this.inventory.adjust({ productId: ids[i], warehouseId: this.warehouseId!, quantity: qty, reference: this.movRef || (this.movType === 'IN' ? 'Ingreso' : 'Baja') }).subscribe({
+      // Ajusta en el MISMO almacén cuyo stock se muestra (el que trae cada producto),
+      // así el listado siempre refleja el ingreso aunque haya varios almacenes PRODUCTS.
+      const wh = byId.get(ids[i])?.warehouseId ?? this.warehouseId;
+      if (!wh) { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Sin almacén', detail: 'No hay almacén de productos.' }); return; }
+      this.inventory.adjust({ productId: ids[i], warehouseId: wh, quantity: qty, reference: this.movRef || (this.movType === 'IN' ? 'Ingreso' : 'Baja') }).subscribe({
         next: () => send(i + 1),
         error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
       });

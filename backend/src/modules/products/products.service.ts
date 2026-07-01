@@ -37,6 +37,8 @@ function serialize(p: ProductWithRelations, warehouseId: string) {
     receptionReorderPoint: p.receptionReorderPoint,
     status: p.status,
     stock: stockRow?.quantity ?? 0,
+    // Almacén cuyo stock se muestra (para que Ingresar/Baja escriban en el MISMO almacén).
+    warehouseId,
   };
 }
 

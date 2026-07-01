@@ -19,6 +19,7 @@ export interface Product {
   receptionReorderPoint?: number;
   status: string;
   stock: number;
+  warehouseId?: string;
 }
 
 export interface ProductUpsert {
