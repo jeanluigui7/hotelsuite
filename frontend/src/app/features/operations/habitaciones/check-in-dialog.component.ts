@@ -752,10 +752,11 @@ export class CheckInDialogComponent {
           ...this.lines().map((l) => ({ productId: l.product.id, quantity: l.quantity })),
         ];
         const payments = this.pays().filter((p) => (p.amount || 0) > 0).map((p) => ({ method: this.payMeta(p.type).backend, amount: p.amount }));
-        if (stay?.id && payments.length) {
+        // Se registra SIEMPRE el cargo de la estancia (deja rastro en el folio), con o sin pago.
+        if (stay?.id) {
           this.finance.createSale({ stayId: stay.id, items, payments }).subscribe({
-            next: () => this.finish('Habitación ocupada. Pago registrado.'),
-            error: () => this.finish('Check-in hecho. El cobro no se pudo registrar.'),
+            next: () => this.finish(payments.length ? 'Habitación ocupada. Pago registrado.' : 'Habitación ocupada. Cargo pendiente de cobro.'),
+            error: () => this.finish('Check-in hecho. El cargo no se pudo registrar.'),
           });
         } else {
           this.finish('Habitación ocupada.');

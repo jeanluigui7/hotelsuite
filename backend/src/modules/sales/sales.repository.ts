@@ -47,7 +47,7 @@ export const salesRepository = {
     stayId: string | null;
     guestId: string | null;
     customerName: string | null;
-    cashSessionId: string;
+    cashSessionId: string | null;
     total: number;
     status: string;
     createdByUserId: string;

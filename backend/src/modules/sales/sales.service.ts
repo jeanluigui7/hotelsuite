@@ -58,8 +58,12 @@ export const salesService = {
   async create(scope: RequestScope, dto: CreateSaleDto) {
     const branchId = requireActiveBranch(scope);
 
+    // Solo se exige turno de caja abierto cuando hay pagos que registrar. Una venta a
+    // crédito (cargo sin pago, p. ej. el cargo de habitación al hacer check-in) puede
+    // registrarse sin caja para no perder el rastro del cargo en el folio.
+    const hasPayments = (dto.payments ?? []).some((p) => (p.amount ?? 0) > 0);
     const session = await cashRepository.findOpen(branchId);
-    if (!session) throw new ConflictError('Debe abrir un turno de caja antes de registrar ventas');
+    if (hasPayments && !session) throw new ConflictError('Debe abrir un turno de caja antes de registrar cobros');
 
     if (dto.stayId) {
       const stay = await prisma.stay.findUnique({ where: { id: dto.stayId } });
@@ -124,7 +128,7 @@ export const salesService = {
         stayId: dto.stayId ?? null,
         guestId: dto.guestId ?? null,
         customerName: dto.customerName || null,
-        cashSessionId: session.id,
+        cashSessionId: session?.id ?? null,
         total,
         status,
         createdByUserId: scope.userId,

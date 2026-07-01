@@ -234,7 +234,7 @@ export const staysService = {
     const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } });
     const uname = (uid?: string | null): string => (uid ? users.find((u) => u.id === uid)?.name ?? '—' : '—');
 
-    const isRoomLine = (desc: string): boolean => /^tarifa[:\s]/i.test(desc) || /pernocta|renovaci/i.test(desc);
+    const isRoomLine = (desc: string): boolean => /^tarifa[:\s]/i.test(desc) || /pernocta|renovaci|tiempo extra|extensi/i.test(desc);
     const METHOD: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', WALLET: 'Yape/Plin' };
 
     // Movimientos (ledger) y productos
@@ -249,7 +249,7 @@ export const staysService = {
       const fullyPaid = paidSale + 0.001 >= Number(s.total);
       for (const it of s.items) {
         const sub = Number(it.subtotal);
-        const isRenewal = /renovaci/i.test(it.description);
+        const isRenewal = /renovaci|tiempo extra|extensi/i.test(it.description);
         movs.push({ at: s.createdAt, type: isRoomLine(it.description) ? 'Estadía' : 'Producto', description: it.description, charge: sub, payment: 0, by: uname(s.createdByUserId) });
         if (isRenewal) { renovacionesSales += sub; renewalCount += it.quantity; }
         else if (!isRoomLine(it.description)) {
