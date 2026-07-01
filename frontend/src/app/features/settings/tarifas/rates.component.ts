@@ -11,7 +11,7 @@ import { MessageService } from 'primeng/api';
 import { CatalogApiService } from '../catalogs/catalog-api.service';
 import type { Rate, RoomType } from '../catalogs/catalog.models';
 
-interface RateGroup { roomTypeId: string; roomTypeName: string; rates: Rate[]; }
+interface RateGroup { roomTypeId: string; roomTypeName: string; rates: Rate[]; extraHourPrice: number | null; }
 
 @Component({
   selector: 'app-rates',
@@ -30,7 +30,15 @@ interface RateGroup { roomTypeId: string; roomTypeName: string; rates: Rate[]; }
 
       @for (g of groups(); track g.roomTypeId) {
         <div class="card">
-          <div class="card-h"><h3>{{ g.roomTypeName }}</h3><p-button label="Agregar a {{ g.roomTypeName }}" icon="pi pi-plus" size="small" [text]="true" (onClick)="openNew(g.roomTypeId)" /></div>
+          <div class="card-h">
+            <h3>{{ g.roomTypeName }}</h3>
+            <span class="ext" title="Se usa para el 'Tiempo Extra' de una renovación (monto por hora)">
+              <i class="pi pi-clock"></i> Extensión / hora:
+              <p-inputNumber [(ngModel)]="g.extraHourPrice" mode="decimal" [minFractionDigits]="2" [min]="0" inputStyleClass="ext-in" />
+              <p-button label="Guardar" size="small" [text]="true" [loading]="savingExt() === g.roomTypeId" (onClick)="saveExt(g.roomTypeId, g.extraHourPrice)" />
+            </span>
+            <p-button label="Agregar a {{ g.roomTypeName }}" icon="pi pi-plus" size="small" [text]="true" (onClick)="openNew(g.roomTypeId)" />
+          </div>
           <table class="tbl">
             <thead><tr><th>Etiqueta</th><th>Duración</th><th class="r">Precio</th><th class="c">Pernoctación</th><th class="c">Especial</th><th class="c">Estado</th><th class="ac">Acciones</th></tr></thead>
             <tbody>
@@ -83,8 +91,10 @@ interface RateGroup { roomTypeId: string; roomTypeName: string; rates: Rate[]; }
       h1 { margin: 0; } .muted { color: var(--p-text-muted-color, #8aa0bd); margin: 0.2rem 0 0; }
       .empty { background: var(--p-content-background, #0e1622); border: 1px solid var(--p-content-border-color, #1c2c44); border-radius: 12px; padding: 1.2rem; margin-top: 1rem; }
       .card { background: var(--p-content-background, #0e1622); border: 1px solid var(--p-content-border-color, #1c2c44); border-radius: 14px; padding: 1rem 1.2rem; margin-top: 1.2rem; }
-      .card-h { display: flex; align-items: center; justify-content: space-between; }
+      .card-h { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; }
       .card-h h3 { margin: 0; }
+      .ext { display: inline-flex; align-items: center; gap: 0.4rem; margin-left: auto; font-size: 0.82rem; color: var(--p-text-muted-color, #8aa0bd); }
+      :host ::ng-deep .ext .ext-in { width: 6rem; text-align: right; }
       .tbl { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
       .tbl th, .tbl td { padding: 0.7rem 0.6rem; border-bottom: 1px solid var(--p-content-border-color, #1c2c44); text-align: left; font-size: 0.9rem; }
       .tbl th { color: var(--p-text-muted-color, #8aa0bd); font-weight: 600; }
@@ -110,8 +120,9 @@ export class RatesComponent implements OnInit {
   dialogVisible = false;
   form: { id?: string; roomTypeId: string | null; label: string; hours: number; price: number; pernocta: boolean; special: boolean; status: string } = { roomTypeId: null, label: '', hours: 3, price: 0, pernocta: false, special: false, status: 'active' };
 
+  readonly savingExt = signal<string | null>(null);
   readonly groups = computed<RateGroup[]>(() =>
-    this.roomTypes().map((rt) => ({ roomTypeId: rt.id, roomTypeName: rt.name, rates: this.rates().filter((r) => r.roomTypeId === rt.id).sort((a, b) => a.durationMinutes - b.durationMinutes) })),
+    this.roomTypes().map((rt) => ({ roomTypeId: rt.id, roomTypeName: rt.name, extraHourPrice: rt.extraHourPrice != null ? Number(rt.extraHourPrice) : null, rates: this.rates().filter((r) => r.roomTypeId === rt.id).sort((a, b) => a.durationMinutes - b.durationMinutes) })),
   );
 
   ngOnInit(): void { this.reload(); }
@@ -130,6 +141,15 @@ export class RatesComponent implements OnInit {
   openNew(roomTypeId?: string): void {
     this.form = { roomTypeId: roomTypeId ?? this.roomTypes()[0]?.id ?? null, label: '', hours: 3, price: 0, pernocta: false, special: false, status: 'active' };
     this.dialogVisible = true;
+  }
+
+  /** Guarda la tarifa por hora (extensión / Tiempo Extra) del tipo de habitación. */
+  saveExt(roomTypeId: string, value: number | null): void {
+    this.savingExt.set(roomTypeId);
+    this.catalog.roomTypes.update(roomTypeId, { extraHourPrice: value ?? 0 } as unknown as Partial<RoomType>).subscribe({
+      next: () => { this.savingExt.set(null); this.toast.add({ severity: 'success', summary: 'Extensión guardada', detail: 'Tarifa por hora actualizada.' }); this.catalog.roomTypes.list({ pageSize: 200, sortBy: 'name' }).subscribe((res) => this.roomTypes.set(res.data ?? [])); },
+      error: (e: HttpErrorResponse) => { this.savingExt.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo guardar.' }); },
+    });
   }
 
   openEdit(r: Rate): void {
