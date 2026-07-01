@@ -61,6 +61,8 @@ export const ratesService = {
     const branchId = requireActiveBranch(scope);
     const existing = await ratesRepository.findRate(id);
     if (!existing || existing.branchId !== branchId) throw new NotFoundError('Tarifa no encontrada');
+    // La tarifa puede estar referenciada por estancias (historial). Se desvincula primero
+    // (el precio queda congelado en la estancia) para no violar la FK y evitar el 500.
     return ratesRepository.deleteRate(id);
   },
 

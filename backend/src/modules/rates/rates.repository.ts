@@ -22,7 +22,11 @@ export const ratesRepository = {
     return prisma.rate.update({ where: { id }, data, include: rateInclude });
   },
   deleteRate(id: string) {
-    return prisma.rate.delete({ where: { id } });
+    // Desvincula las estancias que la referencian (conservan su precio congelado) y borra.
+    return prisma.$transaction(async (tx) => {
+      await tx.stay.updateMany({ where: { rateId: id }, data: { rateId: null } });
+      return tx.rate.delete({ where: { id } });
+    });
   },
 
   // ── Custom rates ──
