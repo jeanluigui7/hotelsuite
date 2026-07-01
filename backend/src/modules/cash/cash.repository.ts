@@ -26,17 +26,18 @@ export const cashRepository = {
     });
   },
 
-  /** Sum of payments for a session, optionally by method. */
+  /** Sum of payments for a session, optionally by method. Excluye ventas anuladas. */
   async paymentsTotal(cashSessionId: string, method?: string) {
     const result = await prisma.payment.aggregate({
-      where: { cashSessionId, ...(method ? { method } : {}) },
+      where: { cashSessionId, ...(method ? { method } : {}), sale: { status: { not: 'CANCELLED' } } },
       _sum: { amount: true },
     });
     return Number(result._sum.amount ?? 0);
   },
 
+  /** Ventas del turno, sin contar las anuladas (que ya no aportan efectivo). */
   salesCount(cashSessionId: string) {
-    return prisma.sale.count({ where: { cashSessionId } });
+    return prisma.sale.count({ where: { cashSessionId, status: { not: 'CANCELLED' } } });
   },
 
   addMovement(data: {
