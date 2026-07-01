@@ -75,6 +75,11 @@ import { receptionPermsRouter } from './modules/reception-permissions/reception-
 export function createApp(): Application {
   const app = express();
 
+  // Detrás de nginx (un único proxy): confía en el primer hop para leer la IP real
+  // desde X-Forwarded-For. Sin esto, express-rate-limit lanza ValidationError y
+  // agruparía a todos los clientes bajo la IP del proxy.
+  app.set('trust proxy', 1);
+
   app.use(helmet());
   app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
   app.use(express.json({ limit: '8mb' })); // permite fotos comprimidas (revisiones de mantenimiento)
