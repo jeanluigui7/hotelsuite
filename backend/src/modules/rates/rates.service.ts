@@ -36,7 +36,7 @@ export const ratesService = {
       return await ratesRepository.createRate({ branchId, ...dto });
     } catch (err) {
       if (isUniqueViolation(err)) {
-        throw new ConflictError('Ya existe una tarifa con esa duración para el tipo de habitación');
+        throw new ConflictError('Ya existe una tarifa con esa etiqueta y duración para el tipo de habitación');
       }
       throw err;
     }
@@ -51,7 +51,7 @@ export const ratesService = {
       return await ratesRepository.updateRate(id, dto);
     } catch (err) {
       if (isUniqueViolation(err)) {
-        throw new ConflictError('Ya existe una tarifa con esa duración para el tipo de habitación');
+        throw new ConflictError('Ya existe una tarifa con esa etiqueta y duración para el tipo de habitación');
       }
       throw err;
     }

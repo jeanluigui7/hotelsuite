@@ -302,7 +302,10 @@ model Rate {
   roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   stays    Stay[]
 
-  @@unique([branchId, roomTypeId, durationMinutes])
+  // La unicidad incluye la etiqueta: una misma duración (p. ej. pernoctación = 1440)
+  // puede tener varias tarifas por tipo de habitación diferenciadas por nombre/ocupantes
+  // (ej. "DIA HOTELERO - 2 PERSONAS" vs "DIA HOTELERO - 3 PERS MAX").
+  @@unique([branchId, roomTypeId, durationMinutes, label])
   @@index([branchId])
   @@index([roomTypeId])
 }
