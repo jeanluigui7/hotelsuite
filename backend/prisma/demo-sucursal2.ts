@@ -52,8 +52,8 @@ async function main(): Promise<void> {
   ];
   for (const r of rates) {
     await prisma.rate.upsert({
-      where: { branchId_roomTypeId_durationMinutes: { branchId: B2, roomTypeId: r.roomTypeId, durationMinutes: r.durationMinutes } },
-      update: { label: r.label, price: r.price, status: 'active', pernocta: r.pernocta },
+      where: { branchId_roomTypeId_durationMinutes_label: { branchId: B2, roomTypeId: r.roomTypeId, durationMinutes: r.durationMinutes, label: r.label } },
+      update: { price: r.price, status: 'active', pernocta: r.pernocta },
       create: { branchId: B2, roomTypeId: r.roomTypeId, label: r.label, durationMinutes: r.durationMinutes, price: r.price, status: 'active', pernocta: r.pernocta },
     });
   }

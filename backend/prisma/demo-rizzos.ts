@@ -134,8 +134,8 @@ async function main(): Promise<void> {
   ];
   for (const t of rates) {
     await prisma.rate.upsert({
-      where: { branchId_roomTypeId_durationMinutes: { branchId: RZ, roomTypeId: t.roomTypeId, durationMinutes: t.durationMinutes } },
-      update: { label: t.label, price: t.price, status: 'active', pernocta: t.pernocta },
+      where: { branchId_roomTypeId_durationMinutes_label: { branchId: RZ, roomTypeId: t.roomTypeId, durationMinutes: t.durationMinutes, label: t.label } },
+      update: { price: t.price, status: 'active', pernocta: t.pernocta },
       create: { branchId: RZ, roomTypeId: t.roomTypeId, label: t.label, durationMinutes: t.durationMinutes, price: t.price, status: 'active', pernocta: t.pernocta },
     });
   }

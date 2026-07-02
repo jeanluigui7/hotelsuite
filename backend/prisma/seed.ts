@@ -188,13 +188,14 @@ async function main(): Promise<void> {
   for (const rate of rateDefs) {
     await prisma.rate.upsert({
       where: {
-        branchId_roomTypeId_durationMinutes: {
+        branchId_roomTypeId_durationMinutes_label: {
           branchId: branch.id,
           roomTypeId,
           durationMinutes: rate.durationMinutes,
+          label: rate.label,
         },
       },
-      update: { label: rate.label, price: rate.price },
+      update: { price: rate.price },
       create: { branchId: branch.id, roomTypeId, ...rate },
     });
   }
