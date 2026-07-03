@@ -28,7 +28,8 @@ export const cashController = {
   async sessions(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const params = paginationSchema.parse(req.query);
-    const { items, meta } = await cashService.listSessions(req.scope, params);
+    const status = typeof req.query.status === 'string' && req.query.status ? req.query.status : undefined;
+    const { items, meta } = await cashService.listSessions(req.scope, params, status);
     res.status(200).json(ok(items, meta));
   },
   async report(req: Request, res: Response): Promise<void> {

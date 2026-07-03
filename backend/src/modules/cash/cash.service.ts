@@ -50,6 +50,7 @@ export const cashService = {
       closingAmount: dto.closingAmount,
       expectedAmount: summary.expectedCash,
       notes: dto.notes || null,
+      closedByUserId: scope.userId,
     });
     return {
       session: closed,
@@ -72,13 +73,34 @@ export const cashService = {
     });
   },
 
-  async listSessions(scope: RequestScope, params: PaginationParams) {
+  async listSessions(scope: RequestScope, params: PaginationParams, status?: string) {
     const branchId = requireActiveBranch(scope);
     const { skip, take } = toPrismaPaging(params);
-    const [items, total] = await Promise.all([
-      cashRepository.listSessions({ branchId, skip, take }),
-      cashRepository.countSessions(branchId),
+    const [rows, total] = await Promise.all([
+      cashRepository.listSessions({ branchId, status, skip, take }),
+      cashRepository.countSessions(branchId, status),
     ]);
+    const names = await cashRepository.userNames([
+      ...new Set(rows.flatMap((s) => [s.openedByUserId, s.closedByUserId].filter((x): x is string => !!x))),
+    ]);
+    const items = rows.map((s) => {
+      const closing = s.closingAmount != null ? Number(s.closingAmount) : null;
+      const expected = s.expectedAmount != null ? Number(s.expectedAmount) : null;
+      return {
+        id: s.id,
+        number: s.number,
+        status: s.status,
+        openingAmount: Number(s.openingAmount),
+        closingAmount: closing,
+        expectedAmount: expected,
+        openedAt: s.openedAt,
+        closedAt: s.closedAt,
+        openedByName: names.get(s.openedByUserId) ?? '—',
+        closedByName: s.closedByUserId ? (names.get(s.closedByUserId) ?? '—') : null,
+        // Cuadre: efectivo contado − esperado (null si el turno sigue abierto).
+        difference: closing != null && expected != null ? Math.round((closing - expected) * 100) / 100 : null,
+      };
+    });
     return { items, meta: pageMeta(params, total) };
   },
 

@@ -6,7 +6,7 @@ import { CrudApi, toHttpParams, type ListParams } from '../../../core/http/crud-
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import type {
   CashCurrent,
-  CashSession,
+  CashSessionRow,
   CloseResult,
   CreateSaleInput,
   CreditDebitNote,
@@ -37,8 +37,8 @@ export class FinanceApiService {
   addMovement(dto: { type: 'IN' | 'OUT'; amount: number; concept: string }): Observable<ApiResponse<unknown>> {
     return this.http.post<ApiResponse<unknown>>(`${this.api}/cash/movements`, dto);
   }
-  listSessions(params: ListParams = {}): Observable<ApiResponse<CashSession[]>> {
-    return this.http.get<ApiResponse<CashSession[]>>(`${this.api}/cash/sessions`, { params: toHttpParams(params) });
+  listSessions(params: ListParams = {}): Observable<ApiResponse<CashSessionRow[]>> {
+    return this.http.get<ApiResponse<CashSessionRow[]>>(`${this.api}/cash/sessions`, { params: toHttpParams(params) });
   }
   sessionReport(id: string): Observable<ApiResponse<SessionReport>> {
     return this.http.get<ApiResponse<SessionReport>>(`${this.api}/cash/sessions/${id}/report`);

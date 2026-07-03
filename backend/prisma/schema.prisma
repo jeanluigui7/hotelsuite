@@ -798,7 +798,9 @@ model Stock {
 model CashSession {
   id             String    @id @default(uuid())
   branchId       String
+  number         Int? // correlativo visible por sucursal ("Caja #534")
   openedByUserId String
+  closedByUserId String? // usuario que cerró el turno
   status         String    @default("OPEN") // OPEN | CLOSED
   openingAmount  Decimal   @db.Decimal(10, 2)
   closingAmount  Decimal?  @db.Decimal(10, 2)

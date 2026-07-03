@@ -9,11 +9,20 @@ export const cashRepository = {
     return prisma.cashSession.findUnique({ where: { id } });
   },
 
-  open(data: { branchId: string; openedByUserId: string; openingAmount: number; notes: string | null }) {
-    return prisma.cashSession.create({ data });
+  async open(data: { branchId: string; openedByUserId: string; openingAmount: number; notes: string | null }) {
+    // Correlativo visible por sucursal: siguiente al mayor existente.
+    const last = await prisma.cashSession.aggregate({
+      where: { branchId: data.branchId },
+      _max: { number: true },
+    });
+    const number = (last._max.number ?? 0) + 1;
+    return prisma.cashSession.create({ data: { ...data, number } });
   },
 
-  close(id: string, data: { closingAmount: number; expectedAmount: number; notes: string | null }) {
+  close(
+    id: string,
+    data: { closingAmount: number; expectedAmount: number; notes: string | null; closedByUserId: string },
+  ) {
     return prisma.cashSession.update({
       where: { id },
       data: {
@@ -21,6 +30,7 @@ export const cashRepository = {
         closedAt: new Date(),
         closingAmount: data.closingAmount,
         expectedAmount: data.expectedAmount,
+        closedByUserId: data.closedByUserId,
         notes: data.notes ?? undefined,
       },
     });
@@ -63,17 +73,24 @@ export const cashRepository = {
     return Number(result._sum.amount ?? 0);
   },
 
-  listSessions(args: { branchId: string; skip: number; take: number }) {
+  listSessions(args: { branchId: string; status?: string; skip: number; take: number }) {
     return prisma.cashSession.findMany({
-      where: { branchId: args.branchId },
+      where: { branchId: args.branchId, ...(args.status ? { status: args.status } : {}) },
       skip: args.skip,
       take: args.take,
       orderBy: { openedAt: 'desc' },
     });
   },
 
-  countSessions(branchId: string) {
-    return prisma.cashSession.count({ where: { branchId } });
+  countSessions(branchId: string, status?: string) {
+    return prisma.cashSession.count({ where: { branchId, ...(status ? { status } : {}) } });
+  },
+
+  /** Nombres de usuario por id (para apertura/cierre del turno). */
+  async userNames(ids: string[]) {
+    if (ids.length === 0) return new Map<string, string>();
+    const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+    return new Map(users.map((u) => [u.id, u.name]));
   },
 
   /** Sale line items of a session (excluding cancelled sales) for the per-item breakdown. */

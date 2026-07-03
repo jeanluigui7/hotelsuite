@@ -11,6 +11,21 @@ export interface CashSession {
   notes?: string | null;
 }
 
+/** Fila del listado de cajas (Finanzas › Cajas): incluye correlativo, usuarios y cuadre. */
+export interface CashSessionRow {
+  id: string;
+  number: number | null;
+  status: 'OPEN' | 'CLOSED';
+  openingAmount: number;
+  closingAmount: number | null;
+  expectedAmount: number | null;
+  openedAt: string;
+  closedAt: string | null;
+  openedByName: string;
+  closedByName: string | null;
+  difference: number | null;
+}
+
 export interface CashSummary {
   byMethod: Record<string, number>;
   totalCollected: number;
