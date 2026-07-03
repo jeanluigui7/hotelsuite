@@ -75,6 +75,18 @@ export class OperationsApiService {
     return this.http.post<ApiResponse<Stay>>(`${this.api}/stays/${stayId}/renewal-cleaning/${action}`, {});
   }
 
+  updateStayDetails(
+    stayId: string,
+    dto: {
+      phone?: string;
+      vehiclePlate?: string;
+      addGuests?: { documentType: string; documentNumber: string; firstName: string; lastName?: string; phone?: string }[];
+      removeGuestIds?: string[];
+    },
+  ): Observable<ApiResponse<Stay>> {
+    return this.http.post<ApiResponse<Stay>>(`${this.api}/stays/${stayId}/details`, dto);
+  }
+
   receptionPermissions(): Observable<ApiResponse<{ allowChangeRoom: boolean; allowWriteOff: boolean; allowViewCash: boolean }>> {
     return this.http.get<ApiResponse<{ allowChangeRoom: boolean; allowWriteOff: boolean; allowViewCash: boolean }>>(`${this.api}/reception/permissions`);
   }

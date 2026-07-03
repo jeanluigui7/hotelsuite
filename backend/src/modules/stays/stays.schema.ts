@@ -72,7 +72,26 @@ export const renewSchema = z.object({
   requestCleaning: z.coerce.boolean().default(false),
 });
 
+/** Edición rápida de la estancia (recepción): teléfono, placa y acompañantes. */
+export const updateStayDetailsSchema = z.object({
+  phone: z.string().max(30).optional(),
+  vehiclePlate: z.string().max(20).optional(),
+  addGuests: z
+    .array(
+      z.object({
+        documentType: z.enum(['DNI', 'CE', 'PASAPORTE', 'RUC']).default('DNI'),
+        documentNumber: z.string().min(3).max(20),
+        firstName: z.string().min(1).max(120),
+        lastName: z.string().max(120).optional().or(z.literal('')),
+        phone: z.string().max(30).optional().or(z.literal('')),
+      }),
+    )
+    .optional(),
+  removeGuestIds: z.array(z.string().min(1)).optional(),
+});
+
 export type CheckInDto = z.infer<typeof checkInSchema>;
 export type CheckOutDto = z.infer<typeof checkOutSchema>;
 export type ChangeRoomDto = z.infer<typeof changeRoomSchema>;
 export type RenewDto = z.infer<typeof renewSchema>;
+export type UpdateStayDetailsDto = z.infer<typeof updateStayDetailsSchema>;

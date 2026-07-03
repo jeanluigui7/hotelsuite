@@ -10,7 +10,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { Router } from '@angular/router';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
 import { environment } from '../../../../environments/environment';
 import { AuthService } from '../../../core/auth/auth.service';
 import { PrintingService } from '../../../core/printing/printing.service';
@@ -92,13 +92,15 @@ const MANT_CATS = [
                 <span class="oc-num"># {{ r.number }} <span class="oc-tag">{{ isPernocta(r.activeStay) ? '🌙 PERNOCTANDO' : 'HOSPEDAJE' }}</span></span>
                 <span class="oc-piso"><i class="pi pi-building"></i> {{ r.floor || '-' }}º piso</span>
               </div>
-              <div class="oc-badges">
-                <span class="ob type">{{ r.roomType.name }}</span>
-                <span class="ob occ">● Ocupada</span>
-                @if (r.activeStay.renewed) { <span class="ob renov">↻ Renovada{{ (r.activeStay.renewalCount || 0) > 1 ? ' ×' + r.activeStay.renewalCount : '' }}</span> }
-                @if (r.activeStay.renewalCleaningStatus === 'SOLICITADA') { <span class="ob limp">🧹 Limpieza solicitada</span> }
-                @if (r.activeStay.renewalCleaningStatus === 'EN_CURSO') { <span class="ob limp-curso">🧹 Limpieza en curso</span> }
-              </div>
+              @if (isAdminProfile()) {
+                <div class="oc-badges">
+                  <span class="ob type">{{ r.roomType.name }}</span>
+                  <span class="ob occ">● Ocupada</span>
+                  @if (r.activeStay.renewed) { <span class="ob renov">↻ Renovada{{ (r.activeStay.renewalCount || 0) > 1 ? ' ×' + r.activeStay.renewalCount : '' }}</span> }
+                  @if (r.activeStay.renewalCleaningStatus === 'SOLICITADA') { <span class="ob limp">🧹 Limpieza solicitada</span> }
+                  @if (r.activeStay.renewalCleaningStatus === 'EN_CURSO') { <span class="ob limp-curso">🧹 Limpieza en curso</span> }
+                </div>
+              }
               <div class="oc-timer">
                 <span class="t" [class.red]="isExpired(r.activeStay)"><i class="pi pi-clock"></i> {{ remainingLabel(r.activeStay) }}</span>
                 @if (isExpired(r.activeStay)) { <span class="exp-badge">Tiempo Expirado</span> }
@@ -108,7 +110,10 @@ const MANT_CATS = [
                 @if (canChangeRoom()) { <button class="mini" (click)="openChange(r)"><i class="pi pi-arrow-right-arrow-left"></i> Cambiar</button> }
               </div>
               <div class="oc-guest">
-                <div class="g-top"><span class="g-name">{{ r.activeStay.guestName }}</span><span class="g-count"><i class="pi pi-users"></i> {{ r.activeStay.guestCount || 1 }}</span></div>
+                <div class="g-top"><span class="g-name">{{ r.activeStay.guestName }}</span>
+                <span class="g-count clickable" (click)="toggleStayEdit(r.activeStay!.id)"><i class="pi pi-users"></i> {{ r.activeStay.guestCount || 1 }}</span>
+                @if (stayEditPencil() === r.activeStay.id) { <button class="pencil-y" (click)="openStayEdit(r)" pTooltip="Editar teléfono, placa y acompañantes"><i class="pi pi-pencil"></i></button> }
+              </div>
                 <div class="g-meta"><span><i class="pi pi-id-card"></i> {{ r.activeStay.documentNumber || '—' }}</span><span><i class="pi pi-phone"></i> {{ r.activeStay.phone || '—' }}</span></div>
                 <div class="g-dates">
                   <div><span>Entrada</span><strong>{{ r.activeStay.checkInAt | date: 'dd/MM HH:mm' }}</strong></div>
@@ -142,7 +147,7 @@ const MANT_CATS = [
               }
               <div class="oc-foot">
                 <button class="cta out" (click)="confirmCheckout(r)"><i class="pi pi-sign-out"></i> Pre Checkout</button>
-                <button class="cta out ghost2" (click)="openEdit(r)"><i class="pi pi-pencil"></i> Editar</button>
+                @if (isAdminProfile()) { <button class="cta out ghost2" (click)="openEdit(r)"><i class="pi pi-pencil"></i> Editar</button> }
               </div>
             </article>
           } @else {
@@ -161,7 +166,7 @@ const MANT_CATS = [
                   @if (r.status === 'FREE' || r.status === 'RESERVADA') {
                     <button class="cta sm reg" (click)="openCheckIn(r)"><i class="pi pi-sign-in"></i> Registrar</button>
                   }
-                  <button class="cta sm light" (click)="openEdit(r)"><i class="pi pi-pencil"></i> Editar</button>
+                  @if (isAdminProfile()) { <button class="cta sm light" (click)="openEdit(r)"><i class="pi pi-pencil"></i> Editar</button> }
                   @if (isAdminProfile()) { <button class="cta sm trash" (click)="deleteRoom(r)" pTooltip="Eliminar habitación"><i class="pi pi-trash"></i></button> }
                 </span>
               </div>
@@ -315,6 +320,49 @@ const MANT_CATS = [
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" [disabled]="savingEdit()" (onClick)="editVisible = false" />
         <p-button label="Guardar Cambios" icon="pi pi-check" [disabled]="!editForm.number || !editForm.roomTypeId || savingEdit()" [loading]="savingEdit()" (onClick)="saveEdit()" />
+      </ng-template>
+    </p-dialog>
+
+    <!-- Edición rápida de estancia (recepción): teléfono, placa, acompañantes -->
+    <p-dialog [(visible)]="stayEditVisible" [modal]="true" [style]="{ width: '46rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      <ng-template pTemplate="header"><span class="se-h"><i class="pi pi-pencil"></i> {{ stayEditTitle() }}</span></ng-template>
+      <div class="se-grid">
+        <div class="se-fld"><label><i class="pi pi-phone"></i> Teléfono del titular</label><input pInputText [(ngModel)]="stayEditPhone" placeholder="Ej: 941384060" /></div>
+        <div class="se-fld"><label><i class="pi pi-car"></i> Placa de vehículo</label><input pInputText [(ngModel)]="stayEditPlate" placeholder="ABC-123" style="text-transform:uppercase" /></div>
+      </div>
+
+      <div class="se-acomp-head">
+        <span><i class="pi pi-users"></i> Acompañantes registrados</span>
+        <button class="se-add" (click)="showAcompForm = !showAcompForm"><i class="pi pi-plus"></i> Agregar acompañante</button>
+      </div>
+
+      @if (showAcompForm) {
+        <div class="se-acomp-form">
+          <div class="doc-row">
+            <input pInputText [(ngModel)]="acompDoc" placeholder="Documento" (keyup.enter)="reniecAcomp()" />
+            <button class="reniec-b" [disabled]="acompBusy()" (click)="reniecAcomp()"><i class="pi" [class.pi-search]="!acompBusy()" [class.pi-spin]="acompBusy()" [class.pi-spinner]="acompBusy()"></i> RENIEC</button>
+          </div>
+          <input pInputText [(ngModel)]="acompName" placeholder="Nombre completo" />
+          <button class="se-add2" [disabled]="!acompDoc.trim() || !acompName.trim()" (click)="addAcomp()"><i class="pi pi-check"></i> Añadir</button>
+        </div>
+      }
+
+      @if (stayEditGuests().length === 0 && stayEditNew().length === 0) {
+        <div class="se-empty"><i class="pi pi-users"></i><span>Sin acompañantes registrados</span></div>
+      } @else {
+        <div class="se-list">
+          @for (g of stayEditGuests(); track g.id) {
+            <div class="se-row"><span>{{ g.name }}</span><button class="se-x" (click)="removeExistingGuest(g.id)" pTooltip="Quitar"><i class="pi pi-times"></i></button></div>
+          }
+          @for (g of stayEditNew(); track g.documentNumber) {
+            <div class="se-row nw"><span>{{ g.firstName }} <small>· {{ g.documentNumber }} (nuevo)</small></span><button class="se-x" (click)="removeNewGuest(g.documentNumber)"><i class="pi pi-times"></i></button></div>
+          }
+        </div>
+      }
+
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="stayEditVisible = false" />
+        <p-button label="Guardar Cambios" icon="pi pi-save" [loading]="savingStayEdit()" (onClick)="saveStayEdit()" />
       </ng-template>
     </p-dialog>
 
@@ -621,6 +669,26 @@ const MANT_CATS = [
       .g-top { display: flex; align-items: center; justify-content: space-between; }
       .g-name { font-size: 1.05rem; font-weight: 800; }
       .g-count { background: rgba(124,58,237,0.6); border-radius: 999px; padding: 0.15rem 0.6rem; font-size: 0.75rem; font-weight: 700; }
+      .g-count.clickable { cursor: pointer; } .g-count.clickable:hover { background: rgba(124,58,237,0.9); }
+      .pencil-y { margin-left: 0.4rem; background: #f59e0b; color: #1a1206; border: 0; border-radius: 7px; width: 1.7rem; height: 1.7rem; cursor: pointer; font-size: 0.8rem; display: inline-flex; align-items: center; justify-content: center; }
+      .pencil-y:hover { background: #fbbf24; }
+      .se-h { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 700; } .se-h .pi { color: #10b981; }
+      .se-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; }
+      .se-fld { display: flex; flex-direction: column; gap: 0.4rem; } .se-fld label { font-size: 0.72rem; color: #34d399; font-weight: 700; letter-spacing: 0.4px; display: inline-flex; gap: 0.35rem; align-items: center; }
+      .se-fld input { width: 100%; }
+      .se-acomp-head { display: flex; align-items: center; justify-content: space-between; margin: 0.5rem 0; }
+      .se-acomp-head > span { font-weight: 700; color: #34d399; display: inline-flex; gap: 0.4rem; align-items: center; }
+      .se-add, .se-add2 { background: #10b981; color: #04130d; border: 0; border-radius: 8px; padding: 0.5rem 0.9rem; font-weight: 700; font-size: 0.8rem; cursor: pointer; display: inline-flex; gap: 0.4rem; align-items: center; }
+      .se-add2:disabled { opacity: 0.5; cursor: not-allowed; }
+      .se-acomp-form { display: flex; flex-direction: column; gap: 0.5rem; background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 10px; padding: 0.8rem; margin-bottom: 0.7rem; }
+      .se-acomp-form input { width: 100%; }
+      .doc-row { display: flex; gap: 0.5rem; } .doc-row input { flex: 1; }
+      .reniec-b { background: #13243a; border: 1px solid #274468; color: #a9c7ef; border-radius: 8px; padding: 0 0.8rem; font-weight: 700; font-size: 0.78rem; cursor: pointer; white-space: nowrap; }
+      .se-empty { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; color: #64748b; border: 1px dashed #26364f; border-radius: 12px; padding: 2rem; } .se-empty .pi { font-size: 1.8rem; }
+      .se-list { display: flex; flex-direction: column; gap: 0.4rem; }
+      .se-row { display: flex; align-items: center; justify-content: space-between; background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 10px; padding: 0.6rem 0.9rem; }
+      .se-row.nw { border-color: #14633f; } .se-row small { color: #8aa0bd; }
+      .se-x { background: transparent; border: 0; color: #f87171; cursor: pointer; }
       .g-meta { display: flex; gap: 1rem; font-size: 0.8rem; opacity: 0.9; margin-top: 0.3rem; flex-wrap: wrap; }
       .g-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.6rem; }
       .g-dates > div { background: rgba(0,0,0,0.25); border-radius: 8px; padding: 0.45rem 0.6rem; }
@@ -723,6 +791,90 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   isAdminProfile(): boolean {
     const u = this.auth.user();
     return profileForRole(u?.roleName, u?.isSuperAdmin ?? false) === 'admin';
+  }
+
+  // ── Edición rápida de estancia (teléfono, placa, acompañantes) ──
+  readonly stayEditPencil = signal<string | null>(null);
+  stayEditVisible = false;
+  readonly savingStayEdit = signal(false);
+  stayEditStayId = '';
+  private stayEditTitleStr = '';
+  stayEditPhone = '';
+  stayEditPlate = '';
+  readonly stayEditGuests = signal<{ id: string; name: string }[]>([]);
+  readonly stayEditNew = signal<{ documentType: string; documentNumber: string; firstName: string }[]>([]);
+  showAcompForm = false;
+  acompDoc = '';
+  acompName = '';
+  readonly acompBusy = signal(false);
+
+  stayEditTitle(): string { return this.stayEditTitleStr; }
+
+  /** Al hacer clic en el contador de huéspedes se muestra el lápiz de edición. */
+  toggleStayEdit(stayId: string): void {
+    this.stayEditPencil.set(this.stayEditPencil() === stayId ? null : stayId);
+  }
+
+  openStayEdit(r: RoomMapItem): void {
+    const s = r.activeStay;
+    if (!s) return;
+    this.stayEditStayId = s.id;
+    this.stayEditTitleStr = `Habitación ${r.number} · ${s.guestName}`;
+    this.stayEditPhone = s.phone ?? '';
+    this.stayEditPlate = s.vehiclePlate ?? '';
+    this.stayEditGuests.set([]);
+    this.stayEditNew.set([]);
+    this.showAcompForm = false;
+    this.acompDoc = ''; this.acompName = '';
+    this.stayEditVisible = true;
+    // Carga los acompañantes actuales de la estancia.
+    this.http.get<{ data?: { additionalGuests?: { id: string; name: string }[] } }>(`${this.apiUrl}/stays/${s.id}`).subscribe({
+      next: (res) => this.stayEditGuests.set(res.data?.additionalGuests ?? []),
+      error: () => {},
+    });
+  }
+
+  reniecAcomp(): void {
+    const doc = this.acompDoc.trim();
+    if (doc.length !== 8) { this.toast.add({ severity: 'warn', summary: 'DNI inválido', detail: 'El DNI debe tener 8 dígitos.' }); return; }
+    this.acompBusy.set(true);
+    this.http.get<{ data?: { fullName?: string; firstName?: string } }>(`${this.apiUrl}/reniec/dni`, { params: { numero: doc } }).subscribe({
+      next: (res) => { this.acompBusy.set(false); const n = res.data?.fullName || res.data?.firstName; if (n) this.acompName = n; else this.toast.add({ severity: 'info', summary: 'RENIEC', detail: 'Sin resultados.' }); },
+      error: () => { this.acompBusy.set(false); this.toast.add({ severity: 'error', summary: 'RENIEC', detail: 'No se pudo consultar.' }); },
+    });
+  }
+
+  addAcomp(): void {
+    const doc = this.acompDoc.trim(); const name = this.acompName.trim();
+    if (!doc || !name) return;
+    this.stayEditNew.update((l) => [...l, { documentType: 'DNI', documentNumber: doc, firstName: name }]);
+    this.acompDoc = ''; this.acompName = ''; this.showAcompForm = false;
+  }
+
+  removeNewGuest(doc: string): void { this.stayEditNew.update((l) => l.filter((g) => g.documentNumber !== doc)); }
+
+  private stayEditRemove = new Set<string>();
+  removeExistingGuest(id: string): void {
+    this.stayEditRemove.add(id);
+    this.stayEditGuests.update((l) => l.filter((g) => g.id !== id));
+  }
+
+  saveStayEdit(): void {
+    this.savingStayEdit.set(true);
+    this.ops.updateStayDetails(this.stayEditStayId, {
+      phone: this.stayEditPhone.trim(),
+      vehiclePlate: this.stayEditPlate.trim(),
+      addGuests: this.stayEditNew(),
+      removeGuestIds: [...this.stayEditRemove],
+    }).subscribe({
+      next: () => {
+        this.savingStayEdit.set(false); this.stayEditVisible = false; this.stayEditPencil.set(null);
+        this.stayEditRemove.clear();
+        this.toast.add({ severity: 'success', summary: 'Actualizado', detail: 'Datos de la estancia guardados.' });
+        this.reload();
+      },
+      error: (e: HttpErrorResponse) => { this.savingStayEdit.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo guardar.' }); },
+    });
   }
   /** "El recepcionista puede cambiar de habitación si el admin habilita esa opción". */
   canChangeRoom(): boolean {

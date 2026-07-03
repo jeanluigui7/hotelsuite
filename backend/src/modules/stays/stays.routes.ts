@@ -18,3 +18,4 @@ staysRouter.post('/stays/:id/change-room', requirePermission('operations', 'edit
 staysRouter.post('/stays/:id/renew', requirePermission('operations', 'edit'), asyncHandler(staysController.renew));
 staysRouter.post('/stays/:id/renewal-cleaning/:action', requirePermission('operations', 'edit'), asyncHandler(staysController.renewalCleaning));
 staysRouter.get('/stays/:id/folio', requirePermission('operations', 'view'), asyncHandler(staysController.folio));
+staysRouter.post('/stays/:id/details', requirePermission('operations', 'edit'), asyncHandler(staysController.updateDetails));

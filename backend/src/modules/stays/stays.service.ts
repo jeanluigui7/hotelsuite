@@ -13,7 +13,7 @@ import { guestsRepository } from '../guests/guests.repository';
 import { pernoctaService } from '../pernocta/pernocta.service';
 import { cashRepository } from '../cash/cash.repository';
 import { staysRepository, type StayWithRelations } from './stays.repository';
-import type { ChangeRoomDto, CheckInDto, CheckOutDto, RenewDto } from './stays.schema';
+import type { ChangeRoomDto, CheckInDto, CheckOutDto, RenewDto, UpdateStayDetailsDto } from './stays.schema';
 
 const SORTABLE = ['checkInAt', 'plannedCheckoutAt', 'status'] as const;
 
@@ -411,6 +411,47 @@ export const staysService = {
       throw new NotFoundError('Estancia no encontrada');
     }
     return serialize(stay);
+  },
+
+  /**
+   * Edición rápida de la estancia desde recepción: teléfono del titular, placa y
+   * acompañantes (se registran con su documento; se crea el huésped si no existe).
+   */
+  async updateDetails(scope: RequestScope, id: string, dto: UpdateStayDetailsDto) {
+    const branchId = requireActiveBranch(scope);
+    const stay = await staysRepository.findById(id);
+    if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
+
+    if (dto.vehiclePlate !== undefined) {
+      await prisma.stay.update({ where: { id }, data: { vehiclePlate: dto.vehiclePlate.trim().toUpperCase() || null } });
+    }
+    if (dto.phone !== undefined) {
+      await prisma.guest.update({ where: { id: stay.guestId }, data: { phone: dto.phone.trim() || null } });
+    }
+    for (const g of dto.addGuests ?? []) {
+      let guest = await guestsRepository.findByDocument(g.documentType, g.documentNumber);
+      if (!guest) {
+        guest = await guestsRepository.create({
+          documentType: g.documentType,
+          documentNumber: g.documentNumber,
+          firstName: g.firstName,
+          lastName: g.lastName || null,
+          phone: g.phone || null,
+        });
+      }
+      if (guest.id !== stay.guestId) {
+        await prisma.stayGuest.upsert({
+          where: { stayId_guestId: { stayId: id, guestId: guest.id } },
+          update: {},
+          create: { stayId: id, guestId: guest.id },
+        });
+      }
+    }
+    for (const gid of dto.removeGuestIds ?? []) {
+      await prisma.stayGuest.deleteMany({ where: { stayId: id, guestId: gid } });
+    }
+    const updated = await staysRepository.findById(id);
+    return serialize(updated as StayWithRelations);
   },
 
   async list(
