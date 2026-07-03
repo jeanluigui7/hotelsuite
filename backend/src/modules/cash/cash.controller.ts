@@ -36,4 +36,8 @@ export const cashController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await cashService.report(req.scope, req.params.id)));
   },
+  async detail(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await cashService.detail(req.scope, req.params.id)));
+  },
 };

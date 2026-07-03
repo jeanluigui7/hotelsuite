@@ -93,6 +93,37 @@ export const cashRepository = {
     return new Map(users.map((u) => [u.id, u.name]));
   },
 
+  /** Ventas del turno con sus líneas y pagos (para el detalle de caja). */
+  sessionSales(cashSessionId: string) {
+    return prisma.sale.findMany({
+      where: { cashSessionId },
+      include: { items: true, payments: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  },
+
+  /** Tipo de cada producto (PRODUCTO | SERVICIO | AMENITY | INSUMO) por id. */
+  async productTypes(ids: string[]) {
+    if (ids.length === 0) return new Map<string, string>();
+    const rows = await prisma.product.findMany({ where: { id: { in: ids } }, select: { id: true, productType: true } });
+    return new Map(rows.map((p) => [p.id, p.productType]));
+  },
+
+  /** Habitación y huésped por estancia (para enriquecer la descripción del movimiento). */
+  async stayInfo(ids: string[]) {
+    if (ids.length === 0) return new Map<string, { room: string; guest: string }>();
+    const rows = await prisma.stay.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, room: { select: { number: true } }, guest: { select: { firstName: true, lastName: true } } },
+    });
+    return new Map(
+      rows.map((s) => [
+        s.id,
+        { room: s.room?.number ?? '', guest: `${s.guest?.firstName ?? ''} ${s.guest?.lastName ?? ''}`.trim() },
+      ]),
+    );
+  },
+
   /** Sale line items of a session (excluding cancelled sales) for the per-item breakdown. */
   saleItems(cashSessionId: string) {
     return prisma.saleItem.findMany({

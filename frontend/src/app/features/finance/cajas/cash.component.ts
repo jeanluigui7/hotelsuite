@@ -11,15 +11,33 @@ import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
 import { FinanceApiService } from '../services/finance-api.service';
-import type { CashCurrent, CashSessionRow, SessionReport } from '../services/finance.models';
+import type { CashCurrent, CashDetail, CashDetailMovement, CashSessionRow } from '../services/finance.models';
 
 const METHOD_LABEL: Record<string, string> = {
   CASH: 'Efectivo',
   CARD: 'Tarjeta',
   WALLET: 'Yape',
   TRANSFER: 'Plin',
+  MIXTO: 'Mixto',
+  PENDIENTE: 'Pendiente',
 };
-const METHOD_ORDER = ['CASH', 'WALLET', 'TRANSFER', 'CARD'];
+const TYPE_LABEL: Record<string, string> = {
+  HOSPEDAJE: 'Hospedaje',
+  RENOVACION: 'Pago Renovación',
+  PRODUCTO: 'Venta Producto',
+  SERVICIO: 'Servicio',
+  INGRESO: 'Ingreso',
+  EGRESO: 'Egreso',
+};
+// Colores de badge por tipo: [fondo, texto]
+const TYPE_COLOR: Record<string, [string, string]> = {
+  HOSPEDAJE: ['rgba(59,130,246,0.18)', '#60a5fa'],
+  RENOVACION: ['rgba(245,158,11,0.2)', '#f59e0b'],
+  PRODUCTO: ['rgba(245,158,11,0.2)', '#fbbf24'],
+  SERVICIO: ['rgba(20,184,166,0.2)', '#2dd4bf'],
+  INGRESO: ['rgba(16,185,129,0.18)', '#34d399'],
+  EGRESO: ['rgba(248,113,113,0.18)', '#f87171'],
+};
 
 @Component({
   selector: 'app-cash',
@@ -144,40 +162,54 @@ const METHOD_ORDER = ['CASH', 'WALLET', 'TRANSFER', 'CARD'];
     </p-dialog>
 
     <!-- Detalle (Ver) -->
-    <p-dialog [(visible)]="detailVisible" [modal]="true" [style]="{ width: '52rem', maxWidth: '96vw' }" [header]="detailHeader()">
+    <p-dialog [(visible)]="detailVisible" [modal]="true" [style]="{ width: '60rem', maxWidth: '97vw' }" [header]="detailHeader()">
       @if (detailLoading()) { <p class="muted">Cargando…</p> }
-      @else if (report()) {
-        @let r = report()!;
+      @else if (detail()) {
+        @let d = detail()!;
+        <p class="turno">Turno: {{ d.session.openedAt | date: 'dd/MM/yyyy HH:mm' }} — {{ d.session.closedAt ? (d.session.closedAt | date: 'dd/MM/yyyy HH:mm') : 'En curso' }}</p>
         <div class="cards">
-          <div class="mc blue"><span>Total Cobrado</span><strong>S/ {{ r.summary.totalCollected | number: '1.2-2' }}</strong></div>
-          <div class="mc green"><span>Efectivo esperado</span><strong>S/ {{ r.summary.expectedCash | number: '1.2-2' }}</strong></div>
-          <div class="mc amber"><span>Ventas</span><strong>{{ r.summary.salesCount }}</strong></div>
-          <div class="mc purple"><span>Cuadre</span><strong>{{ r.difference != null ? ('S/ ' + (r.difference | number: '1.2-2')) : '—' }}</strong></div>
+          <div class="mc blue"><span>Total Ventas Hospedaje</span><strong>S/ {{ d.cards.ventasHospedaje | number: '1.2-2' }}</strong></div>
+          <div class="mc brown"><span>Ventas Productos</span><strong>S/ {{ d.cards.ventasProductos | number: '1.2-2' }}</strong></div>
+          <div class="mc teal"><span>Servicios y Otros</span><strong>S/ {{ d.cards.serviciosOtros | number: '1.2-2' }}</strong></div>
+          <div class="mc brown"><span>Deudas Pendientes</span><strong>S/ {{ d.cards.deudasPendientes | number: '1.2-2' }}</strong></div>
+          <div class="mc green"><span>Efectivo</span><strong>S/ {{ d.cards.efectivo | number: '1.2-2' }}</strong></div>
+          <div class="mc purple"><span>Ajustes (+/-)</span><strong>{{ d.cards.ajustes >= 0 ? '+' : '' }}S/ {{ d.cards.ajustes | number: '1.2-2' }}</strong></div>
         </div>
+
         <div class="bar">
-          @for (m of methodOrder; track m) { <span>{{ label(m) }}: <b>S/ {{ (r.summary.byMethod[m] || 0) | number: '1.2-2' }}</b></span> }
-          <span>Ingresos: <b class="pos">S/ {{ (r.summary.movementsIn || 0) | number: '1.2-2' }}</b></span>
-          <span>Egresos: <b class="neg">S/ {{ (r.summary.movementsOut || 0) | number: '1.2-2' }}</b></span>
+          <span>Total Turno Parcial: <b>S/ {{ d.methodBar.total | number: '1.2-2' }}</b></span>
+          <span>Efectivo: <b class="pos">S/ {{ (d.methodBar.byMethod['CASH'] || 0) | number: '1.2-2' }}</b></span>
+          <span>Plin: <b>S/ {{ (d.methodBar.byMethod['TRANSFER'] || 0) | number: '1.2-2' }}</b></span>
+          <span>Yape: <b style="color:#a855f7">S/ {{ (d.methodBar.byMethod['WALLET'] || 0) | number: '1.2-2' }}</b></span>
+          <span>Tarjeta: <b style="color:#60a5fa">S/ {{ (d.methodBar.byMethod['CARD'] || 0) | number: '1.2-2' }}</b></span>
+          <span>Ingresos: <b class="pos">+S/ {{ d.methodBar.ingresos | number: '1.2-2' }}</b></span>
+          <span>Egresos: <b class="neg">-S/ {{ d.methodBar.egresos | number: '1.2-2' }}</b></span>
+          <span>Anulaciones: <b class="neg">S/ {{ d.methodBar.anulaciones | number: '1.2-2' }}</b></span>
         </div>
 
-        <h4>Detalle de ventas</h4>
-        <table class="tbl mini-tbl">
-          <thead><tr><th>Descripción</th><th class="r">Cant.</th><th class="r">Total</th></tr></thead>
-          <tbody>
-            @for (it of r.byItem; track it.description) { <tr><td>{{ it.description }}</td><td class="r">{{ it.quantity }}</td><td class="r">S/ {{ it.total | number: '1.2-2' }}</td></tr> }
-            @empty { <tr><td colspan="3" class="empty">Sin ventas.</td></tr> }
-          </tbody>
-        </table>
+        <div class="filters">
+          <label>Tipo: <p-select [options]="typeFilterOpts" optionLabel="label" optionValue="value" [(ngModel)]="typeFilter" styleClass="flt-sm" /></label>
+          <label>Método: <p-select [options]="methodFilterOpts" optionLabel="label" optionValue="value" [(ngModel)]="methodFilter" styleClass="flt-sm" /></label>
+          <span class="count">Mostrando {{ filteredMovements().length }} de {{ d.movements.length }} movimientos</span>
+        </div>
 
-        @if (r.movements.length) {
-          <h4>Movimientos de efectivo</h4>
+        <div class="tbl-wrap">
           <table class="tbl mini-tbl">
-            <thead><tr><th>Hora</th><th>Concepto</th><th class="c">Tipo</th><th class="r">Monto</th></tr></thead>
+            <thead><tr><th>Hora</th><th>Tipo</th><th>Descripción</th><th class="r">Monto</th><th class="c">Método</th><th class="c">Estado</th></tr></thead>
             <tbody>
-              @for (m of r.movements; track m.id) { <tr><td>{{ m.createdAt | date: 'HH:mm' }}</td><td>{{ m.concept }}</td><td class="c">{{ m.type === 'IN' ? 'Ingreso' : 'Egreso' }}</td><td class="r">S/ {{ m.amount | number: '1.2-2' }}</td></tr> }
+              @for (m of filteredMovements(); track m.id) {
+                <tr [class.anulado]="m.status === 'ANULADO'">
+                  <td>{{ m.time | date: 'HH:mm' }}</td>
+                  <td><span class="tbadge" [style.background]="typeBg(m.type)" [style.color]="typeFg(m.type)">{{ typeLabel(m.type) }}</span></td>
+                  <td>{{ m.description }}</td>
+                  <td class="r">S/ {{ m.amount | number: '1.2-2' }}</td>
+                  <td class="c">{{ methodLabel(m.method) }}</td>
+                  <td class="c"><span class="est" [class.anul]="m.status === 'ANULADO'">{{ m.status }}</span></td>
+                </tr>
+              } @empty { <tr><td colspan="6" class="empty">Sin movimientos.</td></tr> }
             </tbody>
           </table>
-        }
+        </div>
       }
     </p-dialog>
   `,
@@ -221,8 +253,18 @@ const METHOD_ORDER = ['CASH', 'WALLET', 'TRANSFER', 'CARD'];
       .mc { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.8rem 0.9rem; border-radius: 10px; border: 1px solid #1c2c44; }
       .mc span { font-size: 0.72rem; color: #8aa0bd; } .mc strong { font-size: 1.05rem; }
       .mc.blue { background: rgba(37,99,235,0.12); } .mc.green { background: rgba(16,185,129,0.12); } .mc.amber { background: rgba(245,158,11,0.12); } .mc.purple { background: rgba(139,92,246,0.12); }
-      .bar { display: flex; flex-wrap: wrap; gap: 0.9rem; padding: 0.6rem 0.8rem; border: 1px solid #1c2c44; border-radius: 10px; font-size: 0.8rem; color: #8aa0bd; }
+      .mc.brown { background: rgba(120,53,15,0.22); } .mc.teal { background: rgba(20,184,166,0.12); }
+      .bar { display: flex; flex-wrap: wrap; gap: 0.9rem; padding: 0.6rem 0.8rem; border: 1px solid #1c2c44; border-radius: 10px; font-size: 0.8rem; color: #8aa0bd; margin-bottom: 0.6rem; }
       .bar b { color: #e2e8f0; }
+      .turno { color: #8aa0bd; font-size: 0.82rem; margin: 0 0 0.7rem; }
+      .filters { display: flex; align-items: center; gap: 1rem; margin: 0.4rem 0; flex-wrap: wrap; }
+      .filters label { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: #8aa0bd; }
+      :host ::ng-deep .flt-sm { min-width: 9rem; }
+      .tbadge { font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.6rem; border-radius: 999px; white-space: nowrap; }
+      .est { font-size: 0.68rem; font-weight: 700; padding: 0.12rem 0.55rem; border-radius: 6px; background: rgba(148,163,184,0.18); color: #94a3b8; }
+      .est.anul { background: rgba(248,113,113,0.18); color: #f87171; }
+      tr.anulado td { opacity: 0.55; text-decoration: line-through; }
+      tr.anulado td:last-child { text-decoration: none; }
       .mini-tbl th, .mini-tbl td { padding: 0.5rem 0.6rem; font-size: 0.82rem; }
       @media (max-width: 720px) { .cards { grid-template-columns: repeat(2, 1fr); } }
     `,
@@ -275,9 +317,30 @@ export class CashComponent implements OnInit {
 
   detailVisible = false;
   readonly detailLoading = signal(false);
-  readonly report = signal<SessionReport | null>(null);
+  readonly detail = signal<CashDetail | null>(null);
   detailRow: CashSessionRow | null = null;
-  readonly methodOrder = METHOD_ORDER;
+  typeFilter = '';
+  methodFilter = '';
+  readonly typeFilterOpts = [
+    { label: 'Todos', value: '' },
+    { label: 'Hospedaje', value: 'HOSPEDAJE' },
+    { label: 'Pago Renovación', value: 'RENOVACION' },
+    { label: 'Venta Producto', value: 'PRODUCTO' },
+    { label: 'Servicio', value: 'SERVICIO' },
+    { label: 'Ingreso', value: 'INGRESO' },
+    { label: 'Egreso', value: 'EGRESO' },
+  ];
+  readonly methodFilterOpts = [
+    { label: 'Todos', value: '' },
+    { label: 'Efectivo', value: 'CASH' },
+    { label: 'Yape', value: 'WALLET' },
+    { label: 'Plin', value: 'TRANSFER' },
+    { label: 'Tarjeta', value: 'CARD' },
+  ];
+  filteredMovements(): CashDetailMovement[] {
+    const all = this.detail()?.movements ?? [];
+    return all.filter((m) => (!this.typeFilter || m.type === this.typeFilter) && (!this.methodFilter || m.method === this.methodFilter));
+  }
 
   ngOnInit(): void {
     this.reloadCurrent();
@@ -285,6 +348,10 @@ export class CashComponent implements OnInit {
   }
 
   label(key: string): string { return METHOD_LABEL[key] ?? key; }
+  methodLabel(key: string): string { return METHOD_LABEL[key] ?? key; }
+  typeLabel(key: string): string { return TYPE_LABEL[key] ?? key; }
+  typeBg(key: string): string { return (TYPE_COLOR[key] ?? ['rgba(148,163,184,0.18)', '#94a3b8'])[0]; }
+  typeFg(key: string): string { return (TYPE_COLOR[key] ?? ['rgba(148,163,184,0.18)', '#94a3b8'])[1]; }
 
   detailHeader(): string {
     const n = this.detailRow?.number;
@@ -345,9 +412,10 @@ export class CashComponent implements OnInit {
 
   // ── Detalle ──
   openDetail(row: CashSessionRow): void {
-    this.detailRow = row; this.report.set(null); this.detailVisible = true; this.detailLoading.set(true);
-    this.finance.sessionReport(row.id).subscribe({
-      next: (res) => { this.report.set(res.data); this.detailLoading.set(false); },
+    this.detailRow = row; this.detail.set(null); this.typeFilter = ''; this.methodFilter = '';
+    this.detailVisible = true; this.detailLoading.set(true);
+    this.finance.sessionDetail(row.id).subscribe({
+      next: (res) => { this.detail.set(res.data); this.detailLoading.set(false); },
       error: () => { this.detailLoading.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el detalle.' }); },
     });
   }

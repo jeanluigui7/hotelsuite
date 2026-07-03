@@ -57,6 +57,42 @@ export interface CashCurrent {
   summary?: CashSummary;
 }
 
+/** Detalle de un turno para el modal de caja (Finanzas › Cajas › Ver). */
+export interface CashDetailMovement {
+  id: string;
+  saleId: string | null;
+  time: string;
+  type: 'HOSPEDAJE' | 'RENOVACION' | 'PRODUCTO' | 'SERVICIO' | 'INGRESO' | 'EGRESO';
+  description: string;
+  amount: number;
+  method: string;
+  status: 'NORMAL' | 'ANULADO';
+}
+
+export interface CashDetail {
+  session: {
+    id: string;
+    number: number | null;
+    status: 'OPEN' | 'CLOSED';
+    openedAt: string;
+    closedAt: string | null;
+    openedByName: string;
+    closedByName: string | null;
+    openingAmount: number;
+    closingAmount: number | null;
+  };
+  cards: {
+    ventasHospedaje: number;
+    ventasProductos: number;
+    serviciosOtros: number;
+    deudasPendientes: number;
+    efectivo: number;
+    ajustes: number;
+  };
+  methodBar: { byMethod: Record<string, number>; ingresos: number; egresos: number; anulaciones: number; total: number };
+  movements: CashDetailMovement[];
+}
+
 export interface CloseResult {
   session: CashSession;
   summary: CashSummary;
