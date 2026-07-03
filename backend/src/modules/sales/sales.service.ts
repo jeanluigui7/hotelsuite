@@ -175,4 +175,12 @@ export const salesService = {
     if (sale.status === 'CANCELLED') throw new ConflictError('La venta ya está anulada');
     return serialize(await salesRepository.cancel(id));
   },
+
+  /** Corrige el método de pago de una venta (desde el detalle de caja). */
+  async correct(scope: RequestScope, id: string, dto: { method: string }) {
+    const sale = await salesRepository.findById(id);
+    if (!sale || sale.branchId !== requireActiveBranch(scope)) throw new NotFoundError('Venta no encontrada');
+    if (sale.status === 'CANCELLED') throw new ConflictError('No se puede corregir una venta anulada');
+    return serialize((await salesRepository.setPaymentsMethod(id, dto.method))!);
+  },
 };

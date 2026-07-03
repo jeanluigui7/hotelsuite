@@ -31,4 +31,10 @@ export const createSaleSchema = z
     path: ['customerName'],
   });
 
+/** Corrección de una venta desde el detalle de caja: cambia el método de pago. */
+export const correctSaleSchema = z.object({
+  method: z.enum(PAYMENT_METHODS),
+});
+
 export type CreateSaleDto = z.infer<typeof createSaleSchema>;
+export type CorrectSaleDto = z.infer<typeof correctSaleSchema>;

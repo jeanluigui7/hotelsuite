@@ -38,6 +38,18 @@ export class FinanceApiService {
   addMovement(dto: { type: 'IN' | 'OUT'; amount: number; concept: string }): Observable<ApiResponse<unknown>> {
     return this.http.post<ApiResponse<unknown>>(`${this.api}/cash/movements`, dto);
   }
+  editMovement(id: string, dto: { type?: 'IN' | 'OUT'; amount?: number; concept?: string }): Observable<ApiResponse<unknown>> {
+    return this.http.put<ApiResponse<unknown>>(`${this.api}/cash/movements/${id}`, dto);
+  }
+  deleteMovement(id: string): Observable<ApiResponse<{ success: boolean }>> {
+    return this.http.delete<ApiResponse<{ success: boolean }>>(`${this.api}/cash/movements/${id}`);
+  }
+  reopenSession(id: string): Observable<ApiResponse<unknown>> {
+    return this.http.post<ApiResponse<unknown>>(`${this.api}/cash/sessions/${id}/reopen`, {});
+  }
+  correctSale(id: string, method: string): Observable<ApiResponse<unknown>> {
+    return this.http.post<ApiResponse<unknown>>(`${this.api}/sales/${id}/correct`, { method });
+  }
   listSessions(params: ListParams = {}): Observable<ApiResponse<CashSessionRow[]>> {
     return this.http.get<ApiResponse<CashSessionRow[]>>(`${this.api}/cash/sessions`, { params: toHttpParams(params) });
   }

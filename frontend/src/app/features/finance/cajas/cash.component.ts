@@ -166,7 +166,13 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       @if (detailLoading()) { <p class="muted">Cargando…</p> }
       @else if (detail()) {
         @let d = detail()!;
-        <p class="turno">Turno: {{ d.session.openedAt | date: 'dd/MM/yyyy HH:mm' }} — {{ d.session.closedAt ? (d.session.closedAt | date: 'dd/MM/yyyy HH:mm') : 'En curso' }}</p>
+        <div class="dhead">
+          <p class="turno">Turno: {{ d.session.openedAt | date: 'dd/MM/yyyy HH:mm' }} — {{ d.session.closedAt ? (d.session.closedAt | date: 'dd/MM/yyyy HH:mm') : 'En curso' }}</p>
+          <div class="dactions">
+            <button class="mini" (click)="downloadDetail(d)"><i class="pi pi-download"></i> Descargar</button>
+            @if (d.session.status === 'CLOSED' && canEdit) { <button class="mini warn" (click)="reopen(d.session.id)"><i class="pi pi-replay"></i> Reabrir</button> }
+          </div>
+        </div>
         <div class="cards">
           <div class="mc blue"><span>Total Ventas Hospedaje</span><strong>S/ {{ d.cards.ventasHospedaje | number: '1.2-2' }}</strong></div>
           <div class="mc brown"><span>Ventas Productos</span><strong>S/ {{ d.cards.ventasProductos | number: '1.2-2' }}</strong></div>
@@ -195,7 +201,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
 
         <div class="tbl-wrap">
           <table class="tbl mini-tbl">
-            <thead><tr><th>Hora</th><th>Tipo</th><th>Descripción</th><th class="r">Monto</th><th class="c">Método</th><th class="c">Estado</th></tr></thead>
+            <thead><tr><th>Hora</th><th>Tipo</th><th>Descripción</th><th class="r">Monto</th><th class="c">Método</th><th class="c">Estado</th>@if (canEdit) { <th class="c">Acción</th> }</tr></thead>
             <tbody>
               @for (m of filteredMovements(); track m.id) {
                 <tr [class.anulado]="m.status === 'ANULADO'">
@@ -205,12 +211,46 @@ const TYPE_COLOR: Record<string, [string, string]> = {
                   <td class="r">S/ {{ m.amount | number: '1.2-2' }}</td>
                   <td class="c">{{ methodLabel(m.method) }}</td>
                   <td class="c"><span class="est" [class.anul]="m.status === 'ANULADO'">{{ m.status }}</span></td>
+                  @if (canEdit) {
+                    <td class="c nowrap">
+                      @if (m.status === 'NORMAL') {
+                        <button class="lnk red" (click)="anular(m)">Anular</button>
+                        <button class="lnk" (click)="openCorrect(m)">Corregir</button>
+                      } @else { <span class="muted">—</span> }
+                    </td>
+                  }
                 </tr>
-              } @empty { <tr><td colspan="6" class="empty">Sin movimientos.</td></tr> }
+              } @empty { <tr><td [attr.colspan]="canEdit ? 7 : 6" class="empty">Sin movimientos.</td></tr> }
             </tbody>
           </table>
         </div>
       }
+    </p-dialog>
+
+    <!-- Corregir movimiento -->
+    <p-dialog [(visible)]="correctVisible" [modal]="true" header="Corregir movimiento" [style]="{ width: '26rem' }">
+      @if (correctTarget(); as m) {
+        <p class="muted">{{ m.description }}</p>
+        @if (m.saleId) {
+          <div class="form">
+            <label>Método de pago correcto</label>
+            <p-select [options]="methodEditOpts" optionLabel="label" optionValue="value" [(ngModel)]="correctMethod" styleClass="w" />
+          </div>
+        } @else {
+          <div class="form">
+            <label>Tipo</label>
+            <p-select [options]="movTypeOpts" optionLabel="label" optionValue="value" [(ngModel)]="correctMovType" styleClass="w" />
+            <label>Monto</label>
+            <p-inputNumber [(ngModel)]="correctMovAmount" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
+            <label>Concepto</label>
+            <input pInputText [(ngModel)]="correctMovConcept" />
+          </div>
+        }
+      }
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="correctVisible = false" />
+        <p-button label="Guardar" icon="pi pi-check" [loading]="busy()" (onClick)="doCorrect()" />
+      </ng-template>
     </p-dialog>
   `,
   styles: [
@@ -256,7 +296,13 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .mc.brown { background: rgba(120,53,15,0.22); } .mc.teal { background: rgba(20,184,166,0.12); }
       .bar { display: flex; flex-wrap: wrap; gap: 0.9rem; padding: 0.6rem 0.8rem; border: 1px solid #1c2c44; border-radius: 10px; font-size: 0.8rem; color: #8aa0bd; margin-bottom: 0.6rem; }
       .bar b { color: #e2e8f0; }
-      .turno { color: #8aa0bd; font-size: 0.82rem; margin: 0 0 0.7rem; }
+      .turno { color: #8aa0bd; font-size: 0.82rem; margin: 0; }
+      .dhead { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.7rem; flex-wrap: wrap; }
+      .dactions { display: flex; gap: 0.5rem; }
+      .mini.warn { background: #78350f; color: #fcd34d; border-color: #b45309; }
+      .lnk { background: none; border: 0; color: #93c5fd; cursor: pointer; font-size: 0.78rem; font-weight: 600; padding: 0.1rem 0.35rem; }
+      .lnk.red { color: #f87171; }
+      .nowrap { white-space: nowrap; }
       .filters { display: flex; align-items: center; gap: 1rem; margin: 0.4rem 0; flex-wrap: wrap; }
       .filters label { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: #8aa0bd; }
       :host ::ng-deep .flt-sm { min-width: 9rem; }
@@ -421,4 +467,91 @@ export class CashComponent implements OnInit {
   }
 
   private refreshAll(): void { this.reloadCurrent(); this.reload(); }
+
+  // ── Acciones del detalle (Tanda 3) ──
+  correctVisible = false;
+  readonly correctTarget = signal<CashDetailMovement | null>(null);
+  correctMethod = 'CASH';
+  correctMovType: 'IN' | 'OUT' = 'IN';
+  correctMovAmount: number | null = null;
+  correctMovConcept = '';
+  readonly methodEditOpts = [
+    { label: 'Efectivo', value: 'CASH' },
+    { label: 'Yape', value: 'WALLET' },
+    { label: 'Plin', value: 'TRANSFER' },
+    { label: 'Tarjeta', value: 'CARD' },
+  ];
+  readonly movTypeOpts = [
+    { label: 'Ingreso', value: 'IN' },
+    { label: 'Egreso', value: 'OUT' },
+  ];
+
+  private reloadDetail(): void {
+    if (this.detailRow) this.openDetail(this.detailRow);
+    this.reload();
+  }
+
+  anular(m: CashDetailMovement): void {
+    const what = m.saleId ? 'esta venta' : 'este movimiento';
+    if (!confirm(`¿Anular ${what}? Esta acción lo excluye del arqueo.`)) return;
+    const next = () => { this.messages.add({ severity: 'success', summary: 'Anulado', detail: 'Movimiento anulado.' }); this.reloadDetail(); this.reloadCurrent(); };
+    const error = (e: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo anular.' });
+    if (m.saleId) this.finance.cancelSale(m.saleId).subscribe({ next, error });
+    else this.finance.deleteMovement(m.id).subscribe({ next, error });
+  }
+
+  openCorrect(m: CashDetailMovement): void {
+    this.correctTarget.set(m);
+    if (m.saleId) { this.correctMethod = m.method === 'MIXTO' || m.method === 'PENDIENTE' ? 'CASH' : m.method; }
+    else { this.correctMovType = m.type === 'EGRESO' ? 'OUT' : 'IN'; this.correctMovAmount = m.amount; this.correctMovConcept = m.description; }
+    this.correctVisible = true;
+  }
+
+  doCorrect(): void {
+    const m = this.correctTarget();
+    if (!m) return;
+    this.busy.set(true);
+    const done = () => { this.busy.set(false); this.correctVisible = false; this.messages.add({ severity: 'success', summary: 'Corregido', detail: 'Movimiento actualizado.' }); this.reloadDetail(); this.reloadCurrent(); };
+    const fail = (e: HttpErrorResponse) => { this.busy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo corregir.' }); };
+    if (m.saleId) {
+      this.finance.correctSale(m.saleId, this.correctMethod).subscribe({ next: done, error: fail });
+    } else {
+      if (this.correctMovAmount == null || this.correctMovAmount <= 0 || !this.correctMovConcept.trim()) {
+        this.busy.set(false); this.messages.add({ severity: 'warn', summary: 'Datos incompletos', detail: 'Monto y concepto requeridos.' }); return;
+      }
+      this.finance.editMovement(m.id, { type: this.correctMovType, amount: this.correctMovAmount, concept: this.correctMovConcept.trim() }).subscribe({ next: done, error: fail });
+    }
+  }
+
+  reopen(id: string): void {
+    if (!confirm('¿Reabrir esta caja? Volverá a estado Abierta.')) return;
+    this.finance.reopenSession(id).subscribe({
+      next: () => { this.messages.add({ severity: 'success', summary: 'Caja reabierta', detail: 'El turno está abierto nuevamente.' }); this.detailVisible = false; this.refreshAll(); },
+      error: (e: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo reabrir.' }),
+    });
+  }
+
+  /** Exporta el detalle del turno a CSV (descarga en el navegador). */
+  downloadDetail(d: CashDetail): void {
+    const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+    const lines: string[] = [];
+    lines.push(esc(`Caja #${d.session.number ?? ''} (${d.session.status})`));
+    lines.push([esc('Hora'), esc('Tipo'), esc('Descripción'), esc('Monto'), esc('Método'), esc('Estado')].join(','));
+    for (const m of d.movements) {
+      const t = new Date(m.time);
+      const hh = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+      lines.push([esc(hh), esc(this.typeLabel(m.type)), esc(m.description), esc(m.amount.toFixed(2)), esc(this.methodLabel(m.method)), esc(m.status)].join(','));
+    }
+    lines.push('');
+    lines.push([esc('Efectivo'), esc(d.methodBar.byMethod['CASH'] ?? 0)].join(','));
+    lines.push([esc('Yape'), esc(d.methodBar.byMethod['WALLET'] ?? 0)].join(','));
+    lines.push([esc('Plin'), esc(d.methodBar.byMethod['TRANSFER'] ?? 0)].join(','));
+    lines.push([esc('Tarjeta'), esc(d.methodBar.byMethod['CARD'] ?? 0)].join(','));
+    lines.push([esc('Total'), esc(d.methodBar.total)].join(','));
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `caja-${d.session.number ?? d.session.id}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }
 }

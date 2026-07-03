@@ -3,7 +3,7 @@ import { ok } from '../../shared/response';
 import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { salesService } from './sales.service';
-import { createSaleSchema } from './sales.schema';
+import { correctSaleSchema, createSaleSchema } from './sales.schema';
 
 export const salesController = {
   async list(req: Request, res: Response): Promise<void> {
@@ -27,5 +27,10 @@ export const salesController = {
   async cancel(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await salesService.cancel(req.scope, req.params.id)));
+  },
+  async correct(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = correctSaleSchema.parse(req.body);
+    res.status(200).json(ok(await salesService.correct(req.scope, req.params.id, dto)));
   },
 };

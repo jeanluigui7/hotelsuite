@@ -14,6 +14,9 @@ cashRouter.get('/cash/sessions', requirePermission('finance', 'view'), asyncHand
 cashRouter.post('/cash/open', requirePermission('finance', 'create'), asyncHandler(cashController.open));
 cashRouter.post('/cash/close', requirePermission('finance', 'edit'), asyncHandler(cashController.close));
 cashRouter.post('/cash/movements', requirePermission('finance', 'create'), asyncHandler(cashController.addMovement));
+cashRouter.put('/cash/movements/:id', requirePermission('finance', 'edit'), asyncHandler(cashController.updateMovement));
+cashRouter.delete('/cash/movements/:id', requirePermission('finance', 'edit'), asyncHandler(cashController.deleteMovement));
+cashRouter.post('/cash/sessions/:id/reopen', requirePermission('finance', 'edit'), asyncHandler(cashController.reopen));
 
 // Detalle del turno para el modal de caja (Finanzas).
 cashRouter.get('/cash/sessions/:id/detail', requirePermission('finance', 'view'), asyncHandler(cashController.detail));

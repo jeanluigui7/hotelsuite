@@ -135,6 +135,34 @@ export const cashService = {
     };
   },
 
+  /** Reabre un turno cerrado (no puede haber otro abierto en la sucursal). */
+  async reopen(scope: RequestScope, id: string) {
+    const branchId = requireActiveBranch(scope);
+    const session = await cashRepository.findById(id);
+    if (!session || session.branchId !== branchId) throw new NotFoundError('Turno no encontrado');
+    if (session.status === 'OPEN') throw new ConflictError('El turno ya está abierto');
+    const open = await cashRepository.findOpen(branchId);
+    if (open) throw new ConflictError('Ya hay un turno abierto; ciérrelo antes de reabrir otro');
+    return cashRepository.reopen(id);
+  },
+
+  /** Edita un movimiento de caja (corrección: monto/concepto/tipo). */
+  async updateMovement(scope: RequestScope, id: string, dto: { type?: string; amount?: number; concept?: string }) {
+    const branchId = requireActiveBranch(scope);
+    const mov = await cashRepository.findMovement(id);
+    if (!mov || mov.branchId !== branchId) throw new NotFoundError('Movimiento no encontrado');
+    return cashRepository.updateMovement(id, dto);
+  },
+
+  /** Anula (elimina) un movimiento de caja. */
+  async deleteMovement(scope: RequestScope, id: string) {
+    const branchId = requireActiveBranch(scope);
+    const mov = await cashRepository.findMovement(id);
+    if (!mov || mov.branchId !== branchId) throw new NotFoundError('Movimiento no encontrado');
+    await cashRepository.deleteMovement(id);
+    return { success: true };
+  },
+
   /**
    * Detalle completo de un turno para el modal de caja: tarjetas por categoría,
    * barra por método y la lista de movimientos tipados (Hospedaje / Renovación /

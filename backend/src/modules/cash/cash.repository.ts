@@ -61,6 +61,24 @@ export const cashRepository = {
     return prisma.cashMovement.create({ data });
   },
 
+  findMovement(id: string) {
+    return prisma.cashMovement.findUnique({ where: { id } });
+  },
+  updateMovement(id: string, data: { type?: string; amount?: number; concept?: string }) {
+    return prisma.cashMovement.update({ where: { id }, data });
+  },
+  deleteMovement(id: string) {
+    return prisma.cashMovement.delete({ where: { id } });
+  },
+
+  /** Reabre un turno cerrado: vuelve a OPEN y limpia los datos de cierre. */
+  reopen(id: string) {
+    return prisma.cashSession.update({
+      where: { id },
+      data: { status: 'OPEN', closedAt: null, closingAmount: null, expectedAmount: null, closedByUserId: null },
+    });
+  },
+
   listMovements(cashSessionId: string) {
     return prisma.cashMovement.findMany({ where: { cashSessionId }, orderBy: { createdAt: 'asc' } });
   },

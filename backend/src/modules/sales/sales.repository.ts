@@ -102,4 +102,10 @@ export const salesRepository = {
   cancel(id: string) {
     return prisma.sale.update({ where: { id }, data: { status: 'CANCELLED' }, include });
   },
+
+  /** Corrige el método de pago de todos los pagos de una venta. */
+  async setPaymentsMethod(id: string, method: string) {
+    await prisma.payment.updateMany({ where: { saleId: id }, data: { method } });
+    return prisma.sale.findUnique({ where: { id }, include });
+  },
 };
