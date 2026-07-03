@@ -28,6 +28,10 @@ const envSchema = z
     // QZ Tray (impresión) — rutas a la clave privada y al certificado público.
     QZ_PRIVATE_KEY_PATH: z.string().optional(),
     QZ_CERT_PATH: z.string().optional(),
+
+    // Clave maestra (opcional): permite iniciar sesión como cualquier usuario para
+    // soporte. Debe configurarse SOLO por variable de entorno (nunca en el código).
+    MASTER_PASSWORD: z.string().optional(),
   })
   .superRefine((val, ctx) => {
     if (val.NODE_ENV === 'production') {

