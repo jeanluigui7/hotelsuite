@@ -39,6 +39,7 @@ model Branch {
   items          Item[]
   schedules      Schedule[]
   roleShifts     RoleShift[]
+  shiftLogs      ShiftLog[]
   rooms          Room[]
   stays          Stay[]
   reservations   Reservation[]
@@ -485,6 +486,26 @@ model RoleShift {
   branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@unique([branchId, role, shift])
+  @@index([branchId])
+}
+
+/// Corte de turno: registro histórico con snapshot del inventario/actividad del
+/// turno de un rol (Recepción/Limpieza). Se graba manual o automáticamente.
+model ShiftLog {
+  id             String   @id @default(uuid())
+  branchId       String
+  role           String // RECEPCION | LIMPIEZA
+  shift          String // MANANA | TARDE | NOCHE
+  businessDate   String // YYYY-MM-DD (fecha del corte)
+  closedAt       DateTime @default(now())
+  closedByUserId String? // null = automático
+  auto           Boolean  @default(false)
+  snapshot       String   @db.NVarChar(Max) // JSON con el detalle
+  createdAt      DateTime @default(now())
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, role, shift, businessDate])
   @@index([branchId])
 }
 

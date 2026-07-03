@@ -198,6 +198,7 @@ export const ADMIN_MENU: MenuItem[] = [
       { label: 'Ventas Detalladas', route: '/reports/ventas' },
       { label: 'Reporte Lavandería', route: '/reports/lavanderia' },
       { label: 'Cuadro de Turno', route: '/reports/cuadro-turno' },
+      { label: 'Historial de Turnos', route: '/reports/turnos' },
       { label: 'Simulador Límite Productos', route: '/reports/simulador' },
       { label: 'Rendimiento General', route: '/reports/rendimiento' },
     ],

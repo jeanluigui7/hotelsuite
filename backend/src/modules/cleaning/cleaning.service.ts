@@ -4,6 +4,7 @@ import { ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { notifyAdmin } from '../../shared/notify';
+import { shiftLogsService } from '../shift-logs/shift-logs.service';
 
 /** Flujo de limpieza RIZZOS: iniciar limpieza (recoger ropa con estado OK/ROBADA/DETERIORADA)
  *  → habitación EN CURSO → finalizar limpieza → Disponible. */
@@ -161,8 +162,10 @@ export const cleaningService = {
     const branchId = requireActiveBranch(scope);
     const existing = await prisma.cleaningShift.findFirst({ where: { branchId, userId: scope.userId, status: 'OPEN' } });
     if (existing) return existing;
-    const hour = new Date().getHours();
-    const shiftType = hour < 15 ? 'MANANA' : 'TARDE';
+    // El turno se determina por la configuración de Horarios (Limpieza); si no hay
+    // horario activo a esta hora, se usa el corte histórico (antes de las 15:00 = Mañana).
+    const configured = await shiftLogsService.currentShift(branchId, 'LIMPIEZA');
+    const shiftType = configured ?? (new Date().getHours() < 15 ? 'MANANA' : 'TARDE');
     return prisma.cleaningShift.create({ data: { branchId, userId: scope.userId, shiftType, status: 'OPEN' } });
   },
 
@@ -180,7 +183,10 @@ export const cleaningService = {
     const inProgress = await prisma.housekeepingTask.count({ where: { branchId, status: 'IN_PROGRESS' } });
     if (inProgress > 0) throw new ValidationError('No puedes finalizar el turno con limpiezas en curso');
     if (!shift.laundrySent) throw new ValidationError('Debes enviar la ropa a lavandería antes de finalizar el turno');
-    return prisma.cleaningShift.update({ where: { id: shift.id }, data: { status: 'CLOSED', closedAt: new Date() } });
+    const closed = await prisma.cleaningShift.update({ where: { id: shift.id }, data: { status: 'CLOSED', closedAt: new Date() } });
+    // Graba el corte de turno (snapshot de inventario/actividad) en el historial.
+    await shiftLogsService.recordCut({ branchId, role: 'LIMPIEZA', shift: shift.shiftType, auto: false, userId: scope.userId }).catch(() => undefined);
+    return closed;
   },
 
   /** Reporte del turno/día: ropa por pisos, limpiezas y mantenimientos, ropa a lavandería. */

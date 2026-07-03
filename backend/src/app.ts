@@ -30,6 +30,7 @@ import { inventoryCategoriesRouter } from './modules/inventory-categories/invent
 import { itemsRouter } from './modules/items/items.routes';
 import { schedulesRouter } from './modules/schedules/schedules.routes';
 import { roleShiftsRouter } from './modules/role-shifts/role-shifts.routes';
+import { shiftLogsRouter } from './modules/shift-logs/shift-logs.routes';
 import { roomsRouter } from './modules/rooms/rooms.routes';
 import { staysRouter } from './modules/stays/stays.routes';
 import { reservationsRouter } from './modules/reservations/reservations.routes';
@@ -120,6 +121,7 @@ export function createApp(): Application {
   app.use('/api', itemsRouter);
   app.use('/api', schedulesRouter);
   app.use('/api', roleShiftsRouter);
+  app.use('/api', shiftLogsRouter);
   app.use('/api', roomsRouter);
   app.use('/api', staysRouter);
   app.use('/api', reservationsRouter);

@@ -35,6 +35,10 @@ const routes: Routes = [
     path: 'inspecciones',
     loadComponent: () => import('./inspecciones/inspections.component').then((m) => m.InspectionsReportComponent),
   },
+  {
+    path: 'turnos',
+    loadComponent: () => import('./turnos/shift-logs.component').then((m) => m.ShiftLogsComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 
