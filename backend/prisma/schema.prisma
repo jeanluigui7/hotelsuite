@@ -38,6 +38,7 @@ model Branch {
   inventoryCategories InventoryCategory[]
   items          Item[]
   schedules      Schedule[]
+  roleShifts     RoleShift[]
   rooms          Room[]
   stays          Stay[]
   reservations   Reservation[]
@@ -463,6 +464,27 @@ model Schedule {
 
   branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
+  @@index([branchId])
+}
+
+/// Horario por rol y turno. Base para determinar el turno actual y para grabar
+/// los cortes de inventario/historial de Recepción y Limpieza.
+model RoleShift {
+  id               String   @id @default(uuid())
+  branchId         String
+  role             String // RECEPCION | LIMPIEZA
+  shift            String // MANANA | TARDE | NOCHE
+  startTime        String // "HH:mm" (entrada)
+  endTime          String // "HH:mm" (salida)
+  toleranceMinutes Int      @default(5)
+  daysOfWeek       String   @default("1,2,3,4,5,6,7") // CSV 1..7 (LU..DO)
+  status           String   @default("active")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, role, shift])
   @@index([branchId])
 }
 

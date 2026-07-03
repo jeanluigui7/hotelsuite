@@ -49,7 +49,7 @@ const routes: Routes = [
   },
   {
     path: 'horarios',
-    loadComponent: () => import('./horarios/schedules.component').then((m) => m.SchedulesComponent),
+    loadComponent: () => import('./horarios/role-shifts.component').then((m) => m.RoleShiftsComponent),
   },
   {
     path: 'inspeccion',
