@@ -488,7 +488,7 @@ export class CheckInDialogComponent {
 
     this.catalog.rates.list({ roomTypeId: room.roomType.id }).subscribe((res) => this.rates.set(res.data ?? []));
     this.catalog.clientTiers.list({ pageSize: 100, sortBy: 'name' }).subscribe((res) => this.tiers.set(res.data ?? []));
-    this.inventory.products.list({ pageSize: 300, status: 'active' }).subscribe((res) => this.products.set(res.data ?? []));
+    this.inventory.products.list({ pageSize: 300, status: 'active', area: 'RECEPTION' }).subscribe((res) => this.products.set(res.data ?? []));
     this.ops.map().subscribe((res) => this.freeRooms.set((res.data ?? []).filter((r) => r.status === 'FREE' || r.id === room.id)));
 
     if (this.prefillGuestId) {
@@ -754,7 +754,7 @@ export class CheckInDialogComponent {
         const payments = this.pays().filter((p) => (p.amount || 0) > 0).map((p) => ({ method: this.payMeta(p.type).backend, amount: p.amount }));
         // Se registra SIEMPRE el cargo de la estancia (deja rastro en el folio), con o sin pago.
         if (stay?.id) {
-          this.finance.createSale({ stayId: stay.id, items, payments }).subscribe({
+          this.finance.createSale({ stayId: stay.id, items, payments, sourceArea: 'RECEPTION' }).subscribe({
             next: () => this.finish(payments.length ? 'Habitación ocupada. Pago registrado.' : 'Habitación ocupada. Cargo pendiente de cobro.'),
             error: () => this.finish('Check-in hecho. El cargo no se pudo registrar.'),
           });

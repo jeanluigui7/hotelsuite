@@ -21,4 +21,12 @@ export const transferSchema = z
   });
 
 export type AdjustDto = z.infer<typeof adjustSchema>;
+export const transferAreaSchema = z.object({
+  productId: z.string().min(1),
+  quantity: z.coerce.number().int().positive(),
+  toArea: z.enum(['RECEPTION', 'FRIGOBAR']),
+  reference: z.string().max(200).optional().or(z.literal('')),
+});
+
 export type TransferDto = z.infer<typeof transferSchema>;
+export type TransferAreaDto = z.infer<typeof transferAreaSchema>;

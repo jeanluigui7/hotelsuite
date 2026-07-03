@@ -118,6 +118,8 @@ export interface CreateSaleInput {
   customerName?: string;
   items: SaleItemInput[];
   payments: PaymentInput[];
+  /** Área de la que descuenta el stock: PRODUCTS (defecto) | RECEPTION | FRIGOBAR. */
+  sourceArea?: 'PRODUCTS' | 'RECEPTION' | 'FRIGOBAR';
 }
 
 export interface FolioSeries {

@@ -47,4 +47,7 @@ export class InventoryApiService {
   }): Observable<ApiResponse<unknown>> {
     return this.http.post<ApiResponse<unknown>>(`${this.api}/movements/transfer`, dto);
   }
+  transferArea(dto: { productId: string; quantity: number; toArea: 'RECEPTION' | 'FRIGOBAR'; reference?: string }): Observable<ApiResponse<unknown>> {
+    return this.http.post<ApiResponse<unknown>>(`${this.api}/movements/transfer-area`, dto);
+  }
 }

@@ -100,7 +100,8 @@ export class FrigobarComponent implements OnInit {
 
   ngOnInit(): void {
     this.ops.stays({ status: 'OPEN', pageSize: 200 }).subscribe((res) => this.stays.set(res.data ?? []));
-    this.inventory.products.list({ pageSize: 300, status: 'active' }).subscribe((res) => this.products.set(res.data ?? []));
+    // El stock que se vende en recepción sale del almacén de Recepción, no del general.
+    this.inventory.products.list({ pageSize: 300, status: 'active', area: 'RECEPTION' }).subscribe((res) => this.products.set(res.data ?? []));
   }
 
   canSubmit(): boolean {
@@ -138,6 +139,7 @@ export class FrigobarComponent implements OnInit {
         stayId: this.selectedStayId,
         items: this.lines().map((l) => ({ productId: l.product.id, quantity: l.quantity })),
         payments: [],
+        sourceArea: 'RECEPTION',
       })
       .subscribe({
         next: () => {

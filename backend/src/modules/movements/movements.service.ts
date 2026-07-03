@@ -79,6 +79,38 @@ export const movementsService = {
     }
   },
 
+  /**
+   * Transferencia por área destino (Recepción / Frigobar): resuelve (y crea si no
+   * existe) el almacén del área y mueve el stock desde el almacén de productos.
+   */
+  async transferArea(scope: RequestScope, dto: { productId: string; quantity: number; toArea: 'RECEPTION' | 'FRIGOBAR'; reference?: string }) {
+    const branchId = requireActiveBranch(scope);
+    const product = await prisma.product.findUnique({ where: { id: dto.productId } });
+    if (!product || product.branchId !== branchId) throw new ValidationError('Producto inválido');
+    // Origen: almacén de productos general (el mismo que muestra la grilla).
+    const from = await prisma.warehouse.findFirst({ where: { branchId, type: 'PRODUCTS' }, orderBy: { createdAt: 'asc' } });
+    if (!from) throw new ValidationError('No hay almacén de productos de origen');
+    // Destino: almacén del área (Recepción/Frigobar); se crea si no existe.
+    const areaName = dto.toArea === 'RECEPTION' ? 'Recepción' : 'Almacén Frigobar';
+    let to = await prisma.warehouse.findFirst({ where: { branchId, type: dto.toArea } });
+    if (!to) to = await prisma.warehouse.create({ data: { branchId, name: areaName, type: dto.toArea } });
+    try {
+      return await movementsRepository.transfer({
+        branchId,
+        productId: dto.productId,
+        fromWarehouseId: from.id,
+        toWarehouseId: to.id,
+        quantity: dto.quantity,
+        unitCost: product.cost ? Number(product.cost) : null,
+        reference: dto.reference || `Transferencia a ${areaName}`,
+        createdByUserId: scope.userId,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.message === 'STOCK_INSUFFICIENT') throw new ValidationError('Stock insuficiente en el almacén de productos');
+      throw err;
+    }
+  },
+
   async transfer(scope: RequestScope, dto: TransferDto) {
     const branchId = requireActiveBranch(scope);
     const product = await assertProductAndWarehouse(dto.productId, dto.fromWarehouseId, branchId);

@@ -9,7 +9,8 @@ export const productsController = {
   async list(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const params = paginationSchema.parse(req.query);
-    const { items, meta } = await productsService.list(req.scope, params);
+    const area = typeof req.query.area === 'string' ? req.query.area : undefined;
+    const { items, meta } = await productsService.list(req.scope, params, area);
     res.status(200).json(ok(items, meta));
   },
   async getById(req: Request, res: Response): Promise<void> {

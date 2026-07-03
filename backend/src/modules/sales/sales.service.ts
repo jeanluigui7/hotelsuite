@@ -74,7 +74,15 @@ export const salesService = {
       if (!guest) throw new ValidationError('Cliente inválido');
     }
 
-    const wh = await productsRepository.defaultWarehouse(branchId);
+    // Almacén de origen del stock: por defecto el general (PRODUCTS); si la venta es
+    // de recepción/frigobar, descuenta del almacén de esa área (se crea si no existe).
+    let wh = await productsRepository.defaultWarehouse(branchId);
+    if (dto.sourceArea === 'RECEPTION' || dto.sourceArea === 'FRIGOBAR') {
+      const areaName = dto.sourceArea === 'RECEPTION' ? 'Recepción' : 'Almacén Frigobar';
+      let areaWh = await prisma.warehouse.findFirst({ where: { branchId, type: dto.sourceArea } });
+      if (!areaWh) areaWh = await prisma.warehouse.create({ data: { branchId, name: areaName, type: dto.sourceArea } });
+      wh = areaWh;
+    }
 
     const lines: SaleLineInput[] = [];
     const stockDecrements: { productId: string; warehouseId: string; quantity: number; unitCost: number | null }[] = [];

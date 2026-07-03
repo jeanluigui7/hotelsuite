@@ -3,7 +3,7 @@ import { ok } from '../../shared/response';
 import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { movementsService } from './movements.service';
-import { adjustSchema, transferSchema } from './movements.schema';
+import { adjustSchema, transferAreaSchema, transferSchema } from './movements.schema';
 
 export const movementsController = {
   async list(req: Request, res: Response): Promise<void> {
@@ -24,5 +24,10 @@ export const movementsController = {
     if (!req.scope) throw new UnauthorizedError();
     const dto = transferSchema.parse(req.body);
     res.status(201).json(ok(await movementsService.transfer(req.scope, dto)));
+  },
+  async transferArea(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = transferAreaSchema.parse(req.body);
+    res.status(201).json(ok(await movementsService.transferArea(req.scope, dto)));
   },
 };

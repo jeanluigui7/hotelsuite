@@ -49,9 +49,17 @@ async function assertCategoryInBranch(categoryId: string | null | undefined, bra
 }
 
 export const productsService = {
-  async list(scope: RequestScope, params: PaginationParams) {
+  async list(scope: RequestScope, params: PaginationParams, area?: string) {
     const branchId = requireActiveBranch(scope);
-    const wh = await productsRepository.defaultWarehouse(branchId);
+    // El stock mostrado depende del área: general (PRODUCTS) o el almacén de
+    // Recepción/Frigobar cuando la venta es de esa área.
+    let whId: string;
+    if (area === 'RECEPTION' || area === 'FRIGOBAR') {
+      const areaWh = await prisma.warehouse.findFirst({ where: { branchId, type: area } });
+      whId = areaWh?.id ?? '';
+    } else {
+      whId = (await productsRepository.defaultWarehouse(branchId)).id;
+    }
     const where: Prisma.ProductWhereInput = { branchId };
     if (params.search) where.name = { contains: params.search };
     const { skip, take } = toPrismaPaging(params);
@@ -59,7 +67,7 @@ export const productsService = {
       productsRepository.list({ where, skip, take, orderBy: buildOrderBy(params, SORTABLE, 'name') }),
       productsRepository.count(where),
     ]);
-    return { items: rows.map((p) => serialize(p, wh.id)), meta: pageMeta(params, total) };
+    return { items: rows.map((p) => serialize(p, whId)), meta: pageMeta(params, total) };
   },
 
   async getEntity(scope: RequestScope, id: string) {

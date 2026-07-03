@@ -126,12 +126,41 @@ interface Form { id?: string; name: string; sku: string; categoryId: string | nu
       } @empty { <p class="muted">No hay solicitudes pendientes de Recepción.</p> }
       <ng-template pTemplate="footer"><p-button label="Cerrar" [text]="true" (onClick)="enviarVisible = false" /></ng-template>
     </p-dialog>
+
+    <!-- Transferencia Masiva de Productos -->
+    <p-dialog [(visible)]="transferVisible" [modal]="true" [style]="{ width: '34rem' }" styleClass="dk-dialog">
+      <ng-template pTemplate="header"><span class="th"><i class="pi pi-arrow-right-arrow-left"></i> Transferencia Masiva de Productos</span></ng-template>
+      <p class="muted">Transfiriendo {{ transferLines.length }} producto(s)</p>
+      <div class="fld"><label>Área Destino:</label>
+        <label class="radio"><input type="radio" name="tarea" value="RECEPTION" [(ngModel)]="transferArea" /> <span>Recepción</span></label>
+        <label class="radio"><input type="radio" name="tarea" value="FRIGOBAR" [(ngModel)]="transferArea" /> <span>Almacén Frigobar</span></label>
+      </div>
+      @for (l of transferLines; track l.productId) {
+        <div class="tline">
+          <div><div class="tn">{{ l.name }}</div><div class="ts">Stock {{ l.stock }}</div></div>
+          <p-inputNumber [(ngModel)]="l.qty" [min]="1" [max]="l.stock" [showButtons]="false" inputStyleClass="tqty" />
+          <button class="tx" (click)="removeTransferLine(l.productId)"><i class="pi pi-times"></i></button>
+        </div>
+      }
+      <div class="fld"><label>Notas (opcional)</label><textarea class="ta" rows="2" [(ngModel)]="transferNotes" placeholder="Notas adicionales (opcional)"></textarea></div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="transferVisible = false" />
+        <p-button label="Confirmar Transferencia" icon="pi pi-arrow-right-arrow-left" [loading]="busy()" [disabled]="transferLines.length === 0" (onClick)="applyTransfer()" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
       .ap { background: #0b1018; min-height: 100%; margin: -1.5rem; padding: 1.5rem; color: #e6e9ef; }
       h1 { margin: 0; color: #fff; font-size: 1.5rem; } .muted { color: #8b97a8; } .center { text-align: center; }
       .banner { background: rgba(16,185,129,0.1); border: 1px solid #14633f; color: #6ee7b7; border-radius: 10px; padding: 0.7rem 1rem; margin: 0.8rem 0; display: flex; gap: 0.5rem; align-items: center; font-size: 0.85rem; }
+      .th { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 700; } .th .pi { color: #3b82f6; }
+      .radio { display: flex; align-items: center; gap: 0.5rem; margin: 0.35rem 0; cursor: pointer; font-weight: 500; }
+      .tline { display: flex; align-items: center; gap: 0.7rem; background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 10px; padding: 0.7rem 0.9rem; margin: 0.5rem 0; }
+      .tline > div:first-child { flex: 1; } .tn { font-weight: 700; } .ts { color: #8b97a8; font-size: 0.8rem; }
+      :host ::ng-deep .tqty { width: 5rem; text-align: center; }
+      .tx { background: transparent; border: 0; color: #f87171; cursor: pointer; font-size: 1rem; }
+      .ta { width: 100%; background: #0e1626; border: 1px solid #26364f; border-radius: 8px; color: #e6e9ef; padding: 0.6rem; resize: vertical; }
       .bar { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.8rem; }
       .search { position: relative; } .search i { position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%); color: #6b7a90; }
       .search input { background: #131b27; border: 1px solid #243245; color: #e6e9ef; border-radius: 8px; padding: 0.55rem 0.7rem 0.55rem 2rem; width: 240px; }
@@ -304,7 +333,41 @@ export class AlmacenProductosComponent implements OnInit {
     send(0);
   }
 
-  goTransfer(): void { void this.router.navigateByUrl('/inventory/movimientos'); }
+  // ── Transferencia masiva (a Recepción / Frigobar) ──
+  transferVisible = false;
+  transferArea: 'RECEPTION' | 'FRIGOBAR' = 'RECEPTION';
+  transferNotes = '';
+  transferLines: { productId: string; name: string; stock: number; qty: number }[] = [];
+
+  goTransfer(): void {
+    const ids = [...this.selected()];
+    const source = ids.length ? this.products().filter((p) => this.selected().has(p.id)) : this.filtered();
+    this.transferLines = source.map((p) => ({ productId: p.id, name: p.name, stock: p.stock, qty: 1 }));
+    if (!this.transferLines.length) { this.toast.add({ severity: 'warn', summary: 'Sin productos', detail: 'Selecciona al menos un producto.' }); return; }
+    this.transferArea = 'RECEPTION';
+    this.transferNotes = '';
+    this.transferVisible = true;
+  }
+
+  removeTransferLine(id: string): void { this.transferLines = this.transferLines.filter((l) => l.productId !== id); }
+
+  applyTransfer(): void {
+    const lines = this.transferLines.filter((l) => l.qty > 0);
+    if (!lines.length) return;
+    this.busy.set(true);
+    const send = (i: number): void => {
+      if (i >= lines.length) {
+        this.busy.set(false); this.transferVisible = false; this.selected.set(new Set());
+        this.toast.add({ severity: 'success', summary: 'Transferencia realizada', detail: `${lines.length} producto(s) enviados a ${this.transferArea === 'RECEPTION' ? 'Recepción' : 'Almacén Frigobar'}.` });
+        this.reload(); return;
+      }
+      this.inventory.transferArea({ productId: lines[i].productId, quantity: lines[i].qty, toArea: this.transferArea, reference: this.transferNotes || undefined }).subscribe({
+        next: () => send(i + 1),
+        error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo transferir.' }); },
+      });
+    };
+    send(0);
+  }
 
   print(): void {
     const body = `<table><thead><tr><th>Código</th><th>Artículo</th><th>Categoría</th><th class="num">Venta</th><th class="num">Compra</th><th class="num">Stock</th></tr></thead><tbody>${

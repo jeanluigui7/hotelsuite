@@ -25,6 +25,8 @@ export const createSaleSchema = z
     customerName: z.string().max(160).optional().or(z.literal('')),
     items: z.array(saleItemSchema).min(1, 'Agregue al menos un ítem'),
     payments: z.array(paymentSchema).default([]),
+    // Área de la que sale el stock: PRODUCTS (general, por defecto) | RECEPTION | FRIGOBAR.
+    sourceArea: z.enum(['PRODUCTS', 'RECEPTION', 'FRIGOBAR']).optional(),
   })
   .refine((v) => v.stayId || v.guestId || (v.customerName && v.customerName.length > 0), {
     message: 'Indique una estancia, un cliente o un nombre de cliente externo',
