@@ -154,7 +154,8 @@ export const cleaningService = {
   async shift(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);
     const shift = await prisma.cleaningShift.findFirst({ where: { branchId, userId: scope.userId, status: 'OPEN' }, orderBy: { openedAt: 'desc' } });
-    const inProgress = await prisma.housekeepingTask.count({ where: { branchId, status: 'IN_PROGRESS' } });
+    // Solo cuentan las limpiezas en curso del propio usuario (no las de otros ni atascadas).
+    const inProgress = await prisma.housekeepingTask.count({ where: { branchId, status: 'IN_PROGRESS', assignedToUserId: scope.userId } });
     return { shift, inProgress, canClose: inProgress === 0 };
   },
 
@@ -180,7 +181,7 @@ export const cleaningService = {
     const branchId = requireActiveBranch(scope);
     const shift = await prisma.cleaningShift.findFirst({ where: { branchId, userId: scope.userId, status: 'OPEN' } });
     if (!shift) throw new ValidationError('No hay turno abierto');
-    const inProgress = await prisma.housekeepingTask.count({ where: { branchId, status: 'IN_PROGRESS' } });
+    const inProgress = await prisma.housekeepingTask.count({ where: { branchId, status: 'IN_PROGRESS', assignedToUserId: scope.userId } });
     if (inProgress > 0) throw new ValidationError('No puedes finalizar el turno con limpiezas en curso');
     if (!shift.laundrySent) throw new ValidationError('Debes enviar la ropa a lavandería antes de finalizar el turno');
     const closed = await prisma.cleaningShift.update({ where: { id: shift.id }, data: { status: 'CLOSED', closedAt: new Date() } });

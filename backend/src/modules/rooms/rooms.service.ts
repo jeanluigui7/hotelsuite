@@ -72,16 +72,20 @@ export const roomsService = {
     // Pendiente por estancia = recargos (balanceDue) + ventas OPEN no pagadas.
     const stayIds = rooms.map((r) => r.stays[0]?.id).filter((id): id is string => !!id);
     const sales = stayIds.length
-      ? await prisma.sale.findMany({ where: { stayId: { in: stayIds }, status: { not: 'CANCELLED' } }, include: { payments: true } })
+      ? await prisma.sale.findMany({ where: { stayId: { in: stayIds }, status: { not: 'CANCELLED' } }, include: { payments: true, items: true } })
       : [];
     const salesPending = new Map<string, number>();
     const consumos = new Map<string, number>();
+    // El cargo base de la habitación ("Tarifa: …") ya se muestra como priceAgreed;
+    // se excluye de "consumos" para no duplicarlo en el total del card.
+    const isBaseRoom = (desc: string) => /^tarifa[:\s]/i.test(desc);
     for (const s of sales) {
       if (!s.stayId) continue;
       const paid = s.payments.reduce((a, p) => a + Number(p.amount), 0);
       const owed = Number(s.total) - paid;
       if (owed > 0) salesPending.set(s.stayId, (salesPending.get(s.stayId) ?? 0) + owed);
-      consumos.set(s.stayId, (consumos.get(s.stayId) ?? 0) + Number(s.total));
+      const extras = s.items.filter((it) => !isBaseRoom(it.description)).reduce((a, it) => a + Number(it.subtotal), 0);
+      consumos.set(s.stayId, (consumos.get(s.stayId) ?? 0) + extras);
     }
     return rooms.map((r) => {
       const m = serializeMap(r);
