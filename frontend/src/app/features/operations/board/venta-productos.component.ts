@@ -236,7 +236,8 @@ export class VentaProductosComponent {
     this.pays.set([]); this.customerName = ''; this.stayId = null; this.clientType = 'ROOM';
     this.idMode = 'DOC'; this.docType = 'DNI'; this.docNumber = ''; this.plate = '';
     this.search = ''; this.categoryFilter = null; this.lowStockOnly = false; this.qty = {};
-    this.inventory.products.list({ pageSize: 300, status: 'active' }).subscribe((r) => this.products.set(r.data ?? []));
+    // Muestra el stock del almacén de RECEPCIÓN (lo que se puede vender aquí), no el general.
+    this.inventory.products.list({ pageSize: 300, status: 'active', area: 'RECEPTION' }).subscribe((r) => this.products.set(r.data ?? []));
     this.ops.stays({ status: 'OPEN', pageSize: 200 }).subscribe((r) => this.stays.set(r.data ?? []));
   }
 
@@ -272,6 +273,7 @@ export class VentaProductosComponent {
       customerName: this.clientType === 'EXTERNAL' ? this.externalName() : undefined,
       items: this.lines(),
       payments: this.pays().filter((p) => p.amount > 0).map((p) => ({ method: p.method, amount: p.amount })),
+      sourceArea: 'RECEPTION',
     }).subscribe({
       next: (res) => {
         this.saving.set(false);
