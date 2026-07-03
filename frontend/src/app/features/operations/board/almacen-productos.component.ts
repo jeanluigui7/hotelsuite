@@ -208,6 +208,7 @@ export class AlmacenProductosComponent implements OnInit {
   private readonly router = inject(Router);
 
   readonly products = signal<Product[]>([]);
+  readonly categories = signal<{ id: string; name: string }[]>([]);
   readonly requests = signal<Req[]>([]);
   readonly selected = signal<Set<string>>(new Set());
   readonly busy = signal(false);
@@ -236,8 +237,10 @@ export class AlmacenProductosComponent implements OnInit {
 
   readonly categoryOptions = computed(() => {
     const map = new Map<string, string>();
+    // Base: todas las categorías reales; complementa con las de los productos por si acaso.
+    for (const c of this.categories()) map.set(c.id, c.name);
     for (const p of this.products()) if (p.category) map.set(p.category.id, p.category.name);
-    return [...map].map(([value, label]) => ({ label, value }));
+    return [...map].map(([value, label]) => ({ label, value })).sort((a, b) => a.label.localeCompare(b.label));
   });
 
   /** Stock bajo: hay un mínimo definido y la cantidad actual está en o por debajo de él. */
@@ -266,6 +269,10 @@ export class AlmacenProductosComponent implements OnInit {
       const ws = r.data ?? [];
       this.warehouseId = ws.find((w: Warehouse) => w.type === 'PRODUCTS')?.id ?? ws[0]?.id ?? null;
     });
+    // Todas las categorías reales (no solo las que ya usan los productos cargados).
+    this.http
+      .get<{ data?: { id: string; name: string }[] }>(`${this.api}/inventory-categories`, { params: { pageSize: '200', sortBy: 'name' } })
+      .subscribe((r) => this.categories.set(r.data ?? []));
   }
 
   reload(): void {
