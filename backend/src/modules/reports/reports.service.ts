@@ -62,6 +62,110 @@ export const reportsService = {
     };
   },
 
+  /**
+   * Historial de movimientos (Productos/Servicios/Hospedaje/Penalidades) por turno.
+   * Cada fila es una línea de venta no anulada, enriquecida con habitación, método,
+   * colaborador y el turno de recepción al que pertenece (por la hora).
+   */
+  async movements(
+    scope: RequestScope,
+    filters: { from?: Date; to?: Date; concept?: string; method?: string; roomId?: string; collaboratorId?: string; search?: string },
+  ) {
+    const branchId = requireActiveBranch(scope);
+    const shifts = await prisma.roleShift.findMany({ where: { branchId, role: 'RECEPCION' } });
+
+    const rawItems = await prisma.saleItem.findMany({
+      where: {
+        sale: {
+          branchId,
+          status: { not: 'CANCELLED' },
+          ...(filters.from || filters.to ? { createdAt: { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) } } : {}),
+          ...(filters.collaboratorId ? { createdByUserId: filters.collaboratorId } : {}),
+        },
+        ...(filters.search ? { description: { contains: filters.search } } : {}),
+      },
+      include: { sale: { include: { payments: true } } },
+      orderBy: { sale: { createdAt: 'desc' } },
+    });
+
+    const productIds = [...new Set(rawItems.map((i) => i.productId).filter((x): x is string => !!x))];
+    const stayIds = [...new Set(rawItems.map((i) => i.sale.stayId).filter((x): x is string => !!x))];
+    const userIds = [...new Set(rawItems.map((i) => i.sale.createdByUserId).filter((x): x is string => !!x))];
+    const [products, stays, users] = await Promise.all([
+      prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, productType: true } }),
+      prisma.stay.findMany({ where: { id: { in: stayIds } }, select: { id: true, roomId: true, room: { select: { number: true } } } }),
+      prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }),
+    ]);
+    const ptype = new Map(products.map((p) => [p.id, p.productType]));
+    const stayMap = new Map(stays.map((s) => [s.id, { roomId: s.roomId, room: s.room?.number ?? '' }]));
+    const uname = new Map(users.map((u) => [u.id, u.name]));
+
+    const rxRenewal = /renovaci|tiempo extra|extensi/i;
+    const rxRoom = /^tarifa[:\s]|pernocta|hospedaje|servicio de hospedaje|early|d[ií]a hotelero/i;
+    const rxPenalty = /penalidad|multa|mora|tardanza|da[ñn]o|rotura/i;
+    const conceptOf = (desc: string, productId: string | null): string => {
+      if (rxPenalty.test(desc)) return 'PENALIDADES';
+      if (rxRenewal.test(desc) || (!productId && rxRoom.test(desc))) return 'HOSPEDAJE';
+      if (productId) return ptype.get(productId) === 'SERVICIO' ? 'SERVICIOS' : 'PRODUCTOS';
+      return 'SERVICIOS';
+    };
+    const methodOf = (payments: { method: string }[]): string => {
+      const set = new Set(payments.map((p) => p.method));
+      if (set.size === 0) return 'PENDIENTE';
+      if (set.size === 1) return [...set][0];
+      return 'MIXTO';
+    };
+    const toMin = (h: string): number => { const [a, b] = h.split(':').map(Number); return a * 60 + b; };
+    const shiftFor = (at: Date): string => {
+      const nowMin = at.getHours() * 60 + at.getMinutes();
+      for (const s of shifts) {
+        if (s.status !== 'active') continue;
+        const start = toMin(s.startTime); const end = toMin(s.endTime);
+        const inR = end > start ? nowMin >= start && nowMin < end : nowMin >= start || nowMin < end;
+        if (inR) return s.shift;
+      }
+      return 'MANANA';
+    };
+
+    const all = rawItems.map((i) => {
+      const stay = i.sale.stayId ? stayMap.get(i.sale.stayId) : undefined;
+      return {
+        id: i.id,
+        date: i.sale.createdAt,
+        description: i.description,
+        roomNumber: stay?.room || null,
+        roomId: stay?.roomId ?? null,
+        type: 'SALIDA',
+        quantity: i.quantity,
+        amount: Number(i.subtotal),
+        method: methodOf(i.sale.payments),
+        concept: conceptOf(i.description, i.productId),
+        collaborator: i.sale.createdByUserId ? uname.get(i.sale.createdByUserId) ?? '—' : '—',
+        collaboratorId: i.sale.createdByUserId ?? null,
+        shift: shiftFor(i.sale.createdAt),
+      };
+    });
+
+    // Opciones para los filtros (a partir del rango consultado).
+    const collabMap = new Map<string, string>();
+    const roomMap = new Map<string, string>();
+    for (const r of all) {
+      if (r.collaboratorId) collabMap.set(r.collaboratorId, r.collaborator);
+      if (r.roomId && r.roomNumber) roomMap.set(r.roomId, r.roomNumber);
+    }
+
+    const items = all
+      .filter((r) => !filters.concept || filters.concept === 'ALL' || r.concept === filters.concept)
+      .filter((r) => !filters.method || filters.method === 'ALL' || r.method === filters.method)
+      .filter((r) => !filters.roomId || r.roomId === filters.roomId);
+
+    return {
+      items,
+      collaborators: [...collabMap].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
+      rooms: [...roomMap].map(([id, number]) => ({ id, number })).sort((a, b) => a.number.localeCompare(b.number)),
+    };
+  },
+
   /** Simulador Límite de Productos: stock vs venta media diaria (últimos 30 días). */
   async productLimit(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);

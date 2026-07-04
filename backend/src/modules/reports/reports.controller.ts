@@ -22,6 +22,24 @@ export const reportsController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await reportsService.productLimit(req.scope)));
   },
+  async movements(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const q = req.query;
+    const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
+    res.status(200).json(
+      ok(
+        await reportsService.movements(req.scope, {
+          from: str(q.from) ? new Date(q.from as string) : undefined,
+          to: str(q.to) ? new Date(q.to as string) : undefined,
+          concept: str(q.concept),
+          method: str(q.method),
+          roomId: str(q.roomId),
+          collaboratorId: str(q.collaboratorId),
+          search: str(q.search),
+        }),
+      ),
+    );
+  },
   async inspections(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const from = typeof req.query.from === 'string' ? new Date(req.query.from) : undefined;
