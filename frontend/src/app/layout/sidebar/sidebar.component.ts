@@ -19,7 +19,6 @@ import { LayoutService } from '../layout.service';
         </div>
         <button type="button" class="bell">
           <i class="pi pi-bell"></i>
-          <span class="badge">99+</span>
         </button>
       </div>
 
