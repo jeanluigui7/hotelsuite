@@ -14,7 +14,8 @@ import type { ApiResponse } from '../../../core/models/api-response.model';
 import { PrintingService } from '../../../core/printing/printing.service';
 import { printPdf } from '../../../core/utils/export';
 
-interface InvItem { productId: string; name: string; sku?: string | null; categoryId?: string | null; categoryName?: string | null; stock: number; min: number; ingresos: number; salidas: number; belowMin: boolean; }
+interface InvItem { productId: string; name: string; sku?: string | null; categoryId?: string | null; categoryName?: string | null; stockInicial: number; stock: number; min: number; ingresos: number; salidas: number; belowMin: boolean; }
+interface TurnInfo { shift: string; businessDate: string; startTime: string; endTime: string; isCurrent: boolean; }
 interface Req { id: string; status: string; createdAt: string; items: { productId: string; name: string; quantity: number }[]; }
 interface PrintJob { id: string; type: string; title: string; status: string; createdAt: string; payload?: string | null; }
 
@@ -44,9 +45,9 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
         <button class="t-nav" (click)="shiftTurno(-1)"><i class="pi pi-chevron-left"></i> Turno Anterior</button>
         <div class="t-info">
           <strong>{{ turnoDate() | date: 'EEEE, d \\'De\\' MMMM \\'De\\' y' }}</strong>
-          <span class="muted">{{ turnoLabel() }} @if (turnoOffset === 0) { <span class="t-act">ACTUAL</span> }</span>
+          <span class="muted">{{ turnoLabel() }} @if (turn()?.isCurrent) { <span class="t-act">ACTUAL</span> }</span>
         </div>
-        <button class="t-nav" (click)="shiftTurno(1)" [disabled]="turnoOffset >= 0">Siguiente Turno <i class="pi pi-chevron-right"></i></button>
+        <button class="t-nav" (click)="shiftTurno(1)" [disabled]="turn()?.isCurrent">Siguiente Turno <i class="pi pi-chevron-right"></i></button>
         <span class="spacer"></span>
         <span class="counts"><i class="pi pi-box"></i> {{ filtered().length }} productos | <span class="low-c"><i class="pi pi-exclamation-triangle"></i> {{ lowStockCount() }} bajo stock</span></span>
       </div>
@@ -61,7 +62,7 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
             <tr [class.low]="it.belowMin">
               <td class="ck"><input type="checkbox" [checked]="selected().has(it.productId)" (change)="toggle(it.productId)" /></td>
               <td class="name"><span class="ico"><i class="pi pi-box"></i></span><div><div>{{ it.name }}</div><small class="muted">{{ it.sku || '—' }}</small></div></td>
-              <td class="n init">{{ stockInicial(it) }}</td>
+              <td class="n init">{{ it.stockInicial }}</td>
               <td class="n pos">{{ it.ingresos }}</td>
               <td class="n neg">{{ it.salidas }}</td>
               <td class="n">@if (it.belowMin) { <span class="warn"><i class="pi pi-exclamation-triangle"></i> {{ it.stock }} u.</span> } @else { <span>{{ it.stock }} u.</span> }</td>
@@ -189,7 +190,12 @@ export class InventarioRecepcionComponent implements OnInit {
 
   search = '';
   categoryFilter: string | null = null;
-  turnoOffset = 0;
+  // Turno seleccionado (día + turno). El backend calcula el actual en la 1ª carga.
+  readonly turn = signal<TurnInfo | null>(null);
+  private fDay: string | null = null;
+  private curShift: string | null = null;
+  private readonly SHIFTS = ['MANANA', 'TARDE', 'NOCHE'];
+  private readonly SHIFT_NAME: Record<string, string> = { MANANA: 'Turno Mañana', TARDE: 'Turno Tarde', NOCHE: 'Turno Noche' };
 
   readonly sentRequests = computed(() => this.requests().filter((r) => r.status === 'SENT'));
   readonly selectedItems = computed(() => this.items().filter((i) => this.selected().has(i.productId)));
@@ -210,7 +216,7 @@ export class InventarioRecepcionComponent implements OnInit {
   }
 
   lowStockCount(): number { return this.filtered().filter((it) => it.belowMin).length; }
-  stockInicial(it: InvItem): number { return it.stock - it.ingresos + it.salidas; }
+  stockInicial(it: InvItem): number { return it.stockInicial; }
 
   allSelected(): boolean { const f = this.filtered(); return f.length > 0 && f.every((it) => this.selected().has(it.productId)); }
   toggleAll(): void {
@@ -218,16 +224,24 @@ export class InventarioRecepcionComponent implements OnInit {
     else { const s = new Set<string>(); for (const it of this.filtered()) { s.add(it.productId); this.qty[it.productId] = this.qty[it.productId] || 1; } this.selected.set(s); }
   }
 
-  // Turno (display): Mañana 06:30–14:30 · Tarde 14:30–22:30 · Noche 22:30–06:30
-  shiftTurno(dir: number): void { this.turnoOffset = Math.min(0, this.turnoOffset + dir); }
-  turnoDate(): Date { const d = new Date(); d.setDate(d.getDate() + Math.floor(this.turnoOffset / 3)); return d; }
+  // Navegación turno por turno (usa la ventana real del backend por config de Horarios).
+  turnoDate(): Date { return new Date((this.turn()?.businessDate ?? this.fDay ?? '') + 'T12:00:00'); }
   turnoLabel(): string {
-    // Horario hotelero RIZZOS: Mañana 07:00-15:00, Tarde 15:00-23:00, Noche 23:00-07:00.
-    const turnos = ['Turno Mañana - 07:00 - 15:00', 'Turno Tarde - 15:00 - 23:00', 'Turno Noche - 23:00 - 07:00'];
-    const h = new Date().getHours();
-    const cur = h >= 7 && h < 15 ? 0 : h >= 15 && h < 23 ? 1 : 2;
-    const idx = ((cur + (this.turnoOffset % 3)) % 3 + 3) % 3;
-    return turnos[idx];
+    const t = this.turn();
+    if (!t) return '';
+    return `${this.SHIFT_NAME[t.shift] ?? t.shift} - ${t.startTime} - ${t.endTime}`;
+  }
+  shiftTurno(dir: number): void {
+    const t = this.turn();
+    if (!t) return;
+    if (dir > 0 && t.isCurrent) return;
+    let idx = this.SHIFTS.indexOf(t.shift) + dir;
+    let day = new Date(t.businessDate + 'T12:00:00');
+    if (idx > 2) { idx = 0; day.setDate(day.getDate() + 1); }
+    if (idx < 0) { idx = 2; day.setDate(day.getDate() - 1); }
+    this.fDay = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+    this.curShift = this.SHIFTS[idx];
+    this.reload();
   }
 
   report(verified: boolean): void {
@@ -248,7 +262,12 @@ export class InventarioRecepcionComponent implements OnInit {
   ngOnInit(): void { this.reload(); }
 
   reload(): void {
-    this.http.get<ApiResponse<{ items: InvItem[] }>>(`${this.api}/reception-inventory`).subscribe((r) => this.items.set(r.data?.items ?? []));
+    const params: Record<string, string> = {};
+    if (this.fDay && this.curShift) { params['date'] = this.fDay; params['shift'] = this.curShift; }
+    this.http.get<ApiResponse<{ items: InvItem[]; turn: TurnInfo }>>(`${this.api}/reception-inventory`, { params }).subscribe((r) => {
+      this.items.set(r.data?.items ?? []);
+      if (r.data?.turn) { this.turn.set(r.data.turn); this.fDay = r.data.turn.businessDate; this.curShift = r.data.turn.shift; }
+    });
     this.http.get<ApiResponse<Req[]>>(`${this.api}/reception-inventory/requests`).subscribe((r) => this.requests.set(r.data ?? []));
     this.http.get<ApiResponse<PrintJob[]>>(`${this.api}/reception-inventory/print-queue`).subscribe((r) => this.queue.set(r.data ?? []));
   }

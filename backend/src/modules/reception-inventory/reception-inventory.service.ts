@@ -28,33 +28,112 @@ async function receptionWarehouseId(branchId: string): Promise<string> {
 }
 
 export const receptionInventoryService = {
-  /** Productos con stock actual en recepción, ingresos/salidas y mínimo. */
-  async list(scope: RequestScope) {
+  /** Ventana [from, to) del turno de recepción, por la config de Horarios. */
+  turnWindow(
+    shifts: { shift: string; startTime: string; endTime: string; status: string }[],
+    date?: string,
+    shift?: string,
+  ): { from: Date; to: Date; shift: string; businessDate: string; startTime: string; endTime: string; isCurrent: boolean } {
+    const DEF = [
+      { shift: 'MANANA', startTime: '06:30', endTime: '14:30', status: 'active' },
+      { shift: 'TARDE', startTime: '14:30', endTime: '22:30', status: 'active' },
+      { shift: 'NOCHE', startTime: '22:30', endTime: '06:30', status: 'active' },
+    ];
+    const cfg = shifts.length ? shifts : DEF;
+    const toMin = (h: string): number => { const [a, b] = h.split(':').map(Number); return a * 60 + b; };
+    const ymd = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const now = new Date();
+
+    // Turno objetivo: el indicado (date+shift) o el actual por la hora.
+    let bizDate = date;
+    let shiftKey = shift;
+    if (!bizDate || !shiftKey) {
+      const nowMin = now.getHours() * 60 + now.getMinutes();
+      const s = cfg.find((x) => {
+        if (x.status !== 'active') return false;
+        const st = toMin(x.startTime); const en = toMin(x.endTime);
+        return en > st ? nowMin >= st && nowMin < en : nowMin >= st || nowMin < en;
+      }) ?? cfg[0];
+      const st = toMin(s.startTime); const overnight = toMin(s.endTime) <= st;
+      const d = new Date(now);
+      if (overnight && now.getHours() * 60 + now.getMinutes() < st) d.setDate(d.getDate() - 1);
+      bizDate = ymd(d); shiftKey = s.shift;
+    }
+
+    const sc = cfg.find((x) => x.shift === shiftKey) ?? cfg[0];
+    const [sh, sm] = sc.startTime.split(':').map(Number);
+    const [eh, em] = sc.endTime.split(':').map(Number);
+    const overnight = eh * 60 + em <= sh * 60 + sm;
+    const from = new Date(`${bizDate}T00:00:00`); from.setHours(sh, sm, 0, 0);
+    const to = new Date(`${bizDate}T00:00:00`); to.setHours(eh, em, 0, 0); if (overnight) to.setDate(to.getDate() + 1);
+    return { from, to, shift: shiftKey, businessDate: bizDate, startTime: sc.startTime, endTime: sc.endTime, isCurrent: now >= from && now < to };
+  },
+
+  /**
+   * Inventario de recepción de un turno. El stock inicial = stock actual − movimientos
+   * desde el inicio del turno (así hereda el stock final del turno anterior, no el base).
+   */
+  async list(scope: RequestScope, opts?: { date?: string; shift?: string }) {
     const branchId = requireActiveBranch(scope);
     const whId = await receptionWarehouseId(branchId);
-    const [products, stocks, ins, outs] = await Promise.all([
+    const shifts = await prisma.roleShift.findMany({ where: { branchId, role: 'RECEPCION' } });
+    const win = this.turnWindow(shifts, opts?.date, opts?.shift);
+
+    const [products, stocks, movs] = await Promise.all([
       prisma.product.findMany({ where: { branchId, status: 'active' }, include: { category: { select: { name: true } } }, orderBy: { sku: 'asc' } }),
       prisma.stock.findMany({ where: { warehouseId: whId } }),
-      prisma.inventoryMovement.groupBy({ by: ['productId'], where: { branchId, warehouseId: whId, quantity: { gt: 0 } }, _sum: { quantity: true } }),
-      prisma.inventoryMovement.groupBy({ by: ['productId'], where: { branchId, warehouseId: whId, quantity: { lt: 0 } }, _sum: { quantity: true } }),
+      // Solo se necesitan los movimientos desde el inicio del turno en adelante.
+      prisma.inventoryMovement.findMany({
+        where: { branchId, warehouseId: whId, createdAt: { gte: win.from } },
+        select: { productId: true, quantity: true, createdAt: true },
+      }),
     ]);
     const stockMap = new Map(stocks.map((s) => [s.productId, s.quantity]));
-    const inMap = new Map(ins.map((r) => [r.productId, r._sum.quantity ?? 0]));
-    const outMap = new Map(outs.map((r) => [r.productId, Math.abs(r._sum.quantity ?? 0)]));
+
+    // Sumas por producto: desde el inicio del turno, desde el fin, y dentro del turno.
+    const sinceFrom = new Map<string, number>();
+    const sinceTo = new Map<string, number>();
+    const ingresos = new Map<string, number>();
+    const salidas = new Map<string, number>();
+    for (const m of movs) {
+      if (!m.productId) continue;
+      sinceFrom.set(m.productId, (sinceFrom.get(m.productId) ?? 0) + m.quantity);
+      if (m.createdAt >= win.to) {
+        sinceTo.set(m.productId, (sinceTo.get(m.productId) ?? 0) + m.quantity);
+      } else {
+        // dentro del turno [from, to)
+        if (m.quantity > 0) ingresos.set(m.productId, (ingresos.get(m.productId) ?? 0) + m.quantity);
+        else salidas.set(m.productId, (salidas.get(m.productId) ?? 0) + Math.abs(m.quantity));
+      }
+    }
+
     return {
       warehouseId: whId,
-      items: products.map((p) => ({
-        productId: p.id,
-        name: p.name,
-        sku: p.sku,
-        categoryId: p.categoryId,
-        categoryName: p.category?.name ?? null,
-        stock: stockMap.get(p.id) ?? 0,
-        min: p.receptionReorderPoint,
-        ingresos: inMap.get(p.id) ?? 0,
-        salidas: outMap.get(p.id) ?? 0,
-        belowMin: (stockMap.get(p.id) ?? 0) <= p.receptionReorderPoint,
-      })),
+      turn: {
+        shift: win.shift,
+        businessDate: win.businessDate,
+        startTime: win.startTime,
+        endTime: win.endTime,
+        isCurrent: win.isCurrent,
+      },
+      items: products.map((p) => {
+        const current = stockMap.get(p.id) ?? 0;
+        const stockFinal = current - (sinceTo.get(p.id) ?? 0);
+        const stockInicial = current - (sinceFrom.get(p.id) ?? 0);
+        return {
+          productId: p.id,
+          name: p.name,
+          sku: p.sku,
+          categoryId: p.categoryId,
+          categoryName: p.category?.name ?? null,
+          stockInicial,
+          ingresos: ingresos.get(p.id) ?? 0,
+          salidas: salidas.get(p.id) ?? 0,
+          stock: stockFinal,
+          min: p.receptionReorderPoint,
+          belowMin: stockFinal <= p.receptionReorderPoint,
+        };
+      }),
     };
   },
 

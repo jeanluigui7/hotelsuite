@@ -6,7 +6,9 @@ import { receptionInventoryService, requestSchema, writeOffSchema } from './rece
 export const receptionInventoryController = {
   async list(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
-    res.status(200).json(ok(await receptionInventoryService.list(req.scope)));
+    const date = typeof req.query.date === 'string' ? req.query.date : undefined;
+    const shift = typeof req.query.shift === 'string' ? req.query.shift : undefined;
+    res.status(200).json(ok(await receptionInventoryService.list(req.scope, { date, shift })));
   },
   async createRequest(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
