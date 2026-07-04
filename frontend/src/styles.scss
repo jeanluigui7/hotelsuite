@@ -67,3 +67,91 @@ html.dark ::-webkit-scrollbar-thumb {
 html.dark ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ============================================================================
+   RESPONSIVE GLOBAL — que formularios y tablas se adapten a cualquier pantalla.
+   Se aplica a toda la app (no hace falta tocar cada componente).
+   ============================================================================ */
+
+/* La página nunca hace scroll horizontal; el contenido ancho scrollea dentro de su caja. */
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+img,
+video,
+canvas,
+svg {
+  max-width: 100%;
+}
+
+/* --- Diálogos / formularios modales: nunca más anchos que la pantalla --- */
+.p-dialog {
+  max-width: 96vw !important;
+  max-height: 92vh;
+}
+.p-dialog .p-dialog-content {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+@media (max-width: 640px) {
+  .p-dialog {
+    width: 96vw !important;
+  }
+  /* Dentro de modales, campos y selects a ancho completo para que no se desborden */
+  .p-dialog .p-inputtext,
+  .p-dialog .p-select,
+  .p-dialog .p-inputnumber,
+  .p-dialog .p-inputnumber-input,
+  .p-dialog .p-datepicker,
+  .p-dialog .p-multiselect {
+    width: 100% !important;
+  }
+}
+
+/* --- Tablas: scroll horizontal dentro de su contenedor (no rompen el layout) --- */
+.tbl-wrap,
+.tb-wrap,
+.table-wrap,
+.tbl-responsive,
+.p-datatable-wrapper,
+.p-datatable-table-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
+
+/* --- Rejillas de filtros/tarjetas/métricas: colapsan en pantallas chicas --- */
+@media (max-width: 760px) {
+  .filters,
+  .cards,
+  .metrics,
+  .methods,
+  .se-grid,
+  .times,
+  .form-grid,
+  .grid-2,
+  .grid-3,
+  .grid-4,
+  .kv-grid,
+  .two-col,
+  .three-col {
+    grid-template-columns: 1fr !important;
+  }
+  /* Barras de acciones/toolbars: que envuelvan en móvil */
+  .toolbar,
+  .qbar,
+  .actions,
+  .bar,
+  .head,
+  .filters-bar {
+    flex-wrap: wrap !important;
+  }
+}
+@media (min-width: 761px) and (max-width: 1100px) {
+  .filters,
+  .cards {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
