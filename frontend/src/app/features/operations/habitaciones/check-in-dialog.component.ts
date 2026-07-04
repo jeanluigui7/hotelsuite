@@ -687,6 +687,13 @@ export class CheckInDialogComponent {
     if (!this.selectedRateId) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Falta tarifa', detail: 'Selecciona una tarifa.' }); return; }
     if (this.isCustom() && (!this.checkoutAt || this.customPrice == null)) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Tarifa personalizada', detail: 'Indica la fecha de salida y el precio a cobrar.' }); return; }
     if (!this.docNumber || !this.guestName) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Datos incompletos', detail: 'Completa documento y nombre del huésped.' }); return; }
+    // Early Check-in: si se aplica y no es cortesía, exige un monto para que el cargo
+    // quede registrado (antes quedaba la nota pero sin sumar el cargo).
+    if (this.isPernoctaRate() && this.applyEarly && !this.earlyCortesia && (this.earlyAmount || 0) <= 0) {
+      this.tab.set('pago');
+      this.messages.add({ severity: 'warn', summary: 'Early Check-in', detail: 'Ingresa el monto del Early Check-in o márcalo como cortesía.' });
+      return;
+    }
     const badRef = this.pays().find((p) => this.payMeta(p.type).ref && !p.reference.trim());
     if (badRef) { this.tab.set('pago'); this.messages.add({ severity: 'warn', summary: 'Falta referencia', detail: 'Los pagos con tarjeta/transferencia requieren referencia.' }); return; }
     // Debe registrarse el pago del cliente antes de confirmar.
