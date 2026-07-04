@@ -28,6 +28,20 @@ export const staysController = {
     const dto = updateStayDetailsSchema.parse(req.body);
     res.status(200).json(ok(await staysService.updateDetails(req.scope, req.params.id, dto)));
   },
+  async history(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const q = req.query;
+    const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined);
+    res.status(200).json(
+      ok(
+        await staysService.history(req.scope, {
+          from: str(q.from) ? new Date(q.from as string) : undefined,
+          to: str(q.to) ? new Date(q.to as string) : undefined,
+          search: str(q.search),
+        }),
+      ),
+    );
+  },
 
   async renew(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();

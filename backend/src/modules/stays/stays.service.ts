@@ -479,4 +479,96 @@ export const staysService = {
     ]);
     return { items: rows.map(serialize), meta: pageMeta(params, total) };
   },
+
+  /**
+   * Historial de estancias enriquecido (paginado por turno en el frontend): tipo,
+   * duración, monto, método/estado de pago, DNI, cliente, placa, observaciones y
+   * el turno de recepción por la hora de ingreso.
+   */
+  async history(scope: RequestScope, filters: { from?: Date; to?: Date; search?: string }) {
+    const branchId = requireActiveBranch(scope);
+    const shifts = await prisma.roleShift.findMany({ where: { branchId, role: 'RECEPCION' } });
+    const where: Prisma.StayWhereInput = { branchId };
+    if (filters.from || filters.to) {
+      where.checkInAt = { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) };
+    }
+    if (filters.search) {
+      where.guest = {
+        OR: [
+          { firstName: { contains: filters.search } },
+          { lastName: { contains: filters.search } },
+          { documentNumber: { contains: filters.search } },
+        ],
+      };
+    }
+    const stays = await staysRepository.list({ where, skip: 0, take: 500, orderBy: { checkInAt: 'desc' } });
+
+    const stayIds = stays.map((s) => s.id);
+    const sales = stayIds.length
+      ? await prisma.sale.findMany({ where: { stayId: { in: stayIds }, status: { not: 'CANCELLED' } }, include: { payments: true } })
+      : [];
+    const pay = new Map<string, { charged: number; paid: number; methods: Set<string> }>();
+    for (const sale of sales) {
+      if (!sale.stayId) continue;
+      const e = pay.get(sale.stayId) ?? { charged: 0, paid: 0, methods: new Set<string>() };
+      e.charged = round2(e.charged + Number(sale.total));
+      for (const p of sale.payments) { e.paid = round2(e.paid + Number(p.amount)); e.methods.add(p.method); }
+      pay.set(sale.stayId, e);
+    }
+
+    const toMin = (h: string): number => { const [a, b] = h.split(':').map(Number); return a * 60 + b; };
+    const ymdLocal = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const shiftFor = (at: Date): { shift: string; start: string; end: string; businessDate: string } => {
+      const nowMin = at.getHours() * 60 + at.getMinutes();
+      for (const s of shifts) {
+        if (s.status !== 'active') continue;
+        const start = toMin(s.startTime); const end = toMin(s.endTime); const overnight = end <= start;
+        const inR = overnight ? nowMin >= start || nowMin < end : nowMin >= start && nowMin < end;
+        if (!inR) continue;
+        const d = new Date(at);
+        if (overnight && nowMin < start) d.setDate(d.getDate() - 1);
+        return { shift: s.shift, start: s.startTime, end: s.endTime, businessDate: ymdLocal(d) };
+      }
+      return { shift: 'MANANA', start: '', end: '', businessDate: ymdLocal(at) };
+    };
+
+    const now = new Date();
+    const items = stays.map((s) => {
+      const tipo = s.renewalCount > 0 ? 'RENOVACION' : s.rate?.pernocta || s.durationMinutes >= 1440 ? 'PERNOCTA' : 'ESTADIA_CORTA';
+      const p = pay.get(s.id) ?? { charged: Number(s.priceAgreed), paid: 0, methods: new Set<string>() };
+      const charged = p.charged > 0 ? p.charged : Number(s.priceAgreed);
+      const owed = round2(charged - p.paid);
+      const method = p.methods.size === 0 ? '' : p.methods.size === 1 ? [...p.methods][0] : 'MIXTO';
+      const end = s.checkOutAt ?? now;
+      const mins = Math.max(0, Math.round((end.getTime() - s.checkInAt.getTime()) / 60000));
+      const h = Math.floor(mins / 60); const m = mins % 60;
+      const duration = s.checkOutAt ? `${h}h ${m}min` : mins < 60 ? 'En curso' : `${h}h ${m}min en curso`;
+      const sh = shiftFor(s.checkInAt);
+      return {
+        id: s.id,
+        tipo,
+        status: s.status,
+        checkInAt: s.checkInAt,
+        checkOutAt: s.checkOutAt,
+        roomNumber: s.room?.number ?? null,
+        duration,
+        active: s.status === 'OPEN',
+        amount: Number(s.priceAgreed),
+        paid: p.paid,
+        owed,
+        method,
+        paymentState: owed > 0.005 ? 'PENDIENTE' : 'PAGADO',
+        dni: s.guest?.documentNumber ?? '',
+        customer: `${s.guest?.firstName ?? ''} ${s.guest?.lastName ?? ''}`.trim(),
+        plate: s.vehiclePlate ?? null,
+        notes: s.notes ?? null,
+        cleaningOk: s.renewalCleaningStatus === 'NONE' && s.renewalCount > 0,
+        shift: sh.shift,
+        shiftStart: sh.start,
+        shiftEnd: sh.end,
+        businessDate: sh.businessDate,
+      };
+    });
+    return { items };
+  },
 };
