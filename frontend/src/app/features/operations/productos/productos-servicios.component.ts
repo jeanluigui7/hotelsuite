@@ -19,6 +19,7 @@ interface Mov {
   method: string;
   concept: string;
   collaborator: string;
+  collaboratorId: string | null;
   shift: string;
   shiftStart: string;
   shiftEnd: string;
@@ -29,22 +30,24 @@ interface MovResp {
   collaborators: { id: string; name: string }[];
   rooms: { id: string; number: string }[];
 }
-interface Group {
-  key: string;
-  date: string;
-  shiftLabel: string;
-  total: number;
-  count: number;
-  rows: Mov[];
-}
 
 const CONCEPT_LABEL: Record<string, string> = { HOSPEDAJE: 'Hospedaje', PRODUCTOS: 'Productos', SERVICIOS: 'Servicios', PENALIDADES: 'Penalidades' };
 const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', WALLET: 'Yape', TRANSFER: 'Plin', CARD: 'Tarjeta', PENDIENTE: 'Pendiente', MIXTO: 'Mixto' };
 const SHIFT_LABEL: Record<string, string> = { MANANA: 'Turno Mañana', TARDE: 'Turno Tarde', NOCHE: 'Turno Noche' };
 const CONCEPT_COLOR: Record<string, string> = { HOSPEDAJE: '#3b82f6', PRODUCTOS: '#22c55e', SERVICIOS: '#f59e0b', PENALIDADES: '#ef4444' };
+const SHIFTS = ['MANANA', 'TARDE', 'NOCHE'];
+// Rango horario por defecto (solo para etiqueta cuando el turno no tiene movimientos).
+const SHIFT_RANGE: Record<string, string> = { MANANA: '06:30 - 14:30', TARDE: '14:30 - 22:30', NOCHE: '22:30 - 06:30' };
 
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+/** Turno actual por la hora (0=Mañana, 1=Tarde, 2=Noche). */
+function currentShiftIdx(): number {
+  const h = new Date().getHours() + new Date().getMinutes() / 60;
+  if (h >= 6.5 && h < 14.5) return 0;
+  if (h >= 14.5 && h < 22.5) return 1;
+  return 2;
 }
 
 @Component({
@@ -60,89 +63,87 @@ function ymd(d: Date): string {
         <div class="f"><label>Método de Pago</label><p-select [options]="methodOpts" optionLabel="label" optionValue="value" [(ngModel)]="fMethod" styleClass="w" /></div>
         <div class="f"><label>Habitación</label><p-select [options]="roomOpts()" optionLabel="label" optionValue="value" [(ngModel)]="fRoom" styleClass="w" /></div>
         <div class="f"><label>Colaborador</label><p-select [options]="collabOpts()" optionLabel="label" optionValue="value" [(ngModel)]="fCollab" styleClass="w" /></div>
-        <div class="f"><label>Fecha Inicio</label><input type="date" [(ngModel)]="fFrom" /></div>
-        <div class="f"><label>Fecha Fin</label><input type="date" [(ngModel)]="fTo" /></div>
+        <div class="f"><label>Día</label><input type="date" [(ngModel)]="fDay" (change)="onDayChange()" /></div>
       </div>
 
       <div class="qbar">
-        <button class="q h" [class.on]="fConcept === 'HOSPEDAJE'" (click)="quick('HOSPEDAJE')"><i class="pi pi-home"></i> Hospedaje</button>
-        <button class="q p" [class.on]="fConcept === 'PRODUCTOS'" (click)="quick('PRODUCTOS')"><i class="pi pi-shopping-cart"></i> Productos</button>
-        <button class="q s" [class.on]="fConcept === 'SERVICIOS'" (click)="quick('SERVICIOS')"><i class="pi pi-gift"></i> Servicios</button>
-        <button class="q pe" [class.on]="fConcept === 'PENALIDADES'" (click)="quick('PENALIDADES')"><i class="pi pi-exclamation-triangle"></i> Penalidades</button>
-        <button class="q v" [class.on]="fConcept === 'ALL'" (click)="quick('ALL')"><i class="pi pi-list"></i> Ver Todos</button>
+        <button class="q h" [class.on]="fConcept === 'HOSPEDAJE'" (click)="fConcept = 'HOSPEDAJE'"><i class="pi pi-home"></i> Hospedaje</button>
+        <button class="q p" [class.on]="fConcept === 'PRODUCTOS'" (click)="fConcept = 'PRODUCTOS'"><i class="pi pi-shopping-cart"></i> Productos</button>
+        <button class="q s" [class.on]="fConcept === 'SERVICIOS'" (click)="fConcept = 'SERVICIOS'"><i class="pi pi-gift"></i> Servicios</button>
+        <button class="q pe" [class.on]="fConcept === 'PENALIDADES'" (click)="fConcept = 'PENALIDADES'"><i class="pi pi-exclamation-triangle"></i> Penalidades</button>
+        <button class="q v" [class.on]="fConcept === 'ALL'" (click)="fConcept = 'ALL'"><i class="pi pi-list"></i> Ver Todos</button>
         <span class="sp"></span>
-        <button class="act buscar" (click)="load()"><i class="pi pi-search"></i> Buscar</button>
         <button class="act limpiar" (click)="clear()"><i class="pi pi-refresh"></i> Limpiar</button>
         <button class="act excel" (click)="exportCsv()"><i class="pi pi-download"></i> Exportar Excel</button>
       </div>
 
-      <div class="search"><i class="pi pi-search"></i><input [(ngModel)]="fSearch" (keyup.enter)="load()" placeholder="Buscar por nombre o descripción" /></div>
+      <div class="search"><i class="pi pi-search"></i><input [(ngModel)]="fSearch" placeholder="Buscar por nombre o descripción" /></div>
 
-      <div class="daynav">
-        <button class="d-nav" (click)="shiftDay(-1)"><i class="pi pi-chevron-left"></i> Día Anterior</button>
-        <div class="d-cur"><strong>{{ dayLabel() }}</strong></div>
-        <button class="d-nav" (click)="shiftDay(1)" [disabled]="isToday()">Día Siguiente <i class="pi pi-chevron-right"></i></button>
-        <span class="sp"></span>
-        <span class="tot">{{ items().length }} registros</span>
+      <!-- Navegación por turno (un turno a la vez) -->
+      <div class="turnnav">
+        <button class="t-nav" (click)="prevTurn()"><i class="pi pi-chevron-left"></i> Turno Anterior</button>
+        <div class="t-cur">
+          <strong>{{ turnDate() | date: 'EEEE, dd \\'De\\' MMMM \\'De\\' y' }}</strong>
+          <span class="muted">{{ turnLabel() }} @if (isCurrentTurn()) { <span class="t-act">ACTUAL</span> }</span>
+        </div>
+        <button class="t-nav" (click)="nextTurn()" [disabled]="isCurrentTurn()">Siguiente Turno <i class="pi pi-chevron-right"></i></button>
       </div>
 
       @if (loading()) { <p class="muted">Cargando…</p> }
       @else {
-        <h2>Movimientos Registrados <small>({{ items().length }} registros)</small></h2>
-        @for (g of groups(); track g.key) {
-          <div class="grp">
-            <div class="grp-h">
-              <div><strong>{{ g.date | date: 'EEEE, dd \\'De\\' MMMM \\'De\\' y' }}</strong><span class="muted"> · {{ g.shiftLabel }}</span></div>
-              <div class="grp-tot">Total del turno<br /><strong>S/ {{ g.total | number: '1.2-2' }}</strong><br /><small>{{ g.count }} movimientos</small></div>
-            </div>
-            <div class="tbl-wrap">
-              <table class="tbl">
-                <thead><tr><th>Fecha</th><th>Descripción</th><th class="c">Habitación</th><th class="c">Tipo</th><th class="c">Cant.</th><th class="r">Monto</th><th>Método</th><th>Concepto</th><th>Colaborador</th></tr></thead>
-                <tbody>
-                  @for (m of g.rows; track m.id) {
-                    <tr>
-                      <td>{{ m.date | date: 'dd/MM/yyyy HH:mm' }}</td>
-                      <td>{{ m.description }}</td>
-                      <td class="c">@if (m.roomNumber) { <span class="room">{{ m.roomNumber }}</span> } @else { <span class="muted">—</span> }</td>
-                      <td class="c"><span class="tipo">{{ m.type }}</span></td>
-                      <td class="c">{{ m.quantity }}</td>
-                      <td class="r money">S/ {{ m.amount | number: '1.2-2' }}</td>
-                      <td>{{ methodLabel(m.method) }}</td>
-                      <td><span class="concept" [style.background]="conceptBg(m.concept)" [style.color]="conceptFg(m.concept)">{{ conceptLabel(m.concept) }}</span></td>
-                      <td>{{ m.collaborator }}</td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
+        @let rows = turnRows();
+        <div class="grp">
+          <div class="grp-h">
+            <div><strong>{{ turnDate() | date: 'EEEE, dd \\'De\\' MMMM \\'De\\' y' }}</strong><span class="muted"> · {{ turnLabel() }}</span></div>
+            <div class="grp-tot">Total del turno<br /><strong>S/ {{ turnTotal() | number: '1.2-2' }}</strong><br /><small>{{ rows.length }} movimientos</small></div>
           </div>
-        } @empty { <p class="muted empty">No hay movimientos para los filtros seleccionados.</p> }
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th>Fecha</th><th>Descripción</th><th class="c">Habitación</th><th class="c">Tipo</th><th class="c">Cant.</th><th class="r">Monto</th><th>Método</th><th>Concepto</th><th>Colaborador</th></tr></thead>
+              <tbody>
+                @for (m of rows; track m.id) {
+                  <tr>
+                    <td>{{ m.date | date: 'dd/MM/yyyy HH:mm' }}</td>
+                    <td>{{ m.description }}</td>
+                    <td class="c">@if (m.roomNumber) { <span class="room">{{ m.roomNumber }}</span> } @else { <span class="muted">—</span> }</td>
+                    <td class="c"><span class="tipo">{{ m.type }}</span></td>
+                    <td class="c">{{ m.quantity }}</td>
+                    <td class="r money">S/ {{ m.amount | number: '1.2-2' }}</td>
+                    <td>{{ methodLabel(m.method) }}</td>
+                    <td><span class="concept" [style.background]="conceptBg(m.concept)" [style.color]="conceptFg(m.concept)">{{ conceptLabel(m.concept) }}</span></td>
+                    <td>{{ m.collaborator }}</td>
+                  </tr>
+                } @empty { <tr><td colspan="9" class="empty">Sin movimientos en este turno.</td></tr> }
+              </tbody>
+            </table>
+          </div>
+        </div>
       }
     </section>
   `,
   styles: [
     `
       .wrap { padding: 1.4rem; }
-      h1 { margin: 0 0 1rem; font-size: 1.5rem; } h2 { font-size: 1.05rem; margin: 1rem 0 0.6rem; } h2 small { color: #8aa0bd; font-weight: 400; }
-      .muted { color: #8aa0bd; } .empty { text-align: center; padding: 2rem; }
-      .filters { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.8rem; background: #0e1622; border: 1px solid #1c2c44; border-radius: 12px; padding: 1rem; }
+      h1 { margin: 0 0 1rem; font-size: 1.5rem; }
+      .muted { color: #8aa0bd; } .empty { text-align: center; padding: 2rem; color: #8aa0bd; }
+      .filters { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.8rem; background: #0e1622; border: 1px solid #1c2c44; border-radius: 12px; padding: 1rem; }
       .f { display: flex; flex-direction: column; gap: 0.35rem; } .f label { font-size: 0.72rem; color: #8aa0bd; }
       .f input[type=date] { background: #0e1626; border: 1px solid #26364f; border-radius: 8px; color: #e2e8f0; padding: 0.5rem; }
       :host ::ng-deep .w { width: 100%; }
       .qbar { display: flex; align-items: center; gap: 0.5rem; margin: 0.9rem 0; flex-wrap: wrap; }
       .q { display: inline-flex; align-items: center; gap: 0.4rem; border-radius: 8px; padding: 0.5rem 0.9rem; font-weight: 700; font-size: 0.8rem; cursor: pointer; background: transparent; border: 1px solid; }
       .q.h { color: #60a5fa; border-color: #2b4b7a; } .q.p { color: #34d399; border-color: #14633f; } .q.s { color: #fbbf24; border-color: #78521a; } .q.pe { color: #f87171; border-color: #7f1d1d; } .q.v { color: #cbd5e1; border-color: #33455f; }
-      .q.on { background: currentColor; } .q.on i, .q.on { color: #05121f; }
       .q.h.on { background: #3b82f6; color: #fff; } .q.p.on { background: #22c55e; color: #04130d; } .q.s.on { background: #f59e0b; color: #201603; } .q.pe.on { background: #ef4444; color: #fff; } .q.v.on { background: #475569; color: #fff; }
       .sp { flex: 1; }
       .act { display: inline-flex; align-items: center; gap: 0.4rem; border: 0; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 700; font-size: 0.82rem; cursor: pointer; color: #fff; }
-      .act.buscar { background: #3b82f6; } .act.limpiar { background: #334155; } .act.excel { background: #22c55e; color: #04130d; }
+      .act.limpiar { background: #334155; } .act.excel { background: #22c55e; color: #04130d; }
       .search { display: flex; align-items: center; gap: 0.5rem; background: #0e1626; border: 1px solid #26364f; border-radius: 10px; padding: 0.6rem 0.9rem; margin-bottom: 0.9rem; color: #8aa0bd; }
       .search input { flex: 1; background: transparent; border: 0; color: #e2e8f0; outline: none; }
-      .daynav { display: flex; align-items: center; gap: 1rem; background: #0e1622; border: 1px solid #1f2a3a; border-radius: 12px; padding: 0.7rem 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
-      .d-nav { background: #16233a; border: 1px solid #274468; color: #cbd5e1; border-radius: 8px; padding: 0.45rem 0.8rem; cursor: pointer; font-size: 0.82rem; } .d-nav:disabled { opacity: 0.4; cursor: not-allowed; }
-      .d-cur { text-transform: capitalize; } .tot { color: #8aa0bd; font-size: 0.85rem; }
-      .grp { border: 1px solid #1c2c44; border-radius: 12px; margin-bottom: 1.1rem; overflow: hidden; }
+      .turnnav { display: flex; align-items: center; gap: 1rem; background: #0e1622; border: 1px solid #1f2a3a; border-radius: 12px; padding: 0.7rem 1rem; margin-bottom: 1rem; flex-wrap: wrap; justify-content: space-between; }
+      .t-nav { background: #16233a; border: 1px solid #274468; color: #cbd5e1; border-radius: 8px; padding: 0.5rem 0.9rem; cursor: pointer; font-size: 0.82rem; font-weight: 600; } .t-nav:disabled { opacity: 0.4; cursor: not-allowed; }
+      .t-cur { text-align: center; text-transform: capitalize; } .t-cur .muted { display: block; font-size: 0.8rem; }
+      .t-act { background: rgba(16,185,129,0.2); color: #34d399; border-radius: 999px; padding: 0.1rem 0.5rem; font-size: 0.7rem; font-weight: 700; margin-left: 0.4rem; }
+      .grp { border: 1px solid #1c2c44; border-radius: 12px; overflow: hidden; }
       .grp-h { display: flex; align-items: center; justify-content: space-between; gap: 1rem; background: #14203a; padding: 0.9rem 1.1rem; border-bottom: 1px solid #1c2c44; text-transform: capitalize; }
       .grp-tot { text-align: right; font-size: 0.75rem; color: #8aa0bd; } .grp-tot strong { color: #34d399; font-size: 1.1rem; }
       .tbl-wrap { overflow-x: auto; }
@@ -163,7 +164,8 @@ export class ProductosServiciosComponent implements OnInit {
   private readonly toast = inject(MessageService);
   private readonly api = environment.apiUrl;
 
-  readonly items = signal<Mov[]>([]);
+  /** Movimientos del día cargado (los 3 turnos); se filtra por turno en pantalla. */
+  private readonly dayItems = signal<Mov[]>([]);
   readonly loading = signal(false);
   readonly serverCollabs = signal<{ id: string; name: string }[]>([]);
   readonly serverRooms = signal<{ id: string; number: string }[]>([]);
@@ -173,23 +175,14 @@ export class ProductosServiciosComponent implements OnInit {
   fRoom: string | null = null;
   fCollab: string | null = null;
   fSearch = '';
-  fFrom = ymd(new Date());
-  fTo = ymd(new Date());
+  fDay = ymd(new Date());
+  curShift = signal(currentShiftIdx());
 
   readonly conceptOpts = [
-    { label: 'Todos', value: 'ALL' },
-    { label: 'Hospedaje', value: 'HOSPEDAJE' },
-    { label: 'Productos', value: 'PRODUCTOS' },
-    { label: 'Servicios', value: 'SERVICIOS' },
-    { label: 'Penalidades', value: 'PENALIDADES' },
+    { label: 'Todos', value: 'ALL' }, { label: 'Hospedaje', value: 'HOSPEDAJE' }, { label: 'Productos', value: 'PRODUCTOS' }, { label: 'Servicios', value: 'SERVICIOS' }, { label: 'Penalidades', value: 'PENALIDADES' },
   ];
   readonly methodOpts = [
-    { label: 'Todos', value: 'ALL' },
-    { label: 'Efectivo', value: 'CASH' },
-    { label: 'Yape', value: 'WALLET' },
-    { label: 'Plin', value: 'TRANSFER' },
-    { label: 'Tarjeta', value: 'CARD' },
-    { label: 'Pendiente', value: 'PENDIENTE' },
+    { label: 'Todos', value: 'ALL' }, { label: 'Efectivo', value: 'CASH' }, { label: 'Yape', value: 'WALLET' }, { label: 'Plin', value: 'TRANSFER' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Pendiente', value: 'PENDIENTE' },
   ];
   readonly roomOpts = computed(() => [{ label: 'Todas', value: null as string | null }, ...this.serverRooms().map((r) => ({ label: r.number, value: r.id }))]);
   readonly collabOpts = computed(() => [{ label: 'Todos', value: null as string | null }, ...this.serverCollabs().map((c) => ({ label: c.name, value: c.id }))]);
@@ -198,42 +191,61 @@ export class ProductosServiciosComponent implements OnInit {
 
   conceptLabel(c: string): string { return CONCEPT_LABEL[c] ?? c; }
   methodLabel(m: string): string { return METHOD_LABEL[m] ?? m; }
-  conceptBg(c: string): string { const col = CONCEPT_COLOR[c] ?? '#64748b'; return col + '2e'; }
+  conceptBg(c: string): string { return (CONCEPT_COLOR[c] ?? '#64748b') + '2e'; }
   conceptFg(c: string): string { return CONCEPT_COLOR[c] ?? '#94a3b8'; }
 
-  dayLabel(): string {
-    const d = new Date(this.fFrom + 'T12:00:00');
-    return d.toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  turnDate(): Date { return new Date(this.fDay + 'T12:00:00'); }
+  turnKey(): string { return SHIFTS[this.curShift()]; }
+  turnLabel(): string {
+    const key = this.turnKey();
+    const sample = this.dayItems().find((m) => m.businessDate === this.fDay && m.shift === key);
+    const range = sample && sample.shiftStart ? `${sample.shiftStart} - ${sample.shiftEnd}` : SHIFT_RANGE[key];
+    return `${SHIFT_LABEL[key]} - ${range}`;
   }
-  isToday(): boolean { return this.fFrom >= ymd(new Date()); }
-  shiftDay(dir: number): void {
-    const d = new Date(this.fFrom + 'T12:00:00');
-    d.setDate(d.getDate() + dir);
-    this.fFrom = ymd(d); this.fTo = ymd(d);
-    this.load();
-  }
+  isCurrentTurn(): boolean { return this.fDay >= ymd(new Date()) && this.curShift() >= currentShiftIdx(); }
 
-  quick(concept: string): void { this.fConcept = concept; this.load(); }
+  /** Movimientos del turno seleccionado, aplicando los filtros de pantalla. */
+  readonly turnRows = computed<Mov[]>(() => {
+    const key = SHIFTS[this.curShift()];
+    const q = this.fSearch.trim().toLowerCase();
+    return this.dayItems()
+      .filter((m) => m.businessDate === this.fDay && m.shift === key)
+      .filter((m) => this.fConcept === 'ALL' || m.concept === this.fConcept)
+      .filter((m) => this.fMethod === 'ALL' || m.method === this.fMethod)
+      .filter((m) => !this.fRoom || m.roomId === this.fRoom)
+      .filter((m) => !this.fCollab || m.collaboratorId === this.fCollab)
+      .filter((m) => !q || m.description.toLowerCase().includes(q))
+      .sort((a, b) => (a.date < b.date ? 1 : -1));
+  });
+  turnTotal(): number { return Math.round(this.turnRows().reduce((a, m) => a + m.amount, 0) * 100) / 100; }
+
+  prevTurn(): void {
+    let s = this.curShift() - 1;
+    if (s < 0) { s = 2; const d = this.turnDate(); d.setDate(d.getDate() - 1); this.fDay = ymd(d); this.curShift.set(s); this.load(); return; }
+    this.curShift.set(s);
+  }
+  nextTurn(): void {
+    if (this.isCurrentTurn()) return;
+    let s = this.curShift() + 1;
+    if (s > 2) { s = 0; const d = this.turnDate(); d.setDate(d.getDate() + 1); this.fDay = ymd(d); this.curShift.set(s); this.load(); return; }
+    this.curShift.set(s);
+  }
+  onDayChange(): void { this.load(); }
 
   clear(): void {
     this.fConcept = 'ALL'; this.fMethod = 'ALL'; this.fRoom = null; this.fCollab = null; this.fSearch = '';
-    this.fFrom = ymd(new Date()); this.fTo = ymd(new Date());
-    this.load();
+    this.fDay = ymd(new Date()); this.curShift.set(currentShiftIdx()); this.load();
   }
 
+  /** Carga el día seleccionado (incluye la madrugada del día siguiente para el turno Noche). */
   load(): void {
     this.loading.set(true);
-    const params: Record<string, string> = {};
-    if (this.fFrom) params['from'] = this.fFrom + 'T00:00:00';
-    if (this.fTo) params['to'] = this.fTo + 'T23:59:59';
-    if (this.fConcept && this.fConcept !== 'ALL') params['concept'] = this.fConcept;
-    if (this.fMethod && this.fMethod !== 'ALL') params['method'] = this.fMethod;
-    if (this.fRoom) params['roomId'] = this.fRoom;
-    if (this.fCollab) params['collaboratorId'] = this.fCollab;
-    if (this.fSearch.trim()) params['search'] = this.fSearch.trim();
-    this.http.get<ApiResponse<MovResp>>(`${this.api}/reports/movements`, { params }).subscribe({
+    const from = this.fDay + 'T00:00:00';
+    const next = new Date(this.fDay + 'T12:00:00'); next.setDate(next.getDate() + 1);
+    const to = ymd(next) + 'T08:00:00';
+    this.http.get<ApiResponse<MovResp>>(`${this.api}/reports/movements`, { params: { from, to } }).subscribe({
       next: (res) => {
-        this.items.set(res.data?.items ?? []);
+        this.dayItems.set(res.data?.items ?? []);
         this.serverCollabs.set(res.data?.collaborators ?? []);
         this.serverRooms.set(res.data?.rooms ?? []);
         this.loading.set(false);
@@ -242,35 +254,17 @@ export class ProductosServiciosComponent implements OnInit {
     });
   }
 
-  readonly groups = computed<Group[]>(() => {
-    const map = new Map<string, Group>();
-    for (const m of this.items()) {
-      const day = m.businessDate || m.date.slice(0, 10);
-      const key = `${day}|${m.shift}`;
-      let g = map.get(key);
-      if (!g) {
-        const range = m.shiftStart && m.shiftEnd ? ` - ${m.shiftStart} - ${m.shiftEnd}` : '';
-        g = { key, date: day + 'T12:00:00', shiftLabel: (SHIFT_LABEL[m.shift] ?? m.shift) + range, total: 0, count: 0, rows: [] };
-        map.set(key, g);
-      }
-      g.rows.push(m);
-      g.total = Math.round((g.total + m.amount) * 100) / 100;
-      g.count++;
-    }
-    return [...map.values()].sort((a, b) => (a.date < b.date ? 1 : -1));
-  });
-
   exportCsv(): void {
     const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
     const lines = [['Fecha', 'Descripción', 'Habitación', 'Tipo', 'Cantidad', 'Monto', 'Método', 'Concepto', 'Colaborador', 'Turno'].map(esc).join(',')];
-    for (const m of this.items()) {
+    for (const m of this.turnRows()) {
       const d = new Date(m.date);
       const f = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
       lines.push([f, m.description, m.roomNumber ?? '', m.type, m.quantity, m.amount.toFixed(2), this.methodLabel(m.method), this.conceptLabel(m.concept), m.collaborator, SHIFT_LABEL[m.shift] ?? m.shift].map(esc).join(','));
     }
     const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `movimientos-${this.fFrom}_${this.fTo}.csv`; a.click();
+    const a = document.createElement('a'); a.href = url; a.download = `movimientos-${this.fDay}-${this.turnKey()}.csv`; a.click();
     URL.revokeObjectURL(url);
   }
 }
