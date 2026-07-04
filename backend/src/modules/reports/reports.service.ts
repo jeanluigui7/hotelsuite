@@ -116,19 +116,26 @@ export const reportsService = {
       return 'MIXTO';
     };
     const toMin = (h: string): number => { const [a, b] = h.split(':').map(Number); return a * 60 + b; };
-    const shiftFor = (at: Date): string => {
+    const ymdLocal = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    /** Devuelve turno, rango horario y fecha de negocio (la noche cae en el día en que inicia). */
+    const shiftFor = (at: Date): { shift: string; start: string; end: string; businessDate: string } => {
       const nowMin = at.getHours() * 60 + at.getMinutes();
       for (const s of shifts) {
         if (s.status !== 'active') continue;
         const start = toMin(s.startTime); const end = toMin(s.endTime);
-        const inR = end > start ? nowMin >= start && nowMin < end : nowMin >= start || nowMin < end;
-        if (inR) return s.shift;
+        const overnight = end <= start;
+        const inR = overnight ? nowMin >= start || nowMin < end : nowMin >= start && nowMin < end;
+        if (!inR) continue;
+        const d = new Date(at);
+        if (overnight && nowMin < start) d.setDate(d.getDate() - 1); // porción tras medianoche → día anterior
+        return { shift: s.shift, start: s.startTime, end: s.endTime, businessDate: ymdLocal(d) };
       }
-      return 'MANANA';
+      return { shift: 'MANANA', start: '', end: '', businessDate: ymdLocal(at) };
     };
 
     const all = rawItems.map((i) => {
       const stay = i.sale.stayId ? stayMap.get(i.sale.stayId) : undefined;
+      const sh = shiftFor(i.sale.createdAt);
       return {
         id: i.id,
         date: i.sale.createdAt,
@@ -142,7 +149,10 @@ export const reportsService = {
         concept: conceptOf(i.description, i.productId),
         collaborator: i.sale.createdByUserId ? uname.get(i.sale.createdByUserId) ?? '—' : '—',
         collaboratorId: i.sale.createdByUserId ?? null,
-        shift: shiftFor(i.sale.createdAt),
+        shift: sh.shift,
+        shiftStart: sh.start,
+        shiftEnd: sh.end,
+        businessDate: sh.businessDate,
       };
     });
 

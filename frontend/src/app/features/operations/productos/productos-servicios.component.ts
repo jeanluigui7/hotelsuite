@@ -20,6 +20,9 @@ interface Mov {
   concept: string;
   collaborator: string;
   shift: string;
+  shiftStart: string;
+  shiftEnd: string;
+  businessDate: string;
 }
 interface MovResp {
   items: Mov[];
@@ -242,10 +245,14 @@ export class ProductosServiciosComponent implements OnInit {
   readonly groups = computed<Group[]>(() => {
     const map = new Map<string, Group>();
     for (const m of this.items()) {
-      const day = m.date.slice(0, 10);
+      const day = m.businessDate || m.date.slice(0, 10);
       const key = `${day}|${m.shift}`;
       let g = map.get(key);
-      if (!g) { g = { key, date: m.date, shiftLabel: SHIFT_LABEL[m.shift] ?? m.shift, total: 0, count: 0, rows: [] }; map.set(key, g); }
+      if (!g) {
+        const range = m.shiftStart && m.shiftEnd ? ` - ${m.shiftStart} - ${m.shiftEnd}` : '';
+        g = { key, date: day + 'T12:00:00', shiftLabel: (SHIFT_LABEL[m.shift] ?? m.shift) + range, total: 0, count: 0, rows: [] };
+        map.set(key, g);
+      }
       g.rows.push(m);
       g.total = Math.round((g.total + m.amount) * 100) / 100;
       g.count++;
