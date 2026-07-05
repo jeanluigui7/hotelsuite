@@ -69,7 +69,7 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
               <th class="n">STOCK BASE</th><th class="n">STOCK DISP.</th><th class="n">TRANSF.</th><th class="n">EN USO</th><th class="n">LAVANDERÍA</th><th class="n">EN PROCESO</th><th class="n">RECIBIDAS</th><th class="n">PERDIDOS</th><th class="c">ACCIONES</th>
             </tr></thead>
             <tbody>
-              @for (r of filtered(); track r.linenItemId) {
+              @for (r of paged(); track r.linenItemId) {
                 <tr [class.low]="r.belowStock">
                   <td class="ck"><input type="radio" name="sel" [checked]="sel() === r.linenItemId" (change)="sel.set(r.linenItemId)" /></td>
                   <td class="code">{{ r.code }}<br /><small class="muted">NIU</small></td>
@@ -93,6 +93,14 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
               } @empty { <tr><td colspan="13" class="empty">Sin artículos de ropa.</td></tr> }
             </tbody>
           </table>
+        </div>
+        <div class="pager">
+          <span class="pg-info">Mostrando {{ pageStart() }}–{{ pageEnd() }} de {{ filtered().length }}</span>
+          <span class="sp"></span>
+          <button class="pg" [disabled]="page() === 1" (click)="page.set(page() - 1)"><i class="pi pi-chevron-left"></i></button>
+          <span class="pg-cur">{{ page() }} / {{ totalPages() }}</span>
+          <button class="pg" [disabled]="page() >= totalPages()" (click)="page.set(page() + 1)"><i class="pi pi-chevron-right"></i></button>
+          <select class="pg-size" [(ngModel)]="pageSize" (change)="page.set(1)"><option [ngValue]="10">10</option><option [ngValue]="25">25</option><option [ngValue]="50">50</option></select>
         </div>
       }
     </section>
@@ -136,6 +144,10 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
       .acc .ic.del:hover { color: #f87171; }
       .chk { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.7rem; cursor: pointer; font-size: 0.85rem; }
       :host ::ng-deep .w { width: 100%; }
+      .pager { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.8rem; color: #8aa0bd; font-size: 0.82rem; }
+      .pg { background: #13243a; border: 1px solid #274468; color: #cbd5e1; border-radius: 8px; padding: 0.35rem 0.6rem; cursor: pointer; } .pg:disabled { opacity: 0.4; cursor: not-allowed; }
+      .pg-cur { font-weight: 700; color: #e2e8f0; }
+      .pg-size { background: #0e1626; border: 1px solid #26364f; border-radius: 8px; color: #e2e8f0; padding: 0.3rem; }
       .op2 { display: inline-flex; align-items: center; gap: 0.4rem; border: 1px solid #274468; border-radius: 8px; padding: 0.5rem 0.9rem; font-weight: 700; font-size: 0.8rem; cursor: pointer; background: transparent; color: #cbd5e1; }
       .op2.in { background: #22c55e; color: #04130d; border: 0; } .op2.tr { background: #6366f1; color: #fff; border: 0; } .op2:disabled { opacity: 0.5; cursor: not-allowed; }
       .op2.ghost.on { background: #78350f; color: #fbbf24; }
@@ -198,6 +210,19 @@ export class AlmacenRopaComponent implements OnInit {
       .filter((r) => !q || r.name.toLowerCase().includes(q) || r.code.toLowerCase().includes(q))
       .sort((a, b) => (this.sortBy === 'name' ? a.name.localeCompare(b.name) : a.code.localeCompare(b.code)));
   }
+
+  // ── Paginación ──
+  readonly page = signal(1);
+  pageSize = 10;
+  totalPages(): number { return Math.max(1, Math.ceil(this.filtered().length / this.pageSize)); }
+  paged(): Row[] {
+    const p = Math.min(this.page(), this.totalPages());
+    if (p !== this.page()) queueMicrotask(() => this.page.set(p));
+    const start = (p - 1) * this.pageSize;
+    return this.filtered().slice(start, start + this.pageSize);
+  }
+  pageStart(): number { return this.filtered().length === 0 ? 0 : (Math.min(this.page(), this.totalPages()) - 1) * this.pageSize + 1; }
+  pageEnd(): number { return Math.min(this.filtered().length, Math.min(this.page(), this.totalPages()) * this.pageSize); }
 
   reload(): void {
     this.loading.set(true);
