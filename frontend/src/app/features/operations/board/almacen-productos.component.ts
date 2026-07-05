@@ -16,7 +16,22 @@ import { InventoryApiService } from '../../inventory/services/inventory-api.serv
 import type { Product, Warehouse } from '../../inventory/services/inventory.models';
 
 interface Req { id: string; status: string; createdAt: string; items: { productId: string; name: string; quantity: number }[]; }
-interface Form { id?: string; name: string; sku: string; categoryId: string | null; salePrice: number; cost: number; reorderPoint: number; status: 'active' | 'inactive'; stock: number; }
+interface Form {
+  id?: string;
+  name: string; sku: string; barcode: string; imageUrl: string; brand: string;
+  reusable: boolean; categoryId: string | null; productType: string; initialWarehouseId: string | null;
+  unit: string; igvType: string; igvPercent: number; taxable: boolean; active: boolean;
+  salePrice: number | null; cost: number; reorderPoint: number; receptionReorderPoint: number; stock: number;
+}
+const PRODUCT_TYPES = [
+  { label: 'Producto', value: 'PRODUCTO' }, { label: 'Servicio', value: 'SERVICIO' }, { label: 'Amenity', value: 'AMENITY' }, { label: 'Insumo', value: 'INSUMO' },
+];
+const UNITS = [
+  { label: 'NIU - Unidad (bienes)', value: 'NIU' }, { label: 'ZZ - Servicios', value: 'ZZ' }, { label: 'KGM - Kilogramo', value: 'KGM' }, { label: 'LTR - Litro', value: 'LTR' }, { label: 'BX - Caja', value: 'BX' },
+];
+const IGV_TYPES = [
+  { label: 'Gravado - Operación Onerosa', value: 'GRAVADO' }, { label: 'Exonerado', value: 'EXONERADO' }, { label: 'Inafecto', value: 'INAFECTO' },
+];
 
 @Component({
   selector: 'app-almacen-productos',
@@ -83,17 +98,52 @@ interface Form { id?: string; name: string; sku: string; categoryId: string | nu
     </section>
 
     <!-- Nuevo / Editar artículo -->
-    <p-dialog [(visible)]="formVisible" [modal]="true" [header]="form.id ? 'Editar artículo' : 'Nuevo artículo'" [style]="{ width: '32rem' }" styleClass="dk-dialog">
-      <div class="f-grid">
-        <div class="fld span2"><label>Nombre</label><input pInputText [(ngModel)]="form.name" /></div>
-        <div class="fld"><label>Código (SKU)</label><input pInputText [(ngModel)]="form.sku" placeholder="PROD-001" /></div>
-        <div class="fld"><label>Categoría</label><p-select [options]="categoryOptions()" optionLabel="label" optionValue="value" [(ngModel)]="form.categoryId" [showClear]="true" placeholder="Sin categoría" styleClass="w" /></div>
-        <div class="fld"><label>Precio venta</label><p-inputNumber [(ngModel)]="form.salePrice" mode="decimal" [minFractionDigits]="2" [min]="0" /></div>
-        <div class="fld"><label>Precio compra</label><p-inputNumber [(ngModel)]="form.cost" mode="decimal" [minFractionDigits]="2" [min]="0" /></div>
-        <div class="fld"><label>Stock mínimo</label><p-inputNumber [(ngModel)]="form.reorderPoint" [min]="0" /></div>
-        <div class="fld"><label>Stock inicial</label><p-inputNumber [(ngModel)]="form.stock" [min]="0" [disabled]="!!form.id" /></div>
+    <p-dialog [(visible)]="formVisible" [modal]="true" [header]="form.id ? 'Editar Artículo' : 'Nuevo Artículo'" [style]="{ width: '46rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      <p class="pf-sub">Modifica la información del artículo. Los campos marcados con <b>*</b> son obligatorios.</p>
+      <div class="pf">
+        <div class="fld"><label>Código *</label><input pInputText [(ngModel)]="form.sku" placeholder="Ej: AMN-005" /></div>
+        <div class="fld"><label>Código de Barras</label>
+          <div class="bc"><input pInputText [(ngModel)]="form.barcode" placeholder="EAN-13, EAN-8, UPC, etc." /><button class="bc-cam" type="button" title="Escanear"><i class="pi pi-camera"></i></button></div>
+          <small>Código de barras para escaneo rápido (opcional)</small>
+        </div>
+        <div class="fld"><label>Imagen</label>
+          <div class="img-row">
+            <div class="img-thumb">@if (form.imageUrl) { <img [src]="form.imageUrl" alt="img" /> } @else { <i class="pi pi-image"></i> }</div>
+            <label class="img-btn">Seleccionar archivo<input type="file" accept="image/*" (change)="onImage($event)" hidden /></label>
+            <span class="img-name">{{ form.imageUrl ? 'Imagen cargada' : 'Ningún archivo seleccionado' }}</span>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="fld"><label>Nombre *</label><input pInputText [(ngModel)]="form.name" /></div>
+          <div class="fld"><label>Marca</label><input pInputText [(ngModel)]="form.brand" placeholder="Marca del producto" /></div>
+        </div>
+        <label class="chk"><input type="checkbox" [(ngModel)]="form.reusable" /> <span>¿Es reutilizable?</span></label>
+        <div class="grid2">
+          <div class="fld"><label>Categoría *</label><p-select [options]="categoryOptions()" optionLabel="label" optionValue="value" [(ngModel)]="form.categoryId" [showClear]="true" placeholder="Selecciona" styleClass="w" appendTo="body" /></div>
+          <div class="fld"><label>Tipo de Producto</label><p-select [options]="productTypes" optionLabel="label" optionValue="value" [(ngModel)]="form.productType" styleClass="w" appendTo="body" /></div>
+        </div>
+        <div class="fld"><label>Área Inicial</label>
+          <p-select [options]="warehouses()" optionLabel="name" optionValue="id" [(ngModel)]="form.initialWarehouseId" [showClear]="true" placeholder="Almacén por defecto (Productos)" styleClass="w" appendTo="body" />
+          <small>Almacén donde se coloca el stock inicial</small>
+        </div>
+        <div class="grid2">
+          <div class="fld"><label>Unidad</label><p-select [options]="units" optionLabel="label" optionValue="value" [(ngModel)]="form.unit" styleClass="w" appendTo="body" /></div>
+          <div class="fld"><label>Tipo de IGV</label><p-select [options]="igvTypes" optionLabel="label" optionValue="value" [(ngModel)]="form.igvType" styleClass="w" appendTo="body" /></div>
+        </div>
+        <div class="fld"><label>Porcentaje IGV (%)</label><p-inputNumber [(ngModel)]="form.igvPercent" [min]="0" [max]="100" [minFractionDigits]="2" styleClass="w" /><small>Por defecto: 18%</small></div>
+        <label class="chk"><input type="checkbox" [(ngModel)]="form.taxable" /> <span>¿Es tributable? (Sí)</span></label>
+        <label class="chk"><input type="checkbox" [(ngModel)]="form.active" /> <span>¿Está activo? (visible y disponible para venta en esta sucursal)</span></label>
+        <div class="grid2">
+          <div class="fld"><label>Precio de venta *</label><p-inputNumber [(ngModel)]="form.salePrice" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w" /></div>
+          <div class="fld"><label>Precio de compra *</label><p-inputNumber [(ngModel)]="form.cost" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w" /></div>
+        </div>
+        <div class="grid2">
+          <div class="fld"><label>Stock Mínimo (Almacén)</label><p-inputNumber [(ngModel)]="form.reorderPoint" [min]="0" styleClass="w" /><small>Alerta cuando el stock del almacén baje de este valor</small></div>
+          <div class="fld"><label>Stock Mínimo (Recepción)</label><p-inputNumber [(ngModel)]="form.receptionReorderPoint" [min]="0" styleClass="w" /></div>
+        </div>
+        @if (!form.id) { <div class="fld"><label>Stock inicial</label><p-inputNumber [(ngModel)]="form.stock" [min]="0" styleClass="w" /></div> }
       </div>
-      <ng-template pTemplate="footer"><p-button label="Cancelar" [text]="true" (onClick)="formVisible = false" /><p-button label="Guardar" icon="pi pi-check" [loading]="busy()" (onClick)="save()" /></ng-template>
+      <ng-template pTemplate="footer"><p-button label="Cancelar" [text]="true" (onClick)="formVisible = false" /><p-button label="Guardar" icon="pi pi-check" [loading]="busy()" [disabled]="!form.name || form.salePrice == null || !form.categoryId" (onClick)="save()" /></ng-template>
     </p-dialog>
 
     <!-- Ingresar / Dar de baja -->
@@ -161,6 +211,18 @@ interface Form { id?: string; name: string; sku: string; categoryId: string | nu
       :host ::ng-deep .tqty { width: 5rem; text-align: center; }
       .tx { background: transparent; border: 0; color: #f87171; cursor: pointer; font-size: 1rem; }
       .ta { width: 100%; background: #0e1626; border: 1px solid #26364f; border-radius: 8px; color: #e6e9ef; padding: 0.6rem; resize: vertical; }
+      .pf-sub { color: #8b97a8; font-size: 0.82rem; margin: 0 0 0.8rem; }
+      .pf { display: flex; flex-direction: column; gap: 0.7rem; }
+      .pf .fld { display: flex; flex-direction: column; gap: 0.3rem; } .pf .fld label { font-size: 0.8rem; color: #cbd5e1; }
+      .pf .fld small { color: #8b97a8; font-size: 0.72rem; }
+      .pf input:not([type=checkbox]) { width: 100%; }
+      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
+      .chk { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.85rem; }
+      .bc { display: flex; gap: 0.4rem; } .bc input { flex: 1; } .bc-cam { background: #13243a; border: 1px solid #274468; color: #a9c7ef; border-radius: 8px; width: 2.6rem; cursor: pointer; }
+      .img-row { display: flex; align-items: center; gap: 0.7rem; }
+      .img-thumb { width: 46px; height: 46px; border-radius: 8px; background: #0e1626; border: 1px solid #26364f; display: grid; place-items: center; color: #8b97a8; overflow: hidden; } .img-thumb img { width: 100%; height: 100%; object-fit: cover; }
+      .img-btn { background: #13243a; border: 1px solid #274468; color: #cbd5e1; border-radius: 8px; padding: 0.45rem 0.8rem; font-size: 0.8rem; cursor: pointer; }
+      .img-name { color: #8b97a8; font-size: 0.8rem; }
       .bar { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.8rem; }
       .search { position: relative; } .search i { position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%); color: #6b7a90; }
       .search input { background: #131b27; border: 1px solid #243245; color: #e6e9ef; border-radius: 8px; padding: 0.55rem 0.7rem 0.55rem 2rem; width: 240px; }
@@ -267,6 +329,7 @@ export class AlmacenProductosComponent implements OnInit {
     this.reload();
     this.inventory.warehouses.list({ pageSize: 50 }).subscribe((r) => {
       const ws = r.data ?? [];
+      this.warehouses.set(ws);
       this.warehouseId = ws.find((w: Warehouse) => w.type === 'PRODUCTS')?.id ?? ws[0]?.id ?? null;
     });
     // Todas las categorías reales (no solo las que ya usan los productos cargados).
@@ -280,7 +343,32 @@ export class AlmacenProductosComponent implements OnInit {
     this.http.get<ApiResponse<Req[]>>(`${this.api}/reception-inventory/requests`).subscribe((r) => this.requests.set(r.data ?? []));
   }
 
-  private emptyForm(): Form { return { name: '', sku: '', categoryId: null, salePrice: 0, cost: 0, reorderPoint: 0, status: 'active', stock: 0 }; }
+  private emptyForm(): Form {
+    return { name: '', sku: '', barcode: '', imageUrl: '', brand: '', reusable: false, categoryId: null, productType: 'PRODUCTO', initialWarehouseId: null, unit: 'NIU', igvType: 'GRAVADO', igvPercent: 18, taxable: true, active: true, salePrice: null, cost: 0, reorderPoint: 0, receptionReorderPoint: 0, stock: 0 };
+  }
+  readonly productTypes = PRODUCT_TYPES;
+  readonly units = UNITS;
+  readonly igvTypes = IGV_TYPES;
+  readonly warehouses = signal<Warehouse[]>([]);
+
+  onImage(ev: Event): void {
+    const file = (ev.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    if (file.size > 8_000_000) { this.toast.add({ severity: 'warn', summary: 'Imagen muy grande', detail: 'Máximo 8 MB.' }); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        const scale = Math.min(1, 800 / Math.max(img.width, img.height));
+        c.width = img.width * scale; c.height = img.height * scale;
+        c.getContext('2d')?.drawImage(img, 0, 0, c.width, c.height);
+        this.form.imageUrl = c.toDataURL('image/jpeg', 0.7);
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  }
 
   // Selección
   toggle(id: string): void { const s = new Set(this.selected()); if (s.has(id)) s.delete(id); else s.add(id); this.selected.set(s); }
@@ -291,15 +379,33 @@ export class AlmacenProductosComponent implements OnInit {
   // CRUD
   openNew(): void { this.form = this.emptyForm(); this.formVisible = true; }
   openEdit(p: Product): void {
-    this.form = { id: p.id, name: p.name, sku: p.sku ?? '', categoryId: p.categoryId ?? null, salePrice: Number(p.salePrice), cost: Number(p.cost ?? 0), reorderPoint: p.reorderPoint, status: p.status as 'active' | 'inactive', stock: p.stock };
+    this.form = {
+      id: p.id, name: p.name, sku: p.sku ?? '', barcode: p.barcode ?? '', imageUrl: p.imageUrl ?? '', brand: p.brand ?? '',
+      reusable: !!p.reusable, categoryId: p.categoryId ?? null, productType: p.productType ?? 'PRODUCTO', initialWarehouseId: null,
+      unit: p.unit ?? 'NIU', igvType: p.igvType ?? 'GRAVADO', igvPercent: p.igvPercent != null ? Number(p.igvPercent) : 18,
+      taxable: p.taxable ?? true, active: p.status === 'active',
+      salePrice: Number(p.salePrice), cost: p.cost != null ? Number(p.cost) : 0,
+      reorderPoint: p.reorderPoint, receptionReorderPoint: p.receptionReorderPoint ?? 0, stock: p.stock,
+    };
     this.formVisible = true;
   }
   openView(p: Product): void { this.viewP = p; this.viewVisible = true; }
 
   save(): void {
-    if (!this.form.name) { this.toast.add({ severity: 'warn', summary: 'Falta nombre', detail: '' }); return; }
+    if (!this.form.name || this.form.salePrice == null) { this.toast.add({ severity: 'warn', summary: 'Datos incompletos', detail: 'Nombre y precio de venta son obligatorios.' }); return; }
+    if (!this.form.categoryId) { this.toast.add({ severity: 'warn', summary: 'Falta categoría', detail: 'Selecciona una categoría.' }); return; }
     this.busy.set(true);
-    const dto = { name: this.form.name, sku: this.form.sku || undefined, categoryId: this.form.categoryId, salePrice: this.form.salePrice, cost: this.form.cost, reorderPoint: this.form.reorderPoint, status: this.form.status, stock: this.form.id ? undefined : this.form.stock };
+    const dto = {
+      name: this.form.name, sku: this.form.sku || undefined, barcode: this.form.barcode || undefined,
+      imageUrl: this.form.imageUrl || undefined, brand: this.form.brand || undefined, reusable: this.form.reusable,
+      categoryId: this.form.categoryId, productType: this.form.productType, unit: this.form.unit,
+      igvType: this.form.igvType, igvPercent: this.form.igvPercent, taxable: this.form.taxable,
+      salePrice: this.form.salePrice, cost: this.form.cost ?? 0,
+      reorderPoint: this.form.reorderPoint, receptionReorderPoint: this.form.receptionReorderPoint,
+      status: (this.form.active ? 'active' : 'inactive') as 'active' | 'inactive',
+      stock: this.form.id ? undefined : this.form.stock,
+      initialWarehouseId: this.form.initialWarehouseId ?? undefined,
+    };
     const req$ = this.form.id ? this.inventory.products.update(this.form.id, dto) : this.inventory.products.create(dto);
     req$.subscribe({
       next: () => { this.busy.set(false); this.formVisible = false; this.toast.add({ severity: 'success', summary: 'Guardado', detail: 'Artículo guardado.' }); this.reload(); },
