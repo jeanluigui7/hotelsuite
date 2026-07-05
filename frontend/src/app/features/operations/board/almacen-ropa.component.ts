@@ -26,7 +26,23 @@ interface Row {
   enProceso: number;
   recibidas: number | null;
   perdidos: number;
+  min: number;
   belowStock: boolean;
+  barcode: string | null;
+  imageUrl: string | null;
+  brand: string | null;
+  reusable: boolean;
+  categoryId: string | null;
+  categoryName: string | null;
+  unit: string;
+  igvType: string;
+  igvPercent: number;
+  taxable: boolean;
+  salePrice: number;
+  cost: number;
+  reorderPoint: number;
+  receptionReorderPoint: number;
+  status: string;
 }
 
 const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas', EDREDON: 'Edredones', AMENITY: 'Amenities' };
@@ -117,12 +133,50 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
       </ng-template>
     </p-dialog>
 
-    <p-dialog [(visible)]="formVisible" [modal]="true" [header]="form.id ? 'Editar Artículo de Ropa' : 'Nuevo Artículo de Ropa'" [style]="{ width: '28rem' }">
-      <div class="fld"><label>Nombre *</label><input pInputText [(ngModel)]="form.name" placeholder="Ej: INCAICA AZUL" /></div>
-      <div class="fld"><label>Tipo *</label><p-select [options]="typeOpts" optionLabel="label" optionValue="value" [(ngModel)]="form.type" styleClass="w" appendTo="body" /></div>
-      <div class="fld"><label>Color</label><input pInputText [(ngModel)]="form.color" placeholder="Opcional" /></div>
-      <label class="chk"><input type="checkbox" [(ngModel)]="form.reusable" /> <span>¿Es reutilizable? (va a lavandería)</span></label>
-      @if (!form.id) { <div class="fld"><label>Stock inicial (central)</label><p-inputNumber [(ngModel)]="form.quantity" [min]="0" [showButtons]="true" buttonLayout="horizontal" /></div> }
+    <p-dialog [(visible)]="formVisible" [modal]="true" [header]="form.id ? 'Editar Artículo' : 'Nuevo Artículo'" [style]="{ width: '46rem', maxWidth: '96vw' }">
+      <p class="pf-sub">Modifica la información del artículo. Los campos marcados con <b>*</b> son obligatorios.</p>
+      <div class="pf">
+        <div class="fld"><label>Código *</label><input pInputText [(ngModel)]="form.code" placeholder="Ej: SAB2-001" /></div>
+        <div class="fld"><label>Código de Barras</label>
+          <div class="bc"><input pInputText [(ngModel)]="form.barcode" placeholder="EAN-13, EAN-8, UPC, etc." /><button class="bc-cam" type="button" title="Escanear"><i class="pi pi-camera"></i></button></div>
+          <small>Código de barras para escaneo rápido (opcional)</small>
+        </div>
+        <div class="fld"><label>Imagen</label>
+          <div class="img-row">
+            <div class="img-thumb">@if (form.imageUrl) { <img [src]="form.imageUrl" alt="img" /> } @else { <i class="pi pi-image"></i> }</div>
+            <label class="img-btn">Seleccionar archivo<input type="file" accept="image/*" (change)="onImage($event)" hidden /></label>
+            <span class="img-name">{{ form.imageUrl ? 'Imagen cargada' : 'Ningún archivo seleccionado' }}</span>
+          </div>
+        </div>
+        <div class="grid2">
+          <div class="fld"><label>Nombre *</label><input pInputText [(ngModel)]="form.name" placeholder="Ej: INCAICA AZUL" /></div>
+          <div class="fld"><label>Marca</label><input pInputText [(ngModel)]="form.brand" placeholder="Marca" /></div>
+        </div>
+        <label class="chk2"><input type="checkbox" [(ngModel)]="form.reusable" /> <span>¿Es reutilizable? (va a lavandería)</span></label>
+        <div class="grid2">
+          <div class="fld"><label>Categoría</label><p-select [options]="categories()" optionLabel="name" optionValue="id" [(ngModel)]="form.categoryId" [showClear]="true" placeholder="Selecciona" styleClass="w" appendTo="body" /></div>
+          <div class="fld"><label>Tipo de Ropa *</label><p-select [options]="typeOpts" optionLabel="label" optionValue="value" [(ngModel)]="form.type" styleClass="w" appendTo="body" /></div>
+        </div>
+        <div class="grid2">
+          <div class="fld"><label>Color</label><input pInputText [(ngModel)]="form.color" placeholder="Opcional" /></div>
+          <div class="fld"><label>Unidad</label><p-select [options]="units" optionLabel="label" optionValue="value" [(ngModel)]="form.unit" styleClass="w" appendTo="body" /></div>
+        </div>
+        <div class="grid2">
+          <div class="fld"><label>Tipo de IGV</label><p-select [options]="igvTypes" optionLabel="label" optionValue="value" [(ngModel)]="form.igvType" styleClass="w" appendTo="body" /></div>
+          <div class="fld"><label>Porcentaje IGV (%)</label><p-inputNumber [(ngModel)]="form.igvPercent" [min]="0" [max]="100" [minFractionDigits]="2" styleClass="w" /></div>
+        </div>
+        <label class="chk2"><input type="checkbox" [(ngModel)]="form.taxable" /> <span>¿Es tributable? (Sí)</span></label>
+        <label class="chk2"><input type="checkbox" [(ngModel)]="form.active" /> <span>¿Está activo? (disponible en esta sucursal)</span></label>
+        <div class="grid2">
+          <div class="fld"><label>Precio de venta</label><p-inputNumber [(ngModel)]="form.salePrice" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w" /></div>
+          <div class="fld"><label>Precio de compra</label><p-inputNumber [(ngModel)]="form.cost" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w" /></div>
+        </div>
+        <div class="grid2">
+          <div class="fld"><label>Stock Mínimo (Almacén)</label><p-inputNumber [(ngModel)]="form.reorderPoint" [min]="0" styleClass="w" /></div>
+          <div class="fld"><label>Stock Mínimo (Recepción)</label><p-inputNumber [(ngModel)]="form.receptionReorderPoint" [min]="0" styleClass="w" /></div>
+        </div>
+        @if (!form.id) { <div class="fld"><label>Stock inicial (central)</label><p-inputNumber [(ngModel)]="form.quantity" [min]="0" styleClass="w" /></div> }
+      </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="formVisible = false" />
         <p-button label="Guardar" icon="pi pi-check" [loading]="busy()" [disabled]="!form.name?.trim()" (onClick)="saveItem()" />
@@ -189,12 +243,48 @@ export class AlmacenRopaComponent implements OnInit {
   toFloor = '';
 
   formVisible = false;
-  form: { id?: string; name: string; type: string; color: string; reusable: boolean; quantity: number } = { name: '', type: 'SABANA', color: '', reusable: true, quantity: 0 };
+  form: {
+    id?: string; code: string; barcode: string; imageUrl: string; name: string; brand: string; type: string; color: string;
+    reusable: boolean; categoryId: string | null; unit: string; igvType: string; igvPercent: number; taxable: boolean; active: boolean;
+    salePrice: number; cost: number; reorderPoint: number; receptionReorderPoint: number; quantity: number;
+  } = this.emptyForm();
+  readonly categories = signal<{ id: string; name: string }[]>([]);
   readonly typeOpts = [
     { label: 'Toallas', value: 'TOALLA' }, { label: 'Sábanas', value: 'SABANA' }, { label: 'Edredones', value: 'EDREDON' }, { label: 'Amenities', value: 'AMENITY' },
   ];
+  readonly units = [
+    { label: 'NIU - Unidad (bienes)', value: 'NIU' }, { label: 'ZZ - Servicios', value: 'ZZ' }, { label: 'KGM - Kilogramo', value: 'KGM' }, { label: 'BX - Caja', value: 'BX' },
+  ];
+  readonly igvTypes = [
+    { label: 'Gravado - Operación Onerosa', value: 'GRAVADO' }, { label: 'Exonerado', value: 'EXONERADO' }, { label: 'Inafecto', value: 'INAFECTO' },
+  ];
+  private emptyForm() {
+    return { code: '', barcode: '', imageUrl: '', name: '', brand: '', type: 'SABANA', color: '', reusable: true, categoryId: null as string | null, unit: 'NIU', igvType: 'GRAVADO', igvPercent: 18, taxable: true, active: true, salePrice: 0, cost: 0, reorderPoint: 0, receptionReorderPoint: 0, quantity: 0 };
+  }
+  onImage(ev: Event): void {
+    const file = (ev.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    if (file.size > 8_000_000) { this.toast.add({ severity: 'warn', summary: 'Imagen muy grande', detail: 'Máximo 8 MB.' }); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        const scale = Math.min(1, 800 / Math.max(img.width, img.height));
+        c.width = img.width * scale; c.height = img.height * scale;
+        c.getContext('2d')?.drawImage(img, 0, 0, c.width, c.height);
+        this.form.imageUrl = c.toDataURL('image/jpeg', 0.7);
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  }
 
-  ngOnInit(): void { this.reload(); }
+  ngOnInit(): void {
+    this.reload();
+    this.http.get<ApiResponse<{ id: string; name: string }[]>>(`${this.api}/inventory-categories`, { params: { pageSize: '200', sortBy: 'name' } })
+      .subscribe((r) => this.categories.set(r.data ?? []));
+  }
 
   typeLabel(t: string): string { return TYPE_LABEL[t] ?? t; }
   selected(): boolean { return !!this.sel(); }
@@ -248,12 +338,26 @@ export class AlmacenRopaComponent implements OnInit {
     });
   }
 
-  openNew(): void { this.form = { name: '', type: 'SABANA', color: '', reusable: true, quantity: 0 }; this.formVisible = true; }
-  openEdit(r: Row): void { this.form = { id: r.linenItemId, name: r.name, type: r.type, color: r.color ?? '', reusable: true, quantity: 0 }; this.formVisible = true; }
+  openNew(): void { this.form = this.emptyForm(); this.formVisible = true; }
+  openEdit(r: Row): void {
+    this.form = {
+      id: r.linenItemId, code: r.code ?? '', barcode: r.barcode ?? '', imageUrl: r.imageUrl ?? '', name: r.name, brand: r.brand ?? '',
+      type: r.type, color: r.color ?? '', reusable: !!r.reusable, categoryId: r.categoryId ?? null, unit: r.unit ?? 'NIU',
+      igvType: r.igvType ?? 'GRAVADO', igvPercent: r.igvPercent ?? 18, taxable: r.taxable ?? true, active: r.status === 'active',
+      salePrice: r.salePrice ?? 0, cost: r.cost ?? 0, reorderPoint: r.reorderPoint ?? 0, receptionReorderPoint: r.receptionReorderPoint ?? 0, quantity: 0,
+    };
+    this.formVisible = true;
+  }
   saveItem(): void {
     if (!this.form.name.trim()) return;
     this.busy.set(true);
-    const body = { type: this.form.type, name: this.form.name.trim(), color: this.form.color || undefined, reusable: this.form.reusable };
+    const body = {
+      type: this.form.type, name: this.form.name.trim(), color: this.form.color || undefined, reusable: this.form.reusable,
+      code: this.form.code || undefined, barcode: this.form.barcode || undefined, imageUrl: this.form.imageUrl || undefined, brand: this.form.brand || undefined,
+      categoryId: this.form.categoryId ?? undefined, unit: this.form.unit, igvType: this.form.igvType, igvPercent: this.form.igvPercent, taxable: this.form.taxable,
+      salePrice: this.form.salePrice, cost: this.form.cost, reorderPoint: this.form.reorderPoint, receptionReorderPoint: this.form.receptionReorderPoint,
+      ...(this.form.id ? { status: this.form.active ? 'active' : 'inactive' } : {}),
+    };
     const req$ = this.form.id
       ? this.http.put<ApiResponse<unknown>>(`${this.api}/admin/linen/items/${this.form.id}`, body)
       : this.http.post<ApiResponse<unknown>>(`${this.api}/admin/linen/items`, { ...body, quantity: this.form.quantity || 0 });

@@ -51,20 +51,27 @@ export const replenishSchema = z.object({
 });
 export type ReplenishDto = z.infer<typeof replenishSchema>;
 
-export const createItemSchema = z.object({
+const itemFields = {
   type: z.enum(['TOALLA', 'SABANA', 'EDREDON', 'AMENITY']),
   name: z.string().min(1).max(120),
   color: z.string().max(60).optional().or(z.literal('')),
   reusable: z.coerce.boolean().optional(),
-  quantity: z.coerce.number().int().min(0).optional(),
-});
-export const updateItemSchema = z.object({
-  type: z.enum(['TOALLA', 'SABANA', 'EDREDON', 'AMENITY']).optional(),
-  name: z.string().min(1).max(120).optional(),
-  color: z.string().max(60).optional().or(z.literal('')),
-  reusable: z.coerce.boolean().optional(),
-  status: z.enum(['active', 'inactive']).optional(),
-});
+  code: z.string().max(60).optional().or(z.literal('')),
+  barcode: z.string().max(120).optional().or(z.literal('')),
+  imageUrl: z.string().optional().or(z.literal('')),
+  brand: z.string().max(120).optional().or(z.literal('')),
+  categoryId: z.string().min(1).optional().nullable(),
+  unit: z.string().max(20).optional(),
+  igvType: z.string().max(20).optional(),
+  igvPercent: z.coerce.number().min(0).max(100).optional(),
+  taxable: z.coerce.boolean().optional(),
+  salePrice: z.coerce.number().min(0).optional(),
+  cost: z.coerce.number().min(0).optional(),
+  reorderPoint: z.coerce.number().int().min(0).optional(),
+  receptionReorderPoint: z.coerce.number().int().min(0).optional(),
+};
+export const createItemSchema = z.object({ ...itemFields, quantity: z.coerce.number().int().min(0).optional() });
+export const updateItemSchema = z.object({ ...itemFields, type: itemFields.type.optional(), name: itemFields.name.optional(), status: z.enum(['active', 'inactive']).optional() });
 
 export const linenAdminService = {
   /** Solicitudes de ropa pendientes (enviadas por limpieza). */
@@ -140,6 +147,8 @@ export const linenAdminService = {
       if (m.type === 'LAUNDRY') e.sent += q; else e.back += q;
       lav.set(m.linenItemId, e);
     }
+    const cats = await prisma.inventoryCategory.findMany({ where: { branchId }, select: { id: true, name: true } });
+    const catName = new Map(cats.map((c) => [c.id, c.name]));
     const PREFIX: Record<string, string> = { TOALLA: 'TOA', SABANA: 'SAB', EDREDON: 'EDR', AMENITY: 'AME' };
     const seq: Record<string, number> = {};
     return items.map((it) => {
@@ -153,7 +162,7 @@ export const linenAdminService = {
       const n = (seq[it.type] = (seq[it.type] ?? 0) + 1);
       return {
         linenItemId: it.id,
-        code: `${PREFIX[it.type] ?? 'ART'}-${String(n).padStart(3, '0')}`,
+        code: it.code || `${PREFIX[it.type] ?? 'ART'}-${String(n).padStart(3, '0')}`,
         name: it.name,
         type: it.type,
         color: it.color,
@@ -165,7 +174,24 @@ export const linenAdminService = {
         enProceso: 0,
         recibidas: null as number | null,
         perdidos: 0,
-        belowStock: disponible <= 0,
+        min: it.reorderPoint,
+        belowStock: disponible <= it.reorderPoint,
+        // Campos para el modal de edición (tipo producto).
+        barcode: it.barcode,
+        imageUrl: it.imageUrl,
+        brand: it.brand,
+        reusable: it.reusable,
+        categoryId: it.categoryId,
+        categoryName: it.categoryId ? catName.get(it.categoryId) ?? null : null,
+        unit: it.unit,
+        igvType: it.igvType,
+        igvPercent: Number(it.igvPercent),
+        taxable: it.taxable,
+        salePrice: Number(it.salePrice),
+        cost: Number(it.cost),
+        reorderPoint: it.reorderPoint,
+        receptionReorderPoint: it.receptionReorderPoint,
+        status: it.status,
       };
     });
   },
@@ -182,10 +208,30 @@ export const linenAdminService = {
   },
 
   /** Crea un artículo de ropa (opcionalmente con stock inicial en el central). */
-  async createItem(scope: RequestScope, dto: { type: string; name: string; color?: string; reusable?: boolean; quantity?: number }) {
+  async createItem(scope: RequestScope, dto: z.infer<typeof createItemSchema>) {
     const branchId = requireActiveBranch(scope);
     const item = await prisma.linenItem.create({
-      data: { branchId, type: dto.type, name: dto.name.trim(), color: dto.color || null, reusable: dto.reusable ?? true, status: 'active' },
+      data: {
+        branchId,
+        type: dto.type,
+        name: dto.name.trim(),
+        color: dto.color || null,
+        reusable: dto.reusable ?? true,
+        status: 'active',
+        code: dto.code || null,
+        barcode: dto.barcode || null,
+        imageUrl: dto.imageUrl || null,
+        brand: dto.brand || null,
+        categoryId: dto.categoryId ?? null,
+        unit: dto.unit ?? 'NIU',
+        igvType: dto.igvType ?? 'GRAVADO',
+        igvPercent: dto.igvPercent ?? 18,
+        taxable: dto.taxable ?? true,
+        salePrice: dto.salePrice ?? 0,
+        cost: dto.cost ?? 0,
+        reorderPoint: dto.reorderPoint ?? 0,
+        receptionReorderPoint: dto.receptionReorderPoint ?? 0,
+      },
     });
     if (dto.quantity && dto.quantity > 0) {
       await prisma.linenStock.upsert({
@@ -197,8 +243,8 @@ export const linenAdminService = {
     return item;
   },
 
-  /** Edita un artículo de ropa (nombre/tipo/color/estado). */
-  async updateItem(scope: RequestScope, id: string, dto: { type?: string; name?: string; color?: string; reusable?: boolean; status?: string }) {
+  /** Edita un artículo de ropa (todos los campos tipo producto). */
+  async updateItem(scope: RequestScope, id: string, dto: z.infer<typeof updateItemSchema>) {
     const branchId = requireActiveBranch(scope);
     const item = await prisma.linenItem.findUnique({ where: { id } });
     if (!item || item.branchId !== branchId) throw new ValidationError('Ropa no encontrada');
@@ -210,6 +256,19 @@ export const linenAdminService = {
         ...(dto.color !== undefined ? { color: dto.color || null } : {}),
         ...(dto.reusable !== undefined ? { reusable: dto.reusable } : {}),
         ...(dto.status ? { status: dto.status } : {}),
+        ...(dto.code !== undefined ? { code: dto.code || null } : {}),
+        ...(dto.barcode !== undefined ? { barcode: dto.barcode || null } : {}),
+        ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl || null } : {}),
+        ...(dto.brand !== undefined ? { brand: dto.brand || null } : {}),
+        ...(dto.categoryId !== undefined ? { categoryId: dto.categoryId ?? null } : {}),
+        ...(dto.unit !== undefined ? { unit: dto.unit } : {}),
+        ...(dto.igvType !== undefined ? { igvType: dto.igvType } : {}),
+        ...(dto.igvPercent !== undefined ? { igvPercent: dto.igvPercent } : {}),
+        ...(dto.taxable !== undefined ? { taxable: dto.taxable } : {}),
+        ...(dto.salePrice !== undefined ? { salePrice: dto.salePrice } : {}),
+        ...(dto.cost !== undefined ? { cost: dto.cost } : {}),
+        ...(dto.reorderPoint !== undefined ? { reorderPoint: dto.reorderPoint } : {}),
+        ...(dto.receptionReorderPoint !== undefined ? { receptionReorderPoint: dto.receptionReorderPoint } : {}),
       },
     });
   },
