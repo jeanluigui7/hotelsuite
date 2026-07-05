@@ -11,6 +11,7 @@ linenAdminRouter.use(authenticate(), tenant());
 
 linenAdminRouter.get('/admin/linen/requests', requirePermission('inventory', 'view'), asyncHandler(linenAdminController.requests));
 linenAdminRouter.get('/admin/linen/central', requirePermission('inventory', 'view'), asyncHandler(linenAdminController.central));
+linenAdminRouter.get('/admin/linen/warehouse', requireAnyPermission(['inventory', 'view'], ['operations', 'view']), asyncHandler(linenAdminController.warehouse));
 linenAdminRouter.post('/admin/linen/requests/:id/fulfill', requirePermission('inventory', 'edit'), asyncHandler(linenAdminController.fulfill));
 linenAdminRouter.post('/admin/linen/requests/:id/reject', requireAnyPermission(['operations', 'edit'], ['inventory', 'edit']), asyncHandler(linenAdminController.reject));
 linenAdminRouter.post('/admin/linen/transfer', requirePermission('inventory', 'edit'), asyncHandler(linenAdminController.transfer));

@@ -98,6 +98,63 @@ export const linenAdminService = {
     return { ok: true };
   },
 
+  /**
+   * Almacén general de ropa: por ítem, stock base (dotación), disponible (central),
+   * transferido, en uso y en lavandería (todo con data real de stock/movimientos).
+   * En proceso / recibidas / perdidos quedan para la fase de ciclo (Fase 2).
+   */
+  async warehouse(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const items = await prisma.linenItem.findMany({ where: { branchId, status: 'active' }, orderBy: [{ type: 'asc' }, { name: 'asc' }] });
+    const ids = items.map((i) => i.id);
+    const [stocks, movs] = await Promise.all([
+      prisma.linenStock.findMany({ where: { branchId, linenItemId: { in: ids } } }),
+      prisma.linenMovement.groupBy({ by: ['linenItemId', 'type'], where: { branchId, type: { in: ['LAUNDRY', 'PICKUP'] } }, _sum: { quantity: true } }),
+    ]);
+    const st = new Map<string, { base: number; central: number }>();
+    for (const s of stocks) {
+      const e = st.get(s.linenItemId) ?? { base: 0, central: 0 };
+      e.base += s.sum;
+      if (s.floor === LINEN_CENTRAL) e.central += s.rem;
+      st.set(s.linenItemId, e);
+    }
+    const lav = new Map<string, { sent: number; back: number }>();
+    for (const m of movs) {
+      const q = Math.abs(m._sum.quantity ?? 0);
+      const e = lav.get(m.linenItemId) ?? { sent: 0, back: 0 };
+      if (m.type === 'LAUNDRY') e.sent += q; else e.back += q;
+      lav.set(m.linenItemId, e);
+    }
+    const PREFIX: Record<string, string> = { TOALLA: 'TOA', SABANA: 'SAB', EDREDON: 'EDR', AMENITY: 'AME' };
+    const seq: Record<string, number> = {};
+    return items.map((it) => {
+      const s = st.get(it.id) ?? { base: 0, central: 0 };
+      const base = s.base;
+      const disponible = s.central;
+      const transferido = Math.max(0, base - disponible);
+      const l = lav.get(it.id) ?? { sent: 0, back: 0 };
+      const lavanderia = Math.max(0, Math.min(transferido, l.sent - l.back));
+      const enUso = Math.max(0, transferido - lavanderia);
+      const n = (seq[it.type] = (seq[it.type] ?? 0) + 1);
+      return {
+        linenItemId: it.id,
+        code: `${PREFIX[it.type] ?? 'ART'}-${String(n).padStart(3, '0')}`,
+        name: it.name,
+        type: it.type,
+        color: it.color,
+        base,
+        disponible,
+        transferido,
+        enUso,
+        lavanderia,
+        enProceso: 0,
+        recibidas: null as number | null,
+        perdidos: 0,
+        belowStock: disponible <= 0,
+      };
+    });
+  },
+
   /** Stock disponible en el almacén central de ropa (por ítem). */
   async central(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);

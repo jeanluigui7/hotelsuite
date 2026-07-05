@@ -25,6 +25,10 @@ export const linenAdminController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await linenAdminService.central(req.scope)));
   },
+  async warehouse(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await linenAdminService.warehouse(req.scope)));
+  },
   async replenish(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const dto = replenishSchema.parse(req.body);
