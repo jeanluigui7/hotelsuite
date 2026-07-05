@@ -51,6 +51,21 @@ export const replenishSchema = z.object({
 });
 export type ReplenishDto = z.infer<typeof replenishSchema>;
 
+export const createItemSchema = z.object({
+  type: z.enum(['TOALLA', 'SABANA', 'EDREDON', 'AMENITY']),
+  name: z.string().min(1).max(120),
+  color: z.string().max(60).optional().or(z.literal('')),
+  reusable: z.coerce.boolean().optional(),
+  quantity: z.coerce.number().int().min(0).optional(),
+});
+export const updateItemSchema = z.object({
+  type: z.enum(['TOALLA', 'SABANA', 'EDREDON', 'AMENITY']).optional(),
+  name: z.string().min(1).max(120).optional(),
+  color: z.string().max(60).optional().or(z.literal('')),
+  reusable: z.coerce.boolean().optional(),
+  status: z.enum(['active', 'inactive']).optional(),
+});
+
 export const linenAdminService = {
   /** Solicitudes de ropa pendientes (enviadas por limpieza). */
   async requests(scope: RequestScope) {
@@ -164,6 +179,48 @@ export const linenAdminService = {
     ]);
     const smap = new Map(stocks.map((s) => [s.linenItemId, s.rem]));
     return items.map((it) => ({ linenItemId: it.id, type: it.type, name: it.name, rem: smap.get(it.id) ?? 0 }));
+  },
+
+  /** Crea un artículo de ropa (opcionalmente con stock inicial en el central). */
+  async createItem(scope: RequestScope, dto: { type: string; name: string; color?: string; reusable?: boolean; quantity?: number }) {
+    const branchId = requireActiveBranch(scope);
+    const item = await prisma.linenItem.create({
+      data: { branchId, type: dto.type, name: dto.name.trim(), color: dto.color || null, reusable: dto.reusable ?? true, status: 'active' },
+    });
+    if (dto.quantity && dto.quantity > 0) {
+      await prisma.linenStock.upsert({
+        where: { linenItemId_floor: { linenItemId: item.id, floor: LINEN_CENTRAL } },
+        update: { rem: { increment: dto.quantity }, sum: { increment: dto.quantity } },
+        create: { branchId, linenItemId: item.id, floor: LINEN_CENTRAL, rem: dto.quantity, sum: dto.quantity },
+      });
+    }
+    return item;
+  },
+
+  /** Edita un artículo de ropa (nombre/tipo/color/estado). */
+  async updateItem(scope: RequestScope, id: string, dto: { type?: string; name?: string; color?: string; reusable?: boolean; status?: string }) {
+    const branchId = requireActiveBranch(scope);
+    const item = await prisma.linenItem.findUnique({ where: { id } });
+    if (!item || item.branchId !== branchId) throw new ValidationError('Ropa no encontrada');
+    return prisma.linenItem.update({
+      where: { id },
+      data: {
+        ...(dto.type ? { type: dto.type } : {}),
+        ...(dto.name ? { name: dto.name.trim() } : {}),
+        ...(dto.color !== undefined ? { color: dto.color || null } : {}),
+        ...(dto.reusable !== undefined ? { reusable: dto.reusable } : {}),
+        ...(dto.status ? { status: dto.status } : {}),
+      },
+    });
+  },
+
+  /** Desactiva (soft-delete) un artículo de ropa. */
+  async deactivateItem(scope: RequestScope, id: string) {
+    const branchId = requireActiveBranch(scope);
+    const item = await prisma.linenItem.findUnique({ where: { id } });
+    if (!item || item.branchId !== branchId) throw new ValidationError('Ropa no encontrada');
+    await prisma.linenItem.update({ where: { id }, data: { status: 'inactive' } });
+    return { success: true };
   },
 
   /** Repone el almacén central de ropa (ingreso/compra del administrador). */

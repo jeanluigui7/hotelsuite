@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
 import { Router } from '@angular/router';
@@ -49,6 +49,7 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
         <span class="sp"></span>
         <button class="op reponer" (click)="goRecepcionar()"><i class="pi pi-arrow-right-arrow-left"></i> Recepcionar Ropa Limpia</button>
         <button class="op enviar" (click)="goEnviar()"><i class="pi pi-arrow-right-arrow-left"></i> Enviar Ropa Solicitada</button>
+        <button class="op nuevo" (click)="openNew()"><i class="pi pi-plus"></i> Nuevo Artículo</button>
       </div>
 
       <div class="ops">
@@ -85,6 +86,8 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
                   <td class="c acc">
                     <button class="ic" title="Ingresar" (click)="sel.set(r.linenItemId); openMov('IN')"><i class="pi pi-plus"></i></button>
                     <button class="ic" title="Transferir" (click)="sel.set(r.linenItemId); openMov('TR')"><i class="pi pi-arrow-right-arrow-left"></i></button>
+                    <button class="ic" title="Editar" (click)="openEdit(r)"><i class="pi pi-pencil"></i></button>
+                    <button class="ic del" title="Desactivar" (click)="remove(r)"><i class="pi pi-trash"></i></button>
                   </td>
                 </tr>
               } @empty { <tr><td colspan="13" class="empty">Sin artículos de ropa.</td></tr> }
@@ -105,6 +108,18 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
         <p-button [label]="movType === 'IN' ? 'Ingresar' : 'Transferir'" icon="pi pi-check" [loading]="busy()" (onClick)="applyMov()" />
       </ng-template>
     </p-dialog>
+
+    <p-dialog [(visible)]="formVisible" [modal]="true" [header]="form.id ? 'Editar Artículo de Ropa' : 'Nuevo Artículo de Ropa'" [style]="{ width: '28rem' }">
+      <div class="fld"><label>Nombre *</label><input pInputText [(ngModel)]="form.name" placeholder="Ej: INCAICA AZUL" /></div>
+      <div class="fld"><label>Tipo *</label><p-select [options]="typeOpts" optionLabel="label" optionValue="value" [(ngModel)]="form.type" styleClass="w" appendTo="body" /></div>
+      <div class="fld"><label>Color</label><input pInputText [(ngModel)]="form.color" placeholder="Opcional" /></div>
+      <label class="chk"><input type="checkbox" [(ngModel)]="form.reusable" /> <span>¿Es reutilizable? (va a lavandería)</span></label>
+      @if (!form.id) { <div class="fld"><label>Stock inicial (central)</label><p-inputNumber [(ngModel)]="form.quantity" [min]="0" [showButtons]="true" buttonLayout="horizontal" /></div> }
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="formVisible = false" />
+        <p-button label="Guardar" icon="pi pi-check" [loading]="busy()" [disabled]="!form.name?.trim()" (onClick)="saveItem()" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -117,7 +132,10 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
       .pill.on { background: #10b981; color: #04130d; border-color: #10b981; }
       .sp { flex: 1; }
       .op { display: inline-flex; align-items: center; gap: 0.4rem; border: 0; border-radius: 8px; padding: 0.5rem 0.9rem; font-weight: 700; font-size: 0.8rem; cursor: pointer; color: #fff; }
-      .op.reponer { background: #3b82f6; } .op.enviar { background: #22c55e; color: #04130d; }
+      .op.reponer { background: #3b82f6; } .op.enviar { background: #22c55e; color: #04130d; } .op.nuevo { background: #10b981; color: #04130d; }
+      .acc .ic.del:hover { color: #f87171; }
+      .chk { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.7rem; cursor: pointer; font-size: 0.85rem; }
+      :host ::ng-deep .w { width: 100%; }
       .op2 { display: inline-flex; align-items: center; gap: 0.4rem; border: 1px solid #274468; border-radius: 8px; padding: 0.5rem 0.9rem; font-weight: 700; font-size: 0.8rem; cursor: pointer; background: transparent; color: #cbd5e1; }
       .op2.in { background: #22c55e; color: #04130d; border: 0; } .op2.tr { background: #6366f1; color: #fff; border: 0; } .op2:disabled { opacity: 0.5; cursor: not-allowed; }
       .op2.ghost.on { background: #78350f; color: #fbbf24; }
@@ -158,6 +176,12 @@ export class AlmacenRopaComponent implements OnInit {
   qty: number | null = 1;
   toFloor = '';
 
+  formVisible = false;
+  form: { id?: string; name: string; type: string; color: string; reusable: boolean; quantity: number } = { name: '', type: 'SABANA', color: '', reusable: true, quantity: 0 };
+  readonly typeOpts = [
+    { label: 'Toallas', value: 'TOALLA' }, { label: 'Sábanas', value: 'SABANA' }, { label: 'Edredones', value: 'EDREDON' }, { label: 'Amenities', value: 'AMENITY' },
+  ];
+
   ngOnInit(): void { this.reload(); }
 
   typeLabel(t: string): string { return TYPE_LABEL[t] ?? t; }
@@ -166,14 +190,14 @@ export class AlmacenRopaComponent implements OnInit {
 
   toggleType(t: string): void { this.typeFilter = this.typeFilter === t ? null : t; }
 
-  readonly filtered = computed<Row[]>(() => {
+  filtered(): Row[] {
     const q = this.search.trim().toLowerCase();
     return this.rows()
       .filter((r) => !this.typeFilter || r.type === this.typeFilter)
       .filter((r) => !this.lowOnly || r.belowStock)
       .filter((r) => !q || r.name.toLowerCase().includes(q) || r.code.toLowerCase().includes(q))
       .sort((a, b) => (this.sortBy === 'name' ? a.name.localeCompare(b.name) : a.code.localeCompare(b.code)));
-  });
+  }
 
   reload(): void {
     this.loading.set(true);
@@ -196,6 +220,28 @@ export class AlmacenRopaComponent implements OnInit {
     req$.subscribe({
       next: () => { this.busy.set(false); this.movVisible = false; this.toast.add({ severity: 'success', summary: 'Listo', detail: this.movType === 'IN' ? 'Ropa ingresada.' : 'Ropa transferida.' }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo completar.' }); },
+    });
+  }
+
+  openNew(): void { this.form = { name: '', type: 'SABANA', color: '', reusable: true, quantity: 0 }; this.formVisible = true; }
+  openEdit(r: Row): void { this.form = { id: r.linenItemId, name: r.name, type: r.type, color: r.color ?? '', reusable: true, quantity: 0 }; this.formVisible = true; }
+  saveItem(): void {
+    if (!this.form.name.trim()) return;
+    this.busy.set(true);
+    const body = { type: this.form.type, name: this.form.name.trim(), color: this.form.color || undefined, reusable: this.form.reusable };
+    const req$ = this.form.id
+      ? this.http.put<ApiResponse<unknown>>(`${this.api}/admin/linen/items/${this.form.id}`, body)
+      : this.http.post<ApiResponse<unknown>>(`${this.api}/admin/linen/items`, { ...body, quantity: this.form.quantity || 0 });
+    req$.subscribe({
+      next: () => { this.busy.set(false); this.formVisible = false; this.toast.add({ severity: 'success', summary: 'Guardado', detail: 'Artículo guardado.' }); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo guardar.' }); },
+    });
+  }
+  remove(r: Row): void {
+    if (!confirm(`¿Desactivar "${r.name}"? Dejará de aparecer en el almacén.`)) return;
+    this.http.delete<ApiResponse<unknown>>(`${this.api}/admin/linen/items/${r.linenItemId}`).subscribe({
+      next: () => { this.toast.add({ severity: 'success', summary: 'Desactivado', detail: '' }); this.reload(); },
+      error: (e: HttpErrorResponse) => this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo desactivar.' }),
     });
   }
 

@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { ok } from '../../shared/response';
 import { UnauthorizedError } from '../../shared/errors';
-import { linenAdminService, transferSchema, replenishSchema } from './linen-admin.service';
+import { linenAdminService, transferSchema, replenishSchema, createItemSchema, updateItemSchema } from './linen-admin.service';
 
 export const linenAdminController = {
   async requests(req: Request, res: Response): Promise<void> {
@@ -28,6 +28,18 @@ export const linenAdminController = {
   async warehouse(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await linenAdminService.warehouse(req.scope)));
+  },
+  async createItem(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(201).json(ok(await linenAdminService.createItem(req.scope, createItemSchema.parse(req.body))));
+  },
+  async updateItem(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await linenAdminService.updateItem(req.scope, req.params.id, updateItemSchema.parse(req.body))));
+  },
+  async deactivateItem(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await linenAdminService.deactivateItem(req.scope, req.params.id)));
   },
   async replenish(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
