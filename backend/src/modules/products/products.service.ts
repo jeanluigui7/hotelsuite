@@ -49,7 +49,7 @@ async function assertCategoryInBranch(categoryId: string | null | undefined, bra
 }
 
 export const productsService = {
-  async list(scope: RequestScope, params: PaginationParams, area?: string) {
+  async list(scope: RequestScope, params: PaginationParams, area?: string, status?: string) {
     const branchId = requireActiveBranch(scope);
     // El stock mostrado depende del área: general (PRODUCTS) o el almacén de
     // Recepción/Frigobar cuando la venta es de esa área.
@@ -62,6 +62,9 @@ export const productsService = {
     }
     const where: Prisma.ProductWhereInput = { branchId };
     if (params.search) where.name = { contains: params.search };
+    // Filtro por estado: 'active' | 'inactive'. Sin valor (o 'all') devuelve todos
+    // (la grilla admin filtra en cliente); venta/check-in piden solo 'active'.
+    if (status === 'active' || status === 'inactive') where.status = status;
     const { skip, take } = toPrismaPaging(params);
     const [rows, total] = await Promise.all([
       productsRepository.list({ where, skip, take, orderBy: buildOrderBy(params, SORTABLE, 'name') }),

@@ -53,7 +53,7 @@ const PAY_TYPES = [
       <div class="room-card">
         <div><span class="lbl">Habitación Actual</span><strong>{{ room?.number }} - {{ room?.roomType?.name }}</strong></div>
         <div class="change"><span>Cambiar a:</span>
-          <p-select [options]="freeRooms()" [(ngModel)]="targetRoomId" optionValue="id" styleClass="w sm">
+          <p-select [options]="freeRooms()" [(ngModel)]="targetRoomId" optionValue="id" (onChange)="onTargetRoomChange()" styleClass="w sm">
             <ng-template let-r pTemplate="item">{{ r.number }} - {{ r.roomType.name }}</ng-template>
             <ng-template let-r pTemplate="selectedItem">{{ r.number }} - {{ r.roomType.name }}</ng-template>
           </p-select>
@@ -499,6 +499,17 @@ export class CheckInDialogComponent {
     }
   }
 
+  /**
+   * Al cambiar la habitación destino ("Cambiar a"), las tarifas dependen del tipo de la
+   * nueva habitación: se recargan filtradas por su roomType y se limpia la selección.
+   */
+  onTargetRoomChange(): void {
+    const target = this.freeRooms().find((r) => r.id === this.targetRoomId);
+    if (!target) return;
+    this.selectedRateId = null; this.finalPrice = null; this.customPrice = null;
+    this.catalog.rates.list({ roomTypeId: target.roomType.id }).subscribe((res) => this.rates.set(res.data ?? []));
+  }
+
   /** Busca el huésped por documento: autocompleta nombre/teléfono y carga deudas. */
   lookupDoc(): void {
     const doc = this.docNumber.trim();
@@ -631,7 +642,9 @@ export class CheckInDialogComponent {
   categoryOptions(): string[] { return [...new Set(this.products().map((p) => p.category?.name).filter((c): c is string => !!c))].sort(); }
   filteredProducts(): Product[] {
     const q = this.prodSearch.toLowerCase();
-    return this.products().filter((p) => (!q || p.name.toLowerCase().includes(q)) && (!this.categoryFilter || p.category?.name === this.categoryFilter));
+    return this.products()
+      .filter((p) => (!q || p.name.toLowerCase().includes(q)) && (!this.categoryFilter || p.category?.name === this.categoryFilter))
+      .sort((a, b) => (a.sku ?? '').localeCompare(b.sku ?? '')); // orden por código, no alfabético
   }
   addProduct(p: Product): void {
     const ex = this.lines().find((l) => l.product.id === p.id);

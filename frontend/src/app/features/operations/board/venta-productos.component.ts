@@ -218,7 +218,7 @@ export class VentaProductosComponent {
       if (this.categoryFilter && p.category?.name !== this.categoryFilter) return false;
       if (this.lowStockOnly && !this.isLow(p)) return false;
       return true;
-    });
+    }).sort((a, b) => (a.sku ?? '').localeCompare(b.sku ?? '')); // orden por código, no alfabético
   }
 
   readonly total = computed(() => {
