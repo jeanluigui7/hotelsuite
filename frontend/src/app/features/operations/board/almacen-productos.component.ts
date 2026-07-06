@@ -146,12 +146,19 @@ const IGV_TYPES = [
       <ng-template pTemplate="footer"><p-button label="Cancelar" [text]="true" (onClick)="formVisible = false" /><p-button label="Guardar" icon="pi pi-check" [loading]="busy()" [disabled]="!form.name || form.salePrice == null || !form.categoryId" (onClick)="save()" /></ng-template>
     </p-dialog>
 
-    <!-- Ingresar / Dar de baja -->
-    <p-dialog [(visible)]="movVisible" [modal]="true" [header]="movType === 'IN' ? 'Ingresar stock' : 'Dar de baja'" [style]="{ width: '26rem' }" styleClass="dk-dialog">
-      <p class="muted">{{ selected().size }} artículo(s) seleccionado(s).</p>
-      <div class="fld"><label>Cantidad ({{ movType === 'IN' ? '+' : '−' }})</label><p-inputNumber [(ngModel)]="movQty" [min]="1" [showButtons]="true" buttonLayout="horizontal" /></div>
-      <div class="fld"><label>Motivo / referencia</label><input pInputText [(ngModel)]="movRef" placeholder="Ingreso / merma / ajuste" /></div>
-      <ng-template pTemplate="footer"><p-button label="Cancelar" [text]="true" (onClick)="movVisible = false" /><p-button [label]="movType === 'IN' ? 'Ingresar' : 'Dar de baja'" icon="pi pi-check" [loading]="busy()" (onClick)="applyMov()" /></ng-template>
+    <!-- Ingreso / Baja masiva (cantidad por producto) -->
+    <p-dialog [(visible)]="movVisible" [modal]="true" [style]="{ width: '36rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      <ng-template pTemplate="header"><span class="th"><i class="pi" [class.pi-plus]="movType === 'IN'" [class.pi-minus]="movType === 'OUT'"></i> {{ movType === 'IN' ? 'Ingreso Masivo de Productos' : 'Baja Masiva de Productos' }}</span></ng-template>
+      <p class="muted">{{ movType === 'IN' ? 'Ingresando' : 'Dando de baja' }} {{ movLines.length }} producto(s) {{ movType === 'IN' ? 'al' : 'del' }} Almacén de Productos</p>
+      @for (l of movLines; track l.productId) {
+        <div class="mline">
+          <div class="mn">{{ l.name }}<div class="ms">Stock: {{ l.stock }}</div></div>
+          <p-inputNumber [(ngModel)]="l.qty" [min]="1" [max]="movType === 'OUT' ? l.stock : undefined" inputStyleClass="mqty" />
+          <button class="mx" (click)="removeMovLine(l.productId)"><i class="pi pi-times"></i></button>
+        </div>
+      }
+      <div class="fld"><label>Notas</label><textarea class="ta" rows="2" [(ngModel)]="movRef" placeholder="Notas adicionales (opcional)"></textarea></div>
+      <ng-template pTemplate="footer"><p-button label="Cancelar" [text]="true" (onClick)="movVisible = false" /><p-button [label]="movType === 'IN' ? 'Ingresar Productos' : 'Dar de Baja'" icon="pi pi-check" [loading]="busy()" [disabled]="movLines.length === 0" (onClick)="applyMov()" /></ng-template>
     </p-dialog>
 
     <!-- Ver -->
@@ -210,6 +217,10 @@ const IGV_TYPES = [
       .tline > div:first-child { flex: 1; } .tn { font-weight: 700; } .ts { color: #8b97a8; font-size: 0.8rem; }
       :host ::ng-deep .tqty { width: 5rem; text-align: center; }
       .tx { background: transparent; border: 0; color: #f87171; cursor: pointer; font-size: 1rem; }
+      .mline { display: flex; align-items: center; gap: 0.7rem; background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 10px; padding: 0.7rem 0.9rem; margin: 0.5rem 0; }
+      .mn { flex: 1; font-weight: 700; } .ms { color: #8b97a8; font-size: 0.78rem; font-weight: 400; }
+      :host ::ng-deep .mqty { width: 5rem; text-align: center; }
+      .mx { background: transparent; border: 0; color: #f87171; cursor: pointer; font-size: 1rem; }
       .ta { width: 100%; background: #0e1626; border: 1px solid #26364f; border-radius: 8px; color: #e6e9ef; padding: 0.6rem; resize: vertical; }
       .pf-sub { color: #8b97a8; font-size: 0.82rem; margin: 0 0 0.8rem; }
       .pf { display: flex; flex-direction: column; gap: 0.7rem; }
@@ -289,8 +300,8 @@ export class AlmacenProductosComponent implements OnInit {
   form: Form = this.emptyForm();
   movVisible = false;
   movType: 'IN' | 'OUT' = 'IN';
-  movQty = 1;
   movRef = '';
+  movLines: { productId: string; name: string; stock: number; qty: number }[] = [];
   viewVisible = false;
   viewP: Product | null = null;
   enviarVisible = false;
@@ -425,22 +436,35 @@ export class AlmacenProductosComponent implements OnInit {
   }
 
   // Movimientos (Ingresar / Dar de baja) sobre los seleccionados
-  openMov(type: 'IN' | 'OUT'): void { this.movType = type; this.movQty = 1; this.movRef = ''; this.movVisible = true; }
-  applyMov(): void {
-    const ids = [...this.selected()];
-    if (!ids.length) return;
-    this.busy.set(true);
-    const qty = this.movType === 'IN' ? this.movQty : -this.movQty;
+  openMov(type: 'IN' | 'OUT'): void {
+    this.movType = type;
+    this.movRef = '';
+    // Una fila por producto seleccionado, con su cantidad propia.
     const byId = new Map(this.products().map((p) => [p.id, p]));
+    this.movLines = [...this.selected()].map((id) => { const p = byId.get(id); return { productId: id, name: p?.name ?? '', stock: p?.stock ?? 0, qty: 1 }; }).filter((l) => l.name);
+    if (!this.movLines.length) { this.toast.add({ severity: 'warn', summary: 'Sin selección', detail: 'Selecciona al menos un producto.' }); return; }
+    this.movVisible = true;
+  }
+  removeMovLine(id: string): void { this.movLines = this.movLines.filter((l) => l.productId !== id); }
+  applyMov(): void {
+    const lines = this.movLines.filter((l) => l.qty > 0);
+    if (!lines.length) return;
+    this.busy.set(true);
+    const byId = new Map(this.products().map((p) => [p.id, p]));
+    let done = 0; const errors: string[] = [];
     const send = (i: number): void => {
-      if (i >= ids.length) { this.busy.set(false); this.movVisible = false; this.selected.set(new Set()); this.toast.add({ severity: 'success', summary: 'Listo', detail: `${ids.length} artículo(s) actualizados.` }); this.reload(); return; }
-      // Ajusta en el MISMO almacén cuyo stock se muestra (el que trae cada producto),
-      // así el listado siempre refleja el ingreso aunque haya varios almacenes PRODUCTS.
-      const wh = byId.get(ids[i])?.warehouseId ?? this.warehouseId;
+      if (i >= lines.length) {
+        this.busy.set(false); this.movVisible = false; this.selected.set(new Set());
+        this.toast.add({ severity: errors.length ? 'warn' : 'success', summary: this.movType === 'IN' ? 'Ingreso' : 'Baja', detail: `${done} producto(s) ${this.movType === 'IN' ? 'ingresado(s)' : 'dado(s) de baja'}${errors.length ? ` · ${errors.length} con error: ${errors[0]}` : ''}` });
+        this.reload(); return;
+      }
+      const l = lines[i];
+      const wh = byId.get(l.productId)?.warehouseId ?? this.warehouseId;
       if (!wh) { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Sin almacén', detail: 'No hay almacén de productos.' }); return; }
-      this.inventory.adjust({ productId: ids[i], warehouseId: wh, quantity: qty, reference: this.movRef || (this.movType === 'IN' ? 'Ingreso' : 'Baja') }).subscribe({
-        next: () => send(i + 1),
-        error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
+      const qty = this.movType === 'IN' ? l.qty : -l.qty;
+      this.inventory.adjust({ productId: l.productId, warehouseId: wh, quantity: qty, reference: this.movRef || (this.movType === 'IN' ? 'Ingreso' : 'Baja') }).subscribe({
+        next: () => { done++; send(i + 1); },
+        error: (e: HttpErrorResponse) => { errors.push(e.error?.error?.message ?? 'error'); send(i + 1); },
       });
     };
     send(0);

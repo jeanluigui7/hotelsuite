@@ -12,6 +12,7 @@ import { productsRepository } from '../products/products.repository';
 
 export const requestSchema = z.object({
   items: z.array(z.object({ productId: z.string().min(1), quantity: z.coerce.number().int().min(1) })).min(1),
+  notes: z.string().max(300).optional().or(z.literal('')),
 });
 export const writeOffSchema = z.object({
   productId: z.string().min(1),
@@ -143,6 +144,7 @@ export const receptionInventoryService = {
       data: {
         branchId,
         status: 'REQUESTED',
+        notes: dto.notes || null,
         createdByUserId: scope.userId,
         items: { create: dto.items.map((i) => ({ productId: i.productId, quantity: i.quantity })) },
       },

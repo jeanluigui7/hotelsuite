@@ -85,16 +85,20 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       </div>
     </section>
 
-    <!-- Solicitar -->
-    <p-dialog [(visible)]="reqVisible" [modal]="true" header="Solicitar productos" [style]="{ width: '30rem' }" styleClass="dk-dialog">
-      <div class="form">
-        @for (it of selectedItems(); track it.productId) {
-          <div class="qrow"><span>{{ it.name }}</span><p-inputNumber [(ngModel)]="qty[it.productId]" [min]="1" [showButtons]="true" buttonLayout="horizontal" /></div>
-        }
-      </div>
+    <!-- Solicitud Masiva de Productos -->
+    <p-dialog [(visible)]="reqVisible" [modal]="true" header="Solicitud Masiva de Productos" [style]="{ width: '36rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      <p class="muted rq-sub">Seleccione los productos y cantidades para solicitar al almacén.</p>
+      @for (it of selectedItems(); track it.productId) {
+        <div class="rq-line">
+          <div class="rq-n"><span class="rq-ico"><i class="pi pi-box"></i></span> {{ it.name }}</div>
+          <p-inputNumber [(ngModel)]="qty[it.productId]" [min]="1" inputStyleClass="rq-qty" />
+          <button class="rq-x" (click)="removeReqLine(it.productId)" title="Quitar"><i class="pi pi-trash"></i></button>
+        </div>
+      }
+      <div class="rq-notes"><span>Notas</span><input pInputText [(ngModel)]="reqNotes" placeholder="Notas adicionales (opcional)" /></div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="reqVisible = false" />
-        <p-button label="Enviar Solicitudes" icon="pi pi-send" [loading]="busy()" (onClick)="sendRequest()" />
+        <p-button label="Enviar Solicitudes" icon="pi pi-send" [loading]="busy()" [disabled]="selectedItems().length === 0" (onClick)="sendRequest()" />
       </ng-template>
     </p-dialog>
 
@@ -165,6 +169,12 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       .form label { font-size: 0.85rem; color: #9fb0c3; margin-top: 0.4rem; }
       :host ::ng-deep .form input { width: 100%; }
       .qrow { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
+      .rq-sub { color: #8b97a8; font-size: 0.82rem; margin: 0 0 0.8rem; }
+      .rq-line { display: flex; align-items: center; gap: 0.7rem; background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 10px; padding: 0.7rem 0.9rem; margin-bottom: 0.5rem; }
+      .rq-n { flex: 1; display: flex; align-items: center; gap: 0.5rem; font-weight: 600; } .rq-ico { background: #16233a; padding: 0.3rem; border-radius: 6px; color: #8b97a8; }
+      :host ::ng-deep .rq-qty { width: 5rem; text-align: center; }
+      .rq-x { background: transparent; border: 0; color: #f87171; cursor: pointer; }
+      .rq-notes { display: flex; align-items: center; gap: 0.7rem; margin-top: 0.6rem; } .rq-notes span { color: #8aa0bd; font-size: 0.85rem; } .rq-notes input { flex: 1; }
       .req { border: 1px solid #243245; border-radius: 8px; padding: 0.7rem; margin-bottom: 0.6rem; }
       .req-head { display: flex; justify-content: space-between; margin-bottom: 0.4rem; }
       .req-items { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.5rem; }
@@ -186,6 +196,7 @@ export class InventarioRecepcionComponent implements OnInit {
   readonly busy = signal(false);
   qty: Record<string, number> = {};
   woReason = '';
+  reqNotes = '';
   reqVisible = false; woVisible = false; recVisible = false;
 
   search = '';
@@ -281,11 +292,12 @@ export class InventarioRecepcionComponent implements OnInit {
   openRequest(): void { for (const it of this.selectedItems()) this.qty[it.productId] = this.qty[it.productId] || 1; this.reqVisible = true; }
   openWriteOff(): void { for (const it of this.selectedItems()) this.qty[it.productId] = this.qty[it.productId] || 1; this.woReason = ''; this.woVisible = true; }
 
+  removeReqLine(id: string): void { const s = new Set(this.selected()); s.delete(id); this.selected.set(s); }
   sendRequest(): void {
     this.busy.set(true);
     const items = this.selectedItems().map((it) => ({ productId: it.productId, quantity: this.qty[it.productId] || 1 }));
-    this.http.post<ApiResponse<unknown>>(`${this.api}/reception-inventory/requests`, { items }).subscribe({
-      next: () => { this.busy.set(false); this.reqVisible = false; this.selected.set(new Set()); this.toast.add({ severity: 'success', summary: 'Solicitud enviada', detail: '' }); this.reload(); },
+    this.http.post<ApiResponse<unknown>>(`${this.api}/reception-inventory/requests`, { items, notes: this.reqNotes || undefined }).subscribe({
+      next: () => { this.busy.set(false); this.reqVisible = false; this.selected.set(new Set()); this.reqNotes = ''; this.toast.add({ severity: 'success', summary: 'Solicitud enviada', detail: '' }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
     });
   }
