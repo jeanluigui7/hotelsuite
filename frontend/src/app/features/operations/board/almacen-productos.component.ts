@@ -440,8 +440,9 @@ export class AlmacenProductosComponent implements OnInit {
     this.movType = type;
     this.movRef = '';
     // Una fila por producto seleccionado, con su cantidad propia.
-    const byId = new Map(this.products().map((p) => [p.id, p]));
-    this.movLines = [...this.selected()].map((id) => { const p = byId.get(id); return { productId: id, name: p?.name ?? '', stock: p?.stock ?? 0, qty: 1 }; }).filter((l) => l.name);
+    const sel = this.products().filter((p) => this.selected().has(p.id))
+      .sort((a, b) => (a.sku ?? '').localeCompare(b.sku ?? '')); // ordenar por código, no alfabético
+    this.movLines = sel.map((p) => ({ productId: p.id, name: p.name, stock: p.stock, qty: 1 }));
     if (!this.movLines.length) { this.toast.add({ severity: 'warn', summary: 'Sin selección', detail: 'Selecciona al menos un producto.' }); return; }
     this.movVisible = true;
   }
@@ -478,7 +479,8 @@ export class AlmacenProductosComponent implements OnInit {
 
   goTransfer(): void {
     const ids = [...this.selected()];
-    const source = ids.length ? this.products().filter((p) => this.selected().has(p.id)) : this.filtered();
+    const source = (ids.length ? this.products().filter((p) => this.selected().has(p.id)) : this.filtered())
+      .slice().sort((a, b) => (a.sku ?? '').localeCompare(b.sku ?? '')); // ordenar por código, no alfabético
     this.transferLines = source.map((p) => ({ productId: p.id, name: p.name, stock: p.stock, qty: 1 }));
     if (!this.transferLines.length) { this.toast.add({ severity: 'warn', summary: 'Sin productos', detail: 'Selecciona al menos un producto.' }); return; }
     this.transferArea = 'RECEPTION';
