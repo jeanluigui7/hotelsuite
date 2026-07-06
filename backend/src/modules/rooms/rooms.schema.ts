@@ -8,6 +8,8 @@ export const createRoomSchema = z.object({
   notes: z.string().max(300).optional().or(z.literal('')),
   imageUrl: z.string().max(500_000).optional().or(z.literal('')),
   frigobarEnabled: z.coerce.boolean().optional(),
+  // Subalmacén de ropa (piso/torre) del que la habitación jala su inventario. null = sin asignar.
+  subWarehouseId: z.string().min(1).nullable().optional(),
 });
 
 export const updateRoomSchema = createRoomSchema.partial();

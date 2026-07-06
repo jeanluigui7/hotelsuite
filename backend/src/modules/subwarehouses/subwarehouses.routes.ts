@@ -9,6 +9,8 @@ export const subWarehousesRouter = Router();
 
 subWarehousesRouter.use(authenticate(), tenant());
 
+subWarehousesRouter.get('/subwarehouses/linen-area', requireAnyPermission(['inventory', 'view'], ['operations', 'view']), asyncHandler(subWarehousesController.linenArea));
+subWarehousesRouter.get('/subwarehouses/room-assignment', requireAnyPermission(['inventory', 'view'], ['operations', 'view']), asyncHandler(subWarehousesController.roomAssignment));
 subWarehousesRouter.get('/subwarehouses', requireAnyPermission(['inventory', 'view'], ['operations', 'view']), asyncHandler(subWarehousesController.list));
 subWarehousesRouter.get('/subwarehouses/coverage-rooms', requireAnyPermission(['inventory', 'view'], ['operations', 'view']), asyncHandler(subWarehousesController.coverageRooms));
 subWarehousesRouter.post('/subwarehouses', requirePermission('inventory', 'create'), asyncHandler(subWarehousesController.create));

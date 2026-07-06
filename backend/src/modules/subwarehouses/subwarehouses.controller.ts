@@ -5,6 +5,16 @@ import { subWarehousesService } from './subwarehouses.service';
 import { createSubWarehouseSchema, updateSubWarehouseSchema, setRoomsSchema, setStockSchema, supplySchema } from './subwarehouses.schema';
 
 export const subWarehousesController = {
+  async linenArea(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await subWarehousesService.linenArea(req.scope)));
+  },
+  async roomAssignment(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const roomId = typeof req.query.roomId === 'string' ? req.query.roomId : undefined;
+    if (!roomId) throw new ValidationError('roomId es requerido');
+    res.status(200).json(ok(await subWarehousesService.roomAssignment(req.scope, roomId)));
+  },
   async list(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const areaId = typeof req.query.areaId === 'string' ? req.query.areaId : undefined;

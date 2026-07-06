@@ -16,7 +16,55 @@ async function getSub(scope: RequestScope, id: string) {
   return sub;
 }
 
+/** Tipo de área que agrupa los subalmacenes de ropa (pisos/torres). */
+const LINEN_AREA_TYPE = 'ROPA';
+
 export const subWarehousesService = {
+  /**
+   * Área de ropa (managesSubwarehouses) ligada al almacén CLEANING "ROPA - LIMPIEZA".
+   * La crea si no existe. Es el contenedor de los subalmacenes (pisos/torres) desde donde
+   * la habitación jala su ropa. Devuelve el área, el almacén y sus subalmacenes activos.
+   */
+  async linenArea(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const wh =
+      (await prisma.warehouse.findFirst({ where: { branchId, type: 'CLEANING', name: 'ROPA - LIMPIEZA' } })) ??
+      (await prisma.warehouse.findFirst({ where: { branchId, type: 'CLEANING' } }));
+    let area = await prisma.area.findFirst({ where: { branchId, type: LINEN_AREA_TYPE, managesSubwarehouses: true } });
+    if (!area) {
+      area = await prisma.area.create({ data: { branchId, name: 'ROPA - LIMPIEZA', type: LINEN_AREA_TYPE, managesSubwarehouses: true, warehouseId: wh?.id ?? null, status: 'active' } });
+    } else if (wh && area.warehouseId !== wh.id) {
+      area = await prisma.area.update({ where: { id: area.id }, data: { warehouseId: wh.id } });
+    }
+    const subWarehouses = await prisma.subWarehouse.findMany({ where: { areaId: area.id, status: 'active' }, select: { id: true, name: true }, orderBy: { name: 'asc' } });
+    return { areaId: area.id, warehouseId: wh?.id ?? null, subWarehouses };
+  },
+
+  /**
+   * Asigna (o quita) una habitación a un subalmacén de ropa desde la edición de la habitación.
+   * Mantiene la regla de no-solape: la habitación queda en un único subalmacén del tipo de área.
+   */
+  async assignRoom(scope: RequestScope, roomId: string, subWarehouseId: string | null) {
+    const branchId = requireActiveBranch(scope);
+    if (!subWarehouseId) {
+      await prisma.subWarehouseRoom.deleteMany({ where: { roomId, subWarehouse: { area: { type: LINEN_AREA_TYPE } } } });
+      return;
+    }
+    const sub = await prisma.subWarehouse.findUnique({ where: { id: subWarehouseId }, include: { area: true } });
+    if (!sub || sub.branchId !== branchId) throw new ValidationError('Subalmacén no encontrado');
+    await prisma.$transaction(async (tx) => {
+      await tx.subWarehouseRoom.deleteMany({ where: { roomId, subWarehouse: { area: { type: sub.area.type } } } });
+      await tx.subWarehouseRoom.create({ data: { branchId, subWarehouseId, roomId } });
+    });
+  },
+
+  /** Subalmacén (de ropa) al que está asignada una habitación, si existe. */
+  async roomAssignment(scope: RequestScope, roomId: string) {
+    requireActiveBranch(scope);
+    const row = await prisma.subWarehouseRoom.findFirst({ where: { roomId, subWarehouse: { area: { type: LINEN_AREA_TYPE } } }, select: { subWarehouseId: true } });
+    return { subWarehouseId: row?.subWarehouseId ?? null };
+  },
+
   async list(scope: RequestScope, areaId: string) {
     await getArea(scope, areaId);
     const subs = await prisma.subWarehouse.findMany({ where: { areaId }, include: { rooms: { select: { roomId: true } } }, orderBy: { name: 'asc' } });

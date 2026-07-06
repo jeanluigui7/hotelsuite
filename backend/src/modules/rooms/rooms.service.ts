@@ -6,6 +6,7 @@ import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { roomsRepository, type RoomForMap } from './rooms.repository';
 import { roomTypesRepository } from '../room-types/room-types.repository';
+import { subWarehousesService } from '../subwarehouses/subwarehouses.service';
 import type { ChangeRoomStatusDto, CreateRoomDto, UpdateRoomDto } from './rooms.schema';
 
 async function assertRoomTypeInBranch(roomTypeId: string, branchId: string): Promise<void> {
@@ -111,7 +112,7 @@ export const roomsService = {
     const branchId = requireActiveBranch(scope);
     await assertRoomTypeInBranch(dto.roomTypeId, branchId);
     try {
-      return await roomsRepository.create({
+      const room = await roomsRepository.create({
         branchId,
         roomTypeId: dto.roomTypeId,
         number: dto.number,
@@ -121,6 +122,8 @@ export const roomsService = {
         imageUrl: dto.imageUrl || null,
         frigobarEnabled: dto.frigobarEnabled ?? false,
       });
+      if (dto.subWarehouseId !== undefined) await subWarehousesService.assignRoom(scope, room.id, dto.subWarehouseId);
+      return room;
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         throw new ConflictError('Ya existe una habitación con ese número en la sucursal');
@@ -134,7 +137,7 @@ export const roomsService = {
     await this.getEntity(scope, id);
     if (dto.roomTypeId) await assertRoomTypeInBranch(dto.roomTypeId, branchId);
     try {
-      return await roomsRepository.update(id, {
+      const room = await roomsRepository.update(id, {
         number: dto.number,
         floor: dto.floor === '' ? null : dto.floor,
         ...(dto.tower !== undefined ? { tower: dto.tower === '' ? null : dto.tower } : {}),
@@ -143,6 +146,8 @@ export const roomsService = {
         ...(dto.frigobarEnabled !== undefined ? { frigobarEnabled: dto.frigobarEnabled } : {}),
         ...(dto.roomTypeId ? { roomType: { connect: { id: dto.roomTypeId } } } : {}),
       });
+      if (dto.subWarehouseId !== undefined) await subWarehousesService.assignRoom(scope, id, dto.subWarehouseId);
+      return room;
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         throw new ConflictError('Ya existe una habitación con ese número en la sucursal');

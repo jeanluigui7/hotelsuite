@@ -12,6 +12,7 @@ import { MessageService } from 'primeng/api';
 import { Router } from '@angular/router';
 import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
 import { environment } from '../../../../environments/environment';
+import type { ApiResponse } from '../../../core/models/api-response.model';
 import { AuthService } from '../../../core/auth/auth.service';
 import { PrintingService } from '../../../core/printing/printing.service';
 import { profileForRole } from '../../../layout/menu';
@@ -291,7 +292,10 @@ const MANT_CATS = [
           <div class="fld"><label>Número</label><input pInputText [(ngModel)]="editForm.number" placeholder="103" /></div>
           <div class="fld"><label>Piso</label><input pInputText [(ngModel)]="editForm.floor" placeholder="1" /></div>
         </div>
-        <div class="fld"><label>Torre / Bloque</label><input pInputText [(ngModel)]="editForm.tower" placeholder="Ej: Torre A" /></div>
+        <div class="fld"><label>Torre / Bloque (subalmacén de ropa)</label>
+          <p-select [options]="subwarehouses()" optionLabel="name" optionValue="id" [(ngModel)]="editForm.subWarehouseId" [showClear]="true" placeholder="Sin subalmacén" styleClass="w" appendTo="body" />
+          @if (subwarehouses().length === 0) { <small class="muted">No hay subalmacenes. Créalos en el almacén ROPA - LIMPIEZA › Subalmacenes.</small> }
+        </div>
         <div class="ed-grid">
           <div class="fld"><label>Tipo de Habitación</label>
             <p-select [options]="roomTypes()" optionLabel="name" optionValue="id" [(ngModel)]="editForm.roomTypeId" placeholder="Selecciona" styleClass="w" appendTo="body" />
@@ -371,6 +375,9 @@ const MANT_CATS = [
       <div class="nr-form">
         <div class="fld"><label>Número</label><input pInputText [(ngModel)]="newRoom.number" placeholder="Ej: 104" /></div>
         <div class="fld"><label>Piso</label><input pInputText [(ngModel)]="newRoom.floor" placeholder="Ej: 1" /></div>
+        <div class="fld wide"><label>Torre / Bloque (subalmacén de ropa)</label>
+          <p-select [options]="subwarehouses()" optionLabel="name" optionValue="id" [(ngModel)]="newRoom.subWarehouseId" [showClear]="true" placeholder="Sin subalmacén" styleClass="w" appendTo="body" />
+        </div>
         <div class="fld wide"><label>Tipo de habitación</label>
           <p-select [options]="roomTypes()" optionLabel="name" optionValue="id" [(ngModel)]="newRoom.roomTypeId" placeholder="Selecciona el tipo" styleClass="w" appendTo="body" />
           @if (roomTypes().length === 0) { <small class="req"><i class="pi pi-exclamation-triangle"></i> No hay tipos de habitación. Créalos en Configuraciones › Tipos de Habitación.</small> }
@@ -782,7 +789,9 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   createdRoomId: string | null = null;
   createdRoomNumber = '';
   readonly loadingDotacion = signal(false);
-  newRoom: { number: string; floor: string; roomTypeId: string | null } = { number: '', floor: '', roomTypeId: null };
+  newRoom: { number: string; floor: string; roomTypeId: string | null; subWarehouseId: string | null } = { number: '', floor: '', roomTypeId: null, subWarehouseId: null };
+  /** Subalmacenes de ropa (pisos/torres) del almacén ROPA - LIMPIEZA, para el combo Torre/Bloque. */
+  readonly subwarehouses = signal<{ id: string; name: string }[]>([]);
   readonly busyStay = signal<string | null>(null);
   readonly receptionPerms = signal<{ allowChangeRoom: boolean; allowWriteOff: boolean; allowViewCash: boolean }>({ allowChangeRoom: false, allowWriteOff: false, allowViewCash: true });
   private clock?: ReturnType<typeof setInterval>;
@@ -916,8 +925,8 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   editVisible = false;
   editRoom: RoomMapItem | null = null;
   readonly savingEdit = signal(false);
-  editForm: { number: string; floor: string; tower: string; roomTypeId: string | null; status: string; imageUrl: string; frigobarEnabled: boolean } = {
-    number: '', floor: '', tower: '', roomTypeId: null, status: 'FREE', imageUrl: '', frigobarEnabled: false,
+  editForm: { number: string; floor: string; tower: string; subWarehouseId: string | null; roomTypeId: string | null; status: string; imageUrl: string; frigobarEnabled: boolean } = {
+    number: '', floor: '', tower: '', subWarehouseId: null, roomTypeId: null, status: 'FREE', imageUrl: '', frigobarEnabled: false,
   };
   readonly editStatusOptions = [
     { label: 'Disponible', value: 'FREE' },
@@ -975,19 +984,26 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     this.reload();
     // Tipos (con atributos) para el alta y la edición de habitaciones — disponible para todos los perfiles.
     this.catalog.roomTypes.list({ pageSize: 100, sortBy: 'name' }).subscribe((res) => this.roomTypes.set(res.data ?? []));
+    this.loadSubwarehouses();
     this.timer = setInterval(() => this.reload(), 15_000);
     this.clock = setInterval(() => this.nowTick.set(Date.now()), 1000);
   }
 
+  /** Subalmacenes de ropa (pisos/torres) para el combo Torre/Bloque de la habitación. */
+  loadSubwarehouses(): void {
+    this.http.get<ApiResponse<{ subWarehouses: { id: string; name: string }[] }>>(`${this.apiUrl}/subwarehouses/linen-area`)
+      .subscribe({ next: (r) => this.subwarehouses.set(r.data?.subWarehouses ?? []), error: () => {} });
+  }
+
   openNewRoom(): void {
-    this.newRoom = { number: '', floor: '', roomTypeId: this.roomTypes()[0]?.id ?? null };
+    this.newRoom = { number: '', floor: '', roomTypeId: this.roomTypes()[0]?.id ?? null, subWarehouseId: null };
     this.newRoomVisible = true;
   }
 
   saveNewRoom(): void {
     if (!this.newRoom.number || !this.newRoom.roomTypeId) return;
     this.savingRoom.set(true);
-    this.ops.rooms.create({ roomTypeId: this.newRoom.roomTypeId, number: this.newRoom.number.trim(), floor: this.newRoom.floor.trim() || undefined } as never).subscribe({
+    this.ops.rooms.create({ roomTypeId: this.newRoom.roomTypeId, number: this.newRoom.number.trim(), floor: this.newRoom.floor.trim() || undefined, tower: this.subwarehouses().find((s) => s.id === this.newRoom.subWarehouseId)?.name ?? '', subWarehouseId: this.newRoom.subWarehouseId ?? null } as never).subscribe({
       next: (res) => {
         this.savingRoom.set(false);
         this.newRoomVisible = false;
@@ -1161,12 +1177,16 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
       number: r.number,
       floor: r.floor ?? '',
       tower: r.tower ?? '',
+      subWarehouseId: null,
       roomTypeId: r.roomType.id,
       status: r.status,
       imageUrl: r.imageUrl ?? '',
       frigobarEnabled: !!r.frigobarEnabled,
     };
     this.editVisible = true;
+    // Precarga el subalmacén de ropa al que está asignada la habitación.
+    this.http.get<ApiResponse<{ subWarehouseId: string | null }>>(`${this.apiUrl}/subwarehouses/room-assignment`, { params: { roomId: r.id } })
+      .subscribe({ next: (res) => { if (this.editRoom?.id === r.id) this.editForm.subWarehouseId = res.data?.subWarehouseId ?? null; }, error: () => {} });
   }
 
   /** Atributos a mostrar: los del tipo seleccionado (fuente única = Tipos de Habitación). */
@@ -1193,7 +1213,9 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
         roomTypeId: this.editForm.roomTypeId,
         number: this.editForm.number.trim(),
         floor: this.editForm.floor.trim() || undefined,
-        tower: this.editForm.tower.trim(),
+        // La Torre/Bloque ahora es el subalmacén elegido: se guarda su nombre para agrupar en Cobertura.
+        tower: this.subwarehouses().find((s) => s.id === this.editForm.subWarehouseId)?.name ?? '',
+        subWarehouseId: this.editForm.subWarehouseId ?? null,
         imageUrl: this.editForm.imageUrl.trim(),
         frigobarEnabled: this.editForm.frigobarEnabled,
       } as never)

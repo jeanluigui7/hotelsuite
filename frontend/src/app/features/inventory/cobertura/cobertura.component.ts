@@ -165,8 +165,16 @@ export class CoberturaComponent implements OnInit {
   rFrom = ''; rTo = '';
 
   ngOnInit(): void {
-    this.areaId = this.route.snapshot.queryParamMap.get('area');
-    if (!this.areaId) return;
+    const areaParam = this.route.snapshot.queryParamMap.get('area');
+    if (areaParam) { this.start(areaParam); return; }
+    // Sin ?area=: se resuelve (o crea) el área de ropa ligada al almacén ROPA - LIMPIEZA.
+    this.http.get<ApiResponse<{ areaId: string }>>(`${this.api}/subwarehouses/linen-area`).subscribe((r) => {
+      if (r.data?.areaId) this.start(r.data.areaId);
+    });
+  }
+
+  private start(areaId: string): void {
+    this.areaId = areaId;
     this.catalog.areas.list({ pageSize: 200 }).subscribe((r) => this.area.set((r.data ?? []).find((a) => a.id === this.areaId) ?? null));
     this.loadSubs();
     this.loadRooms();

@@ -1,5 +1,6 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
@@ -53,6 +54,7 @@ interface Form {
             <td>{{ typeLabel(row.type) }}</td>
             <td><p-tag [value]="row.status === 'active' ? 'Activo' : 'Inactivo'" [severity]="row.status === 'active' ? 'success' : 'danger'" /></td>
             <td class="cat-actions">
+              @if (row.type === 'CLEANING') { <p-button label="Subalmacenes" icon="pi pi-sitemap" [text]="true" (onClick)="goSubwarehouses()" title="Crear/editar subalmacenes (pisos/torres)" /> }
               @if (canEdit) { <p-button icon="pi pi-pencil" [text]="true" (onClick)="openEdit(row)" /> }
               @if (canDelete) { <p-button icon="pi pi-trash" severity="danger" [text]="true" (onClick)="confirmDelete(row)" /> }
             </td>
@@ -84,6 +86,10 @@ export class WarehousesComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly messages = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
+  private readonly router = inject(Router);
+
+  /** Abre la gestión de subalmacenes (pisos/torres) del almacén de ropa-limpieza. */
+  goSubwarehouses(): void { void this.router.navigateByUrl('/inventory/cobertura'); }
 
   readonly items = signal<Warehouse[]>([]);
   readonly loading = signal(false);
