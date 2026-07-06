@@ -1,5 +1,7 @@
-import { Component } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterModule } from '@angular/router';
+import { AuthService } from '../../core/auth/auth.service';
+import { profileForRole } from '../menu';
 
 interface Pill { label: string; icon: string; route: string; color: string; }
 
@@ -11,13 +13,15 @@ interface Pill { label: string; icon: string; route: string; color: string; }
   standalone: true,
   imports: [RouterModule],
   template: `
-    <div class="pills">
-      @for (p of pills; track p.route) {
-        <a class="pill" [routerLink]="p.route" routerLinkActive="active" [style.--c]="p.color">
-          <i [class]="p.icon"></i> {{ p.label }}
-        </a>
-      }
-    </div>
+    @if (!isRecepcion()) {
+      <div class="pills">
+        @for (p of pills; track p.route) {
+          <a class="pill" [routerLink]="p.route" routerLinkActive="active" [style.--c]="p.color">
+            <i [class]="p.icon"></i> {{ p.label }}
+          </a>
+        }
+      </div>
+    }
   `,
   styles: [
     `
@@ -36,6 +40,12 @@ interface Pill { label: string; icon: string; route: string; color: string; }
   ],
 })
 export class QuickPillsComponent {
+  private readonly auth = inject(AuthService);
+  /** Los pills (atajos a almacenes) se ocultan para el perfil de recepción. */
+  isRecepcion(): boolean {
+    const u = this.auth.user();
+    return profileForRole(u?.roleName, u?.isSuperAdmin ?? false) === 'recepcion';
+  }
   readonly pills: Pill[] = [
     { label: 'Productos', icon: 'pi pi-box', route: '/operations/almacen-productos', color: '#8b5cf6' },
     { label: 'Recepción', icon: 'pi pi-building', route: '/operations/inventario-recepcion', color: '#f97316' },
