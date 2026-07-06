@@ -73,10 +73,13 @@ async function main(): Promise<void> {
   const gerenteRole = await prisma.role.findFirst({ where: { name: 'Gerente' } });
   if (!recepRole || !limpRole) throw new Error('Faltan roles base. Corre primero `npx prisma db seed`.');
 
-  // Recepción: inventario (ver/solicitar/recepcionar/baja).
-  for (const action of ['view', 'create', 'edit', 'delete']) await ensureRolePermission(recepRole.id, 'inventory', action);
-  // Gerente: gestión completa de configuración (tarifas, tipos de habitación, etc.).
-  if (gerenteRole) for (const action of ['view', 'create', 'edit', 'delete']) await ensureRolePermission(gerenteRole.id, 'settings', action);
+  // Recepción: inventario (ver/solicitar/recepcionar). NO puede dar de baja (solo gerente/admin).
+  for (const action of ['view', 'create', 'edit']) await ensureRolePermission(recepRole.id, 'inventory', action);
+  // Gerente: gestión completa de configuración (tarifas, tipos de habitación, etc.) + inventario (incluye dar de baja).
+  if (gerenteRole) {
+    for (const action of ['view', 'create', 'edit', 'delete']) await ensureRolePermission(gerenteRole.id, 'settings', action);
+    for (const action of ['view', 'create', 'edit', 'delete']) await ensureRolePermission(gerenteRole.id, 'inventory', action);
+  }
 
   // 2. Usuarios por perfil (contraseña Rizzos123!)
   const passwordHash = await bcrypt.hash('Rizzos123!', 10);

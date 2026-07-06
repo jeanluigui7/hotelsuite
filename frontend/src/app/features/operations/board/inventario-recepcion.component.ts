@@ -12,6 +12,7 @@ import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { PrintingService } from '../../../core/printing/printing.service';
+import { AuthService } from '../../../core/auth/auth.service';
 import { printPdf } from '../../../core/utils/export';
 
 interface InvItem { productId: string; name: string; sku?: string | null; categoryId?: string | null; categoryName?: string | null; stockInicial: number; stock: number; min: number; ingresos: number; salidas: number; belowMin: boolean; }
@@ -30,7 +31,9 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
         <div class="acts">
           <button class="btn blue" (click)="recVisible = true"><i class="pi pi-inbox"></i> Recepcionar Productos @if (sentRequests().length) { <span class="b">{{ sentRequests().length }}</span> }</button>
           <button class="btn green" [disabled]="selected().size === 0" (click)="openRequest()"><i class="pi pi-plus"></i> Solicitar Seleccionados</button>
-          <button class="btn red" [disabled]="selected().size === 0" (click)="openWriteOff()"><i class="pi pi-minus"></i> Dar de Baja Seleccionados</button>
+          @if (canWriteOff()) {
+            <button class="btn red" [disabled]="selected().size === 0" (click)="openWriteOff()"><i class="pi pi-minus"></i> Dar de Baja Seleccionados</button>
+          }
           <button class="btn ghost" (click)="report(false)"><i class="pi pi-print"></i> Previsualizar Reporte</button>
           <button class="btn ghost" (click)="report(true)"><i class="pi pi-print"></i> Reporte Verificado</button>
         </div>
@@ -193,6 +196,9 @@ export class InventarioRecepcionComponent implements OnInit {
   private readonly api = environment.apiUrl;
   private readonly toast = inject(MessageService);
   private readonly printing = inject(PrintingService);
+  private readonly auth = inject(AuthService);
+  /** Solo gerente/admin (permiso inventory:delete) pueden dar de baja productos. */
+  canWriteOff(): boolean { return this.auth.can('inventory', 'delete'); }
 
   readonly items = signal<InvItem[]>([]);
   readonly requests = signal<Req[]>([]);
