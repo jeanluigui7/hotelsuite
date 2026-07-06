@@ -7,6 +7,7 @@ export const createDotacionSchema = z.object({
   category: z.string().max(120).optional().or(z.literal('')),
   articleKind: z.enum(ARTICLE_KINDS).default('LINEN_REUSABLE'),
   name: z.string().min(1).max(120),
+  size: z.string().max(120).optional().or(z.literal('')),
   linenItemId: z.string().min(1).optional().or(z.literal('')),
   productId: z.string().min(1).optional().or(z.literal('')),
   baseQty: z.coerce.number().int().min(0).default(1),

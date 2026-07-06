@@ -48,6 +48,10 @@ export const subWarehousesController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await subWarehousesService.getStock(req.scope, req.params.id)));
   },
+  async needs(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await subWarehousesService.needs(req.scope, req.params.id)));
+  },
   async setStock(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await subWarehousesService.setStock(req.scope, req.params.id, setStockSchema.parse(req.body))));

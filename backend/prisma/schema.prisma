@@ -559,6 +559,7 @@ model RoomTypeDotacion {
   category    String? // categoría (texto): "Ropa", "Amenities", etc.
   articleKind String   @default("LINEN_REUSABLE")
   name        String // artículo: "Sábana", "Jabón Premium"…
+  size        String? // tamaño (texto): "1½ plaza", "2 plazas", "King", etc.
   linenItemId String? // vínculo opcional a un LinenItem (ropa/amenity existente)
   productId   String? // vínculo opcional a un Product (producto de venta/amenity)
   baseQty     Int      @default(1)

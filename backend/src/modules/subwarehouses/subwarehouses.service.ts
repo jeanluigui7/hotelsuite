@@ -129,6 +129,36 @@ export const subWarehousesService = {
     return { assigned: dto.roomIds.length };
   },
 
+  /**
+   * Necesidad de ropa del subalmacén: por cada habitación que atiende, suma la dotación base
+   * (RoomTypeDotacion activa) de su tipo de habitación, agrupada por artículo. Compara contra
+   * el stock actual del subalmacén → esto es lo que cada habitación "jala" del subalmacén.
+   */
+  async needs(scope: RequestScope, id: string) {
+    const sub = await getSub(scope, id);
+    const branchId = sub.branchId;
+    const links = await prisma.subWarehouseRoom.findMany({ where: { subWarehouseId: id }, select: { room: { select: { roomTypeId: true } } } });
+    const typeCounts = new Map<string, number>();
+    for (const l of links) { const t = l.room.roomTypeId; typeCounts.set(t, (typeCounts.get(t) ?? 0) + 1); }
+    if (typeCounts.size === 0) return { rooms: 0, items: [] };
+    const dots = await prisma.roomTypeDotacion.findMany({ where: { branchId, status: 'active', roomTypeId: { in: [...typeCounts.keys()] } } });
+    const req = new Map<string, { articleKind: string; name: string; size: string | null; linenItemId: string | null; required: number }>();
+    for (const d of dots) {
+      const count = typeCounts.get(d.roomTypeId) ?? 0;
+      const key = `${d.articleKind}|${d.name}`;
+      const cur = req.get(key) ?? { articleKind: d.articleKind, name: d.name, size: d.size, linenItemId: d.linenItemId, required: 0 };
+      cur.required += d.baseQty * count;
+      req.set(key, cur);
+    }
+    const stock = await prisma.subWarehouseStock.findMany({ where: { subWarehouseId: id } });
+    const stockMap = new Map(stock.map((s) => [`${s.articleKind}|${s.name}`, s.quantity]));
+    const items = [...req.values()].map((r) => {
+      const current = stockMap.get(`${r.articleKind}|${r.name}`) ?? 0;
+      return { ...r, current, missing: Math.max(0, r.required - current) };
+    });
+    return { rooms: links.length, items };
+  },
+
   /** Stock propio del subalmacén. */
   async getStock(scope: RequestScope, id: string) {
     await getSub(scope, id);

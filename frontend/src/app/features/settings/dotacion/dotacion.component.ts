@@ -19,6 +19,7 @@ interface Dotacion {
   category?: string | null;
   articleKind: string;
   name: string;
+  size?: string | null;
   linenItemId?: string | null;
   baseQty: number;
   required: boolean;
@@ -26,11 +27,13 @@ interface Dotacion {
   status: string;
 }
 interface LinenItem { id: string; type: string; name: string; }
+interface NeedRow { articleKind: string; name: string; size: string | null; required: number; current: number; missing: number; }
 interface Form {
   id?: string;
   category: string;
   articleKind: string;
   name: string;
+  size: string;
   linenItemId: string | null;
   baseQty: number;
   required: boolean;
@@ -44,8 +47,9 @@ const KINDS = [
   { label: 'Inventario / activo', value: 'ASSET' },
 ];
 function emptyForm(): Form {
-  return { category: '', articleKind: 'LINEN_REUSABLE', name: '', linenItemId: null, baseQty: 1, required: false, allowExtra: false, status: 'active' };
+  return { category: '', articleKind: 'LINEN_REUSABLE', name: '', size: '', linenItemId: null, baseQty: 1, required: false, allowExtra: false, status: 'active' };
 }
+const LINEN_TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana', EDREDON: 'Edredón', AMENITY: 'Amenity' };
 
 @Component({
   selector: 'app-dotacion',
@@ -61,9 +65,28 @@ function emptyForm(): Form {
         <div class="fld"><label>Tipo de habitación</label>
           <p-select [options]="roomTypes()" optionLabel="name" optionValue="id" [(ngModel)]="roomTypeId" (onChange)="reload()" placeholder="Selecciona un tipo" styleClass="dk" />
         </div>
+        <div class="fld"><label>Subalmacén (necesidad de ropa)</label>
+          <p-select [options]="subwarehouses()" optionLabel="name" optionValue="id" [(ngModel)]="subId" (onChange)="loadNeeds()" [showClear]="true" placeholder="Ver necesidad por subalmacén" styleClass="dk" />
+        </div>
         <span class="spacer"></span>
         @if (canEdit && roomTypeId) { <button class="new-btn" (click)="openNew()"><i class="pi pi-plus"></i> Agregar artículo</button> }
       </div>
+
+      @if (subId) {
+        <div class="needs">
+          <div class="needs-h"><i class="pi pi-sitemap"></i> Necesidad de ropa del subalmacén <strong>{{ subName() }}</strong> · {{ needsRooms() }} habitación(es) — según la dotación de sus tipos.</div>
+          <div class="tablewrap">
+            <table class="tbl">
+              <thead><tr><th>Artículo</th><th>Tamaño</th><th class="cn">Requerido</th><th class="cn">En subalmacén</th><th class="cn">Faltante</th></tr></thead>
+              <tbody>
+                @for (n of needs(); track n.name) {
+                  <tr><td class="nm">{{ n.name }}</td><td class="muted">{{ n.size || '—' }}</td><td class="cn"><strong>{{ n.required }}</strong></td><td class="cn">{{ n.current }}</td><td class="cn"><span class="pill" [class.off]="n.missing > 0" [class.on]="n.missing === 0">{{ n.missing }}</span></td></tr>
+                } @empty { <tr><td colspan="5" class="muted center">Sin habitaciones asignadas o sin dotación configurada.</td></tr> }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      }
 
       @if (!roomTypeId) {
         <p class="muted empty">Selecciona un tipo de habitación para ver y configurar su dotación base.</p>
@@ -71,7 +94,7 @@ function emptyForm(): Form {
         <div class="tablewrap">
           <table class="tbl">
             <thead><tr>
-              <th>Categoría</th><th>Artículo</th><th>Tipo</th><th class="cn">Cant. BASE</th>
+              <th>Tipo de categoría</th><th>Artículo</th><th>Categoría de ropa</th><th>Tamaño</th><th>Tipo</th><th class="cn">Cant. BASE</th>
               <th class="cn">Obligatorio</th><th class="cn">Permite adicional</th><th class="cn">Estado</th><th class="ac"></th>
             </tr></thead>
             <tbody>
@@ -79,6 +102,8 @@ function emptyForm(): Form {
                 <tr>
                   <td class="muted">{{ d.category || '—' }}</td>
                   <td class="nm">{{ d.name }}</td>
+                  <td>{{ linenType(d) }}</td>
+                  <td class="muted">{{ d.size || '—' }}</td>
                   <td><span class="kind" [class]="kindClass(d.articleKind)">{{ kindLabel(d.articleKind) }}</span></td>
                   <td class="cn"><strong>{{ d.baseQty }}</strong></td>
                   <td class="cn"><span class="pill" [class.yes]="d.required">{{ d.required ? 'Sí' : 'No' }}</span></td>
@@ -89,7 +114,7 @@ function emptyForm(): Form {
                     @if (canDelete) { <button class="ia del" (click)="confirmDelete(d)" title="Eliminar"><i class="pi pi-trash"></i></button> }
                   </td>
                 </tr>
-              } @empty { <tr><td colspan="8" class="muted center">Sin dotación configurada para este tipo. Agrega los artículos base.</td></tr> }
+              } @empty { <tr><td colspan="10" class="muted center">Sin dotación configurada para este tipo. Agrega los artículos base.</td></tr> }
             </tbody>
           </table>
         </div>
@@ -103,6 +128,7 @@ function emptyForm(): Form {
           <p-select [options]="kinds" optionLabel="label" optionValue="value" [(ngModel)]="form.articleKind" styleClass="w" appendTo="body" />
         </div>
         <div class="fld"><label>Artículo *</label><input pInputText [(ngModel)]="form.name" placeholder="Sábana, Jabón Premium, Toalla…" /></div>
+        <div class="fld"><label>Tamaño</label><input pInputText [(ngModel)]="form.size" placeholder="1½ plaza, 2 plazas, King, S/M/L…" /></div>
         @if (form.articleKind === 'LINEN_REUSABLE' || form.articleKind === 'AMENITY') {
           <div class="fld"><label>Vínculo con ropa/almacén (opcional)</label>
             <p-select [options]="linenItems()" optionLabel="name" optionValue="id" [(ngModel)]="form.linenItemId" [showClear]="true" [filter]="true" filterBy="name" placeholder="Sin vínculo" styleClass="w" appendTo="body">
@@ -156,6 +182,9 @@ function emptyForm(): Form {
       .chk { flex-direction: row; align-items: center; gap: 0.5rem; font-weight: 500; cursor: pointer; }
       .chk input { width: 18px; height: 18px; accent-color: #10b981; }
       :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1622; color: #e6e9ef; }
+      .needs { margin: 0 0 1.2rem; border: 1px solid #274468; border-radius: 12px; overflow: hidden; }
+      .needs-h { background: #10233c; color: #93c5fd; padding: 0.7rem 1rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; }
+      .needs .tablewrap { border: 0; border-radius: 0; }
     `,
   ],
 })
@@ -173,6 +202,11 @@ export class DotacionComponent implements OnInit {
   readonly saving = signal(false);
   readonly kinds = KINDS;
   readonly statusOptions = [{ label: 'Activo', value: 'active' }, { label: 'Inactivo', value: 'inactive' }];
+  // Subalmacenes (pisos/torres) del almacén ROPA - LIMPIEZA + necesidad calculada.
+  readonly subwarehouses = signal<{ id: string; name: string }[]>([]);
+  readonly needs = signal<NeedRow[]>([]);
+  readonly needsRooms = signal(0);
+  subId: string | null = null;
 
   roomTypeId: string | null = null;
   dialogVisible = false;
@@ -187,10 +221,25 @@ export class DotacionComponent implements OnInit {
       if (!this.roomTypeId && res.data?.length) { this.roomTypeId = res.data[0].id; this.reload(); }
     });
     this.http.get<ApiResponse<LinenItem[]>>(`${this.api}/cleaning/linen-items`).subscribe((r) => this.linenItems.set(r.data ?? []));
+    // Subalmacenes del almacén ROPA - LIMPIEZA (para el combo de necesidad).
+    this.http.get<ApiResponse<{ subWarehouses: { id: string; name: string }[] }>>(`${this.api}/subwarehouses/linen-area`)
+      .subscribe({ next: (r) => this.subwarehouses.set(r.data?.subWarehouses ?? []), error: () => {} });
   }
 
   kindLabel(v: string): string { return KINDS.find((k) => k.value === v)?.label ?? v; }
   kindClass(v: string): string { return { LINEN_REUSABLE: 'linen', AMENITY: 'amenity', SALE: 'sale', ASSET: 'asset' }[v] ?? 'linen'; }
+  /** "Categoría de ropa" = tipo del artículo de ropa vinculado (Sábana/Toalla/…). */
+  linenType(d: Dotacion): string {
+    const li = this.linenItems().find((x) => x.id === d.linenItemId);
+    return li ? (LINEN_TYPE_LABEL[li.type] ?? li.type) : '—';
+  }
+  subName(): string { return this.subwarehouses().find((s) => s.id === this.subId)?.name ?? ''; }
+  /** Necesidad de ropa del subalmacén = dotación de los tipos de sus habitaciones. */
+  loadNeeds(): void {
+    if (!this.subId) { this.needs.set([]); this.needsRooms.set(0); return; }
+    this.http.get<ApiResponse<{ rooms: number; items: NeedRow[] }>>(`${this.api}/subwarehouses/${this.subId}/needs`)
+      .subscribe({ next: (r) => { this.needs.set(r.data?.items ?? []); this.needsRooms.set(r.data?.rooms ?? 0); }, error: () => { this.needs.set([]); this.needsRooms.set(0); } });
+  }
 
   reload(): void {
     if (!this.roomTypeId) { this.items.set([]); return; }
@@ -200,7 +249,7 @@ export class DotacionComponent implements OnInit {
 
   openNew(): void { this.form = emptyForm(); this.dialogVisible = true; }
   openEdit(d: Dotacion): void {
-    this.form = { id: d.id, category: d.category ?? '', articleKind: d.articleKind, name: d.name, linenItemId: d.linenItemId ?? null, baseQty: d.baseQty, required: d.required, allowExtra: d.allowExtra, status: d.status as 'active' | 'inactive' };
+    this.form = { id: d.id, category: d.category ?? '', articleKind: d.articleKind, name: d.name, size: d.size ?? '', linenItemId: d.linenItemId ?? null, baseQty: d.baseQty, required: d.required, allowExtra: d.allowExtra, status: d.status as 'active' | 'inactive' };
     this.dialogVisible = true;
   }
 
@@ -210,7 +259,7 @@ export class DotacionComponent implements OnInit {
     const linked = this.form.articleKind === 'LINEN_REUSABLE' || this.form.articleKind === 'AMENITY';
     const dto = {
       roomTypeId: this.roomTypeId, category: this.form.category, articleKind: this.form.articleKind,
-      name: this.form.name.trim(), linenItemId: linked ? (this.form.linenItemId || '') : '',
+      name: this.form.name.trim(), size: this.form.size.trim(), linenItemId: linked ? (this.form.linenItemId || '') : '',
       baseQty: this.form.baseQty, required: this.form.required,
       allowExtra: this.form.allowExtra, status: this.form.status,
     };
