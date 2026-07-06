@@ -291,18 +291,31 @@ export class InventarioRecepcionComponent implements OnInit {
   }
 
   doWriteOff(): void {
+    // Solo se puede dar de baja lo que hay en recepción; se omiten los de stock 0.
+    const items = this.selectedItems().filter((it) => it.stock > 0);
+    const sinStock = this.selectedItems().length - items.length;
+    if (!items.length) {
+      this.toast.add({ severity: 'warn', summary: 'Sin stock en recepción', detail: 'Los productos seleccionados no tienen stock en recepción para dar de baja.' });
+      return;
+    }
     this.busy.set(true);
-    const items = this.selectedItems();
-    let done = 0; let failed = 0;
+    let done = 0; const errors: string[] = [];
     const next = (i: number) => {
       if (i >= items.length) {
         this.busy.set(false); this.woVisible = false; this.selected.set(new Set());
-        this.toast.add({ severity: failed ? 'warn' : 'success', summary: 'Bajas', detail: `${done} dadas de baja${failed ? `, ${failed} con error` : ''}` });
+        const extra = sinStock ? ` · ${sinStock} sin stock omitido(s)` : '';
+        this.toast.add({
+          severity: errors.length ? 'warn' : 'success',
+          summary: 'Bajas',
+          detail: `${done} dada(s) de baja${errors.length ? ` · ${errors.length} con error: ${errors[0]}` : ''}${extra}`,
+        });
         this.reload(); return;
       }
       const it = items[i];
-      this.http.post<ApiResponse<unknown>>(`${this.api}/reception-inventory/write-off`, { productId: it.productId, quantity: this.qty[it.productId] || 1, reason: this.woReason }).subscribe({
-        next: () => { done++; next(i + 1); }, error: () => { failed++; next(i + 1); },
+      const qty = Math.min(this.qty[it.productId] || 1, it.stock); // nunca más que el stock
+      this.http.post<ApiResponse<unknown>>(`${this.api}/reception-inventory/write-off`, { productId: it.productId, quantity: qty, reason: this.woReason }).subscribe({
+        next: () => { done++; next(i + 1); },
+        error: (e: { error?: { error?: { message?: string } } }) => { errors.push(e.error?.error?.message ?? 'error'); next(i + 1); },
       });
     };
     next(0);
