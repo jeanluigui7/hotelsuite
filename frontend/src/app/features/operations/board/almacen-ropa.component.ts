@@ -69,8 +69,8 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
       </div>
 
       <div class="ops">
-        <button class="op2 in" [disabled]="!selected()" (click)="openMov('IN')"><i class="pi pi-plus"></i> Ingresar</button>
-        <button class="op2 tr" [disabled]="!selected()" (click)="openMov('TR')"><i class="pi pi-arrow-right-arrow-left"></i> Transferencia</button>
+        <button class="op2 in" [disabled]="selectedIds().size !== 1" (click)="openIngresar()"><i class="pi pi-plus"></i> Ingresar</button>
+        <button class="op2 tr" [disabled]="selectedIds().size === 0" (click)="openTransfer()"><i class="pi pi-arrow-right-arrow-left"></i> Transferencia @if (selectedIds().size) { <span class="cnt">{{ selectedIds().size }}</span> }</button>
         <span class="sp"></span>
         <button class="op2 ghost" (click)="print()"><i class="pi pi-print"></i> Imprimir</button>
         <button class="op2 ghost" [class.on]="lowOnly" (click)="lowOnly = !lowOnly"><i class="pi pi-exclamation-triangle"></i> Bajo Stock</button>
@@ -81,13 +81,13 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
         <div class="tbl-wrap">
           <table class="tbl">
             <thead><tr>
-              <th class="ck"></th><th>CÓDIGO</th><th>ARTÍCULO</th><th>CATEGORÍA/TIPO</th>
+              <th class="ck"><input type="checkbox" [checked]="allSelected()" (change)="toggleAll()" title="Seleccionar todos" /></th><th>CÓDIGO</th><th>ARTÍCULO</th><th>CATEGORÍA/TIPO</th>
               <th class="n">STOCK BASE</th><th class="n">STOCK DISP.</th><th class="n">TRANSF.</th><th class="n">EN USO</th><th class="n">LAVANDERÍA</th><th class="n">EN PROCESO</th><th class="n">RECIBIDAS</th><th class="n">PERDIDOS</th><th class="c">ACCIONES</th>
             </tr></thead>
             <tbody>
               @for (r of paged(); track r.linenItemId) {
                 <tr [class.low]="r.belowStock">
-                  <td class="ck"><input type="radio" name="sel" [checked]="sel() === r.linenItemId" (change)="sel.set(r.linenItemId)" /></td>
+                  <td class="ck"><input type="checkbox" [checked]="isSel(r.linenItemId)" (change)="toggleSel(r.linenItemId)" /></td>
                   <td class="code">{{ r.code }}<br /><small class="muted">NIU</small></td>
                   <td class="art"><span class="ico"><i class="pi pi-inbox"></i></span> {{ r.name }}</td>
                   <td>{{ typeLabel(r.type) }}<br /><small class="muted">Producto</small></td>
@@ -100,8 +100,8 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
                   <td class="n muted">{{ r.recibidas ?? '—' }}</td>
                   <td class="n">{{ r.perdidos }}</td>
                   <td class="c acc">
-                    <button class="ic" title="Ingresar" (click)="sel.set(r.linenItemId); openMov('IN')"><i class="pi pi-plus"></i></button>
-                    <button class="ic" title="Transferir" (click)="sel.set(r.linenItemId); openMov('TR')"><i class="pi pi-arrow-right-arrow-left"></i></button>
+                    <button class="ic" title="Ingresar" (click)="openIngresar(r.linenItemId)"><i class="pi pi-plus"></i></button>
+                    <button class="ic" title="Transferir" (click)="openTransfer(r.linenItemId)"><i class="pi pi-arrow-right-arrow-left"></i></button>
                     <button class="ic" title="Editar" (click)="openEdit(r)"><i class="pi pi-pencil"></i></button>
                     <button class="ic del" title="Desactivar" (click)="remove(r)"><i class="pi pi-trash"></i></button>
                   </td>
@@ -121,15 +121,43 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
       }
     </section>
 
-    <p-dialog [(visible)]="movVisible" [modal]="true" [header]="movType === 'IN' ? 'Ingresar ropa al central' : 'Transferir ropa a un piso'" [style]="{ width: '26rem' }">
-      <p class="muted">{{ selRow()?.name }} — disponible central: {{ selRow()?.disponible }}</p>
-      @if (movType === 'TR') {
-        <div class="fld"><label>Piso destino</label><input pInputText [(ngModel)]="toFloor" placeholder="Ej: 1, 2, 3" /></div>
-      }
+    <!-- Ingreso al central (individual) -->
+    <p-dialog [(visible)]="movVisible" [modal]="true" header="Ingresar ropa al central" [style]="{ width: '26rem' }">
+      <p class="muted">{{ movRow()?.name }} — disponible central: {{ movRow()?.disponible }}</p>
       <div class="fld"><label>Cantidad</label><p-inputNumber [(ngModel)]="qty" [min]="1" [showButtons]="true" buttonLayout="horizontal" /></div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="movVisible = false" />
-        <p-button [label]="movType === 'IN' ? 'Ingresar' : 'Transferir'" icon="pi pi-check" [loading]="busy()" (onClick)="applyMov()" />
+        <p-button label="Ingresar" icon="pi pi-check" [loading]="busy()" (onClick)="applyIngresar()" />
+      </ng-template>
+    </p-dialog>
+
+    <!-- Transferencia masiva: filas = ítems, columnas = pisos -->
+    <p-dialog [(visible)]="transferVisible" [modal]="true" header="Transferencia Masiva de Ropa" [style]="{ width: '62rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      <p class="muted">Indica cuánta cantidad de cada ítem enviar a cada piso. Un mismo ítem puede ir a varios pisos en una sola operación.</p>
+      @if (floors().length === 0) {
+        <p class="empty">No hay pisos definidos en las habitaciones de esta sucursal.</p>
+      } @else {
+        <div class="mtx-wrap">
+          <table class="mtx">
+            <thead><tr><th class="it">Ítem</th><th class="n">Disp.</th>@for (f of floors(); track f) { <th class="n">{{ f }}</th> }</tr></thead>
+            <tbody>
+              @for (it of transferItems; track it.linenItemId) {
+                <tr>
+                  <td class="it">{{ it.name }}</td>
+                  <td class="n" [class.over]="rowSum(it.linenItemId) > it.disponible">{{ rowSum(it.linenItemId) }}/{{ it.disponible }}</td>
+                  @for (f of floors(); track f) {
+                    <td class="n"><p-inputNumber [(ngModel)]="matrix[it.linenItemId][f]" [min]="0" [showButtons]="false" inputStyleClass="cellq" /></td>
+                  }
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        @if (anyOver()) { <p class="over-msg"><i class="pi pi-exclamation-triangle"></i> Hay ítems cuya suma supera el disponible en central.</p> }
+      }
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="transferVisible = false" />
+        <p-button label="Confirmar Transferencia" icon="pi pi-check" [loading]="busy()" [disabled]="!transferReady()" (onClick)="applyTransfer()" />
       </ng-template>
     </p-dialog>
 
@@ -218,6 +246,16 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
       .acc .ic { background: transparent; border: 0; color: #8aa0bd; cursor: pointer; padding: 0.2rem 0.35rem; } .acc .ic:hover { color: #34d399; }
       .fld { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.6rem; } .fld label { font-size: 0.8rem; color: #8aa0bd; }
       .fld input { width: 100%; }
+      .cnt { background: #04130d; color: #34d399; border-radius: 999px; font-size: 0.7rem; font-weight: 800; padding: 0.05rem 0.4rem; margin-left: 0.2rem; }
+      .mtx-wrap { overflow-x: auto; border: 1px solid #1c2c44; border-radius: 10px; margin-top: 0.6rem; }
+      .mtx { border-collapse: collapse; width: 100%; }
+      .mtx th, .mtx td { padding: 0.5rem 0.6rem; border-bottom: 1px solid #16233a; font-size: 0.82rem; white-space: nowrap; }
+      .mtx th { color: #8aa0bd; font-weight: 600; font-size: 0.72rem; background: #101a2c; text-align: right; }
+      .mtx th.it { text-align: left; } .mtx td.it { font-weight: 600; }
+      .mtx .n { text-align: right; } .mtx td.n.over { color: #f87171; font-weight: 800; }
+      :host ::ng-deep .cellq { width: 4.2rem; text-align: center; }
+      .over-msg { color: #f87171; font-size: 0.82rem; margin-top: 0.5rem; display: flex; align-items: center; gap: 0.4rem; }
+      :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1622; color: #e6e9ef; }
     `,
   ],
 })
@@ -230,17 +268,23 @@ export class AlmacenRopaComponent implements OnInit {
   readonly rows = signal<Row[]>([]);
   readonly loading = signal(false);
   readonly busy = signal(false);
-  readonly sel = signal<string | null>(null);
+  readonly selectedIds = signal<Set<string>>(new Set());
+  readonly floors = signal<string[]>([]);
 
   search = '';
   sortBy: 'code' | 'name' = 'code';
   typeFilter: string | null = null;
   lowOnly = false;
 
+  // Ingreso individual al central
   movVisible = false;
-  movType: 'IN' | 'TR' = 'IN';
+  movItemId: string | null = null;
   qty: number | null = 1;
-  toFloor = '';
+
+  // Transferencia masiva (ítems × pisos)
+  transferVisible = false;
+  transferItems: { linenItemId: string; name: string; disponible: number }[] = [];
+  matrix: Record<string, Record<string, number | null>> = {};
 
   formVisible = false;
   form: {
@@ -284,11 +328,24 @@ export class AlmacenRopaComponent implements OnInit {
     this.reload();
     this.http.get<ApiResponse<{ id: string; name: string }[]>>(`${this.api}/inventory-categories`, { params: { pageSize: '200', sortBy: 'name' } })
       .subscribe((r) => this.categories.set(r.data ?? []));
+    // Pisos destino = pisos distintos de las habitaciones de la sucursal.
+    this.http.get<ApiResponse<{ floor?: string | null }[]>>(`${this.api}/rooms/map`).subscribe((r) => {
+      const fl = [...new Set((r.data ?? []).map((x) => (x.floor ?? '').trim()).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
+      this.floors.set(fl);
+    });
   }
 
   typeLabel(t: string): string { return TYPE_LABEL[t] ?? t; }
-  selected(): boolean { return !!this.sel(); }
-  selRow(): Row | undefined { return this.rows().find((r) => r.linenItemId === this.sel()); }
+
+  // ── Selección múltiple ──
+  isSel(id: string): boolean { return this.selectedIds().has(id); }
+  toggleSel(id: string): void { const s = new Set(this.selectedIds()); s.has(id) ? s.delete(id) : s.add(id); this.selectedIds.set(s); }
+  allSelected(): boolean { const f = this.filtered(); return f.length > 0 && f.every((r) => this.selectedIds().has(r.linenItemId)); }
+  toggleAll(): void {
+    const f = this.filtered();
+    this.selectedIds.set(this.allSelected() ? new Set() : new Set(f.map((r) => r.linenItemId)));
+  }
 
   toggleType(t: string): void { this.typeFilter = this.typeFilter === t ? null : t; }
 
@@ -322,19 +379,55 @@ export class AlmacenRopaComponent implements OnInit {
     });
   }
 
-  openMov(type: 'IN' | 'TR'): void { if (!this.sel()) return; this.movType = type; this.qty = 1; this.toFloor = ''; this.movVisible = true; }
-
-  applyMov(): void {
-    const id = this.sel();
+  // ── Ingreso individual al central ──
+  movRow(): Row | undefined { return this.rows().find((r) => r.linenItemId === this.movItemId); }
+  openIngresar(id?: string): void {
+    const target = id ?? [...this.selectedIds()][0];
+    if (!target) return;
+    this.movItemId = target; this.qty = 1; this.movVisible = true;
+  }
+  applyIngresar(): void {
+    const id = this.movItemId;
     if (!id || !this.qty || this.qty <= 0) return;
-    if (this.movType === 'TR' && !this.toFloor.trim()) { this.toast.add({ severity: 'warn', summary: 'Falta piso', detail: 'Indica el piso destino.' }); return; }
     this.busy.set(true);
-    const req$ = this.movType === 'IN'
-      ? this.http.post<ApiResponse<unknown>>(`${this.api}/admin/linen/replenish`, { linenItemId: id, quantity: this.qty })
-      : this.http.post<ApiResponse<unknown>>(`${this.api}/admin/linen/transfer`, { linenItemId: id, toFloor: this.toFloor.trim(), quantity: this.qty });
-    req$.subscribe({
-      next: () => { this.busy.set(false); this.movVisible = false; this.toast.add({ severity: 'success', summary: 'Listo', detail: this.movType === 'IN' ? 'Ropa ingresada.' : 'Ropa transferida.' }); this.reload(); },
+    this.http.post<ApiResponse<unknown>>(`${this.api}/admin/linen/replenish`, { linenItemId: id, quantity: this.qty }).subscribe({
+      next: () => { this.busy.set(false); this.movVisible = false; this.toast.add({ severity: 'success', summary: 'Listo', detail: 'Ropa ingresada.' }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo completar.' }); },
+    });
+  }
+
+  // ── Transferencia masiva (matriz ítems × pisos) ──
+  openTransfer(id?: string): void {
+    const ids = id ? [id] : [...this.selectedIds()];
+    if (!ids.length) return;
+    const byId = new Map(this.rows().map((r) => [r.linenItemId, r]));
+    this.transferItems = ids.map((i) => byId.get(i)).filter((r): r is Row => !!r).map((r) => ({ linenItemId: r.linenItemId, name: r.name, disponible: r.disponible }));
+    // Inicializa la matriz (cada ítem × cada piso en null).
+    this.matrix = {};
+    for (const it of this.transferItems) { this.matrix[it.linenItemId] = {}; for (const f of this.floors()) this.matrix[it.linenItemId][f] = null; }
+    this.transferVisible = true;
+  }
+  rowSum(id: string): number { const m = this.matrix[id] ?? {}; return Object.values(m).reduce((a: number, v) => a + (Number(v) || 0), 0); }
+  anyOver(): boolean { return this.transferItems.some((it) => this.rowSum(it.linenItemId) > it.disponible); }
+  transferReady(): boolean { return !this.anyOver() && this.transferItems.some((it) => this.rowSum(it.linenItemId) > 0); }
+  applyTransfer(): void {
+    if (!this.transferReady()) return;
+    const rows: { linenItemId: string; toFloor: string; quantity: number }[] = [];
+    for (const it of this.transferItems) {
+      for (const f of this.floors()) {
+        const q = Number(this.matrix[it.linenItemId]?.[f]) || 0;
+        if (q > 0) rows.push({ linenItemId: it.linenItemId, toFloor: f, quantity: q });
+      }
+    }
+    if (!rows.length) return;
+    this.busy.set(true);
+    this.http.post<ApiResponse<unknown>>(`${this.api}/admin/linen/transfer-bulk`, { rows }).subscribe({
+      next: () => {
+        this.busy.set(false); this.transferVisible = false; this.selectedIds.set(new Set());
+        this.toast.add({ severity: 'success', summary: 'Transferencia', detail: `${rows.length} envío(s) realizados.` });
+        this.reload();
+      },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo transferir.' }); },
     });
   }
 

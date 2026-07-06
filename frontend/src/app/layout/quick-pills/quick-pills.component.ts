@@ -3,7 +3,7 @@ import { RouterModule } from '@angular/router';
 import { AuthService } from '../../core/auth/auth.service';
 import { profileForRole } from '../menu';
 
-interface Pill { label: string; icon: string; route: string; color: string; }
+interface Pill { label: string; icon: string; route: string; color: string; queryParams?: Record<string, string>; }
 
 /**
  * Atajos globales a los almacenes/inventarios. Visibles en todas las pantallas (shell).
@@ -16,7 +16,7 @@ interface Pill { label: string; icon: string; route: string; color: string; }
     @if (!isRecepcion()) {
       <div class="pills">
         @for (p of pills; track p.route) {
-          <a class="pill" [routerLink]="p.route" routerLinkActive="active" [style.--c]="p.color">
+          <a class="pill" [routerLink]="p.route" [queryParams]="p.queryParams ?? {}" routerLinkActive="active" [style.--c]="p.color">
             <i [class]="p.icon"></i> {{ p.label }}
           </a>
         }
@@ -50,7 +50,7 @@ export class QuickPillsComponent {
     { label: 'Productos', icon: 'pi pi-box', route: '/operations/almacen-productos', color: '#8b5cf6' },
     { label: 'Recepción', icon: 'pi pi-building', route: '/operations/inventario-recepcion', color: '#f97316' },
     { label: 'Ropa', icon: 'pi pi-stop', route: '/operations/almacen-ropa', color: '#ec4899' },
-    { label: 'Amenities', icon: 'pi pi-sparkles', route: '/inventory/almacenes', color: '#10b981' },
+    { label: 'Amenities', icon: 'pi pi-sparkles', route: '/inventory/almacen', queryParams: { type: 'AMENITIES' }, color: '#10b981' },
     { label: 'Limpieza', icon: 'pi pi-trash', route: '/operations/inventario-limpieza', color: '#3b82f6' },
   ];
 }

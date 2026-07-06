@@ -15,6 +15,7 @@ linenAdminRouter.get('/admin/linen/warehouse', requireAnyPermission(['inventory'
 linenAdminRouter.post('/admin/linen/requests/:id/fulfill', requirePermission('inventory', 'edit'), asyncHandler(linenAdminController.fulfill));
 linenAdminRouter.post('/admin/linen/requests/:id/reject', requireAnyPermission(['operations', 'edit'], ['inventory', 'edit']), asyncHandler(linenAdminController.reject));
 linenAdminRouter.post('/admin/linen/transfer', requirePermission('inventory', 'edit'), asyncHandler(linenAdminController.transfer));
+linenAdminRouter.post('/admin/linen/transfer-bulk', requireAnyPermission(['inventory', 'edit'], ['operations', 'edit']), asyncHandler(linenAdminController.transferBulk));
 linenAdminRouter.post('/admin/linen/replenish', requirePermission('inventory', 'edit'), asyncHandler(linenAdminController.replenish));
 linenAdminRouter.post('/admin/linen/items', requirePermission('inventory', 'create'), asyncHandler(linenAdminController.createItem));
 linenAdminRouter.put('/admin/linen/items/:id', requirePermission('inventory', 'edit'), asyncHandler(linenAdminController.updateItem));

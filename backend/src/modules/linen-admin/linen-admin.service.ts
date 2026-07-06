@@ -22,27 +22,43 @@ export const LINEN_CENTRAL = 'ALMACEN';
  * almacén central, e incrementa el remanente (rem) y el acumulado suministrado (sum)
  * del piso destino. Registra los dos movimientos (salida del central + entrada al piso).
  */
-async function supplyToFloor(branchId: string, linenItemId: string, floor: string, quantity: number, userId: string, type: string, reference: string) {
+type LinenTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+/** Núcleo del suministro (dentro de una transacción dada). Permite agrupar varias
+ *  filas de una transferencia masiva en una sola transacción atómica. */
+async function supplyToFloorTx(tx: LinenTx, branchId: string, linenItemId: string, floor: string, quantity: number, userId: string, type: string, reference: string) {
   if (floor === LINEN_CENTRAL) throw new ValidationError('El destino no puede ser el almacén central');
-  await prisma.$transaction(async (tx) => {
-    const central = await tx.linenStock.findUnique({ where: { linenItemId_floor: { linenItemId, floor: LINEN_CENTRAL } } });
-    if (!central || central.rem < quantity) {
-      throw new ValidationError(`Stock insuficiente en el almacén central de ropa (disponible ${central?.rem ?? 0}, solicitado ${quantity}).`);
-    }
-    await tx.linenStock.update({ where: { linenItemId_floor: { linenItemId, floor: LINEN_CENTRAL } }, data: { rem: { decrement: quantity } } });
-    await tx.linenStock.upsert({
-      where: { linenItemId_floor: { linenItemId, floor } },
-      update: { rem: { increment: quantity }, sum: { increment: quantity } },
-      create: { branchId, linenItemId, floor, rem: quantity, sum: quantity },
-    });
-    await tx.linenMovement.create({
-      data: { branchId, linenItemId, type: 'OUT', quantity: -quantity, floor: LINEN_CENTRAL, areaFrom: 'Almacén de Ropa', areaTo: floor, reference, createdByUserId: userId },
-    });
-    await tx.linenMovement.create({
-      data: { branchId, linenItemId, type, quantity, floor, areaFrom: 'Almacén de Ropa', areaTo: floor, reference, createdByUserId: userId },
-    });
+  const central = await tx.linenStock.findUnique({ where: { linenItemId_floor: { linenItemId, floor: LINEN_CENTRAL } } });
+  if (!central || central.rem < quantity) {
+    throw new ValidationError(`Stock insuficiente en el almacén central de ropa (disponible ${central?.rem ?? 0}, solicitado ${quantity}).`);
+  }
+  await tx.linenStock.update({ where: { linenItemId_floor: { linenItemId, floor: LINEN_CENTRAL } }, data: { rem: { decrement: quantity } } });
+  await tx.linenStock.upsert({
+    where: { linenItemId_floor: { linenItemId, floor } },
+    update: { rem: { increment: quantity }, sum: { increment: quantity } },
+    create: { branchId, linenItemId, floor, rem: quantity, sum: quantity },
+  });
+  await tx.linenMovement.create({
+    data: { branchId, linenItemId, type: 'OUT', quantity: -quantity, floor: LINEN_CENTRAL, areaFrom: 'Almacén de Ropa', areaTo: floor, reference, createdByUserId: userId },
+  });
+  await tx.linenMovement.create({
+    data: { branchId, linenItemId, type, quantity, floor, areaFrom: 'Almacén de Ropa', areaTo: floor, reference, createdByUserId: userId },
   });
 }
+
+async function supplyToFloor(branchId: string, linenItemId: string, floor: string, quantity: number, userId: string, type: string, reference: string) {
+  await prisma.$transaction((tx) => supplyToFloorTx(tx, branchId, linenItemId, floor, quantity, userId, type, reference));
+}
+
+/** Transferencia masiva: varias filas (ítem × piso × cantidad) en una sola operación atómica. */
+export const transferBulkSchema = z.object({
+  rows: z.array(z.object({
+    linenItemId: z.string().min(1),
+    toFloor: z.string().min(1),
+    quantity: z.coerce.number().int().min(1),
+  })).min(1).max(500),
+});
+export type TransferBulkDto = z.infer<typeof transferBulkSchema>;
 
 /** Repone el almacén central de ropa (compra/ingreso del administrador). */
 export const replenishSchema = z.object({
@@ -118,6 +134,25 @@ export const linenAdminService = {
     if (!item || item.branchId !== branchId) throw new ValidationError('Ropa no encontrada');
     await supplyToFloor(branchId, dto.linenItemId, dto.toFloor, dto.quantity, scope.userId, 'TRANSFER', 'Transferencia de ropa');
     return { ok: true };
+  },
+
+  /**
+   * Transferencia masiva: envía distintos ítems y cantidades a distintos pisos en una
+   * sola operación atómica. Filas con cantidad 0 deben venir filtradas desde el cliente.
+   */
+  async transferBulk(scope: RequestScope, dto: TransferBulkDto) {
+    const branchId = requireActiveBranch(scope);
+    const itemIds = [...new Set(dto.rows.map((r) => r.linenItemId))];
+    const items = await prisma.linenItem.findMany({ where: { id: { in: itemIds }, branchId }, select: { id: true } });
+    if (items.length !== itemIds.length) throw new ValidationError('Ropa no encontrada');
+    let sent = 0;
+    await prisma.$transaction(async (tx) => {
+      for (const r of dto.rows) {
+        await supplyToFloorTx(tx, branchId, r.linenItemId, r.toFloor, r.quantity, scope.userId, 'TRANSFER', 'Transferencia de ropa');
+        sent += r.quantity;
+      }
+    });
+    return { ok: true, rows: dto.rows.length, sent };
   },
 
   /**

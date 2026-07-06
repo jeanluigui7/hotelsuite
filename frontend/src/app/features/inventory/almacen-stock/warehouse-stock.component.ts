@@ -95,12 +95,15 @@ export class WarehouseStockComponent implements OnInit {
     this.inv.warehouses.list({ pageSize: 100, sortBy: 'name' }).subscribe((r) => {
       const ws = r.data ?? [];
       this.warehouses.set(ws);
-      // Resolver el almacén por query param (?wh=<id> o ?type=<TYPE>) o el primero.
+      // Resolver el almacén por query param (?wh=<id>, ?name=<nombre> o ?type=<TYPE>) o el primero.
+      // El nombre es útil cuando hay varios almacenes del mismo tipo (p. ej. varios PRODUCTS).
       this.route.queryParamMap.subscribe((pm) => {
         const wh = pm.get('wh');
+        const name = pm.get('name');
         const type = pm.get('type') as WarehouseType | null;
         this.selectedId =
           (wh && ws.find((w) => w.id === wh)?.id) ||
+          (name && ws.find((w) => w.name.toLowerCase() === name.toLowerCase())?.id) ||
           (type && ws.find((w) => w.type === type)?.id) ||
           ws[0]?.id ||
           null;
