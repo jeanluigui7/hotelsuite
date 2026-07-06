@@ -102,18 +102,22 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       </ng-template>
     </p-dialog>
 
-    <!-- Dar de baja -->
-    <p-dialog [(visible)]="woVisible" [modal]="true" header="Dar de baja" [style]="{ width: '30rem' }" styleClass="dk-dialog">
-      <div class="form">
-        @for (it of selectedItems(); track it.productId) {
-          <div class="qrow"><span>{{ it.name }} (stock {{ it.stock }})</span><p-inputNumber [(ngModel)]="qty[it.productId]" [min]="1" [max]="it.stock" [showButtons]="true" buttonLayout="horizontal" /></div>
-        }
-        <label>Motivo</label>
-        <input pInputText [(ngModel)]="woReason" placeholder="Ej. producto vencido" />
-      </div>
+    <!-- Baja Masiva de Productos -->
+    <p-dialog [(visible)]="woVisible" [modal]="true" header="Baja Masiva de Productos" [style]="{ width: '36rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      <p class="muted rq-sub">Seleccione los productos y cantidades para dar de baja del inventario.</p>
+      @for (it of selectedItems(); track it.productId) {
+        <div class="rq-line">
+          <div class="rq-n"><span class="rq-ico"><i class="pi pi-box"></i></span> {{ it.name }} <small class="muted">(stock {{ it.stock }})</small></div>
+          <p-inputNumber [(ngModel)]="qty[it.productId]" [min]="1" [max]="it.stock" inputStyleClass="rq-qty" />
+          <button class="rq-x" (click)="removeReqLine(it.productId)" title="Quitar"><i class="pi pi-trash"></i></button>
+        </div>
+      }
+      <div class="rq-notes"><span>Motivo</span><p-select [options]="motivoOpts" optionLabel="label" optionValue="value" [(ngModel)]="woMotivo" styleClass="mot" appendTo="body" /></div>
+      <div class="rq-notes"><span>Notas</span><input pInputText [(ngModel)]="woReason" placeholder="Notas adicionales (opcional)" /></div>
+      <p class="mot-help">{{ motivoHelp() }}</p>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="woVisible = false" />
-        <p-button label="Dar de Baja" icon="pi pi-check" severity="danger" [disabled]="!woReason" [loading]="busy()" (onClick)="doWriteOff()" />
+        <p-button label="Dar de Baja" icon="pi pi-check" severity="danger" [disabled]="selectedItems().length === 0" [loading]="busy()" (onClick)="doWriteOff()" />
       </ng-template>
     </p-dialog>
 
@@ -174,7 +178,8 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       .rq-n { flex: 1; display: flex; align-items: center; gap: 0.5rem; font-weight: 600; } .rq-ico { background: #16233a; padding: 0.3rem; border-radius: 6px; color: #8b97a8; }
       :host ::ng-deep .rq-qty { width: 5rem; text-align: center; }
       .rq-x { background: transparent; border: 0; color: #f87171; cursor: pointer; }
-      .rq-notes { display: flex; align-items: center; gap: 0.7rem; margin-top: 0.6rem; } .rq-notes span { color: #8aa0bd; font-size: 0.85rem; } .rq-notes input { flex: 1; }
+      .rq-notes { display: flex; align-items: center; gap: 0.7rem; margin-top: 0.6rem; } .rq-notes span { color: #8aa0bd; font-size: 0.85rem; min-width: 3.4rem; } .rq-notes input { flex: 1; } :host ::ng-deep .rq-notes .mot { flex: 1; }
+      .mot-help { color: #8b97a8; font-size: 0.78rem; margin: 0.6rem 0 0; font-style: italic; }
       .req { border: 1px solid #243245; border-radius: 8px; padding: 0.7rem; margin-bottom: 0.6rem; }
       .req-head { display: flex; justify-content: space-between; margin-bottom: 0.4rem; }
       .req-items { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.5rem; }
@@ -197,6 +202,15 @@ export class InventarioRecepcionComponent implements OnInit {
   qty: Record<string, number> = {};
   woReason = '';
   reqNotes = '';
+  woMotivo: 'VENCIDO' | 'PERDIDO' | 'SOBRANTE' = 'VENCIDO';
+  readonly motivoOpts = [
+    { label: 'Vencido', value: 'VENCIDO' }, { label: 'Perdido', value: 'PERDIDO' }, { label: 'Sobrante', value: 'SOBRANTE' },
+  ];
+  motivoHelp(): string {
+    if (this.woMotivo === 'SOBRANTE') return 'Sobrante: la cantidad regresa al Almacén de Productos general.';
+    if (this.woMotivo === 'PERDIDO') return 'Perdido: sale del inventario; queda el rastro para descontar.';
+    return 'Vencido: sale del inventario y del sistema (queda registro).';
+  }
   reqVisible = false; woVisible = false; recVisible = false;
 
   search = '';
@@ -325,7 +339,7 @@ export class InventarioRecepcionComponent implements OnInit {
       }
       const it = items[i];
       const qty = Math.min(this.qty[it.productId] || 1, it.stock); // nunca más que el stock
-      this.http.post<ApiResponse<unknown>>(`${this.api}/reception-inventory/write-off`, { productId: it.productId, quantity: qty, reason: this.woReason }).subscribe({
+      this.http.post<ApiResponse<unknown>>(`${this.api}/reception-inventory/write-off`, { productId: it.productId, quantity: qty, motivo: this.woMotivo, notes: this.woReason || undefined }).subscribe({
         next: () => { done++; next(i + 1); },
         error: (e: { error?: { error?: { message?: string } } }) => { errors.push(e.error?.error?.message ?? 'error'); next(i + 1); },
       });

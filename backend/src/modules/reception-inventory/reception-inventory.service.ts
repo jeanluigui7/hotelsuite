@@ -17,7 +17,9 @@ export const requestSchema = z.object({
 export const writeOffSchema = z.object({
   productId: z.string().min(1),
   quantity: z.coerce.number().int().min(1),
-  reason: z.string().min(1).max(200),
+  // VENCIDO / PERDIDO: sale de recepción (merma, queda rastro). SOBRANTE: regresa al almacén general.
+  motivo: z.enum(['VENCIDO', 'PERDIDO', 'SOBRANTE']).default('VENCIDO'),
+  notes: z.string().max(200).optional().or(z.literal('')),
 });
 export type RequestDto = z.infer<typeof requestSchema>;
 export type WriteOffDto = z.infer<typeof writeOffSchema>;
@@ -255,12 +257,32 @@ export const receptionInventoryService = {
     const whId = await receptionWarehouseId(branchId);
     const stock = await prisma.stock.findUnique({ where: { productId_warehouseId: { productId: dto.productId, warehouseId: whId } } });
     if (!stock || stock.quantity < dto.quantity) throw new ValidationError('Stock insuficiente para dar de baja');
+    const motivo = dto.motivo;
+    const reason = `${motivo}${dto.notes ? `: ${dto.notes}` : ''}`;
+
+    if (motivo === 'SOBRANTE') {
+      // El sobrante NO se pierde: regresa al almacén de productos general.
+      const productsWh = await productsRepository.defaultWarehouse(branchId);
+      await prisma.$transaction(async (tx) => {
+        await tx.stock.update({ where: { productId_warehouseId: { productId: dto.productId, warehouseId: whId } }, data: { quantity: { decrement: dto.quantity } } });
+        await tx.stock.upsert({
+          where: { productId_warehouseId: { productId: dto.productId, warehouseId: productsWh.id } },
+          update: { quantity: { increment: dto.quantity } },
+          create: { productId: dto.productId, warehouseId: productsWh.id, quantity: dto.quantity },
+        });
+        await createMovementTx(tx, { branchId, productId: dto.productId, warehouseId: whId, type: 'TRANSFER', quantity: -dto.quantity, unitCost: null, reference: 'Sobrante → Almacén de Productos', relatedWarehouseId: productsWh.id, createdByUserId: scope.userId });
+        await createMovementTx(tx, { branchId, productId: dto.productId, warehouseId: productsWh.id, type: 'TRANSFER', quantity: dto.quantity, unitCost: null, reference: 'Devolución sobrante desde Recepción', relatedWarehouseId: whId, createdByUserId: scope.userId });
+      });
+      return { ok: true, motivo, returned: dto.quantity };
+    }
+
+    // VENCIDO / PERDIDO: sale del inventario de recepción y queda el rastro (StockWriteOff + Kardex).
     await prisma.$transaction(async (tx) => {
       await tx.stock.update({ where: { productId_warehouseId: { productId: dto.productId, warehouseId: whId } }, data: { quantity: { decrement: dto.quantity } } });
-      await tx.inventoryMovement.create({ data: { branchId, productId: dto.productId, warehouseId: whId, type: 'OUT', quantity: -dto.quantity, reference: `Baja: ${dto.reason}`, createdByUserId: scope.userId } });
-      await tx.stockWriteOff.create({ data: { branchId, productId: dto.productId, quantity: dto.quantity, reason: dto.reason, createdByUserId: scope.userId } });
+      await tx.inventoryMovement.create({ data: { branchId, productId: dto.productId, warehouseId: whId, type: 'OUT', quantity: -dto.quantity, reference: `Baja (${reason})`, createdByUserId: scope.userId } });
+      await tx.stockWriteOff.create({ data: { branchId, productId: dto.productId, quantity: dto.quantity, reason, createdByUserId: scope.userId } });
     });
-    return { ok: true };
+    return { ok: true, motivo };
   },
 
   async printQueue(scope: RequestScope) {
