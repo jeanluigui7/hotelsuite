@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../../shared/async-handler';
 import { authenticate } from '../../middlewares/auth.middleware';
 import { tenant } from '../../middlewares/tenant.middleware';
-import { requirePermission } from '../../middlewares/rbac.middleware';
+import { requirePermission, requireAnyPermission } from '../../middlewares/rbac.middleware';
 import { staysController } from './stays.controller';
 
 export const staysRouter = Router();
@@ -17,6 +17,7 @@ staysRouter.post('/stays/check-in', requirePermission('operations', 'create'), a
 staysRouter.post('/stays/:id/check-out', requirePermission('operations', 'edit'), asyncHandler(staysController.checkOut));
 staysRouter.post('/stays/:id/change-room', requirePermission('operations', 'edit'), asyncHandler(staysController.changeRoom));
 staysRouter.post('/stays/:id/renew', requirePermission('operations', 'edit'), asyncHandler(staysController.renew));
+staysRouter.post('/stays/:id/pay', requireAnyPermission(['finance', 'create'], ['operations', 'edit']), asyncHandler(staysController.pay));
 staysRouter.post('/stays/:id/renewal-cleaning/:action', requirePermission('operations', 'edit'), asyncHandler(staysController.renewalCleaning));
 staysRouter.get('/stays/:id/folio', requirePermission('operations', 'view'), asyncHandler(staysController.folio));
 staysRouter.post('/stays/:id/details', requirePermission('operations', 'edit'), asyncHandler(staysController.updateDetails));

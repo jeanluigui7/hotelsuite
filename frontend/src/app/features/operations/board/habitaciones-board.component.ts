@@ -205,7 +205,7 @@ const MANT_CATS = [
         @if (d.totalWithLate > 0) {
           <div class="co-opts">
             <strong>Opciones:</strong>
-            <p><b>Procesar Pago:</b> abre la caja para registrar el pago.</p>
+            <p><b>Procesar Pago:</b> registra el cobro del pendiente (renovaciones, consumos, recargos).</p>
             <p><b>Continuar Checkout:</b> el monto pendiente se registra como deuda del cliente.</p>
           </div>
         }
@@ -218,6 +218,22 @@ const MANT_CATS = [
           <p-button label="Procesar Pago" icon="pi pi-wallet" severity="secondary" (onClick)="goProcesarPago()" />
         }
         <p-button label="Continuar Checkout" icon="pi pi-sign-out" [loading]="checkingOut()" (onClick)="doCheckout()" />
+      </ng-template>
+    </p-dialog>
+
+    <!-- Cobro del pendiente de la estancia (deuda de renovación, consumos, recargos) -->
+    <p-dialog [(visible)]="payVisible" [modal]="true" [header]="'Cobrar Pendiente · Hab. ' + (checkoutRoom?.number || '')" [style]="{ width: '26rem' }" styleClass="dk-dialog">
+      <div class="pay-form">
+        <div class="pay-total">Pendiente <strong>S/ {{ (checkoutData()?.totalWithLate || 0) | number: '1.2-2' }}</strong></div>
+        <label>Método de pago</label>
+        <p-select [options]="payMethods" optionLabel="label" optionValue="value" [(ngModel)]="payMethod" styleClass="w" appendTo="body" />
+        <label>Monto a cobrar</label>
+        <p-inputNumber [(ngModel)]="payAmount" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w" />
+        @if (payMethod !== 'CASH') { <label>Referencia</label><input pInputText [(ngModel)]="payReference" placeholder="N° de operación / voucher" /> }
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="payVisible = false" />
+        <p-button label="Registrar Cobro" icon="pi pi-check" [loading]="paying()" [disabled]="!payAmount || payAmount <= 0" (onClick)="confirmPay()" />
       </ng-template>
     </p-dialog>
 
@@ -609,6 +625,9 @@ const MANT_CATS = [
       .co-kv { display: flex; justify-content: space-between; padding: 0.35rem 0; font-size: 0.95rem; }
       .co-kv.total { border-top: 1px solid #243245; margin-top: 0.4rem; padding-top: 0.55rem; }
       .co-kv.total.debt strong { color: #fbbf24; }
+      .pay-form { display: flex; flex-direction: column; gap: 0.4rem; } .pay-form label { font-size: 0.82rem; color: #9fb0c3; margin-top: 0.3rem; }
+      .pay-form input[pInputText], :host ::ng-deep .pay-form .w { width: 100%; }
+      .pay-total { display: flex; justify-content: space-between; align-items: center; background: #10233c; border: 1px solid #274468; border-radius: 8px; padding: 0.5rem 0.8rem; font-size: 0.9rem; } .pay-total strong { color: #fbbf24; }
       .co-warn { color: #fbbf24; font-size: 0.82rem; display: flex; align-items: center; gap: 0.4rem; margin-top: 0.5rem; }
       .plate { background: rgba(0,0,0,0.28); border-radius: 999px; padding: 0.15rem 0.6rem; width: fit-content; margin: 0.15rem auto 0; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem; }
       .veh { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
@@ -1363,9 +1382,37 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     this.toast.add({ severity: 'info', summary: 'Check-in', detail: 'Pulsa "Check-in" en una habitación disponible (verde).' });
   }
 
+  // Cobro del pendiente de la estancia.
+  payVisible = false;
+  readonly paying = signal(false);
+  payMethod = 'CASH';
+  payAmount: number | null = null;
+  payReference = '';
+  readonly payMethods = [
+    { label: 'Efectivo', value: 'CASH' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Yape/Plin', value: 'WALLET' },
+  ];
   goProcesarPago(): void {
-    this.checkoutVisible = false;
-    void this.router.navigateByUrl('/operations/caja');
+    this.payAmount = this.checkoutData()?.totalWithLate || null;
+    this.payMethod = 'CASH';
+    this.payReference = '';
+    this.payVisible = true;
+  }
+  confirmPay(): void {
+    const stayId = this.checkoutRoom?.activeStay?.id;
+    if (!stayId || !this.payAmount || this.payAmount <= 0) return;
+    const amount = this.payAmount;
+    this.paying.set(true);
+    this.ops.payStay(stayId, { method: this.payMethod, amount, reference: this.payReference || undefined }).subscribe({
+      next: () => {
+        this.paying.set(false);
+        this.payVisible = false;
+        this.toast.add({ severity: 'success', summary: 'Cobro registrado', detail: `S/ ${amount.toFixed(2)}` });
+        // Refresca el pendiente del checkout y el mapa.
+        this.ops.checkoutSummary(stayId).subscribe((res) => this.checkoutData.set(res.data));
+        this.reload();
+      },
+      error: (err) => { this.paying.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo registrar el cobro' }); },
+    });
   }
 
   openChange(r: RoomMapItem): void {

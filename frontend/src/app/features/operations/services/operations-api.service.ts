@@ -71,6 +71,10 @@ export class OperationsApiService {
   ): Observable<ApiResponse<Stay>> {
     return this.http.post<ApiResponse<Stay>>(`${this.api}/stays/${stayId}/renew`, dto);
   }
+  /** Cobra el pendiente de la estancia (abona a sus ventas OPEN / adeudo). */
+  payStay(stayId: string, dto: { method: string; amount: number; reference?: string }): Observable<ApiResponse<Stay>> {
+    return this.http.post<ApiResponse<Stay>>(`${this.api}/stays/${stayId}/pay`, dto);
+  }
   renewalCleaning(stayId: string, action: 'start' | 'advance' | 'finish' | 'reject'): Observable<ApiResponse<Stay>> {
     return this.http.post<ApiResponse<Stay>>(`${this.api}/stays/${stayId}/renewal-cleaning/${action}`, {});
   }

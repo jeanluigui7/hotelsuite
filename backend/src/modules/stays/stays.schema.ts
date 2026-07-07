@@ -72,6 +72,13 @@ export const renewSchema = z.object({
   requestCleaning: z.coerce.boolean().default(false),
 });
 
+/** Cobro del pendiente de una estancia (abona a sus ventas OPEN / adeudo). */
+export const payStaySchema = z.object({
+  method: z.enum(['CASH', 'CARD', 'TRANSFER', 'WALLET']),
+  amount: z.coerce.number().positive(),
+  reference: z.string().max(120).optional().or(z.literal('')),
+});
+
 /** Edición rápida de la estancia (recepción): teléfono, placa y acompañantes. */
 export const updateStayDetailsSchema = z.object({
   phone: z.string().max(30).optional(),
@@ -94,4 +101,5 @@ export type CheckInDto = z.infer<typeof checkInSchema>;
 export type CheckOutDto = z.infer<typeof checkOutSchema>;
 export type ChangeRoomDto = z.infer<typeof changeRoomSchema>;
 export type RenewDto = z.infer<typeof renewSchema>;
+export type PayStayDto = z.infer<typeof payStaySchema>;
 export type UpdateStayDetailsDto = z.infer<typeof updateStayDetailsSchema>;

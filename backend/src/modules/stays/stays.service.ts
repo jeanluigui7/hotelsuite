@@ -13,7 +13,7 @@ import { guestsRepository } from '../guests/guests.repository';
 import { pernoctaService } from '../pernocta/pernocta.service';
 import { cashRepository } from '../cash/cash.repository';
 import { staysRepository, type StayWithRelations } from './stays.repository';
-import type { ChangeRoomDto, CheckInDto, CheckOutDto, RenewDto, UpdateStayDetailsDto } from './stays.schema';
+import type { ChangeRoomDto, CheckInDto, CheckOutDto, PayStayDto, RenewDto, UpdateStayDetailsDto } from './stays.schema';
 
 const SORTABLE = ['checkInAt', 'plannedCheckoutAt', 'status'] as const;
 
@@ -356,6 +356,49 @@ export const staysService = {
         },
       }),
     ]);
+    const updated = await staysRepository.findById(id);
+    return serialize(updated as StayWithRelations);
+  },
+
+  /**
+   * Cobra el pendiente de una estancia: abona el monto a sus ventas OPEN (más antiguas
+   * primero), marcándolas PAID al cubrirlas; el sobrante reduce el adeudo (balanceDue).
+   * Resuelve el caso de una renovación diferida (deuda en una venta OPEN) que antes no
+   * se podía pagar.
+   */
+  async pay(scope: RequestScope, id: string, dto: PayStayDto) {
+    const branchId = requireActiveBranch(scope);
+    const stay = await staysRepository.findById(id);
+    if (!stay || stay.branchId !== branchId) throw new ConflictError('Estancia no encontrada');
+    const amount = round2(dto.amount);
+    if (amount <= 0) throw new ValidationError('El monto debe ser mayor a 0.');
+    const session = await cashRepository.findOpen(branchId);
+    if (!session) throw new ConflictError('Debe abrir un turno de caja antes de registrar el cobro.');
+
+    const openSales = await prisma.sale.findMany({ where: { stayId: id, status: 'OPEN' }, include: { payments: true }, orderBy: { createdAt: 'asc' } });
+    const bd = stay.balanceDue ? Number(stay.balanceDue) : 0;
+    const salesPending = openSales.reduce((a, s) => a + Math.max(0, Number(s.total) - s.payments.reduce((x, p) => x + Number(p.amount), 0)), 0);
+    const pending = round2(salesPending + bd);
+    if (pending <= 0) throw new ValidationError('Esta estancia no tiene pendiente por cobrar.');
+    if (amount > pending + 0.001) throw new ValidationError(`El cobro (S/ ${amount.toFixed(2)}) excede el pendiente (S/ ${pending.toFixed(2)}).`);
+
+    let remaining = amount;
+    await prisma.$transaction(async (tx) => {
+      for (const s of openSales) {
+        if (remaining <= 0.001) break;
+        const paid = s.payments.reduce((x, p) => x + Number(p.amount), 0);
+        const saldo = round2(Number(s.total) - paid);
+        if (saldo <= 0) continue;
+        const pay = round2(Math.min(saldo, remaining));
+        await tx.payment.create({ data: { branchId, saleId: s.id, method: dto.method, amount: pay, reference: dto.reference || null, cashSessionId: session.id, createdByUserId: scope.userId } });
+        if (paid + pay >= Number(s.total) - 0.001) await tx.sale.update({ where: { id: s.id }, data: { status: 'PAID' } });
+        remaining = round2(remaining - pay);
+      }
+      // Sobrante: cubre el adeudo legacy (early/late) guardado en balanceDue.
+      if (remaining > 0.001 && bd > 0) {
+        await tx.stay.update({ where: { id }, data: { balanceDue: round2(Math.max(0, bd - remaining)) } });
+      }
+    });
     const updated = await staysRepository.findById(id);
     return serialize(updated as StayWithRelations);
   },
