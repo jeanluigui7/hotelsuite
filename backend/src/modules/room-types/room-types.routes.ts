@@ -11,6 +11,8 @@ roomTypesRouter.use(authenticate(), tenant());
 
 roomTypesRouter.get('/room-types', requirePermission('settings', 'view'), asyncHandler(roomTypesController.list));
 roomTypesRouter.get('/room-types/:id', requirePermission('settings', 'view'), asyncHandler(roomTypesController.getById));
-roomTypesRouter.post('/room-types', requirePermission('settings', 'create'), asyncHandler(roomTypesController.create));
+// Crear/eliminar tipos de habitación usa permisos dedicados (el Gerente no los tiene);
+// editar/ver se mantiene en 'settings'.
+roomTypesRouter.post('/room-types', requirePermission('roomtypes', 'create'), asyncHandler(roomTypesController.create));
 roomTypesRouter.put('/room-types/:id', requirePermission('settings', 'edit'), asyncHandler(roomTypesController.update));
-roomTypesRouter.delete('/room-types/:id', requirePermission('settings', 'delete'), asyncHandler(roomTypesController.remove));
+roomTypesRouter.delete('/room-types/:id', requirePermission('roomtypes', 'delete'), asyncHandler(roomTypesController.remove));

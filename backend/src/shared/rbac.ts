@@ -12,6 +12,10 @@ export const MODULES = [
   'reports',
   'whatsapp',
   'settings',
+  // Permisos dedicados (granularidad fina): crear/eliminar habitaciones y tipos de habitación.
+  // Separados de 'operations'/'settings' para poder permitir tarifas pero no tipos, etc.
+  'rooms',
+  'roomtypes',
 ] as const;
 
 export const ACTIONS = ['view', 'create', 'edit', 'delete', 'approve'] as const;

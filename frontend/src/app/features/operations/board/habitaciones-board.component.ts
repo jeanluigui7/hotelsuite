@@ -67,7 +67,7 @@ const MANT_CATS = [
             <button [class.active]="view() === 'real'" (click)="view.set('real')"><i class="pi pi-image"></i> Real</button>
           </div>
           <div class="actions">
-            @if (isAdminProfile()) { <button class="act new" (click)="openNewRoom()"><i class="pi pi-plus"></i> Nueva Habitación</button> }
+            @if (canCreateRoom()) { <button class="act new" (click)="openNewRoom()"><i class="pi pi-plus"></i> Nueva Habitación</button> }
             <button class="act" (click)="vehiculosVisible = true"><i class="pi pi-car"></i> Vehículos</button>
             <button class="act" (click)="checkInHint()"><i class="pi pi-sign-in"></i> Check-in</button>
             <button class="act" (click)="ventaVisible = true"><i class="pi pi-shopping-cart"></i> Venta Productos</button>
@@ -168,7 +168,7 @@ const MANT_CATS = [
                     <button class="cta sm reg" (click)="openCheckIn(r)"><i class="pi pi-sign-in"></i> Registrar</button>
                   }
                   @if (isAdminProfile()) { <button class="cta sm light" (click)="openEdit(r)"><i class="pi pi-pencil"></i> Editar</button> }
-                  @if (isAdminProfile()) { <button class="cta sm trash" (click)="deleteRoom(r)" pTooltip="Eliminar habitación"><i class="pi pi-trash"></i></button> }
+                  @if (canDeleteRoom()) { <button class="cta sm trash" (click)="deleteRoom(r)" pTooltip="Eliminar habitación"><i class="pi pi-trash"></i></button> }
                 </span>
               </div>
             </article>
@@ -801,6 +801,9 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     const u = this.auth.user();
     return profileForRole(u?.roleName, u?.isSuperAdmin ?? false) === 'admin';
   }
+  /** Crear/eliminar habitaciones usa permisos dedicados (el Gerente no los tiene; Super Admin sí). */
+  canCreateRoom(): boolean { return this.auth.can('rooms', 'create'); }
+  canDeleteRoom(): boolean { return this.auth.can('rooms', 'delete'); }
 
   // ── Edición rápida de estancia (teléfono, placa, acompañantes) ──
   readonly stayEditPencil = signal<string | null>(null);

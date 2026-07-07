@@ -57,7 +57,7 @@ const EMPTY: Form = {
           <h1>Tipos de Habitación</h1>
           <p class="muted">Define los tipos, sus atributos y las tarifas base por duración.</p>
         </div>
-        @if (canCreate) { <p-button label="Nuevo tipo" icon="pi pi-plus" (onClick)="openNew()" /> }
+        @if (canCreateType) { <p-button label="Nuevo tipo" icon="pi pi-plus" (onClick)="openNew()" /> }
       </header>
 
       <p-table [value]="items()" [loading]="loading()" [paginator]="true" [rows]="10" styleClass="p-datatable-sm">
@@ -87,7 +87,7 @@ const EMPTY: Form = {
             </td>
             <td class="cat-actions">
               @if (canEdit) { <p-button icon="pi pi-pencil" [text]="true" (onClick)="openEdit(row)" /> }
-              @if (canDelete) { <p-button icon="pi pi-trash" severity="danger" [text]="true" (onClick)="confirmDelete(row)" /> }
+              @if (canDeleteType) { <p-button icon="pi pi-trash" severity="danger" [text]="true" (onClick)="confirmDelete(row)" /> }
             </td>
           </tr>
         </ng-template>
@@ -270,9 +270,12 @@ export class RoomTypesComponent implements OnInit {
   rateEdit: { id: string; label: string; durationMinutes: number; price: number; pernocta: boolean; special: boolean; status: string } = { id: '', label: '', durationMinutes: 180, price: 0, pernocta: false, special: false, status: 'active' };
   readonly savingRate = signal(false);
 
-  readonly canCreate = this.auth.can('settings', 'create');
+  readonly canCreate = this.auth.can('settings', 'create'); // tarifas (Gerente sí)
   readonly canEdit = this.auth.can('settings', 'edit');
-  readonly canDelete = this.auth.can('settings', 'delete');
+  readonly canDelete = this.auth.can('settings', 'delete'); // tarifas (Gerente sí)
+  // Crear/eliminar TIPOS usa permisos dedicados (el Gerente no los tiene).
+  readonly canCreateType = this.auth.can('roomtypes', 'create');
+  readonly canDeleteType = this.auth.can('roomtypes', 'delete');
 
   ngOnInit(): void {
     this.catalog.roomAttributes.list({ pageSize: 100, sortBy: 'name' }).subscribe((res) =>

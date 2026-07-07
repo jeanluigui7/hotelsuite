@@ -12,7 +12,8 @@ roomsRouter.use(authenticate(), tenant());
 roomsRouter.get('/rooms/map', requirePermission('operations', 'view'), asyncHandler(roomsController.map));
 roomsRouter.get('/rooms', requirePermission('operations', 'view'), asyncHandler(roomsController.list));
 roomsRouter.get('/rooms/:id', requirePermission('operations', 'view'), asyncHandler(roomsController.getById));
-roomsRouter.post('/rooms', requirePermission('operations', 'create'), asyncHandler(roomsController.create));
+// Crear/eliminar habitaciones usa permisos dedicados (el Gerente no los tiene).
+roomsRouter.post('/rooms', requirePermission('rooms', 'create'), asyncHandler(roomsController.create));
 roomsRouter.put('/rooms/:id', requirePermission('operations', 'edit'), asyncHandler(roomsController.update));
 roomsRouter.patch('/rooms/:id/status', requirePermission('operations', 'edit'), asyncHandler(roomsController.changeStatus));
-roomsRouter.delete('/rooms/:id', requirePermission('operations', 'delete'), asyncHandler(roomsController.remove));
+roomsRouter.delete('/rooms/:id', requirePermission('rooms', 'delete'), asyncHandler(roomsController.remove));
