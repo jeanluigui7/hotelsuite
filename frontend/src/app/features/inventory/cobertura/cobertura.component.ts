@@ -4,7 +4,6 @@ import { ActivatedRoute } from '@angular/router';
 import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
-import { InputNumberModule } from 'primeng/inputnumber';
 import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
@@ -13,20 +12,13 @@ import { CatalogApiService } from '../../settings/catalogs/catalog-api.service';
 import type { Area } from '../../settings/catalogs/catalog.models';
 
 interface SubW { id: string; name: string; coverageType: string; status: string; roomIds: string[]; roomCount: number; }
-interface StockRow { articleKind: string; name: string; quantity: number; bring?: number; }
-const KINDS = [
-  { label: 'Ropa reutilizable', value: 'LINEN_REUSABLE' },
-  { label: 'Amenity', value: 'AMENITY' },
-  { label: 'Producto', value: 'SALE' },
-  { label: 'Activo', value: 'ASSET' },
-];
 interface CovRoom { id: string; number: string; floor?: string | null; tower?: string | null; roomType?: string | null; subWarehouseId: string | null; }
 interface Group { key: string; rooms: CovRoom[]; }
 
 @Component({
   selector: 'app-cobertura',
   standalone: true,
-  imports: [FormsModule, ButtonModule, InputTextModule, InputNumberModule, SelectModule],
+  imports: [FormsModule, ButtonModule, InputTextModule, SelectModule],
   template: `
     <section class="cv">
       <header class="hd">
@@ -44,38 +36,12 @@ interface Group { key: string; rooms: CovRoom[]; }
           <p-select [options]="subs()" optionLabel="name" optionValue="id" [(ngModel)]="currentSubId" (onChange)="onSubChange()" placeholder="Selecciona" styleClass="dk" />
         </div>
         <button class="btn ghost" (click)="addSub()"><i class="pi pi-plus"></i> Nuevo subalmacén</button>
-        <button class="btn ghost" [disabled]="!currentSubId" (click)="toggleStock()"><i class="pi pi-box"></i> Stock del subalmacén</button>
         <span class="spacer"></span>
         <div class="counter"><i class="pi pi-clipboard"></i> Seleccionadas: <b>{{ selected().size }}</b></div>
         <button class="btn green" [disabled]="!currentSubId || saving()" (click)="save()"><i class="pi pi-save"></i> Guardar asignación</button>
       </div>
 
-      @if (stockVisible() && currentSubId) {
-        <div class="stockp">
-          <div class="stockp-h"><strong>Stock del subalmacén</strong><small class="muted">Lo que este subalmacén puede suministrar a sus habitaciones.</small></div>
-          <table class="stk">
-            <thead><tr><th>Artículo</th><th>Tipo</th><th class="cn">En subalmacén</th><th class="cn">Traer de central</th><th></th></tr></thead>
-            <tbody>
-              @for (r of stockRows(); track $index) {
-                <tr>
-                  <td><input pInputText [(ngModel)]="r.name" placeholder="Sábana, Toalla…" /></td>
-                  <td><p-select [options]="kinds" optionLabel="label" optionValue="value" [(ngModel)]="r.articleKind" styleClass="w" appendTo="body" /></td>
-                  <td class="cn"><p-inputNumber [(ngModel)]="r.quantity" [min]="0" inputStyleClass="q" /></td>
-                  <td class="cn"><p-inputNumber [(ngModel)]="r.bring" [min]="0" inputStyleClass="q" /></td>
-                  <td><button class="ia del" (click)="removeStockRow($index)"><i class="pi pi-trash"></i></button></td>
-                </tr>
-              } @empty { <tr><td colspan="5" class="muted center">Sin stock. Agrega artículos.</td></tr> }
-            </tbody>
-          </table>
-          <div class="stockp-f">
-            <button class="btn ghost sm" (click)="addStockRow()"><i class="pi pi-plus"></i> Agregar artículo</button>
-            <span class="spacer"></span>
-            <button class="btn ghost sm" [disabled]="savingStock()" (click)="supplyFromCentral()"><i class="pi pi-download"></i> Suministrar desde Central</button>
-            <button class="btn green sm" [disabled]="savingStock()" (click)="saveStock()"><i class="pi pi-save"></i> Guardar stock</button>
-          </div>
-          <p class="muted" style="font-size:0.74rem;margin:0.4rem 0 0">"Traer de central" toma ropa limpia del Almacén Central y la suma al subalmacén.</p>
-        </div>
-      }
+      <p class="muted hint"><i class="pi pi-info-circle"></i> El stock de ropa se lleva por piso (una sola fuente): se suministra desde el atajo <b>Ropa › Transferencia</b> y se ve en <b>ROPA - LIMPIEZA</b>. Aquí solo asignas qué habitaciones atiende cada subalmacén.</p>
 
       <div class="filters">
         <p-select [options]="towerOpts()" [(ngModel)]="fTower" (onChange)="noop()" placeholder="Torre" [showClear]="true" styleClass="dk sm" />
@@ -115,6 +81,7 @@ interface Group { key: string; rooms: CovRoom[]; }
       .hd-l { display: flex; gap: 0.8rem; align-items: center; } h1 { margin: 0; font-size: 1.3rem; color: #fff; }
       .hd-i { background: rgba(16,185,129,0.18); color: #34d399; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; font-size: 1.2rem; }
       .step { background: #1e3a8a; color: #93c5fd; border-radius: 999px; padding: 0.25rem 0.8rem; font-size: 0.78rem; font-weight: 700; }
+      .hint { background: #10233c; border: 1px solid #274468; border-radius: 10px; padding: 0.55rem 0.9rem; font-size: 0.82rem; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.9rem; }
       .subbar, .filters { display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
       .subbar .fld { display: flex; flex-direction: column; gap: 0.25rem; } .subbar label { font-size: 0.75rem; color: #9fb0c3; }
       .spacer { flex: 1; }
@@ -155,10 +122,6 @@ export class CoberturaComponent implements OnInit {
   readonly rooms = signal<CovRoom[]>([]);
   readonly selected = signal<Set<string>>(new Set());
   readonly saving = signal(false);
-  readonly kinds = KINDS;
-  readonly stockVisible = signal(false);
-  readonly stockRows = signal<StockRow[]>([]);
-  readonly savingStock = signal(false);
   areaId: string | null = null;
   currentSubId: string | null = null;
   fTower: string | null = null; fFloor: string | null = null; fType: string | null = null; search = '';
@@ -193,7 +156,7 @@ export class CoberturaComponent implements OnInit {
     this.http.get<ApiResponse<CovRoom[]>>(`${this.api}/subwarehouses/coverage-rooms`, { params: { areaId: this.areaId! } }).subscribe((r) => { this.rooms.set(r.data ?? []); this.recompute(); });
   }
 
-  onSubChange(): void { this.recompute(); if (this.stockVisible()) this.loadStock(); }
+  onSubChange(): void { this.recompute(); }
   /** Inicializa la selección con las habitaciones ya asignadas al subalmacén actual. */
   recompute(): void {
     const set = new Set<string>();
@@ -244,34 +207,6 @@ export class CoberturaComponent implements OnInit {
     this.http.post<ApiResponse<SubW>>(`${this.api}/subwarehouses`, { areaId: this.areaId, name: name.trim() }).subscribe({
       next: (r) => { this.messages.add({ severity: 'success', summary: 'Subalmacén creado', detail: name }); const id = r.data?.id; this.loadSubs(); if (id) { this.currentSubId = id; setTimeout(() => this.recompute(), 300); } },
       error: (e: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }),
-    });
-  }
-
-  toggleStock(): void { this.stockVisible.set(!this.stockVisible()); if (this.stockVisible()) this.loadStock(); }
-  loadStock(): void {
-    if (!this.currentSubId) return;
-    this.http.get<ApiResponse<StockRow[]>>(`${this.api}/subwarehouses/${this.currentSubId}/stock`).subscribe((r) => this.stockRows.set(r.data ?? []));
-  }
-  addStockRow(): void { this.stockRows.set([...this.stockRows(), { articleKind: 'LINEN_REUSABLE', name: '', quantity: 0 }]); }
-  removeStockRow(i: number): void { const n = [...this.stockRows()]; n.splice(i, 1); this.stockRows.set(n); }
-  supplyFromCentral(): void {
-    if (!this.currentSubId) return;
-    const items = this.stockRows().filter((r) => r.name.trim() && (r.bring ?? 0) > 0).map((r) => ({ articleKind: r.articleKind, name: r.name.trim(), quantity: r.bring as number }));
-    if (!items.length) { this.messages.add({ severity: 'warn', summary: 'Nada que traer', detail: 'Indica cuánto traer de central.' }); return; }
-    this.savingStock.set(true);
-    this.http.post<ApiResponse<unknown>>(`${this.api}/subwarehouses/${this.currentSubId}/supply`, { items }).subscribe({
-      next: () => { this.savingStock.set(false); this.messages.add({ severity: 'success', summary: 'Suministrado', detail: 'Ropa traída de la central.' }); this.stockRows.set(this.stockRows().map((r) => ({ ...r, bring: 0 }))); this.loadStock(); },
-      error: (e: HttpErrorResponse) => { this.savingStock.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
-    });
-  }
-
-  saveStock(): void {
-    if (!this.currentSubId) return;
-    const items = this.stockRows().filter((r) => r.name.trim()).map((r) => ({ articleKind: r.articleKind, name: r.name.trim(), quantity: r.quantity }));
-    this.savingStock.set(true);
-    this.http.put<ApiResponse<unknown>>(`${this.api}/subwarehouses/${this.currentSubId}/stock`, { items }).subscribe({
-      next: () => { this.savingStock.set(false); this.messages.add({ severity: 'success', summary: 'Stock guardado', detail: '' }); this.loadStock(); },
-      error: (e: HttpErrorResponse) => { this.savingStock.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
     });
   }
 

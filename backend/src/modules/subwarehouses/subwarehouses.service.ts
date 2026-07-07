@@ -130,33 +130,43 @@ export const subWarehousesService = {
   },
 
   /**
-   * Necesidad de ropa del subalmacén: por cada habitación que atiende, suma la dotación base
-   * (RoomTypeDotacion activa) de su tipo de habitación, agrupada por artículo. Compara contra
-   * el stock actual del subalmacén → esto es lo que cada habitación "jala" del subalmacén.
+   * Necesidad de ropa del subalmacén (fuente ÚNICA = stock por piso, LinenStock):
+   *  - required: dotación base (RoomTypeDotacion activa) × habitaciones que atiende, por artículo.
+   *  - available: stock real disponible (rem) en los PISOS que cubre el subalmacén, por artículo de ropa.
+   * Ya no usa SubWarehouseStock (sistema paralelo obsoleto): todo se lee del stock por piso.
    */
   async needs(scope: RequestScope, id: string) {
     const sub = await getSub(scope, id);
     const branchId = sub.branchId;
-    const links = await prisma.subWarehouseRoom.findMany({ where: { subWarehouseId: id }, select: { room: { select: { roomTypeId: true } } } });
+    const links = await prisma.subWarehouseRoom.findMany({ where: { subWarehouseId: id }, select: { room: { select: { roomTypeId: true, floor: true } } } });
     const typeCounts = new Map<string, number>();
-    for (const l of links) { const t = l.room.roomTypeId; typeCounts.set(t, (typeCounts.get(t) ?? 0) + 1); }
-    if (typeCounts.size === 0) return { rooms: 0, items: [] };
-    const dots = await prisma.roomTypeDotacion.findMany({ where: { branchId, status: 'active', roomTypeId: { in: [...typeCounts.keys()] } } });
-    const req = new Map<string, { articleKind: string; name: string; size: string | null; linenItemId: string | null; required: number }>();
-    for (const d of dots) {
-      const count = typeCounts.get(d.roomTypeId) ?? 0;
-      const key = `${d.articleKind}|${d.name}`;
-      const cur = req.get(key) ?? { articleKind: d.articleKind, name: d.name, size: d.size, linenItemId: d.linenItemId, required: 0 };
-      cur.required += d.baseQty * count;
-      req.set(key, cur);
+    const floors = new Set<string>();
+    for (const l of links) {
+      typeCounts.set(l.room.roomTypeId, (typeCounts.get(l.room.roomTypeId) ?? 0) + 1);
+      if (l.room.floor) floors.add(l.room.floor);
     }
-    const stock = await prisma.subWarehouseStock.findMany({ where: { subWarehouseId: id } });
-    const stockMap = new Map(stock.map((s) => [`${s.articleKind}|${s.name}`, s.quantity]));
-    const items = [...req.values()].map((r) => {
-      const current = stockMap.get(`${r.articleKind}|${r.name}`) ?? 0;
-      return { ...r, current, missing: Math.max(0, r.required - current) };
-    });
-    return { rooms: links.length, items };
+    // Requerido por la dotación de los tipos de habitación que atiende.
+    const req = new Map<string, { articleKind: string; name: string; size: string | null; required: number }>();
+    if (typeCounts.size) {
+      const dots = await prisma.roomTypeDotacion.findMany({ where: { branchId, status: 'active', roomTypeId: { in: [...typeCounts.keys()] } } });
+      for (const d of dots) {
+        const count = typeCounts.get(d.roomTypeId) ?? 0;
+        const key = `${d.articleKind}|${d.name}|${d.size ?? ''}`;
+        const cur = req.get(key) ?? { articleKind: d.articleKind, name: d.name, size: d.size ?? null, required: 0 };
+        cur.required += d.baseQty * count;
+        req.set(key, cur);
+      }
+    }
+    // Disponible real: stock por piso (LinenStock) de los pisos que cubre el subalmacén.
+    let available: { type: string; name: string; rem: number }[] = [];
+    if (floors.size) {
+      const stock = await prisma.linenStock.findMany({ where: { branchId, floor: { in: [...floors] } } });
+      const byItem = new Map<string, number>();
+      for (const s of stock) byItem.set(s.linenItemId, (byItem.get(s.linenItemId) ?? 0) + s.rem);
+      const litems = byItem.size ? await prisma.linenItem.findMany({ where: { id: { in: [...byItem.keys()] } }, select: { id: true, type: true, name: true } }) : [];
+      available = litems.map((it) => ({ type: it.type, name: it.name, rem: byItem.get(it.id) ?? 0 })).filter((x) => x.rem);
+    }
+    return { rooms: links.length, floors: [...floors], required: [...req.values()], available };
   },
 
   /** Stock propio del subalmacén. */
