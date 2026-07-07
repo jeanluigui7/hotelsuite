@@ -1,5 +1,5 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
-import { DecimalPipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
 import { Router } from '@angular/router';
@@ -15,7 +15,8 @@ import { printPdf } from '../../../core/utils/export';
 import { InventoryApiService } from '../../inventory/services/inventory-api.service';
 import type { Product, Warehouse } from '../../inventory/services/inventory.models';
 
-interface Req { id: string; status: string; createdAt: string; items: { productId: string; name: string; quantity: number }[]; }
+interface Req { id: string; status: string; createdAt: string; requestedBy?: string | null; items: { productId: string; name: string; code?: string | null; quantity: number }[]; }
+interface SendLine { requestId: string; productId: string; name: string; code: string; solicitado: number; stock: number; requestedBy: string | null; createdAt: string; enviar: number; selected: boolean; }
 interface Form {
   id?: string;
   name: string; sku: string; barcode: string; imageUrl: string; brand: string;
@@ -36,7 +37,7 @@ const IGV_TYPES = [
 @Component({
   selector: 'app-almacen-productos',
   standalone: true,
-  imports: [DecimalPipe, FormsModule, ButtonModule, DialogModule, SelectModule, InputNumberModule, InputTextModule],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, DialogModule, SelectModule, InputNumberModule, InputTextModule],
   template: `
     <section class="ap">
       <header class="top">
@@ -174,14 +175,41 @@ const IGV_TYPES = [
       <ng-template pTemplate="footer"><p-button label="Cerrar" [text]="true" (onClick)="viewVisible = false" /></ng-template>
     </p-dialog>
 
-    <!-- Enviar productos (solicitudes a recepción) -->
-    <p-dialog [(visible)]="enviarVisible" [modal]="true" header="Enviar productos a Recepción" [style]="{ width: '34rem' }" styleClass="dk-dialog">
-      <h4>Solicitudes por enviar</h4>
-      @for (r of pending(); track r.id) {
-        <div class="req"><div class="items">@for (i of r.items; track i.productId) { <span class="rchip">{{ i.name }} x{{ i.quantity }}</span> }</div>
-          <p-button label="Enviar" icon="pi pi-send" size="small" [loading]="busy()" (onClick)="send(r)" /></div>
-      } @empty { <p class="muted">No hay solicitudes pendientes de Recepción.</p> }
-      <ng-template pTemplate="footer"><p-button label="Cerrar" [text]="true" (onClick)="enviarVisible = false" /></ng-template>
+    <!-- Enviar Productos a Recepción (el admin ajusta cantidades y elige qué enviar) -->
+    <p-dialog [(visible)]="enviarVisible" [modal]="true" [style]="{ width: '44rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      <ng-template pTemplate="header"><span class="th"><i class="pi pi-box"></i> Enviar Productos a Recepción</span></ng-template>
+      <p class="muted">Selecciona las solicitudes de productos que deseas enviar desde el almacén de productos a recepción.</p>
+      <div class="send-bar">
+        <span class="cnt">{{ sendCount() }} de {{ sendLines.length }} solicitudes seleccionadas</span>
+        <span class="sp"></span>
+        <button class="lnk" (click)="selectAllSend()">Seleccionar Todas</button>
+        <button class="lnk" (click)="deselectAllSend()">Deseleccionar Todas</button>
+        <button class="lnk del" [disabled]="!sendCount()" (click)="deleteSelected()"><i class="pi pi-trash"></i> Eliminar Seleccionados ({{ sendCount() }})</button>
+      </div>
+      <div class="send-list">
+        @for (l of sendLines; track l.requestId + l.productId) {
+          <div class="scard" [class.on]="l.selected" [class.warn]="over(l)">
+            <input type="checkbox" [(ngModel)]="l.selected" />
+            <div class="sc-info">
+              <strong>{{ l.name }}</strong>
+              <div class="sc-code">Código: {{ l.code }}</div>
+              <div class="sc-by">Solicitado por: {{ l.requestedBy || '—' }} · {{ l.createdAt | date: 'dd/MM/yyyy hh:mm a' }}</div>
+              @if (over(l)) { <div class="sc-warn"><i class="pi pi-exclamation-triangle"></i> Stock insuficiente - Reduzca la cantidad</div> }
+            </div>
+            <div class="sc-qty">
+              <span class="lbl">Enviar:</span>
+              <p-inputNumber [(ngModel)]="l.enviar" [min]="1" [showButtons]="true" buttonLayout="horizontal" inputStyleClass="qq" />
+              <div class="sc-sol">Solicitado: {{ l.solicitado }}</div>
+              <div class="sc-stock" [class.bad]="over(l)">Stock: {{ l.stock }} disponible</div>
+            </div>
+            <button class="sc-x" title="Quitar" (click)="removeLine(l)"><i class="pi pi-times"></i></button>
+          </div>
+        } @empty { <p class="muted">No hay solicitudes pendientes de Recepción.</p> }
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="enviarVisible = false" />
+        <p-button label="Enviar Productos ({{ sendCount() }})" icon="pi pi-check" [loading]="busy()" [disabled]="!canSend()" (onClick)="sendSelected()" />
+      </ng-template>
     </p-dialog>
 
     <!-- Transferencia Masiva de Productos -->
@@ -268,6 +296,22 @@ const IGV_TYPES = [
       .req { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border: 1px solid #1f2a3a; border-radius: 10px; padding: 0.6rem 0.9rem; margin-bottom: 0.5rem; }
       .rchip { background: #131b27; border: 1px solid #243245; border-radius: 999px; padding: 0.2rem 0.6rem; font-size: 0.78rem; margin-right: 0.3rem; }
       h4 { margin: 0 0 0.6rem; }
+      .send-bar { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin: 0.6rem 0 0.9rem; }
+      .send-bar .cnt { color: #8b97a8; font-size: 0.82rem; } .send-bar .sp { flex: 1; }
+      .lnk { background: transparent; border: 1px solid #243245; color: #cdd8e6; border-radius: 8px; padding: 0.35rem 0.7rem; cursor: pointer; font-size: 0.8rem; }
+      .lnk.del { color: #f87171; border-color: #5b2626; } .lnk:disabled { opacity: 0.5; cursor: default; }
+      .send-list { display: flex; flex-direction: column; gap: 0.55rem; max-height: 52vh; overflow-y: auto; }
+      .scard { display: flex; align-items: flex-start; gap: 0.8rem; background: #0b1220; border: 1px solid #1c2c44; border-radius: 12px; padding: 0.8rem 0.9rem; }
+      .scard.on { border-color: #2563eb; box-shadow: 0 0 0 1px #2563eb inset; }
+      .scard.warn { border-color: #b45309; }
+      .scard > input[type=checkbox] { width: 18px; height: 18px; margin-top: 0.2rem; accent-color: #10b981; }
+      .sc-info { flex: 1; min-width: 0; } .sc-info strong { font-size: 0.98rem; }
+      .sc-code { color: #93a3b8; font-size: 0.78rem; } .sc-by { color: #8b97a8; font-size: 0.75rem; margin-top: 0.15rem; }
+      .sc-warn { color: #fbbf24; font-size: 0.78rem; margin-top: 0.3rem; display: flex; align-items: center; gap: 0.35rem; }
+      .sc-qty { display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem; white-space: nowrap; }
+      .sc-qty .lbl { color: #8b97a8; font-size: 0.78rem; } :host ::ng-deep .qq { width: 3.6rem; text-align: center; }
+      .sc-sol { color: #8b97a8; font-size: 0.76rem; } .sc-stock { color: #34d399; font-size: 0.76rem; } .sc-stock.bad { color: #f87171; }
+      .sc-x { background: transparent; border: 0; color: #8b97a8; cursor: pointer; padding: 0.2rem; } .sc-x:hover { color: #f87171; }
       :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1622; color: #e6e9ef; }
     `,
   ],
@@ -516,12 +560,66 @@ export class AlmacenProductosComponent implements OnInit {
   }
 
   // Enviar a recepción
-  openEnviar(): void { this.enviarVisible = true; }
-  send(r: Req): void {
+  // ── Enviar Productos a Recepción (por ítem, con cantidad ajustable) ──
+  sendLines: SendLine[] = [];
+  openEnviar(): void {
+    const byId = new Map(this.products().map((p) => [p.id, p]));
+    this.sendLines = this.pending().flatMap((r) =>
+      r.items.map((it) => {
+        const p = byId.get(it.productId);
+        const stock = p?.stock ?? 0;
+        return {
+          requestId: r.id, productId: it.productId, name: it.name, code: it.code || p?.sku || '—',
+          solicitado: it.quantity, stock, requestedBy: r.requestedBy ?? null, createdAt: r.createdAt,
+          enviar: it.quantity, selected: it.quantity <= stock, // insuficiente arranca sin marcar
+        } as SendLine;
+      }),
+    );
+    this.enviarVisible = true;
+  }
+  private selectedSend(): SendLine[] { return this.sendLines.filter((l) => l.selected); }
+  sendCount(): number { return this.selectedSend().length; }
+  over(l: SendLine): boolean { return l.enviar > l.stock; }
+  canSend(): boolean { const s = this.selectedSend(); return s.length > 0 && s.every((l) => l.enviar > 0 && l.enviar <= l.stock); }
+  selectAllSend(): void { this.sendLines.forEach((l) => (l.selected = true)); }
+  deselectAllSend(): void { this.sendLines.forEach((l) => (l.selected = false)); }
+
+  private deleteLines(lines: SendLine[]): void {
+    if (!lines.length) return;
     this.busy.set(true);
-    this.http.post<ApiResponse<unknown>>(`${this.api}/reception-inventory/requests/${r.id}/send`, {}).subscribe({
-      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Enviado a recepción', detail: '' }); this.reload(); },
+    this.http.post<ApiResponse<unknown>>(`${this.api}/reception-inventory/requests/delete-items`, { lines: lines.map((l) => ({ requestId: l.requestId, productId: l.productId })) }).subscribe({
+      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Eliminado', detail: '' }); this.afterSendReload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
     });
+  }
+  removeLine(l: SendLine): void { if (confirm(`¿Quitar "${l.name}" de las solicitudes?`)) this.deleteLines([l]); }
+  deleteSelected(): void { this.deleteLines(this.selectedSend()); }
+
+  sendSelected(): void {
+    const lines = this.selectedSend();
+    if (!lines.length) return;
+    const bad = lines.find((l) => this.over(l) || l.enviar <= 0);
+    if (bad) { this.toast.add({ severity: 'warn', summary: 'Revisa las cantidades', detail: `"${bad.name}": la cantidad a enviar supera el stock disponible.` }); return; }
+    this.busy.set(true);
+    this.http.post<ApiResponse<unknown>>(`${this.api}/reception-inventory/send-items`, { lines: lines.map((l) => ({ requestId: l.requestId, productId: l.productId, quantity: l.enviar })) }).subscribe({
+      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Enviado a recepción', detail: `${lines.length} producto(s) enviados.` }); this.afterSendReload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
+    });
+  }
+  /** Recarga productos+solicitudes y reconstruye las líneas; cierra si ya no queda nada. */
+  private afterSendReload(): void {
+    this.inventory.products.list({ pageSize: 300 }).subscribe((r) => this.products.set(r.data ?? []));
+    this.http.get<ApiResponse<Req[]>>(`${this.api}/reception-inventory/requests`).subscribe((r) => {
+      this.requests.set(r.data ?? []);
+      this.openEnviarRebuild();
+    });
+  }
+  private openEnviarRebuild(): void {
+    const byId = new Map(this.products().map((p) => [p.id, p]));
+    this.sendLines = this.pending().flatMap((r) => r.items.map((it) => {
+      const p = byId.get(it.productId); const stock = p?.stock ?? 0;
+      return { requestId: r.id, productId: it.productId, name: it.name, code: it.code || p?.sku || '—', solicitado: it.quantity, stock, requestedBy: r.requestedBy ?? null, createdAt: r.createdAt, enviar: it.quantity, selected: it.quantity <= stock } as SendLine;
+    }));
+    if (!this.sendLines.length) this.enviarVisible = false;
   }
 }

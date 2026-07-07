@@ -21,8 +21,17 @@ export const writeOffSchema = z.object({
   motivo: z.enum(['VENCIDO', 'PERDIDO', 'SOBRANTE']).default('VENCIDO'),
   notes: z.string().max(200).optional().or(z.literal('')),
 });
+// Envío por ítem (el admin ajusta la cantidad a enviar por producto y elige cuáles).
+export const sendItemsSchema = z.object({
+  lines: z.array(z.object({ requestId: z.string().min(1), productId: z.string().min(1), quantity: z.coerce.number().int().min(1) })).min(1),
+});
+export const deleteItemsSchema = z.object({
+  lines: z.array(z.object({ requestId: z.string().min(1), productId: z.string().min(1) })).min(1),
+});
 export type RequestDto = z.infer<typeof requestSchema>;
 export type WriteOffDto = z.infer<typeof writeOffSchema>;
+export type SendItemsDto = z.infer<typeof sendItemsSchema>;
+export type DeleteItemsDto = z.infer<typeof deleteItemsSchema>;
 
 async function receptionWarehouseId(branchId: string): Promise<string> {
   let wh = await prisma.warehouse.findFirst({ where: { branchId, type: 'RECEPTION' } });
@@ -170,14 +179,80 @@ export const receptionInventoryService = {
       orderBy: { createdAt: 'desc' },
     });
     const productIds = [...new Set(rows.flatMap((r) => r.items.map((i) => i.productId)))];
-    const products = await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true } });
-    const pmap = new Map(products.map((p) => [p.id, p.name]));
+    const userIds = [...new Set(rows.map((r) => r.createdByUserId).filter((x): x is string => !!x))];
+    const [products, users] = await Promise.all([
+      prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true, sku: true } }),
+      userIds.length ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : Promise.resolve([]),
+    ]);
+    const pmap = new Map(products.map((p) => [p.id, p]));
+    const umap = new Map(users.map((u) => [u.id, u.name]));
     return rows.map((r) => ({
       id: r.id,
       status: r.status,
       createdAt: r.createdAt,
-      items: r.items.map((i) => ({ productId: i.productId, name: pmap.get(i.productId) ?? '—', quantity: i.quantity })),
+      requestedBy: r.createdByUserId ? umap.get(r.createdByUserId) ?? null : null,
+      items: r.items.map((i) => ({ productId: i.productId, name: pmap.get(i.productId)?.name ?? '—', code: pmap.get(i.productId)?.sku ?? null, quantity: i.quantity })),
     }));
+  },
+
+  /**
+   * Envío por ítem (admin): envía las líneas seleccionadas con la cantidad que decide el
+   * admin (puede ser distinta a la solicitada). Descuenta del almacén central, registra el
+   * traslado a recepción (queda como envío SENT que recepción confirma) y quita las líneas
+   * enviadas de las solicitudes; las solicitudes que quedan sin ítems se eliminan.
+   */
+  async sendItems(scope: RequestScope, dto: SendItemsDto) {
+    const branchId = requireActiveBranch(scope);
+    const reqIds = [...new Set(dto.lines.map((l) => l.requestId))];
+    const reqs = await prisma.productRequest.findMany({ where: { id: { in: reqIds }, branchId, status: 'REQUESTED' }, include: { items: true } });
+    const reqMap = new Map(reqs.map((r) => [r.id, r]));
+    for (const l of dto.lines) {
+      const r = reqMap.get(l.requestId);
+      if (!r) throw new ValidationError('Alguna solicitud no existe o ya fue procesada');
+      if (!r.items.some((i) => i.productId === l.productId)) throw new ValidationError('Un producto no pertenece a su solicitud');
+    }
+    // Total a enviar por producto (una línea por producto puede venir de varias solicitudes).
+    const perProduct = new Map<string, number>();
+    for (const l of dto.lines) perProduct.set(l.productId, (perProduct.get(l.productId) ?? 0) + l.quantity);
+    const central = await productsRepository.defaultWarehouse(branchId);
+    const receptionId = await receptionWarehouseId(branchId);
+    const [stocks, prods] = await Promise.all([
+      prisma.stock.findMany({ where: { warehouseId: central.id, productId: { in: [...perProduct.keys()] } } }),
+      prisma.product.findMany({ where: { id: { in: [...perProduct.keys()] } }, select: { id: true, name: true } }),
+    ]);
+    const stockMap = new Map(stocks.map((s) => [s.productId, s.quantity]));
+    const nameMap = new Map(prods.map((p) => [p.id, p.name]));
+    for (const [pid, qty] of perProduct) {
+      if ((stockMap.get(pid) ?? 0) < qty) throw new ValidationError(`Stock insuficiente para "${nameMap.get(pid) ?? 'producto'}" (disponible ${stockMap.get(pid) ?? 0}, a enviar ${qty}).`);
+    }
+    await prisma.$transaction(async (tx) => {
+      await tx.productRequest.create({
+        data: { branchId, status: 'SENT', notes: 'Envío a recepción', createdByUserId: scope.userId, items: { create: [...perProduct].map(([productId, quantity]) => ({ productId, quantity })) } },
+      });
+      for (const [pid, qty] of perProduct) {
+        await applyStockTx(tx, pid, central.id, -qty);
+        await createMovementTx(tx, { branchId, productId: pid, warehouseId: central.id, type: 'TRANSFER', quantity: -qty, reference: 'Enviado a recepción', relatedWarehouseId: receptionId, createdByUserId: scope.userId });
+      }
+      for (const l of dto.lines) await tx.productRequestItem.deleteMany({ where: { requestId: l.requestId, productId: l.productId } });
+      for (const rid of reqIds) {
+        if ((await tx.productRequestItem.count({ where: { requestId: rid } })) === 0) await tx.productRequest.delete({ where: { id: rid } });
+      }
+    });
+    return { sent: dto.lines.length };
+  },
+
+  /** Elimina (rechaza) las líneas seleccionadas de las solicitudes pendientes. */
+  async deleteItems(scope: RequestScope, dto: DeleteItemsDto) {
+    const branchId = requireActiveBranch(scope);
+    const reqIds = [...new Set(dto.lines.map((l) => l.requestId))];
+    const valid = new Set((await prisma.productRequest.findMany({ where: { id: { in: reqIds }, branchId, status: 'REQUESTED' }, select: { id: true } })).map((r) => r.id));
+    await prisma.$transaction(async (tx) => {
+      for (const l of dto.lines) if (valid.has(l.requestId)) await tx.productRequestItem.deleteMany({ where: { requestId: l.requestId, productId: l.productId } });
+      for (const rid of reqIds) {
+        if (valid.has(rid) && (await tx.productRequestItem.count({ where: { requestId: rid } })) === 0) await tx.productRequest.delete({ where: { id: rid } });
+      }
+    });
+    return { deleted: dto.lines.length };
   },
 
   /**

@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { ok } from '../../shared/response';
 import { UnauthorizedError } from '../../shared/errors';
-import { receptionInventoryService, requestSchema, writeOffSchema } from './reception-inventory.service';
+import { receptionInventoryService, requestSchema, writeOffSchema, sendItemsSchema, deleteItemsSchema } from './reception-inventory.service';
 
 export const receptionInventoryController = {
   async list(req: Request, res: Response): Promise<void> {
@@ -23,6 +23,14 @@ export const receptionInventoryController = {
   async sendRequest(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await receptionInventoryService.sendRequest(req.scope, req.params.id)));
+  },
+  async sendItems(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await receptionInventoryService.sendItems(req.scope, sendItemsSchema.parse(req.body))));
+  },
+  async deleteItems(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await receptionInventoryService.deleteItems(req.scope, deleteItemsSchema.parse(req.body))));
   },
   async receiveRequest(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
