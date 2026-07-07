@@ -1408,9 +1408,11 @@ model WifiCredential {
 model LinenItem {
   id        String   @id @default(uuid())
   branchId  String
-  type      String // TOALLA | SABANA | EDREDON | AMENITY
+  type      String // clasificación: nombre de la categoría (Toallas, Sábanas…) o legado TOALLA/SABANA/EDREDON
   name      String // p.ej. "VERDE MARGARITA", "INCAICA ROJA"
   color     String?
+  size      String? // tamaño (viene de los tamaños de la categoría, p.ej. "Corporal", "King")
+  notes     String? @db.NVarChar(Max) // observaciones
   reusable  Boolean  @default(true) // edredones van a lavandería pero NO se reponen automáticamente
   status    String   @default("active")
   // Campos tipo producto (para el modal completo del almacén de ropa).

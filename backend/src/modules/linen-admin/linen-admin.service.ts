@@ -68,9 +68,12 @@ export const replenishSchema = z.object({
 export type ReplenishDto = z.infer<typeof replenishSchema>;
 
 const itemFields = {
-  type: z.enum(['TOALLA', 'SABANA', 'EDREDON', 'AMENITY']),
+  // El tipo ya no se pide en el formulario: se autocompleta con el nombre de la Categoría.
+  type: z.string().max(120).optional().or(z.literal('')),
   name: z.string().min(1).max(120),
   color: z.string().max(60).optional().or(z.literal('')),
+  size: z.string().max(60).optional().or(z.literal('')),
+  notes: z.string().max(2000).optional().or(z.literal('')),
   reusable: z.coerce.boolean().optional(),
   code: z.string().max(60).optional().or(z.literal('')),
   barcode: z.string().max(120).optional().or(z.literal('')),
@@ -86,8 +89,9 @@ const itemFields = {
   reorderPoint: z.coerce.number().int().min(0).optional(),
   receptionReorderPoint: z.coerce.number().int().min(0).optional(),
 };
-export const createItemSchema = z.object({ ...itemFields, quantity: z.coerce.number().int().min(0).optional() });
-export const updateItemSchema = z.object({ ...itemFields, type: itemFields.type.optional(), name: itemFields.name.optional(), status: z.enum(['active', 'inactive']).optional() });
+// Al crear ropa, Categoría y Tamaño son obligatorios (el tipo de prenda lo define la categoría).
+export const createItemSchema = z.object({ ...itemFields, categoryId: z.string().min(1), size: z.string().min(1).max(60), quantity: z.coerce.number().int().min(0).optional() });
+export const updateItemSchema = z.object({ ...itemFields, name: itemFields.name.optional(), status: z.enum(['active', 'inactive']).optional() });
 
 export const linenAdminService = {
   /** Solicitudes de ropa pendientes (enviadas por limpieza). */
@@ -201,6 +205,8 @@ export const linenAdminService = {
         name: it.name,
         type: it.type,
         color: it.color,
+        size: it.size,
+        notes: it.notes,
         base,
         disponible,
         transferido,
@@ -245,19 +251,25 @@ export const linenAdminService = {
   /** Crea un artículo de ropa (opcionalmente con stock inicial en el central). */
   async createItem(scope: RequestScope, dto: z.infer<typeof createItemSchema>) {
     const branchId = requireActiveBranch(scope);
+    // La categoría (tipo Ropa) define el tipo de prenda → autocompleta LinenItem.type.
+    const category = await prisma.inventoryCategory.findUnique({ where: { id: dto.categoryId }, select: { name: true, type: true, branchId: true } });
+    if (!category || category.branchId !== branchId) throw new ValidationError('Categoría no encontrada');
+    if (category.type !== 'CLOTHING') throw new ValidationError('La categoría debe ser de tipo Ropa');
     const item = await prisma.linenItem.create({
       data: {
         branchId,
-        type: dto.type,
+        type: dto.type?.trim() || category.name,
         name: dto.name.trim(),
         color: dto.color || null,
-        reusable: dto.reusable ?? true,
+        size: dto.size?.trim() || null,
+        notes: dto.notes?.trim() || null,
+        reusable: true, // toda prenda de ropa es reutilizable por definición
         status: 'active',
         code: dto.code || null,
         barcode: dto.barcode || null,
         imageUrl: dto.imageUrl || null,
         brand: dto.brand || null,
-        categoryId: dto.categoryId ?? null,
+        categoryId: dto.categoryId,
         unit: dto.unit ?? 'NIU',
         igvType: dto.igvType ?? 'GRAVADO',
         igvPercent: dto.igvPercent ?? 18,
@@ -283,13 +295,23 @@ export const linenAdminService = {
     const branchId = requireActiveBranch(scope);
     const item = await prisma.linenItem.findUnique({ where: { id } });
     if (!item || item.branchId !== branchId) throw new ValidationError('Ropa no encontrada');
+    // Si cambia la categoría, se re-deriva el tipo de prenda (LinenItem.type = nombre de la categoría).
+    let derivedType: string | undefined;
+    if (dto.categoryId) {
+      const category = await prisma.inventoryCategory.findUnique({ where: { id: dto.categoryId }, select: { name: true, type: true, branchId: true } });
+      if (!category || category.branchId !== branchId) throw new ValidationError('Categoría no encontrada');
+      if (category.type !== 'CLOTHING') throw new ValidationError('La categoría debe ser de tipo Ropa');
+      derivedType = category.name;
+    }
     return prisma.linenItem.update({
       where: { id },
       data: {
-        ...(dto.type ? { type: dto.type } : {}),
+        ...(derivedType ? { type: derivedType } : dto.type ? { type: dto.type } : {}),
         ...(dto.name ? { name: dto.name.trim() } : {}),
         ...(dto.color !== undefined ? { color: dto.color || null } : {}),
-        ...(dto.reusable !== undefined ? { reusable: dto.reusable } : {}),
+        ...(dto.size !== undefined ? { size: dto.size || null } : {}),
+        ...(dto.notes !== undefined ? { notes: dto.notes || null } : {}),
+        reusable: true, // la ropa siempre es reutilizable
         ...(dto.status ? { status: dto.status } : {}),
         ...(dto.code !== undefined ? { code: dto.code || null } : {}),
         ...(dto.barcode !== undefined ? { barcode: dto.barcode || null } : {}),
