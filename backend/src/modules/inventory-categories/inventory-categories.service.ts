@@ -47,6 +47,7 @@ export const inventoryCategoriesService = {
     return inventoryCategoriesRepository.create({
       branchId,
       name: dto.name,
+      type: dto.type ?? null,
       description: dto.description || null,
       status: dto.status,
     });
@@ -56,6 +57,7 @@ export const inventoryCategoriesService = {
     await this.getById(scope, id);
     return inventoryCategoriesRepository.update(id, {
       name: dto.name,
+      ...(dto.type !== undefined ? { type: dto.type ?? null } : {}),
       description: dto.description === '' ? null : dto.description,
       status: dto.status,
     });

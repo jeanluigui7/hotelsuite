@@ -97,6 +97,7 @@ export interface Area {
 export interface InventoryCategory {
   id: string;
   name: string;
+  type?: string | null; // PRODUCTS | CLOTHING | CLEANING | AMENITIES | null (sin clasificar)
   description?: string | null;
   status: string;
 }

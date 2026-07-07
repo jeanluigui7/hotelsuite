@@ -421,6 +421,7 @@ model InventoryCategory {
   id          String   @id @default(uuid())
   branchId    String
   name        String
+  type        String? // Tipo/Área: PRODUCTS | CLOTHING | CLEANING | AMENITIES (null = sin clasificar)
   description String?
   status      String   @default("active")
   createdAt   DateTime @default(now())

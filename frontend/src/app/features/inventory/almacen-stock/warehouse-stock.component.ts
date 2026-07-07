@@ -2,10 +2,17 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
+import { environment } from '../../../../environments/environment';
+import type { ApiResponse } from '../../../core/models/api-response.model';
 import { InventoryApiService } from '../services/inventory-api.service';
 import type { Warehouse, WarehouseStock, WarehouseType } from '../services/inventory.models';
+
+interface LinenFloorRow { type: string; name: string; color: string | null; rem: number; sum: number; }
+interface LinenFloor { floor: string; rows: LinenFloorRow[]; }
+const LINEN_TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana', EDREDON: 'Edredón', AMENITY: 'Amenity' };
 
 @Component({
   selector: 'app-warehouse-stock',
@@ -21,29 +28,49 @@ import type { Warehouse, WarehouseStock, WarehouseType } from '../services/inven
         <p-select [options]="warehouses()" optionLabel="name" optionValue="id" [(ngModel)]="selectedId" (onChange)="loadStock()" placeholder="Selecciona almacén" styleClass="dk" />
       </header>
 
-      <div class="cards">
-        <div class="card"><span class="lbl">Artículos</span><strong>{{ stock()?.items?.length || 0 }}</strong></div>
-        <div class="card low"><span class="lbl">Bajo mínimo</span><strong>{{ belowCount() }}</strong></div>
-      </div>
+      @if (isLinen()) {
+        <!-- Inventario de Ropa por Pisos (almacén ROPA - LIMPIEZA) -->
+        <p class="muted sub">Inventario de ropa por pisos · REM = disponible en el piso · SUM = suministrado acumulado.</p>
+        @for (f of linenFloors(); track f.floor) {
+          <div class="floor">
+            <div class="floor-h"><i class="pi pi-building"></i> PISO {{ f.floor }}</div>
+            <div class="tablewrap">
+              <table class="tbl">
+                <thead><tr><th>Tipo</th><th>Artículo</th><th class="cn">REM (disp.)</th><th class="cn">SUM (suministrado)</th></tr></thead>
+                <tbody>
+                  @for (r of f.rows; track r.name) {
+                    <tr><td>{{ linenTypeLabel(r.type) }}</td><td class="nm">{{ r.name }}</td><td class="cn"><strong>{{ r.rem }}</strong></td><td class="cn muted">{{ r.sum }}</td></tr>
+                  } @empty { <tr><td colspan="4" class="muted center">Sin ropa en este piso.</td></tr> }
+                </tbody>
+              </table>
+            </div>
+          </div>
+        } @empty { <p class="muted center empty">Aún no hay ropa transferida a pisos. Usa el atajo Ropa › Transferencia para enviar ropa a los pisos.</p> }
+      } @else {
+        <div class="cards">
+          <div class="card"><span class="lbl">Artículos</span><strong>{{ stock()?.items?.length || 0 }}</strong></div>
+          <div class="card low"><span class="lbl">Bajo mínimo</span><strong>{{ belowCount() }}</strong></div>
+        </div>
 
-      <div class="bar"><span class="search"><input pInputText placeholder="Buscar artículo..." [(ngModel)]="search" /><i class="pi pi-search"></i></span></div>
+        <div class="bar"><span class="search"><input pInputText placeholder="Buscar artículo..." [(ngModel)]="search" /><i class="pi pi-search"></i></span></div>
 
-      <div class="tablewrap">
-        <table class="tbl">
-          <thead><tr><th>Código</th><th>Artículo</th><th class="cn">Stock</th><th class="cn">Mínimo</th><th class="cn">Estado</th></tr></thead>
-          <tbody>
-            @for (it of filtered(); track it.productId) {
-              <tr [class.low-row]="it.belowReorder">
-                <td class="muted">{{ it.sku || '—' }}</td>
-                <td class="nm">{{ it.name }}</td>
-                <td class="cn"><strong [class.low]="it.belowReorder">{{ it.quantity }}</strong></td>
-                <td class="cn muted">{{ it.reorderPoint }}</td>
-                <td class="cn"><span class="pill" [class.on]="!it.belowReorder" [class.off]="it.belowReorder">{{ it.belowReorder ? 'Bajo stock' : 'OK' }}</span></td>
-              </tr>
-            } @empty { <tr><td colspan="5" class="muted center">{{ selectedId ? 'Sin artículos en este almacén.' : 'Selecciona un almacén.' }}</td></tr> }
-          </tbody>
-        </table>
-      </div>
+        <div class="tablewrap">
+          <table class="tbl">
+            <thead><tr><th>Código</th><th>Artículo</th><th class="cn">Stock</th><th class="cn">Mínimo</th><th class="cn">Estado</th></tr></thead>
+            <tbody>
+              @for (it of filtered(); track it.productId) {
+                <tr [class.low-row]="it.belowReorder">
+                  <td class="muted">{{ it.sku || '—' }}</td>
+                  <td class="nm">{{ it.name }}</td>
+                  <td class="cn"><strong [class.low]="it.belowReorder">{{ it.quantity }}</strong></td>
+                  <td class="cn muted">{{ it.reorderPoint }}</td>
+                  <td class="cn"><span class="pill" [class.on]="!it.belowReorder" [class.off]="it.belowReorder">{{ it.belowReorder ? 'Bajo stock' : 'OK' }}</span></td>
+                </tr>
+              } @empty { <tr><td colspan="5" class="muted center">{{ selectedId ? 'Sin artículos en este almacén.' : 'Selecciona un almacén.' }}</td></tr> }
+            </tbody>
+          </table>
+        </div>
+      }
     </section>
   `,
   styles: [
@@ -69,19 +96,28 @@ import type { Warehouse, WarehouseStock, WarehouseType } from '../services/inven
       .tbl tr.low-row { background: rgba(239,68,68,0.09); }
       .pill { display: inline-block; border-radius: 999px; padding: 0.18rem 0.7rem; font-size: 0.74rem; font-weight: 700; }
       .pill.on { background: rgba(16,185,129,0.2); color: #6ee7b7; } .pill.off { background: rgba(239,68,68,0.18); color: #fca5a5; }
+      .sub { margin: 0 0 0.8rem; } .empty { padding: 2rem 0; }
+      .floor { margin-bottom: 1rem; }
+      .floor-h { display: flex; align-items: center; gap: 0.5rem; color: #93c5fd; font-weight: 700; margin-bottom: 0.4rem; font-size: 0.9rem; }
     `,
   ],
 })
 export class WarehouseStockComponent implements OnInit {
   private readonly inv = inject(InventoryApiService);
   private readonly route = inject(ActivatedRoute);
+  private readonly http = inject(HttpClient);
+  private readonly api = environment.apiUrl;
 
   readonly warehouses = signal<Warehouse[]>([]);
   readonly stock = signal<WarehouseStock | null>(null);
+  readonly linenFloors = signal<LinenFloor[]>([]);
   selectedId: string | null = null;
   search = '';
 
   readonly current = computed(() => this.warehouses().find((w) => w.id === this.selectedId) ?? null);
+  /** El almacén de limpieza (ROPA - LIMPIEZA) muestra el inventario de ropa por pisos. */
+  isLinen(): boolean { return this.current()?.type === 'CLEANING'; }
+  linenTypeLabel(t: string): string { return LINEN_TYPE_LABEL[t] ?? t; }
   belowCount(): number { return (this.stock()?.items ?? []).filter((i) => i.belowReorder).length; }
 
   filtered() {
@@ -113,7 +149,15 @@ export class WarehouseStockComponent implements OnInit {
   }
 
   loadStock(): void {
-    if (!this.selectedId) { this.stock.set(null); return; }
+    if (!this.selectedId) { this.stock.set(null); this.linenFloors.set([]); return; }
+    if (this.isLinen()) {
+      // Almacén de ropa-limpieza: inventario por pisos (LinenStock rem/sum).
+      this.stock.set(null);
+      this.http.get<ApiResponse<{ floors: LinenFloor[] }>>(`${this.api}/cleaning/linen-inventory`)
+        .subscribe({ next: (r) => this.linenFloors.set(r.data?.floors ?? []), error: () => this.linenFloors.set([]) });
+      return;
+    }
+    this.linenFloors.set([]);
     this.inv.warehouseStock(this.selectedId).subscribe({
       next: (r) => this.stock.set(r.data ?? null),
       error: () => this.stock.set(null),

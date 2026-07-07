@@ -1,17 +1,14 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
-import { ButtonModule } from 'primeng/button';
-import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
-import { SelectModule } from 'primeng/select';
-import { ConfirmationService, MessageService } from 'primeng/api';
+import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { AuthService } from '../../../core/auth/auth.service';
 import { CatalogApiService } from '../catalogs/catalog-api.service';
-import type { RoomType } from '../catalogs/catalog.models';
+import type { RoomType, InventoryCategory } from '../catalogs/catalog.models';
 
 interface Dotacion {
   id: string;
@@ -20,171 +17,124 @@ interface Dotacion {
   articleKind: string;
   name: string;
   size?: string | null;
-  linenItemId?: string | null;
   baseQty: number;
-  required: boolean;
-  allowExtra: boolean;
   status: string;
 }
-interface LinenItem { id: string; type: string; name: string; }
-interface NeedRow { articleKind: string; name: string; size: string | null; required: number; current: number; missing: number; }
-interface Form {
-  id?: string;
-  category: string;
-  articleKind: string;
-  name: string;
-  size: string;
-  linenItemId: string | null;
-  baseQty: number;
-  required: boolean;
-  allowExtra: boolean;
-  status: 'active' | 'inactive';
+
+/** Tipo de categoría (Área) → clase de artículo de la dotación. */
+const TYPE_TO_KIND: Record<string, string> = { CLOTHING: 'LINEN_REUSABLE', AMENITIES: 'AMENITY', PRODUCTS: 'SALE', CLEANING: 'ASSET' };
+/** Clase de artículo → grupo visible en la dotación. */
+function kindGroup(kind: string): 'CLOTHING' | 'AMENITIES' | 'OTROS' {
+  if (kind === 'LINEN_REUSABLE') return 'CLOTHING';
+  if (kind === 'AMENITY') return 'AMENITIES';
+  return 'OTROS';
 }
-const KINDS = [
-  { label: 'Ropa reutilizable', value: 'LINEN_REUSABLE' },
-  { label: 'Amenity consumible', value: 'AMENITY' },
-  { label: 'Producto de venta', value: 'SALE' },
-  { label: 'Inventario / activo', value: 'ASSET' },
-];
-function emptyForm(): Form {
-  return { category: '', articleKind: 'LINEN_REUSABLE', name: '', size: '', linenItemId: null, baseQty: 1, required: false, allowExtra: false, status: 'active' };
-}
-const LINEN_TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana', EDREDON: 'Edredón', AMENITY: 'Amenity' };
+const GROUP_META: Record<string, { label: string; cls: string }> = {
+  CLOTHING: { label: 'Ropa', cls: 'g-ropa' },
+  AMENITIES: { label: 'Amenities', cls: 'g-amen' },
+  OTROS: { label: 'Otros', cls: 'g-otros' },
+};
 
 @Component({
   selector: 'app-dotacion',
   standalone: true,
-  imports: [FormsModule, ButtonModule, DialogModule, InputTextModule, InputNumberModule, SelectModule],
+  imports: [FormsModule, InputTextModule, InputNumberModule],
   template: `
     <section class="dt">
       <header class="top">
-        <div><h1>Dotación Base por Tipo de Habitación</h1><p class="muted">Define el estándar de ropa, amenities y artículos que debe tener cada habitación según su tipo. Sirve para la carga inicial, la reposición en limpieza y para comparar el stock esperado vs el actual.</p></div>
+        <div><h1>Items BASE de Limpieza</h1><p class="muted">Configura cuáles ítems de cada categoría se reponen al limpiar cada tipo de habitación. Las categorías salen de Inventario › Configuración › Categorías.</p></div>
       </header>
 
-      <div class="bar">
-        <div class="fld"><label>Tipo de habitación</label>
-          <p-select [options]="roomTypes()" optionLabel="name" optionValue="id" [(ngModel)]="roomTypeId" (onChange)="reload()" placeholder="Selecciona un tipo" styleClass="dk" />
+      <div class="layout">
+        <!-- Izquierda: tipos de habitación -->
+        <aside class="rt-list">
+          <h3>Tipos de Habitación</h3>
+          @for (rt of roomTypes(); track rt.id) {
+            <button class="rt-card" [class.on]="rt.id === roomTypeId" (click)="selectType(rt.id)">
+              <strong>{{ rt.name }}</strong><small>Capacidad {{ rt.capacity }}</small>
+            </button>
+          } @empty { <p class="muted">No hay tipos de habitación.</p> }
+        </aside>
+
+        <!-- Derecha -->
+        <div class="panel">
+          @if (!roomTypeId) {
+            <p class="muted empty">Selecciona un tipo de habitación para configurar su dotación base.</p>
+          } @else {
+            <div class="rt-head">
+              <h2>{{ selectedTypeName() }}</h2>
+              <span class="summary">{{ summary() }}</span>
+            </div>
+
+            <!-- Seleccionar categoría para agregar -->
+            <div class="box">
+              <h4><i class="pi pi-plus-circle"></i> Seleccionar categoría para agregar</h4>
+              <p class="muted">Haz clic en una categoría para agregarla a la configuración de {{ selectedTypeName() }}.</p>
+              @for (g of chipGroups(); track g.key) {
+                <div class="cg">
+                  <div class="cg-title" [class]="g.cls">{{ g.label }}</div>
+                  <div class="chips">
+                    @for (c of g.cats; track c.id) {
+                      <button class="chip" (click)="addCategory(c)"><i class="pi pi-plus"></i> {{ c.name }}</button>
+                    } @empty { <span class="muted sm">Sin categorías en este grupo.</span> }
+                  </div>
+                </div>
+              }
+            </div>
+
+            <!-- Categorías configuradas -->
+            <div class="box">
+              <h4>Categorías configuradas</h4>
+              <p class="muted">Estas categorías y cantidades se repondrán al limpiar una habitación {{ selectedTypeName() }}.</p>
+              @for (g of configuredGroups(); track g.key) {
+                <div class="cg">
+                  <div class="cg-title" [class]="g.cls">{{ g.label }} ({{ g.items.length }})</div>
+                  @for (it of g.items; track it.id) {
+                    <div class="row">
+                      <span class="rn">{{ it.name }}</span>
+                      @if (g.key === 'CLOTHING') {
+                        <input class="size" pInputText [(ngModel)]="it.size" (blur)="saveField(it)" placeholder="Tamaño (ej. King, 2 plazas)" />
+                      }
+                      <span class="q">Cant. <p-inputNumber [(ngModel)]="it.baseQty" [min]="1" [showButtons]="true" buttonLayout="horizontal" (onBlur)="saveField(it)" inputStyleClass="qi" /></span>
+                      @if (canDelete) { <button class="del" (click)="removeItem(it)" title="Quitar"><i class="pi pi-trash"></i></button> }
+                    </div>
+                  }
+                </div>
+              }
+              @if (items().length === 0) { <p class="muted empty">Sin categorías configuradas. Agrega desde el bloque de arriba.</p> }
+            </div>
+          }
         </div>
-        <div class="fld"><label>Subalmacén (necesidad de ropa)</label>
-          <p-select [options]="subwarehouses()" optionLabel="name" optionValue="id" [(ngModel)]="subId" (onChange)="loadNeeds()" [showClear]="true" placeholder="Ver necesidad por subalmacén" styleClass="dk" />
-        </div>
-        <span class="spacer"></span>
-        @if (canEdit && roomTypeId) { <button class="new-btn" (click)="openNew()"><i class="pi pi-plus"></i> Agregar artículo</button> }
       </div>
-
-      @if (subId) {
-        <div class="needs">
-          <div class="needs-h"><i class="pi pi-sitemap"></i> Necesidad de ropa del subalmacén <strong>{{ subName() }}</strong> · {{ needsRooms() }} habitación(es) — según la dotación de sus tipos.</div>
-          <div class="tablewrap">
-            <table class="tbl">
-              <thead><tr><th>Artículo</th><th>Tamaño</th><th class="cn">Requerido</th><th class="cn">En subalmacén</th><th class="cn">Faltante</th></tr></thead>
-              <tbody>
-                @for (n of needs(); track n.name) {
-                  <tr><td class="nm">{{ n.name }}</td><td class="muted">{{ n.size || '—' }}</td><td class="cn"><strong>{{ n.required }}</strong></td><td class="cn">{{ n.current }}</td><td class="cn"><span class="pill" [class.off]="n.missing > 0" [class.on]="n.missing === 0">{{ n.missing }}</span></td></tr>
-                } @empty { <tr><td colspan="5" class="muted center">Sin habitaciones asignadas o sin dotación configurada.</td></tr> }
-              </tbody>
-            </table>
-          </div>
-        </div>
-      }
-
-      @if (!roomTypeId) {
-        <p class="muted empty">Selecciona un tipo de habitación para ver y configurar su dotación base.</p>
-      } @else {
-        <div class="tablewrap">
-          <table class="tbl">
-            <thead><tr>
-              <th>Tipo de categoría</th><th>Artículo</th><th>Categoría de ropa</th><th>Tamaño</th><th>Tipo</th><th class="cn">Cant. BASE</th>
-              <th class="cn">Obligatorio</th><th class="cn">Permite adicional</th><th class="cn">Estado</th><th class="ac"></th>
-            </tr></thead>
-            <tbody>
-              @for (d of items(); track d.id) {
-                <tr>
-                  <td class="muted">{{ d.category || '—' }}</td>
-                  <td class="nm">{{ d.name }}</td>
-                  <td>{{ linenType(d) }}</td>
-                  <td class="muted">{{ d.size || '—' }}</td>
-                  <td><span class="kind" [class]="kindClass(d.articleKind)">{{ kindLabel(d.articleKind) }}</span></td>
-                  <td class="cn"><strong>{{ d.baseQty }}</strong></td>
-                  <td class="cn"><span class="pill" [class.yes]="d.required">{{ d.required ? 'Sí' : 'No' }}</span></td>
-                  <td class="cn"><span class="pill" [class.yes]="d.allowExtra">{{ d.allowExtra ? 'Sí' : 'No' }}</span></td>
-                  <td class="cn"><span class="pill" [class.on]="d.status === 'active'" [class.off]="d.status !== 'active'">{{ d.status === 'active' ? 'Activo' : 'Inactivo' }}</span></td>
-                  <td class="ac">
-                    @if (canEdit) { <button class="ia" (click)="openEdit(d)" title="Editar"><i class="pi pi-pencil"></i></button> }
-                    @if (canDelete) { <button class="ia del" (click)="confirmDelete(d)" title="Eliminar"><i class="pi pi-trash"></i></button> }
-                  </td>
-                </tr>
-              } @empty { <tr><td colspan="10" class="muted center">Sin dotación configurada para este tipo. Agrega los artículos base.</td></tr> }
-            </tbody>
-          </table>
-        </div>
-      }
     </section>
-
-    <p-dialog [(visible)]="dialogVisible" [modal]="true" [style]="{ width: '32rem', maxWidth: '95vw' }" [header]="form.id ? 'Editar artículo de dotación' : 'Nuevo artículo de dotación'" styleClass="dk-dialog">
-      <div class="form">
-        <div class="fld"><label>Categoría</label><input pInputText [(ngModel)]="form.category" placeholder="Ropa, Amenities, etc." /></div>
-        <div class="fld"><label>Tipo de artículo</label>
-          <p-select [options]="kinds" optionLabel="label" optionValue="value" [(ngModel)]="form.articleKind" styleClass="w" appendTo="body" />
-        </div>
-        <div class="fld"><label>Artículo *</label><input pInputText [(ngModel)]="form.name" placeholder="Sábana, Jabón Premium, Toalla…" /></div>
-        <div class="fld"><label>Tamaño</label><input pInputText [(ngModel)]="form.size" placeholder="1½ plaza, 2 plazas, King, S/M/L…" /></div>
-        @if (form.articleKind === 'LINEN_REUSABLE' || form.articleKind === 'AMENITY') {
-          <div class="fld"><label>Vínculo con ropa/almacén (opcional)</label>
-            <p-select [options]="linenItems()" optionLabel="name" optionValue="id" [(ngModel)]="form.linenItemId" [showClear]="true" [filter]="true" filterBy="name" placeholder="Sin vínculo" styleClass="w" appendTo="body">
-              <ng-template let-l pTemplate="item">{{ l.type }} · {{ l.name }}</ng-template>
-            </p-select>
-            <small>Si lo vinculas, la reposición en limpieza descontará del Almacén de Limpieza del piso (stock real).</small>
-          </div>
-        }
-        <div class="fld"><label>Cantidad BASE</label><p-inputNumber [(ngModel)]="form.baseQty" [min]="0" styleClass="w" /></div>
-        <label class="chk"><input type="checkbox" [(ngModel)]="form.required" /> <span>Obligatorio para dejar la habitación disponible</span></label>
-        <label class="chk"><input type="checkbox" [(ngModel)]="form.allowExtra" /> <span>Permite cantidad adicional</span></label>
-        <div class="fld"><label>Estado</label>
-          <p-select [options]="statusOptions" optionLabel="label" optionValue="value" [(ngModel)]="form.status" styleClass="w" appendTo="body" />
-        </div>
-      </div>
-      <ng-template pTemplate="footer">
-        <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="dialogVisible = false" />
-        <p-button [label]="form.id ? 'Guardar' : 'Agregar'" icon="pi pi-check" [loading]="saving()" (onClick)="save()" />
-      </ng-template>
-    </p-dialog>
   `,
   styles: [
     `
       .dt { background: #0b1018; min-height: 100%; margin: -1.5rem; padding: 1.5rem; color: #e6e9ef; }
-      h1 { margin: 0; color: #fff; font-size: 1.6rem; } .muted { color: #8b97a8; } .center { text-align: center; } .empty { padding: 2rem 0; text-align: center; }
-      .bar { display: flex; align-items: flex-end; gap: 1rem; margin: 1rem 0; }
-      .bar .fld { display: flex; flex-direction: column; gap: 0.35rem; } .bar label { font-size: 0.8rem; color: #9fb0c3; }
-      .spacer { flex: 1; }
-      :host ::ng-deep .dk { min-width: 260px; }
-      .new-btn { background: #10b981; color: #04130d; border: 0; border-radius: 8px; padding: 0.6rem 1rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.45rem; }
-      .tablewrap { background: #0e1622; border: 1px solid #1f2a3a; border-radius: 12px; overflow-x: auto; }
-      .tbl { width: 100%; border-collapse: collapse; font-size: 0.88rem; min-width: 820px; }
-      .tbl th { text-align: left; padding: 0.8rem 1rem; color: #9fb0c3; font-weight: 600; border-bottom: 1px solid #1f2a3a; font-size: 0.78rem; }
-      .tbl td { padding: 0.75rem 1rem; border-bottom: 1px solid #16202e; } .tbl tr:last-child td { border-bottom: 0; }
-      th.cn, td.cn { text-align: center; } th.ac, td.ac { text-align: right; white-space: nowrap; }
-      .nm { font-weight: 600; color: #fff; }
-      .kind { font-size: 0.72rem; font-weight: 700; padding: 0.16rem 0.6rem; border-radius: 999px; }
-      .kind.linen { background: rgba(20,184,166,0.2); color: #5eead4; }
-      .kind.amenity { background: rgba(168,85,247,0.2); color: #d8b4fe; }
-      .kind.sale { background: rgba(245,158,11,0.2); color: #fcd34d; }
-      .kind.asset { background: rgba(59,130,246,0.2); color: #93c5fd; }
-      .pill { display: inline-block; border-radius: 999px; padding: 0.16rem 0.65rem; font-size: 0.72rem; font-weight: 700; background: #1a2333; color: #9fb0c3; }
-      .pill.yes { background: rgba(37,99,235,0.22); color: #60a5fa; }
-      .pill.on { background: rgba(16,185,129,0.2); color: #6ee7b7; } .pill.off { background: rgba(239,68,68,0.18); color: #fca5a5; }
-      .ia { background: transparent; border: 0; color: #93b3d1; cursor: pointer; padding: 0.35rem; } .ia.del { color: #f87171; } .ia:hover { color: #fff; }
-      .form { display: flex; flex-direction: column; gap: 0.9rem; }
-      .form .fld { display: flex; flex-direction: column; gap: 0.35rem; }
-      .form label { font-size: 0.82rem; color: #9fb0c3; font-weight: 600; }
-      .form input[pInputText] { width: 100%; }
-      :host ::ng-deep .form .w, :host ::ng-deep .bar .w { width: 100%; }
-      .chk { flex-direction: row; align-items: center; gap: 0.5rem; font-weight: 500; cursor: pointer; }
-      .chk input { width: 18px; height: 18px; accent-color: #10b981; }
-      :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1622; color: #e6e9ef; }
-      .needs { margin: 0 0 1.2rem; border: 1px solid #274468; border-radius: 12px; overflow: hidden; }
-      .needs-h { background: #10233c; color: #93c5fd; padding: 0.7rem 1rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; }
-      .needs .tablewrap { border: 0; border-radius: 0; }
+      h1 { margin: 0; color: #fff; font-size: 1.5rem; } .muted { color: #8b97a8; } .muted.sm { font-size: 0.8rem; } .empty { padding: 1.5rem 0; }
+      .layout { display: grid; grid-template-columns: 260px 1fr; gap: 1.2rem; margin-top: 1.1rem; }
+      .rt-list { display: flex; flex-direction: column; gap: 0.5rem; } .rt-list h3 { margin: 0 0 0.4rem; color: #9fb0c3; font-size: 0.9rem; }
+      .rt-card { text-align: left; background: #0e1622; border: 1px solid #1f2a3a; border-radius: 10px; padding: 0.8rem 1rem; cursor: pointer; color: #e6e9ef; display: flex; flex-direction: column; gap: 0.15rem; }
+      .rt-card strong { font-size: 0.95rem; } .rt-card small { color: #8b97a8; font-size: 0.76rem; }
+      .rt-card.on { background: #10b981; border-color: #10b981; color: #04130d; } .rt-card.on small { color: #043d2b; }
+      .panel { min-width: 0; }
+      .rt-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+      .rt-head h2 { margin: 0; color: #fff; font-size: 1.2rem; } .summary { color: #8b97a8; font-size: 0.85rem; }
+      .box { background: #0e1622; border: 1px solid #1f2a3a; border-radius: 12px; padding: 1rem 1.1rem; margin-bottom: 1.1rem; }
+      .box h4 { margin: 0 0 0.3rem; color: #fff; font-size: 0.98rem; display: flex; align-items: center; gap: 0.45rem; }
+      .box > .muted { margin: 0 0 0.8rem; font-size: 0.82rem; }
+      .cg { margin-bottom: 0.9rem; }
+      .cg-title { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase; margin-bottom: 0.5rem; display: inline-flex; align-items: center; gap: 0.4rem; }
+      .cg-title.g-ropa { color: #f9a8d4; } .cg-title.g-amen { color: #6ee7b7; } .cg-title.g-otros { color: #93a3b8; }
+      .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+      .chip { display: inline-flex; align-items: center; gap: 0.4rem; background: #131f30; border: 1px solid #26364f; color: #cdd8e6; border-radius: 8px; padding: 0.5rem 0.8rem; cursor: pointer; font-size: 0.84rem; }
+      .chip:hover { border-color: #10b981; color: #fff; } .chip i { color: #34d399; font-size: 0.75rem; }
+      .row { display: flex; align-items: center; gap: 0.8rem; background: #0b1220; border: 1px solid #1c2c44; border-radius: 10px; padding: 0.55rem 0.85rem; margin-bottom: 0.45rem; }
+      .row .rn { flex: 1; font-weight: 600; } .row .size { width: 12rem; }
+      .row .q { display: inline-flex; align-items: center; gap: 0.4rem; color: #8b97a8; font-size: 0.82rem; }
+      :host ::ng-deep .qi { width: 4rem; text-align: center; }
+      .del { background: transparent; border: 0; color: #f87171; cursor: pointer; }
+      @media (max-width: 820px) { .layout { grid-template-columns: 1fr; } }
     `,
   ],
 })
@@ -194,23 +144,11 @@ export class DotacionComponent implements OnInit {
   private readonly catalog = inject(CatalogApiService);
   private readonly auth = inject(AuthService);
   private readonly messages = inject(MessageService);
-  private readonly confirm = inject(ConfirmationService);
 
   readonly roomTypes = signal<RoomType[]>([]);
+  readonly categories = signal<InventoryCategory[]>([]);
   readonly items = signal<Dotacion[]>([]);
-  readonly linenItems = signal<LinenItem[]>([]);
-  readonly saving = signal(false);
-  readonly kinds = KINDS;
-  readonly statusOptions = [{ label: 'Activo', value: 'active' }, { label: 'Inactivo', value: 'inactive' }];
-  // Subalmacenes (pisos/torres) del almacén ROPA - LIMPIEZA + necesidad calculada.
-  readonly subwarehouses = signal<{ id: string; name: string }[]>([]);
-  readonly needs = signal<NeedRow[]>([]);
-  readonly needsRooms = signal(0);
-  subId: string | null = null;
-
   roomTypeId: string | null = null;
-  dialogVisible = false;
-  form: Form = emptyForm();
 
   readonly canEdit = this.auth.can('settings', 'edit') || this.auth.can('settings', 'create');
   readonly canDelete = this.auth.can('settings', 'delete');
@@ -218,28 +156,41 @@ export class DotacionComponent implements OnInit {
   ngOnInit(): void {
     this.catalog.roomTypes.list({ pageSize: 100, sortBy: 'name' }).subscribe((res) => {
       this.roomTypes.set(res.data ?? []);
-      if (!this.roomTypeId && res.data?.length) { this.roomTypeId = res.data[0].id; this.reload(); }
+      if (!this.roomTypeId && res.data?.length) this.selectType(res.data[0].id);
     });
-    this.http.get<ApiResponse<LinenItem[]>>(`${this.api}/cleaning/linen-items`).subscribe((r) => this.linenItems.set(r.data ?? []));
-    // Subalmacenes del almacén ROPA - LIMPIEZA (para el combo de necesidad).
-    this.http.get<ApiResponse<{ subWarehouses: { id: string; name: string }[] }>>(`${this.api}/subwarehouses/linen-area`)
-      .subscribe({ next: (r) => this.subwarehouses.set(r.data?.subWarehouses ?? []), error: () => {} });
+    this.catalog.inventoryCategories.list({ pageSize: 300, sortBy: 'name' }).subscribe((r) => this.categories.set((r.data ?? []).filter((c) => c.status === 'active')));
   }
 
-  kindLabel(v: string): string { return KINDS.find((k) => k.value === v)?.label ?? v; }
-  kindClass(v: string): string { return { LINEN_REUSABLE: 'linen', AMENITY: 'amenity', SALE: 'sale', ASSET: 'asset' }[v] ?? 'linen'; }
-  /** "Categoría de ropa" = tipo del artículo de ropa vinculado (Sábana/Toalla/…). */
-  linenType(d: Dotacion): string {
-    const li = this.linenItems().find((x) => x.id === d.linenItemId);
-    return li ? (LINEN_TYPE_LABEL[li.type] ?? li.type) : '—';
+  selectedTypeName(): string { return this.roomTypes().find((t) => t.id === this.roomTypeId)?.name ?? ''; }
+
+  /** Chips agrupados: Ropa / Amenities / Sin clasificar. */
+  readonly chipGroups = computed(() => {
+    const cats = this.categories();
+    return [
+      { key: 'CLOTHING', label: 'Ropa', cls: 'g-ropa', cats: cats.filter((c) => c.type === 'CLOTHING') },
+      { key: 'AMENITIES', label: 'Amenities', cls: 'g-amen', cats: cats.filter((c) => c.type === 'AMENITIES') },
+      { key: 'OTROS', label: 'Sin clasificar', cls: 'g-otros', cats: cats.filter((c) => c.type !== 'CLOTHING' && c.type !== 'AMENITIES') },
+    ];
+  });
+
+  /** Ítems configurados agrupados por Ropa / Amenities / Otros. */
+  configuredGroups(): { key: string; label: string; cls: string; items: Dotacion[] }[] {
+    const groups: Record<string, Dotacion[]> = { CLOTHING: [], AMENITIES: [], OTROS: [] };
+    for (const it of this.items()) groups[kindGroup(it.articleKind)].push(it);
+    return (['CLOTHING', 'AMENITIES', 'OTROS'] as const)
+      .filter((k) => groups[k].length)
+      .map((k) => ({ key: k, label: GROUP_META[k].label, cls: GROUP_META[k].cls, items: groups[k] }));
   }
-  subName(): string { return this.subwarehouses().find((s) => s.id === this.subId)?.name ?? ''; }
-  /** Necesidad de ropa del subalmacén = dotación de los tipos de sus habitaciones. */
-  loadNeeds(): void {
-    if (!this.subId) { this.needs.set([]); this.needsRooms.set(0); return; }
-    this.http.get<ApiResponse<{ rooms: number; items: NeedRow[] }>>(`${this.api}/subwarehouses/${this.subId}/needs`)
-      .subscribe({ next: (r) => { this.needs.set(r.data?.items ?? []); this.needsRooms.set(r.data?.rooms ?? 0); }, error: () => { this.needs.set([]); this.needsRooms.set(0); } });
+
+  summary(): string {
+    const ropa = this.items().filter((i) => kindGroup(i.articleKind) === 'CLOTHING').length;
+    const amen = this.items().filter((i) => kindGroup(i.articleKind) === 'AMENITIES').length;
+    const otros = this.items().filter((i) => kindGroup(i.articleKind) === 'OTROS').length;
+    const parts = [ropa ? `${ropa} ropa` : '', amen ? `${amen} amenities` : '', otros ? `${otros} otros` : ''].filter(Boolean);
+    return `${parts.join(' + ') || '0'} = ${this.items().length} ítems BASE`;
   }
+
+  selectType(id: string): void { this.roomTypeId = id; this.reload(); }
 
   reload(): void {
     if (!this.roomTypeId) { this.items.set([]); return; }
@@ -247,40 +198,29 @@ export class DotacionComponent implements OnInit {
       .subscribe({ next: (r) => this.items.set(r.data ?? []), error: () => this.items.set([]) });
   }
 
-  openNew(): void { this.form = emptyForm(); this.dialogVisible = true; }
-  openEdit(d: Dotacion): void {
-    this.form = { id: d.id, category: d.category ?? '', articleKind: d.articleKind, name: d.name, size: d.size ?? '', linenItemId: d.linenItemId ?? null, baseQty: d.baseQty, required: d.required, allowExtra: d.allowExtra, status: d.status as 'active' | 'inactive' };
-    this.dialogVisible = true;
-  }
-
-  save(): void {
-    if (!this.roomTypeId) return;
-    if (!this.form.name.trim()) { this.messages.add({ severity: 'warn', summary: 'Falta el artículo', detail: 'Indica el nombre del artículo.' }); return; }
-    const linked = this.form.articleKind === 'LINEN_REUSABLE' || this.form.articleKind === 'AMENITY';
-    const dto = {
-      roomTypeId: this.roomTypeId, category: this.form.category, articleKind: this.form.articleKind,
-      name: this.form.name.trim(), size: this.form.size.trim(), linenItemId: linked ? (this.form.linenItemId || '') : '',
-      baseQty: this.form.baseQty, required: this.form.required,
-      allowExtra: this.form.allowExtra, status: this.form.status,
-    };
-    this.saving.set(true);
-    const req$ = this.form.id
-      ? this.http.put<ApiResponse<Dotacion>>(`${this.api}/dotacion/${this.form.id}`, dto)
-      : this.http.post<ApiResponse<Dotacion>>(`${this.api}/dotacion`, dto);
-    req$.subscribe({
-      next: () => { this.saving.set(false); this.dialogVisible = false; this.messages.add({ severity: 'success', summary: 'Guardado', detail: 'Dotación guardada.' }); this.reload(); },
-      error: (err: HttpErrorResponse) => { this.saving.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo guardar.' }); },
+  /** Agrega una categoría a la dotación del tipo de habitación seleccionado. */
+  addCategory(c: InventoryCategory): void {
+    if (!this.roomTypeId || !this.canEdit) return;
+    const articleKind = TYPE_TO_KIND[c.type ?? ''] ?? 'ASSET';
+    this.http.post<ApiResponse<Dotacion>>(`${this.api}/dotacion`, {
+      roomTypeId: this.roomTypeId, category: c.name, articleKind, name: c.name, size: '', baseQty: 1, status: 'active',
+    }).subscribe({
+      next: () => this.reload(),
+      error: (e: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo agregar.' }),
     });
   }
 
-  confirmDelete(d: Dotacion): void {
-    this.confirm.confirm({
-      header: 'Eliminar artículo', message: `¿Eliminar "${d.name}" de la dotación?`, icon: 'pi pi-exclamation-triangle',
-      acceptLabel: 'Eliminar', rejectLabel: 'Cancelar', acceptButtonStyleClass: 'p-button-danger',
-      accept: () => this.http.delete<ApiResponse<unknown>>(`${this.api}/dotacion/${d.id}`).subscribe({
-        next: () => { this.messages.add({ severity: 'success', summary: 'Eliminado', detail: 'Artículo eliminado.' }); this.reload(); },
-        error: (err: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo eliminar.' }),
-      }),
+  /** Guarda cantidad/tamaño de un ítem (al salir del campo). */
+  saveField(it: Dotacion): void {
+    if (!this.canEdit) return;
+    this.http.put<ApiResponse<Dotacion>>(`${this.api}/dotacion/${it.id}`, { baseQty: it.baseQty, size: it.size || '' })
+      .subscribe({ error: (e: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo guardar.' }) });
+  }
+
+  removeItem(it: Dotacion): void {
+    this.http.delete<ApiResponse<unknown>>(`${this.api}/dotacion/${it.id}`).subscribe({
+      next: () => this.reload(),
+      error: (e: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo quitar.' }),
     });
   }
 }
