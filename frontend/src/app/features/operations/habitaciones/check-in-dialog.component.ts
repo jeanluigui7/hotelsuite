@@ -270,7 +270,7 @@ const PAY_TYPES = [
                   <div class="mtop"><span>Método de pago #{{ i + 1 }}</span><button class="del" (click)="removePay(i)"><i class="pi pi-times"></i></button></div>
                   <div class="m-grid">
                     <div class="fld"><label>Tipo de pago</label>
-                      <p-select [options]="payTypes" optionValue="value" [(ngModel)]="p.type" styleClass="w">
+                      <p-select [options]="payTypes" optionValue="value" [(ngModel)]="p.type" (onChange)="onPayType(i)" styleClass="w" appendTo="body">
                         <ng-template let-t pTemplate="item">{{ t.label }} @if (t.commission) { <span class="cm">(+{{ t.commission }}%)</span> }</ng-template>
                         <ng-template let-t pTemplate="selectedItem">{{ t.label }} @if (t.commission) { <span class="cm">(+{{ t.commission }}%)</span> }</ng-template>
                       </p-select>
@@ -659,12 +659,29 @@ export class CheckInDialogComponent {
   addGuest(): void { this.addGuests.set([...this.addGuests(), { documentType: 'DNI', documentNumber: '', name: '', phone: '', notes: '' }]); }
   removeGuest(i: number): void { const n = [...this.addGuests()]; n.splice(i, 1); this.addGuests.set(n); }
 
-  // Pagos
+  // Pagos.
+  // El "monto" de cada método es BRUTO: lo que el cliente paga en ese medio, ya incluida
+  // la comisión. La parte que cubre la cuenta (neto) = monto / (1 + comisión%). Así el total
+  // pagado cubre la cuenta + la comisión POS y no queda un pendiente fantasma.
   payMeta(type: string): (typeof PAY_TYPES)[number] { return PAY_TYPES.find((t) => t.value === type) ?? PAY_TYPES[0]; }
-  addPay(): void { this.pays.set([...this.pays(), { type: 'CASH', amount: Math.max(0, this.baseTotal() - this.totalPagado()), received: null, reference: '', notes: '' }]); }
+  private payNet(p: PayRow): number { const c = this.payMeta(p.type).commission; return (p.amount || 0) / (1 + c / 100); }
+  private sumNetExcept(idx: number): number { return this.pays().reduce((a, p, i) => (i === idx ? a : a + this.payNet(p)), 0); }
+  private grossFor(remainingNet: number, comm: number): number { return Math.max(0, Math.round(remainingNet * (1 + comm / 100) * 100) / 100); }
+
+  addPay(): void {
+    const remainingNet = Math.max(0, this.baseTotal() - this.pays().reduce((a, p) => a + this.payNet(p), 0));
+    this.pays.set([...this.pays(), { type: 'CASH', amount: Math.round(remainingNet * 100) / 100, received: null, reference: '', notes: '' }]);
+  }
   removePay(i: number): void { const n = [...this.pays()]; n.splice(i, 1); this.pays.set(n); }
 
-  /** Al cambiar el monto de un método, el último método absorbe automáticamente el restante. */
+  /** Al cambiar el TIPO, se ajusta el monto (bruto) para que, con su comisión, cubra lo que falta. */
+  onPayType(i: number): void {
+    const rows = this.pays();
+    if (!rows[i]) return;
+    rows[i].amount = this.grossFor(this.baseTotal() - this.sumNetExcept(i), this.payMeta(rows[i].type).commission);
+    this.pays.set([...rows]);
+  }
+  /** Al cambiar el monto de un método, el último método absorbe (en bruto) el neto restante. */
   onPayAmount(i: number, val: number | string | null): void {
     const rows = this.pays();
     if (rows[i]) rows[i].amount = Number(val) || 0;
@@ -674,16 +691,15 @@ export class CheckInDialogComponent {
     const rows = this.pays();
     if (rows.length < 2) return;
     const last = rows.length - 1;
-    // Si se edita el último método, se respeta su valor manual (no se sobreescribe).
-    if (editedIndex === last) return;
-    const sumOthers = rows.reduce((a, p, idx) => (idx === last ? a : a + (p.amount || 0)), 0);
-    rows[last].amount = Math.max(0, Math.round((this.baseTotal() - sumOthers) * 100) / 100);
+    if (editedIndex === last) return; // se respeta el valor manual del último
+    rows[last].amount = this.grossFor(this.baseTotal() - this.sumNetExcept(last), this.payMeta(rows[last].type).commission);
   }
   /** Cargo manual de early check-in (0 si es cortesía o no aplica). */
   earlyCharge(): number { return this.isPernoctaRate() && this.applyEarly && !this.earlyCortesia ? Math.max(0, this.earlyAmount || 0) : 0; }
   onEarlyCortesia(): void { if (this.earlyCortesia) this.earlyAmount = 0; }
   baseTotal(): number { return Math.round((this.precioBase() + this.totalProductos() + this.earlyCharge()) * 100) / 100; }
-  commissionTotal(): number { return Math.round(this.pays().reduce((a, p) => a + (p.amount || 0) * this.payMeta(p.type).commission / 100, 0) * 100) / 100; }
+  // Comisión = parte del bruto que corresponde a la comisión (monto − neto).
+  commissionTotal(): number { return Math.round(this.pays().reduce((a, p) => a + ((p.amount || 0) - this.payNet(p)), 0) * 100) / 100; }
   totalAPagar(): number { return Math.round((this.baseTotal() + this.commissionTotal()) * 100) / 100; }
   totalPagado(): number { return Math.round(this.pays().reduce((a, p) => a + (p.amount || 0), 0) * 100) / 100; }
   pendiente(): number { return Math.round((this.totalAPagar() - this.totalPagado()) * 100) / 100; }
@@ -770,6 +786,8 @@ export class CheckInDialogComponent {
           { description: `Tarifa: ${this.rateLabel()}`, unitPrice: this.precioBase(), quantity: 1 },
           ...(this.earlyCharge() > 0 ? [{ description: 'Early Check-in', unitPrice: this.earlyCharge(), quantity: 1 }] : []),
           ...this.lines().map((l) => ({ productId: l.product.id, quantity: l.quantity })),
+          // La comisión POS se cobra al cliente: se agrega como cargo para que la venta cuadre con lo pagado.
+          ...(this.commissionTotal() > 0 ? [{ description: 'Comisión POS', unitPrice: this.commissionTotal(), quantity: 1 }] : []),
         ];
         const payments = this.pays().filter((p) => (p.amount || 0) > 0).map((p) => ({ method: this.payMeta(p.type).backend, amount: p.amount }));
         // Se registra SIEMPRE el cargo de la estancia (deja rastro en el folio), con o sin pago.
