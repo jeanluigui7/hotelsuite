@@ -421,16 +421,31 @@ model InventoryCategory {
   id          String   @id @default(uuid())
   branchId    String
   name        String
-  type        String? // Tipo/Área: PRODUCTS | CLOTHING | CLEANING | AMENITIES (null = sin clasificar)
+  type        String? // Tipo de ítem: CLOTHING | AMENITY | PRODUCT | CLEANING_SUPPLY (null = sin clasificar)
   description String?
   status      String   @default("active")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  branch   Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  branch   Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
   products Product[]
+  sizes    CategorySize[]
 
   @@index([branchId])
+}
+
+/// Tamaños configurables por categoría (solo aplica a categorías tipo Ropa/CLOTHING).
+model CategorySize {
+  id         String   @id @default(uuid())
+  branchId   String
+  categoryId String
+  name       String
+  createdAt  DateTime @default(now())
+
+  category InventoryCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, name])
+  @@index([categoryId])
 }
 
 /// Item configurable. `kind` clasifica su uso en el sistema.

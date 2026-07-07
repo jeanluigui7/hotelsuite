@@ -21,8 +21,8 @@ interface Dotacion {
   status: string;
 }
 
-/** Tipo de categoría (Área) → clase de artículo de la dotación. */
-const TYPE_TO_KIND: Record<string, string> = { CLOTHING: 'LINEN_REUSABLE', AMENITIES: 'AMENITY', PRODUCTS: 'SALE', CLEANING: 'ASSET' };
+/** Tipo de ítem de la categoría → clase de artículo de la dotación. */
+const TYPE_TO_KIND: Record<string, string> = { CLOTHING: 'LINEN_REUSABLE', AMENITY: 'AMENITY', PRODUCT: 'SALE', CLEANING_SUPPLY: 'ASSET' };
 /** Clase de artículo → grupo visible en la dotación. */
 function kindGroup(kind: string): 'CLOTHING' | 'AMENITIES' | 'OTROS' {
   if (kind === 'LINEN_REUSABLE') return 'CLOTHING';
@@ -168,8 +168,8 @@ export class DotacionComponent implements OnInit {
     const cats = this.categories();
     return [
       { key: 'CLOTHING', label: 'Ropa', cls: 'g-ropa', cats: cats.filter((c) => c.type === 'CLOTHING') },
-      { key: 'AMENITIES', label: 'Amenities', cls: 'g-amen', cats: cats.filter((c) => c.type === 'AMENITIES') },
-      { key: 'OTROS', label: 'Sin clasificar', cls: 'g-otros', cats: cats.filter((c) => c.type !== 'CLOTHING' && c.type !== 'AMENITIES') },
+      { key: 'AMENITIES', label: 'Amenities', cls: 'g-amen', cats: cats.filter((c) => c.type === 'AMENITY') },
+      { key: 'OTROS', label: 'Sin clasificar', cls: 'g-otros', cats: cats.filter((c) => c.type !== 'CLOTHING' && c.type !== 'AMENITY') },
     ];
   });
 

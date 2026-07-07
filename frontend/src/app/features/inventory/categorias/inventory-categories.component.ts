@@ -19,12 +19,14 @@ interface Form {
   type: string | null;
   description: string;
   status: 'active' | 'inactive';
+  sizes: string[];
 }
-const CATEGORY_TYPES = [
-  { label: 'Productos', value: 'PRODUCTS', icon: 'pi pi-box', cls: 'tp-prod' },
-  { label: 'Ropa', value: 'CLOTHING', icon: 'pi pi-stop', cls: 'tp-ropa' },
-  { label: 'Limpieza', value: 'CLEANING', icon: 'pi pi-trash', cls: 'tp-limp' },
-  { label: 'Amenities', value: 'AMENITIES', icon: 'pi pi-sparkles', cls: 'tp-amen' },
+/** Tipos de ítem (definen qué módulo/lógica usan los artículos de la categoría). */
+const ITEM_TYPES = [
+  { label: 'Productos', value: 'PRODUCT' },
+  { label: 'Ropa', value: 'CLOTHING' },
+  { label: 'Amenities', value: 'AMENITY' },
+  { label: 'Insumo de limpieza', value: 'CLEANING_SUPPLY' },
 ];
 
 @Component({
@@ -43,12 +45,12 @@ const CATEGORY_TYPES = [
 
       <p-table [value]="items()" [loading]="loading()" [paginator]="true" [rows]="10" styleClass="p-datatable-sm">
         <ng-template pTemplate="header">
-          <tr><th style="width: 10rem">Tipo</th><th>Categoría</th><th>Descripción</th><th style="width: 8rem">Estado</th><th style="width: 8rem"></th></tr>
+          <tr><th>Nombre</th><th style="width: 12rem">Tipo de ítem</th><th>Descripción</th><th style="width: 8rem">Estado</th><th style="width: 8rem"></th></tr>
         </ng-template>
         <ng-template pTemplate="body" let-row>
           <tr>
-            <td><span class="tp" [class]="typeClass(row.type)"><i [class]="typeIcon(row.type)"></i> {{ typeLabel(row.type) }}</span></td>
             <td>{{ row.name }}</td>
+            <td>{{ typeLabel(row.type) }}</td>
             <td class="muted">{{ row.description }}</td>
             <td><p-tag [value]="row.status === 'active' ? 'Activo' : 'Inactivo'" [severity]="row.status === 'active' ? 'success' : 'danger'" /></td>
             <td class="cat-actions">
@@ -61,16 +63,32 @@ const CATEGORY_TYPES = [
       </p-table>
     </section>
 
-    <p-dialog [(visible)]="dialogVisible" [modal]="true" [style]="{ width: '420px' }" [header]="form.id ? 'Editar categoría' : 'Nueva categoría'">
+    <p-dialog [(visible)]="dialogVisible" [modal]="true" [style]="{ width: '460px' }" [header]="form.id ? 'Editar categoría' : 'Nueva categoría'">
       <div class="cat-form">
-        <label>Tipo / Área</label>
-        <p-select [options]="typeOptions" optionLabel="label" optionValue="value" [(ngModel)]="form.type" [showClear]="true" placeholder="Sin clasificar" styleClass="w-full" />
-        <label>Categoría (nombre)</label>
+        <label>Nombre</label>
         <input pInputText [(ngModel)]="form.name" />
+        <label>Tipo de ítem *</label>
+        <p-select [options]="itemTypes" optionLabel="label" optionValue="value" [(ngModel)]="form.type" placeholder="Selecciona" styleClass="w-full" />
         <label>Descripción</label>
         <input pInputText [(ngModel)]="form.description" />
         <label>Estado</label>
         <p-select [options]="statusOptions" optionLabel="label" optionValue="value" [(ngModel)]="form.status" styleClass="w-full" />
+
+        @if (form.type === 'CLOTHING') {
+          <div class="sizes">
+            <label>Tamaños de esta categoría</label>
+            <p class="hint">Estos tamaños estarán disponibles al crear ítems de ropa de esta categoría.</p>
+            <div class="chips">
+              @for (s of form.sizes; track s; let i = $index) {
+                <span class="chip">{{ s }} <button type="button" (click)="removeSize(i)"><i class="pi pi-times"></i></button></span>
+              }
+            </div>
+            <div class="addsize">
+              <input pInputText [(ngModel)]="newSize" placeholder="Ej: Corporal, 2 plazas, King…" (keyup.enter)="addSize()" />
+              <button type="button" class="add" (click)="addSize()"><i class="pi pi-plus"></i> Agregar tamaño</button>
+            </div>
+          </div>
+        }
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="dialogVisible = false" />
@@ -81,12 +99,14 @@ const CATEGORY_TYPES = [
   styleUrls: ['../../settings/catalogs/catalog.styles.scss'],
   styles: [
     `
-      .tp { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; font-weight: 700; padding: 0.22rem 0.7rem; border-radius: 999px; white-space: nowrap; }
-      .tp-prod { background: rgba(139,92,246,0.2); color: #c4b5fd; }
-      .tp-ropa { background: rgba(236,72,153,0.2); color: #f9a8d4; }
-      .tp-limp { background: rgba(59,130,246,0.2); color: #93c5fd; }
-      .tp-amen { background: rgba(16,185,129,0.2); color: #6ee7b7; }
-      .tp-none { background: rgba(148,163,184,0.18); color: #cbd5e1; }
+      .sizes { margin-top: 0.4rem; border-top: 1px solid #1c2c44; padding-top: 0.8rem; }
+      .sizes .hint { color: #8b97a8; font-size: 0.78rem; margin: 0.1rem 0 0.6rem; }
+      .chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.6rem; }
+      .chip { display: inline-flex; align-items: center; gap: 0.35rem; background: #131f30; border: 1px solid #26364f; color: #e6e9ef; border-radius: 8px; padding: 0.3rem 0.6rem; font-size: 0.82rem; }
+      .chip button { background: transparent; border: 0; color: #f87171; cursor: pointer; padding: 0; display: inline-flex; }
+      .addsize { display: flex; gap: 0.5rem; }
+      .addsize input { flex: 1; }
+      .addsize .add { background: #131f30; border: 1px dashed #3a4d6b; color: #93c5fd; border-radius: 8px; padding: 0.4rem 0.8rem; cursor: pointer; white-space: nowrap; }
     `,
   ],
 })
@@ -100,14 +120,22 @@ export class InventoryCategoriesComponent implements OnInit {
   readonly loading = signal(false);
   readonly saving = signal(false);
   readonly statusOptions = STATUS_OPTIONS;
+  readonly itemTypes = ITEM_TYPES;
 
   dialogVisible = false;
-  form: Form = { name: '', type: null, description: '', status: 'active' };
-  readonly typeOptions = CATEGORY_TYPES;
+  form: Form = { name: '', type: null, description: '', status: 'active', sizes: [] };
+  newSize = '';
 
-  typeLabel(v?: string | null): string { return CATEGORY_TYPES.find((t) => t.value === v)?.label ?? 'Sin clasificar'; }
-  typeIcon(v?: string | null): string { return CATEGORY_TYPES.find((t) => t.value === v)?.icon ?? 'pi pi-tag'; }
-  typeClass(v?: string | null): string { return CATEGORY_TYPES.find((t) => t.value === v)?.cls ?? 'tp-none'; }
+  typeLabel(v?: string | null): string { return ITEM_TYPES.find((t) => t.value === v)?.label ?? 'Sin clasificar'; }
+
+  addSize(): void {
+    const s = this.newSize.trim();
+    if (!s) return;
+    if (this.form.sizes.some((x) => x.toLowerCase() === s.toLowerCase())) { this.messages.add({ severity: 'warn', summary: 'Tamaño repetido', detail: `"${s}" ya está en la lista.` }); return; }
+    this.form.sizes = [...this.form.sizes, s];
+    this.newSize = '';
+  }
+  removeSize(i: number): void { this.form.sizes = this.form.sizes.filter((_, idx) => idx !== i); }
 
   readonly canCreate = this.auth.can('inventory', 'create');
   readonly canEdit = this.auth.can('inventory', 'edit');
@@ -126,17 +154,27 @@ export class InventoryCategoriesComponent implements OnInit {
   }
 
   openNew(): void {
-    this.form = { name: '', type: null, description: '', status: 'active' };
+    this.form = { name: '', type: null, description: '', status: 'active', sizes: [] };
+    this.newSize = '';
     this.dialogVisible = true;
   }
 
   openEdit(row: InventoryCategory): void {
-    this.form = { id: row.id, name: row.name, type: row.type ?? null, description: row.description ?? '', status: row.status as 'active' | 'inactive' };
+    this.form = { id: row.id, name: row.name, type: row.type ?? null, description: row.description ?? '', status: row.status as 'active' | 'inactive', sizes: [...(row.sizes ?? [])] };
+    this.newSize = '';
     this.dialogVisible = true;
   }
 
   save(): void {
-    const dto = { name: this.form.name, type: this.form.type, description: this.form.description, status: this.form.status };
+    if (!this.form.name.trim()) { this.messages.add({ severity: 'warn', summary: 'Falta nombre', detail: 'Ingresa el nombre.' }); return; }
+    if (!this.form.type) { this.messages.add({ severity: 'warn', summary: 'Falta tipo de ítem', detail: 'Selecciona el tipo de ítem.' }); return; }
+    const dto = {
+      name: this.form.name,
+      type: this.form.type,
+      description: this.form.description,
+      status: this.form.status,
+      sizes: this.form.type === 'CLOTHING' ? this.form.sizes : [],
+    };
     this.saving.set(true);
     const req$ = this.form.id ? this.api.update(this.form.id, dto) : this.api.create(dto);
     req$.subscribe({

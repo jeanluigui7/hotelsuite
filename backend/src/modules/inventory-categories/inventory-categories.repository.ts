@@ -8,13 +8,13 @@ export const inventoryCategoriesRepository = {
     take: number;
     orderBy: Prisma.InventoryCategoryOrderByWithRelationInput;
   }) {
-    return prisma.inventoryCategory.findMany(args);
+    return prisma.inventoryCategory.findMany({ ...args, include: { sizes: { select: { name: true }, orderBy: { name: 'asc' } } } });
   },
   count(where: Prisma.InventoryCategoryWhereInput) {
     return prisma.inventoryCategory.count({ where });
   },
   findById(id: string) {
-    return prisma.inventoryCategory.findUnique({ where: { id } });
+    return prisma.inventoryCategory.findUnique({ where: { id }, include: { sizes: { select: { name: true }, orderBy: { name: 'asc' } } } });
   },
   create(data: Prisma.InventoryCategoryUncheckedCreateInput) {
     return prisma.inventoryCategory.create({ data });

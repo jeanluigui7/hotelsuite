@@ -1,12 +1,14 @@
 import { z } from 'zod';
 
-export const CATEGORY_TYPES = ['PRODUCTS', 'CLOTHING', 'CLEANING', 'AMENITIES'] as const;
+export const CATEGORY_TYPES = ['CLOTHING', 'AMENITY', 'PRODUCT', 'CLEANING_SUPPLY'] as const;
 
 export const createInventoryCategorySchema = z.object({
   name: z.string().min(1).max(120),
   type: z.enum(CATEGORY_TYPES).nullable().optional(),
   description: z.string().max(300).optional().or(z.literal('')),
   status: z.enum(['active', 'inactive']).default('active'),
+  // Tamaños (solo se guardan cuando type = CLOTHING); texto libre, sin repetidos.
+  sizes: z.array(z.string().trim().min(1).max(60)).optional(),
 });
 
 export const updateInventoryCategorySchema = createInventoryCategorySchema.partial();
