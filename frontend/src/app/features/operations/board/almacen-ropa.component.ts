@@ -328,12 +328,9 @@ export class AlmacenRopaComponent implements OnInit {
     // Almacenes de ropa (CLOTHING) para "Área inicial".
     this.http.get<ApiResponse<{ id: string; name: string; type: string }[]>>(`${this.api}/warehouses`, { params: { pageSize: '100', sortBy: 'name' } })
       .subscribe((r) => this.ropaWarehouses.set((r.data ?? []).filter((w) => w.type === 'CLOTHING').map((w) => ({ id: w.id, name: w.name }))));
-    // Pisos destino = pisos distintos de las habitaciones de la sucursal.
-    this.http.get<ApiResponse<{ floor?: string | null }[]>>(`${this.api}/rooms/map`).subscribe((r) => {
-      const fl = [...new Set((r.data ?? []).map((x) => (x.floor ?? '').trim()).filter(Boolean))]
-        .sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
-      this.floors.set(fl);
-    });
+    // Destinos = subalmacenes configurados del almacén ROPA - LIMPIEZA (pisos o torres según la sede).
+    this.http.get<ApiResponse<{ subWarehouses: { id: string; name: string }[] }>>(`${this.api}/subwarehouses/linen-area`)
+      .subscribe({ next: (r) => this.floors.set((r.data?.subWarehouses ?? []).map((s) => s.name)), error: () => {} });
   }
 
   typeLabel(t: string): string { return TYPE_LABEL[t] ?? t; }

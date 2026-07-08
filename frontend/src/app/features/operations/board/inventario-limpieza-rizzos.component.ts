@@ -48,7 +48,7 @@ const TYPE_COLS: { type: string; label: string; color: string }[] = [
       <div class="floors">
         @for (f of floors(); track f.floor) {
           <div class="floor">
-            <div class="fh">PISO {{ f.floor }}</div>
+            <div class="fh">{{ f.floor }}</div>
             <div class="matrix">
               <!-- Cabecera de tipos -->
               <div class="corner"></div>
@@ -124,7 +124,7 @@ const TYPE_COLS: { type: string; label: string; color: string }[] = [
     </p-dialog>
 
     <!-- Solicitar ropa -->
-    <p-dialog [(visible)]="reqVisible" [modal]="true" [header]="'Solicitar ropa · Piso ' + reqFloor" [style]="{ width: '30rem' }" styleClass="dk-dialog">
+    <p-dialog [(visible)]="reqVisible" [modal]="true" [header]="'Solicitar ropa · ' + reqFloor" [style]="{ width: '30rem' }" styleClass="dk-dialog">
       <div class="form">
         @for (s of floorSelected(reqFloor); track s.linenItemId) {
           <div class="qrow"><span>{{ s.name }}</span><p-inputNumber [(ngModel)]="qty[reqFloor + '|' + s.linenItemId]" [min]="1" [showButtons]="true" buttonLayout="horizontal" /></div>

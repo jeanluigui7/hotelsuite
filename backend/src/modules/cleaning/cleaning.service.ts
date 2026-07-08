@@ -641,11 +641,15 @@ export const cleaningService = {
   /** Inventario de ropa por pisos: REM (remanente) y SUM (suministrado) por tipo/ítem. */
   async linenInventory(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);
-    const [items, stocks] = await Promise.all([
+    const [items, stocks, area] = await Promise.all([
       prisma.linenItem.findMany({ where: { branchId, status: 'active' }, orderBy: [{ type: 'asc' }, { name: 'asc' }] }),
       prisma.linenStock.findMany({ where: { branchId, floor: { not: 'ALMACEN' } } }),
+      // Los "pisos/torres" derivan de los subalmacenes configurados del almacén ROPA - LIMPIEZA.
+      prisma.area.findFirst({ where: { branchId, type: 'ROPA', managesSubwarehouses: true }, include: { subWarehouses: { where: { status: 'active' }, select: { name: true } } } }),
     ]);
-    const floors = [...new Set(stocks.map((s) => s.floor))].sort();
+    const subNames = area?.subWarehouses.map((s) => s.name) ?? [];
+    // Subalmacenes configurados (aunque estén vacíos) + cualquier ubicación con stock (legado).
+    const floors = [...new Set([...subNames, ...stocks.map((s) => s.floor)])].sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
     const key = (li: string, f: string) => `${li}|${f}`;
     const stockMap = new Map(stocks.map((s) => [key(s.linenItemId, s.floor), s]));
     return {
