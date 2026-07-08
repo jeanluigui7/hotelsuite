@@ -19,7 +19,8 @@ const BASE_ROLES: { name: string; description: string; modules: AppModule[] }[] 
   {
     name: 'Gerente',
     description: 'Administrador de sucursal',
-    modules: ['dashboard', 'operations', 'finance', 'inventory', 'logistics', 'hr', 'reports', 'settings'],
+    // 'rooms' le da crear/editar habitaciones (no delete). NO incluye 'roomtypes' (no crea/elimina tipos).
+    modules: ['dashboard', 'operations', 'finance', 'inventory', 'logistics', 'hr', 'reports', 'settings', 'rooms'],
   },
   {
     name: 'Recepcionista',
