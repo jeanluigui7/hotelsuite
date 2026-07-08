@@ -91,6 +91,19 @@ const TYPE_COLS: { type: string; label: string; color: string }[] = [
         } @empty { <p class="muted">Sin inventario de ropa configurado.</p> }
       </div>
 
+      <h3>Amenities y Productos por Áreas</h3>
+      <div class="amen-grid">
+        <div class="amen-card">
+          <div class="amen-h">{{ amenWh() || 'ALMACEN AMENITIES' }}<small>{{ amenities().length }} items</small></div>
+          <div class="amen-sum">SUMINISTRADO</div>
+          <div class="amen-list">
+            @for (a of amenities(); track a.productId) {
+              <div class="amen-row"><span class="an">{{ a.name }}</span><span class="aq">{{ a.quantity }}</span></div>
+            } @empty { <p class="muted amen-empty">Sin amenities cargados en el almacén.</p> }
+          </div>
+        </div>
+      </div>
+
       <h3>Suministros pendientes de entrega</h3>
       <div class="sup-grid">
         @for (g of groups(); track g.roomId) {
@@ -183,6 +196,13 @@ const TYPE_COLS: { type: string; label: string; color: string }[] = [
       .solicitar { background: #2563eb; } .manch { background: #b91c1c; }
       .solicitar:disabled, .manch:disabled { opacity: 0.45; cursor: not-allowed; }
 
+      .amen-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; margin-bottom: 0.5rem; }
+      .amen-card { background: #0c1f1a; border: 1px solid #14603f; border-radius: 14px; overflow: hidden; }
+      .amen-h { background: #0f2a22; color: #6ee7b7; font-weight: 800; text-align: center; padding: 0.7rem; display: flex; flex-direction: column; gap: 0.15rem; } .amen-h small { color: #8aa89b; font-weight: 500; font-size: 0.72rem; }
+      .amen-sum { background: #10b981; color: #04130d; font-weight: 800; font-size: 0.72rem; letter-spacing: 0.04em; padding: 0.25rem 0.7rem; }
+      .amen-list { padding: 0.3rem 0; }
+      .amen-row { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0.9rem; border-bottom: 1px solid #10241d; font-size: 0.85rem; } .amen-row:last-child { border-bottom: 0; }
+      .amen-row .aq { color: #34d399; font-weight: 800; } .amen-empty { padding: 0.9rem; }
       .sup-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
       .sup-card { background: #11202c; border: 1px solid #1c3340; border-radius: 16px; padding: 1.1rem; text-align: center; display: flex; flex-direction: column; gap: 0.3rem; }
       .sp-badge { align-self: center; background: #ea7a0b; color: #fff; font-weight: 800; font-size: 0.72rem; border-radius: 999px; padding: 0.25rem 0.8rem; display: inline-flex; align-items: center; gap: 0.35rem; margin-bottom: 0.4rem; }
@@ -213,6 +233,8 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
 
   readonly cols = TYPE_COLS;
   readonly floors = signal<Floor[]>([]);
+  readonly amenities = signal<{ productId: string; name: string; code: string | null; quantity: number }[]>([]);
+  readonly amenWh = signal<string | null>(null);
   readonly supplies = signal<Supply[]>([]);
   readonly selected = signal<Set<string>>(new Set());
   readonly busy = signal(false);
@@ -241,6 +263,8 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
 
   reload(): void {
     this.http.get<ApiResponse<{ floors: Floor[] }>>(`${this.api}/cleaning/linen-inventory`).subscribe((r) => this.floors.set(r.data?.floors ?? []));
+    this.http.get<ApiResponse<{ warehouse: string | null; items: { productId: string; name: string; code: string | null; quantity: number }[] }>>(`${this.api}/cleaning/amenities-inventory`)
+      .subscribe((r) => { this.amenWh.set(r.data?.warehouse ?? null); this.amenities.set(r.data?.items ?? []); });
     this.http.get<ApiResponse<Supply[]>>(`${this.api}/services/supplies?status=PENDING`).subscribe((r) => this.supplies.set(r.data ?? []));
   }
 

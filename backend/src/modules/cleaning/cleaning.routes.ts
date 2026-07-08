@@ -25,6 +25,7 @@ cleaningRouter.post('/cleaning/revision', requirePermission('operations', 'creat
 cleaningRouter.get('/cleaning/:roomId/reposicion', requirePermission('operations', 'view'), asyncHandler(cleaningController.reposicion));
 cleaningRouter.post('/cleaning/:roomId/revision-start', requirePermission('operations', 'edit'), asyncHandler(cleaningController.startRevision));
 cleaningRouter.get('/cleaning/linen-inventory', requirePermission('operations', 'view'), asyncHandler(cleaningController.linenInventory));
+cleaningRouter.get('/cleaning/amenities-inventory', requirePermission('operations', 'view'), asyncHandler(cleaningController.amenitiesInventory));
 cleaningRouter.post('/cleaning/linen/request', requirePermission('operations', 'create'), asyncHandler(cleaningController.requestLinen));
 cleaningRouter.post('/cleaning/linen/laundry', requirePermission('operations', 'edit'), asyncHandler(cleaningController.sendToLaundry));
 cleaningRouter.post('/cleaning/:roomId/start', requirePermission('operations', 'edit'), asyncHandler(cleaningController.start));

@@ -26,6 +26,10 @@ export const cleaningController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await cleaningService.linenInventory(req.scope)));
   },
+  async amenitiesInventory(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await cleaningService.amenitiesInventory(req.scope)));
+  },
   async requestLinen(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const dto = requestLinenSchema.parse(req.body);

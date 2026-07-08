@@ -663,6 +663,24 @@ export const cleaningService = {
     };
   },
 
+  /**
+   * Amenities de limpieza (solo lectura): stock del ALMACEN AMENITIES de la sede.
+   * Son productos clasificados como Amenities, cargados en ese almacén.
+   */
+  async amenitiesInventory(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const wh = await prisma.warehouse.findFirst({ where: { branchId, type: 'AMENITIES' } });
+    if (!wh) return { warehouse: null, items: [] };
+    const stocks = await prisma.stock.findMany({ where: { warehouseId: wh.id }, orderBy: { updatedAt: 'desc' } });
+    const products = await prisma.product.findMany({ where: { id: { in: stocks.map((s) => s.productId) } }, select: { id: true, name: true, sku: true } });
+    const pmap = new Map(products.map((p) => [p.id, p]));
+    const items = stocks
+      .map((s) => ({ productId: s.productId, name: pmap.get(s.productId)?.name ?? '—', code: pmap.get(s.productId)?.sku ?? null, quantity: s.quantity }))
+      .filter((i) => i.name !== '—')
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return { warehouse: wh.name, items };
+  },
+
   /** Solicita ropa al almacén/administrador (queda como movimiento REQUEST pendiente). */
   async requestLinen(scope: RequestScope, dto: RequestLinenDto) {
     const branchId = requireActiveBranch(scope);
