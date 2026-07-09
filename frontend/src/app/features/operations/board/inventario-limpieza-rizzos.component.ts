@@ -18,11 +18,15 @@ interface Floor { floor: string; rows: Row[]; }
 interface Supply { id: string; roomId: string; room: string; floor?: string | null; roomType?: string; description: string; category?: string; quantity: number; status: string; createdAt: string; }
 interface SupplyGroup { roomId: string; room: string; floor?: string | null; roomType?: string; items: Supply[]; }
 
-const TYPE_COLS: { type: string; label: string; color: string }[] = [
-  { type: 'TOALLA', label: 'TOALLAS', color: '#f97316' },
-  { type: 'SABANA', label: 'SÁBANAS', color: '#d946ef' },
-  { type: 'EDREDON', label: 'EDREDONES', color: '#eab308' },
-];
+// Colores conocidos por tipo (los ítems de ropa llevan como `type` el NOMBRE de su
+// categoría, que varía por sucursal). Se normaliza a mayúsculas para el match.
+const TYPE_COLORS: Record<string, string> = {
+  TOALLA: '#f97316', TOALLAS: '#f97316',
+  SABANA: '#d946ef', SABANAS: '#d946ef', 'SÁBANAS': '#d946ef', SABANAS_: '#d946ef',
+  EDREDON: '#eab308', EDREDONES: '#eab308',
+  FUNDA: '#22d3ee', FUNDAS: '#22d3ee', COBERTOR: '#a78bfa', COBERTORES: '#a78bfa',
+};
+const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#34d399', '#fb7185', '#60a5fa'];
 
 @Component({
   selector: 'app-inventario-limpieza-rizzos',
@@ -49,15 +53,15 @@ const TYPE_COLS: { type: string; label: string; color: string }[] = [
         @for (f of floors(); track f.floor) {
           <div class="floor">
             <div class="fh">{{ f.floor }}</div>
-            <div class="matrix">
+            <div class="matrix" [style.grid-template-columns]="gridCols()">
               <!-- Cabecera de tipos -->
               <div class="corner"></div>
-              @for (c of cols; track c.type) {
+              @for (c of cols(); track c.type) {
                 <div class="thead" [style.background]="c.color">{{ c.label }}</div>
               }
               <!-- Fila REM -->
               <div class="rowlabel rem">REM</div>
-              @for (c of cols; track c.type) {
+              @for (c of cols(); track c.type) {
                 <div class="cell">
                   @for (r of byType(f, c.type); track r.linenItemId) {
                     @if (r.rem > 0) {
@@ -71,7 +75,7 @@ const TYPE_COLS: { type: string; label: string; color: string }[] = [
               }
               <!-- Fila SUM -->
               <div class="rowlabel sum">SUM</div>
-              @for (c of cols; track c.type) {
+              @for (c of cols(); track c.type) {
                 <div class="cell">
                   @for (r of byType(f, c.type); track r.linenItemId) {
                     @if (r.sum > 0) { <span class="chip ro"><span class="dot" [style.background]="r.color || '#888'"></span>{{ r.sum }} {{ r.name }}</span> }
@@ -231,8 +235,15 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
   private readonly toast = inject(MessageService);
   private readonly auth = inject(AuthService);
 
-  readonly cols = TYPE_COLS;
   readonly floors = signal<Floor[]>([]);
+  /** Columnas de tipo derivadas de la data real (nombres de categoría de ropa por sucursal). */
+  readonly cols = computed<{ type: string; label: string; color: string }[]>(() => {
+    const types: string[] = [];
+    for (const f of this.floors()) for (const r of f.rows) if (r.type && !types.includes(r.type)) types.push(r.type);
+    types.sort((a, b) => a.localeCompare(b, 'es'));
+    return types.map((t, i) => ({ type: t, label: t.toUpperCase(), color: TYPE_COLORS[t.toUpperCase()] ?? TYPE_PALETTE[i % TYPE_PALETTE.length] }));
+  });
+  gridCols(): string { return `3rem ${'1fr '.repeat(Math.max(1, this.cols().length)).trim()}`; }
   readonly amenities = signal<{ productId: string; name: string; code: string | null; quantity: number }[]>([]);
   readonly amenWh = signal<string | null>(null);
   readonly supplies = signal<Supply[]>([]);
@@ -370,7 +381,7 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
   }
 
   print(): void {
-    const cols = this.cols;
+    const cols = this.cols();
     const body = this.floors()
       .map((f) => {
         const cell = (type: string, key: 'rem' | 'sum'): string =>
