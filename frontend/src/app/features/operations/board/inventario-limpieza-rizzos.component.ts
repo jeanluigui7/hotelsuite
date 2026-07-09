@@ -44,6 +44,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
             <button [class.on]="mode() === 'real'" (click)="mode.set('real')">Tiempo Real</button>
             <button [class.on]="mode() === 'turno'" (click)="mode.set('turno')">Por Turnos</button>
           </div>
+          <button class="cerrar" (click)="closeShift()" [disabled]="busy()" title="Pasa lo suministrado (SUM) al remanente (REM) y reinicia SUM a 0"><i class="pi pi-flag"></i> Cerrar Turno</button>
           <button class="icon" (click)="print()" title="Imprimir"><i class="pi pi-print"></i></button>
         </div>
       </header>
@@ -59,26 +60,35 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
               @for (c of cols(); track c.type) {
                 <div class="thead" [style.background]="c.color">{{ c.label }}</div>
               }
-              <!-- Fila REM -->
+              <!-- Fila REM (remanente del turno anterior, solo lectura) -->
               <div class="rowlabel rem">REM</div>
               @for (c of cols(); track c.type) {
                 <div class="cell">
                   @for (r of byType(f, c.type); track r.linenItemId) {
-                    @if (r.rem > 0) {
-                      <label class="chip">
-                        <input type="checkbox" [checked]="isSel(f.floor, r.linenItemId)" (change)="toggle(f.floor, r.linenItemId)" />
-                        <span class="dot" [style.background]="r.color || '#888'"></span>{{ r.rem }} {{ r.name }}
-                      </label>
-                    }
+                    @if (r.rem > 0) { <span class="chip ro"><span class="dot" [style.background]="r.color || '#888'"></span>{{ r.rem }} {{ r.name }}</span> }
                   }
                 </div>
               }
-              <!-- Fila SUM -->
+              <!-- Fila SUM (suministrado este turno, solo lectura) -->
               <div class="rowlabel sum">SUM</div>
               @for (c of cols(); track c.type) {
                 <div class="cell">
                   @for (r of byType(f, c.type); track r.linenItemId) {
                     @if (r.sum > 0) { <span class="chip ro"><span class="dot" [style.background]="r.color || '#888'"></span>{{ r.sum }} {{ r.name }}</span> }
+                  }
+                </div>
+              }
+              <!-- Fila DISPONIBLE = REM + SUM (accionable: solicitar / manchada) -->
+              <div class="rowlabel disp">DISP</div>
+              @for (c of cols(); track c.type) {
+                <div class="cell">
+                  @for (r of byType(f, c.type); track r.linenItemId) {
+                    @if (avail(r) > 0) {
+                      <label class="chip">
+                        <input type="checkbox" [checked]="isSel(f.floor, r.linenItemId)" (change)="toggle(f.floor, r.linenItemId)" />
+                        <span class="dot" [style.background]="r.color || '#888'"></span>{{ avail(r) }} {{ r.name }}
+                      </label>
+                    }
                   }
                 </div>
               }
@@ -158,7 +168,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
     <p-dialog [(visible)]="lndVisible" [modal]="true" [header]="'Manchada / Deteriorada · Piso ' + reqFloor" [style]="{ width: '28rem' }" styleClass="dk-dialog">
       <div class="form">
         @for (s of floorSelected(reqFloor); track s.linenItemId) {
-          <div class="qrow"><span>{{ s.name }} (REM {{ s.rem }})</span><p-inputNumber [(ngModel)]="lndQty[s.linenItemId]" [min]="1" [max]="s.rem" [showButtons]="true" buttonLayout="horizontal" /></div>
+          <div class="qrow"><span>{{ s.name }} (disp. {{ avail(s) }})</span><p-inputNumber [(ngModel)]="lndQty[s.linenItemId]" [min]="1" [max]="avail(s)" [showButtons]="true" buttonLayout="horizontal" /></div>
         }
         <label>Motivo</label>
         <input pInputText [(ngModel)]="lndReason" placeholder="Manchada / Deteriorada" />
@@ -181,6 +191,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
       .seg button { background: transparent; border: 0; color: #9fb0c3; padding: 0.4rem 0.8rem; border-radius: 7px; cursor: pointer; font-size: 0.8rem; }
       .seg button.on { background: #7c3aed; color: #fff; }
       .icon { background: #0e241c; border: 1px solid #1f3a2c; color: #b9f0d6; border-radius: 8px; padding: 0.45rem 0.6rem; cursor: pointer; }
+      .cerrar { background: #047857; border: 0; color: #fff; border-radius: 8px; padding: 0.45rem 0.85rem; cursor: pointer; font-weight: 700; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.4rem; } .cerrar:hover { background: #059669; } .cerrar:disabled { opacity: 0.5; cursor: not-allowed; }
       .muted { color: #8aa499; }
 
       .floors { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px,1fr)); gap: 1rem; }
@@ -190,7 +201,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
       .corner { background: #0e1f29; }
       .thead { color: #1a0b00; font-weight: 800; font-size: 0.68rem; text-align: center; padding: 0.4rem 0.2rem; letter-spacing: 0.03em; }
       .rowlabel { display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.78rem; color: #fff; }
-      .rowlabel.rem { background: #b91c1c; } .rowlabel.sum { background: #1d4ed8; }
+      .rowlabel.rem { background: #b91c1c; } .rowlabel.sum { background: #1d4ed8; } .rowlabel.disp { background: #047857; }
       .cell { background: #0b1923; padding: 0.4rem; display: flex; flex-direction: column; gap: 0.3rem; min-height: 2.4rem; }
       .chip { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.78rem; color: #dbe7f0; cursor: pointer; }
       .chip.ro { cursor: default; opacity: 0.92; }
@@ -287,6 +298,19 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
     return f.rows.filter((r) => r.type === type);
   }
 
+  /** Disponible del piso = remanente (REM) + suministrado en el turno (SUM). */
+  avail(r: Row): number { return (r.rem || 0) + (r.sum || 0); }
+
+  /** Cierra el turno: NUEVO REM = REM + SUM, NUEVO SUM = 0 (en todos los pisos). */
+  closeShift(): void {
+    if (!confirm('¿Cerrar el turno de ropa? Lo suministrado (SUM) pasará al remanente (REM) y SUM se reinicia a 0. El total disponible no cambia.')) return;
+    this.busy.set(true);
+    this.http.post<ApiResponse<{ floors: number; moved: number }>>(`${this.api}/admin/linen/close-shift`, {}).subscribe({
+      next: (r) => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Turno cerrado', detail: `Se consolidó el remanente en ${r.data?.floors ?? 0} piso(s).` }); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo cerrar el turno.' }); },
+    });
+  }
+
   private k(floor: string, id: string): string { return floor + '|' + id; }
   isSel(floor: string, id: string): boolean { return this.selected().has(this.k(floor, id)); }
   toggle(floor: string, id: string): void {
@@ -320,7 +344,7 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
 
   openLaundry(floor: string): void {
     this.reqFloor = floor;
-    for (const s of this.floorSelected(floor)) this.lndQty[s.linenItemId] = Math.min(this.lndQty[s.linenItemId] || 1, s.rem);
+    for (const s of this.floorSelected(floor)) this.lndQty[s.linenItemId] = Math.min(this.lndQty[s.linenItemId] || 1, this.avail(s));
     this.lndReason = '';
     this.lndVisible = true;
   }

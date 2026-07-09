@@ -5,6 +5,7 @@ import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { notifyAdmin } from '../../shared/notify';
 import { shiftLogsService } from '../shift-logs/shift-logs.service';
+import { consumeFloorTx } from '../linen-admin/linen-admin.service';
 
 /** Flujo de limpieza RIZZOS: iniciar limpieza (recoger ropa con estado OK/ROBADA/DETERIORADA)
  *  → habitación EN CURSO → finalizar limpieza → Disponible. */
@@ -703,11 +704,12 @@ export const cleaningService = {
   async sendToLaundry(scope: RequestScope, dto: LaundryDto) {
     const branchId = requireActiveBranch(scope);
     const stock = await prisma.linenStock.findUnique({ where: { linenItemId_floor: { linenItemId: dto.linenItemId, floor: dto.floor } } });
-    if (!stock || stock.branchId !== branchId || stock.rem < dto.quantity) throw new ValidationError('Cantidad insuficiente en el remanente');
-    await prisma.$transaction([
-      prisma.linenStock.update({ where: { linenItemId_floor: { linenItemId: dto.linenItemId, floor: dto.floor } }, data: { rem: { decrement: dto.quantity } } }),
-      prisma.linenMovement.create({ data: { branchId, linenItemId: dto.linenItemId, type: 'LAUNDRY', quantity: -dto.quantity, floor: dto.floor, reference: dto.reason || 'Manchada/Deteriorada', createdByUserId: scope.userId } }),
-    ]);
+    if (!stock || stock.branchId !== branchId) throw new ValidationError('No hay stock de esa prenda en el piso');
+    // Consume del disponible (REM + SUM), descontando primero de SUM (turno actual).
+    await prisma.$transaction(async (tx) => {
+      await consumeFloorTx(tx, dto.linenItemId, dto.floor, dto.quantity);
+      await tx.linenMovement.create({ data: { branchId, linenItemId: dto.linenItemId, type: 'LAUNDRY', quantity: -dto.quantity, floor: dto.floor, reference: dto.reason || 'Manchada/Deteriorada', createdByUserId: scope.userId } });
+    });
     return { ok: true };
   },
 };

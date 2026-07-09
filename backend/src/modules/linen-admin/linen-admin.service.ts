@@ -33,10 +33,13 @@ async function supplyToFloorTx(tx: LinenTx, branchId: string, linenItemId: strin
     throw new ValidationError(`Stock insuficiente en el almacén central de ropa (disponible ${central?.rem ?? 0}, solicitado ${quantity}).`);
   }
   await tx.linenStock.update({ where: { linenItemId_floor: { linenItemId, floor: LINEN_CENTRAL } }, data: { rem: { decrement: quantity } } });
+  // Suministrar durante el turno actual: SOLO incrementa SUM del piso. REM (remanente
+  // del turno anterior) NO se toca aquí; solo cambia al cierre de turno (closeShift).
+  // El total disponible del piso es REM + SUM.
   await tx.linenStock.upsert({
     where: { linenItemId_floor: { linenItemId, floor } },
-    update: { rem: { increment: quantity }, sum: { increment: quantity } },
-    create: { branchId, linenItemId, floor, rem: quantity, sum: quantity },
+    update: { sum: { increment: quantity } },
+    create: { branchId, linenItemId, floor, rem: 0, sum: quantity },
   });
   await tx.linenMovement.create({
     data: { branchId, linenItemId, type: 'OUT', quantity: -quantity, floor: LINEN_CENTRAL, areaFrom: 'Almacén de Ropa', areaTo: floor, reference, createdByUserId: userId },
@@ -44,6 +47,25 @@ async function supplyToFloorTx(tx: LinenTx, branchId: string, linenItemId: strin
   await tx.linenMovement.create({
     data: { branchId, linenItemId, type, quantity, floor, areaFrom: 'Almacén de Ropa', areaTo: floor, reference, createdByUserId: userId },
   });
+}
+
+/**
+ * Consume ropa del disponible de un piso (REM + SUM). Descuenta primero de SUM (lo
+ * suministrado en el turno actual) y solo si no alcanza, del REM (remanente). Usado por
+ * lavandería (manchada) y por la entrega de suministros a habitación.
+ * Devuelve el detalle descontado. Lanza si el disponible es insuficiente.
+ */
+export async function consumeFloorTx(tx: LinenTx, linenItemId: string, floor: string, quantity: number) {
+  const stock = await tx.linenStock.findUnique({ where: { linenItemId_floor: { linenItemId, floor } } });
+  const avail = (stock?.rem ?? 0) + (stock?.sum ?? 0);
+  if (!stock || avail < quantity) throw new ValidationError(`Cantidad insuficiente en el piso (disponible ${avail}, solicitado ${quantity}).`);
+  const fromSum = Math.min(stock.sum, quantity);
+  const fromRem = quantity - fromSum;
+  await tx.linenStock.update({
+    where: { linenItemId_floor: { linenItemId, floor } },
+    data: { sum: { decrement: fromSum }, rem: { decrement: fromRem } },
+  });
+  return { fromSum, fromRem };
 }
 
 async function supplyToFloor(branchId: string, linenItemId: string, floor: string, quantity: number, userId: string, type: string, reference: string) {
@@ -160,6 +182,25 @@ export const linenAdminService = {
   },
 
   /**
+   * Cierre/cambio de turno de ropa: consolida en cada piso el suministrado del turno
+   * dentro del remanente (NUEVO REM = REM + SUM, NUEVO SUM = 0). El total disponible por
+   * piso no cambia; solo pasa a contarse como remanente del siguiente turno.
+   */
+  async closeShift(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const rows = await prisma.linenStock.findMany({ where: { branchId, floor: { not: LINEN_CENTRAL }, sum: { gt: 0 } } });
+    if (!rows.length) return { ok: true, floors: 0, moved: 0 };
+    await prisma.$transaction(
+      rows.map((s) =>
+        prisma.linenStock.update({ where: { id: s.id }, data: { rem: s.rem + s.sum, sum: 0 } }),
+      ),
+    );
+    const floors = new Set(rows.map((r) => r.floor)).size;
+    const moved = rows.reduce((a, r) => a + r.sum, 0);
+    return { ok: true, floors, moved };
+  },
+
+  /**
    * Almacén general de ropa: por ítem, stock base (dotación), disponible (central),
    * transferido, en uso y en lavandería (todo con data real de stock/movimientos).
    * En proceso / recibidas / perdidos quedan para la fase de ciclo (Fase 2).
@@ -172,11 +213,13 @@ export const linenAdminService = {
       prisma.linenStock.findMany({ where: { branchId, linenItemId: { in: ids } } }),
       prisma.linenMovement.groupBy({ by: ['linenItemId', 'type'], where: { branchId, type: { in: ['LAUNDRY', 'PICKUP'] } }, _sum: { quantity: true } }),
     ]);
-    const st = new Map<string, { base: number; central: number }>();
+    // Físico real: central = REM del almacén; pisos = REM + SUM (remanente + suministrado
+    // en el turno). Antes se usaba solo SUM, lo que duplicaba lo transferido.
+    const st = new Map<string, { central: number; atFloors: number }>();
     for (const s of stocks) {
-      const e = st.get(s.linenItemId) ?? { base: 0, central: 0 };
-      e.base += s.sum;
+      const e = st.get(s.linenItemId) ?? { central: 0, atFloors: 0 };
       if (s.floor === LINEN_CENTRAL) e.central += s.rem;
+      else e.atFloors += s.rem + s.sum;
       st.set(s.linenItemId, e);
     }
     const lav = new Map<string, { sent: number; back: number }>();
@@ -191,13 +234,15 @@ export const linenAdminService = {
     const PREFIX: Record<string, string> = { TOALLA: 'TOA', SABANA: 'SAB', EDREDON: 'EDR', AMENITY: 'AME' };
     const seq: Record<string, number> = {};
     return items.map((it) => {
-      const s = st.get(it.id) ?? { base: 0, central: 0 };
-      const base = s.base;
+      const s = st.get(it.id) ?? { central: 0, atFloors: 0 };
       const disponible = s.central;
-      const transferido = Math.max(0, base - disponible);
       const l = lav.get(it.id) ?? { sent: 0, back: 0 };
-      const lavanderia = Math.max(0, Math.min(transferido, l.sent - l.back));
-      const enUso = Math.max(0, transferido - lavanderia);
+      const inLaundry = Math.max(0, l.sent - l.back);
+      // Transferido = lo que está fuera del central (en pisos + en lavandería).
+      const transferido = s.atFloors + inLaundry;
+      const lavanderia = inLaundry;
+      const enUso = s.atFloors;
+      const base = disponible + transferido;
       const n = (seq[it.type] = (seq[it.type] ?? 0) + 1);
       return {
         linenItemId: it.id,

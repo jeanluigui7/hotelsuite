@@ -151,9 +151,13 @@ export const servicesService = {
     await prisma.$transaction(async (tx) => {
       if (item && floor) {
         const stock = await tx.linenStock.findUnique({ where: { linenItemId_floor: { linenItemId: item.id, floor } } });
-        const dec = Math.min(supply.quantity, stock?.rem ?? 0);
+        // Descuenta del disponible (REM + SUM), primero de SUM (suministrado en el turno).
+        const avail = (stock?.rem ?? 0) + (stock?.sum ?? 0);
+        const dec = Math.min(supply.quantity, avail);
         if (dec > 0) {
-          await tx.linenStock.update({ where: { linenItemId_floor: { linenItemId: item.id, floor } }, data: { rem: { decrement: dec } } });
+          const fromSum = Math.min(stock?.sum ?? 0, dec);
+          const fromRem = dec - fromSum;
+          await tx.linenStock.update({ where: { linenItemId_floor: { linenItemId: item.id, floor } }, data: { sum: { decrement: fromSum }, rem: { decrement: fromRem } } });
         }
         await tx.linenMovement.create({
           data: { branchId, linenItemId: item.id, type: 'SUPPLY', quantity: -supply.quantity, floor, areaFrom: `Piso ${floor}`, areaTo: `Hab. ${room?.number ?? ''}`.trim(), reference: 'Entrega de suministro a habitación', createdByUserId: scope.userId },
