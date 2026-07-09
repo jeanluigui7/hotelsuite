@@ -13,3 +13,5 @@ roomInventoryRouter.get('/room-inventory/kardex', requireAnyPermission(['operati
 roomInventoryRouter.get('/rooms/:id/inventory', requireAnyPermission(['operations', 'view'], ['inventory', 'view']), asyncHandler(roomInventoryController.get));
 roomInventoryRouter.post('/rooms/:id/inventory/initial', requireAnyPermission(['operations', 'edit'], ['inventory', 'edit']), asyncHandler(roomInventoryController.saveInitial));
 roomInventoryRouter.post('/rooms/:id/inventory/load-base', requireAnyPermission(['operations', 'edit'], ['inventory', 'edit']), asyncHandler(roomInventoryController.loadBase));
+roomInventoryRouter.get('/rooms/:id/linen', requireAnyPermission(['operations', 'view'], ['inventory', 'view']), asyncHandler(roomInventoryController.roomLinen));
+roomInventoryRouter.post('/rooms/:id/dote-linen', requireAnyPermission(['operations', 'edit'], ['inventory', 'edit']), asyncHandler(roomInventoryController.doteLinen));

@@ -1,13 +1,24 @@
 import type { RequestScope } from '../../shared/context';
-import { NotFoundError } from '../../shared/errors';
+import { NotFoundError, ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
-import type { SaveInitialDto, LoadBaseDto } from './room-inventory.schema';
+import { consumeFloorTx } from '../linen-admin/linen-admin.service';
+import type { SaveInitialDto, LoadBaseDto, DoteLinenDto } from './room-inventory.schema';
 
 async function getRoom(scope: RequestScope, roomId: string) {
   const room = await prisma.room.findUnique({ where: { id: roomId }, include: { roomType: { select: { id: true, name: true } } } });
   if (!room || room.branchId !== requireActiveBranch(scope)) throw new NotFoundError('Habitación no encontrada');
   return room;
+}
+
+/**
+ * Resuelve el "floor" del LinenStock que abastece a una habitación: el subalmacén que la
+ * cubre (SubWarehouseRoom) y, si no hay cobertura, la torre/piso de la habitación.
+ * (En los datos, LinenStock.floor === nombre del subalmacén === room.tower.)
+ */
+async function resolveRoomFloor(branchId: string, roomId: string, tower: string | null, floor: string | null): Promise<string | null> {
+  const cover = await prisma.subWarehouseRoom.findFirst({ where: { branchId, roomId }, include: { subWarehouse: { select: { name: true } } } });
+  return cover?.subWarehouse?.name ?? tower ?? floor ?? null;
 }
 
 export const roomInventoryService = {
@@ -128,5 +139,69 @@ export const roomInventoryService = {
       }
     });
     return { loaded: dot.length };
+  },
+
+  /**
+   * Ropa (prendas específicas) que tiene actualmente la habitación + la ropa disponible en
+   * su piso (para dotar). `items` = lo que hay en la habitación; `floorAvailable` = REM+SUM
+   * del piso por prenda. Alimenta la pantalla de dotación y la FASE 1 de limpieza.
+   */
+  async roomLinen(scope: RequestScope, roomId: string) {
+    const room = await getRoom(scope, roomId);
+    const branchId = room.branchId;
+    const floor = await resolveRoomFloor(branchId, roomId, room.tower, room.floor);
+    const [inv, linen, floorStock] = await Promise.all([
+      prisma.roomInventory.findMany({ where: { roomId, articleKind: 'LINEN_REUSABLE', linenItemId: { not: null }, quantity: { gt: 0 } } }),
+      prisma.linenItem.findMany({ where: { branchId, status: 'active' }, select: { id: true, name: true, type: true, color: true } }),
+      floor ? prisma.linenStock.findMany({ where: { branchId, floor } }) : Promise.resolve([]),
+    ]);
+    const lmap = new Map(linen.map((l) => [l.id, l]));
+    const items = inv.map((i) => {
+      const l = i.linenItemId ? lmap.get(i.linenItemId) : undefined;
+      return { linenItemId: i.linenItemId, name: l?.name ?? i.name, type: l?.type ?? 'ROPA', color: l?.color ?? null, quantity: i.quantity };
+    });
+    const floorAvailable = floorStock
+      .map((s) => ({ linenItemId: s.linenItemId, ...lmap.get(s.linenItemId), available: s.rem + s.sum }))
+      .filter((x) => x.available > 0 && x.name)
+      .map((x) => ({ linenItemId: x.linenItemId, name: x.name as string, type: x.type ?? 'ROPA', color: x.color ?? null, available: x.available }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return { room: { id: room.id, number: room.number, floor: room.floor, tower: room.tower, roomType: room.roomType, linenFloor: floor }, items, floorAvailable };
+  },
+
+  /**
+   * Dotación por prenda específica: coloca ropa exacta en la habitación DESCONTÁNDOLA del
+   * piso (disponible REM+SUM, primero SUM). Registra el movimiento piso → habitación.
+   */
+  async doteLinen(scope: RequestScope, roomId: string, dto: DoteLinenDto) {
+    const room = await getRoom(scope, roomId);
+    const branchId = room.branchId;
+    const floor = await resolveRoomFloor(branchId, roomId, room.tower, room.floor);
+    if (!floor) throw new ValidationError('La habitación no tiene un piso/subalmacén asignado para tomar la ropa.');
+    const ids = [...new Set(dto.items.map((i) => i.linenItemId))];
+    const linen = await prisma.linenItem.findMany({ where: { id: { in: ids }, branchId }, select: { id: true, name: true, type: true } });
+    if (linen.length !== ids.length) throw new ValidationError('Prenda de ropa no encontrada');
+    const lmap = new Map(linen.map((l) => [l.id, l]));
+    await prisma.$transaction(async (tx) => {
+      for (const it of dto.items) {
+        const l = lmap.get(it.linenItemId)!;
+        // Descuenta del piso (lanza si el disponible REM+SUM es insuficiente).
+        await consumeFloorTx(tx, it.linenItemId, floor, it.quantity);
+        // Suma a la habitación (por prenda específica).
+        const key = { roomId_articleKind_name: { roomId, articleKind: 'LINEN_REUSABLE', name: l.name } };
+        const existing = await tx.roomInventory.findUnique({ where: key });
+        await tx.roomInventory.upsert({
+          where: key,
+          update: { quantity: (existing?.quantity ?? 0) + it.quantity, linenItemId: it.linenItemId },
+          create: { branchId, roomId, articleKind: 'LINEN_REUSABLE', name: l.name, linenItemId: it.linenItemId, quantity: it.quantity },
+        });
+        await tx.roomInventoryMovement.create({
+          data: { branchId, roomId, type: 'ROOM_LOAD', articleKind: 'LINEN_REUSABLE', name: l.name, quantity: it.quantity, fromLocation: floor, toLocation: `Habitación ${room.number}`, reference: 'Dotación de ropa a la habitación', note: dto.note || null, createdByUserId: scope.userId },
+        });
+        await tx.linenMovement.create({
+          data: { branchId, linenItemId: it.linenItemId, type: 'SUPPLY', quantity: -it.quantity, floor, areaFrom: floor, areaTo: `Hab. ${room.number}`, reference: 'Dotación a habitación', createdByUserId: scope.userId },
+        });
+      }
+    });
+    return { ok: true, items: dto.items.length };
   },
 };

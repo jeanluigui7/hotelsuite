@@ -25,6 +25,7 @@ export interface MenuItem {
 export const LIMPIEZA_MENU: MenuItem[] = [
   { label: 'Inicio', icon: 'pi pi-th-large', route: '/dashboard/limpieza' },
   { label: 'Habitaciones', icon: 'pi pi-building', route: '/operations/gestion-limpieza' },
+  { label: 'Dotar Habitación (1ª vez)', icon: 'pi pi-inbox', route: '/inventory/inventario-inicial' },
   { label: 'Limpieza por Inventario', icon: 'pi pi-box', route: '/operations/limpieza-inventario' },
   { label: 'Lavandería (Ropa)', icon: 'pi pi-sync', route: '/operations/lavanderia-ropa' },
   { label: 'Historial', icon: 'pi pi-history', route: '/operations/limpiezas' },

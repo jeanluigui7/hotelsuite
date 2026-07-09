@@ -13,7 +13,7 @@ interface CleanRoom { id: string; number: string; floor?: string | null; status:
 interface Supply { id: string; roomId: string; room: string; floor?: string | null; roomType?: string; description: string; category?: string; quantity: number; }
 interface SupplyGroup { roomId: string; room: string; floor?: string | null; roomType?: string; items: Supply[]; }
 interface LinenItem { id: string; type: string; name: string; color?: string | null; reusable: boolean; }
-interface InspRow { item: LinenItem; tipo: 'BASE' | 'EXTRA'; state: 'OK' | 'ROBADA' | 'DETERIORADA'; pickup: boolean; }
+interface InspRow { item: LinenItem; tipo: 'BASE' | 'EXTRA'; state: 'OK' | 'ROBADA' | 'DETERIORADA'; pickup: boolean; qty: number; }
 interface RepoRow { section: string; tipo: string; name: string; code: string; type: string | null; color: string | null; cant: number; mantiene: boolean; motivo: string; subName?: string; subIndex?: number; }
 
 const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana', EDREDON: 'Edredón', AMENITY: 'Amenity' };
@@ -140,7 +140,7 @@ const ACCIONES_PERIODICAS = [
           @for (row of rows(); track $index) {
             <div class="ir">
               <div class="it"><strong>{{ row.item.name }}</strong><small>{{ typeLabel(row.item.type) }} · {{ row.tipo }} @if (row.tipo === 'EXTRA') { <span class="oblig">⚠ Recoger obligatorio</span> }</small></div>
-              <div class="qty"><span class="qb">1</span></div>
+              <div class="qty"><span class="qb">{{ row.qty }}</span></div>
               <div class="states2">
                 <button [class.on]="row.state === 'OK'" class="ok" (click)="setState(row, 'OK')">OK</button>
                 <button [class.on]="row.state === 'ROBADA'" class="rob" (click)="setState(row, 'ROBADA')">ROBADA</button>
@@ -155,7 +155,7 @@ const ACCIONES_PERIODICAS = [
               </div>
               <div class="ir-note"><i class="pi pi-info-circle"></i> {{ noteFor(row) }}</div>
             </div>
-          } @empty { <div class="ir"><span class="muted" style="grid-column:1/-1">No hay ropa configurada.</span></div> }
+          } @empty { <div class="ir"><span class="muted" style="grid-column:1/-1">Esta habitación aún no tiene ropa dotada. Cárgala primero en <b>Inventario Inicial (Habitaciones)</b> antes de iniciar la limpieza.</span></div> }
         </div>
         <div class="done-bar"><span><i class="pi pi-check-circle"></i> Todos los items completados</span><span>{{ rows().length }} / {{ rows().length }} completados</span></div>
       } @else {
@@ -581,18 +581,27 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   openIniciar(r: CleanRoom): void {
     this.selRoom = r;
     this.iniStep = 'fase1';
-    // BASE: la ropa/amenities del inventario; por defecto se recogen (sábanas/toallas/amenities).
-    const base: InspRow[] = this.linen().map((item) => ({ item, tipo: 'BASE' as const, state: 'OK' as const, pickup: item.type !== 'EDREDON' }));
-    this.rows.set(base);
+    this.rows.set([]);
     this.iniciarVisible = true;
-    // EXTRA: suministros pendientes de la habitación (recoger obligatorio).
-    this.http.get<ApiResponse<{ id: string; room: string; description: string }[]>>(`${this.api}/services/supplies?status=PENDING`).subscribe((res) => {
-      const sups = (res.data ?? []).filter((s) => s.room === r.number);
-      if (!sups.length) return;
-      const extras: InspRow[] = sups.map((s) => ({ item: { id: 'sup-' + s.id, type: 'AMENITY', name: s.description, reusable: true }, tipo: 'EXTRA' as const, state: 'OK' as const, pickup: true }));
-      this.rows.set([...this.rows(), ...extras]);
+    // BASE: SOLO la ropa realmente dotada a ESTA habitación (no todo el almacén).
+    this.http.get<ApiResponse<{ items: { linenItemId: string; name: string; type: string; color: string | null; quantity: number }[] }>>(`${this.api}/rooms/${r.id}/linen`).subscribe((res) => {
+      const base: InspRow[] = (res.data?.items ?? []).map((it) => ({
+        item: { id: it.linenItemId, type: it.type, name: it.name, color: it.color, reusable: true },
+        tipo: 'BASE' as const, state: 'OK' as const, pickup: !this.isEdredon(it.type), qty: it.quantity,
+      }));
+      this.rows.set(base);
+      // EXTRA: suministros pendientes de la habitación (recoger obligatorio).
+      this.http.get<ApiResponse<{ id: string; room: string; description: string; quantity?: number }[]>>(`${this.api}/services/supplies?status=PENDING`).subscribe((res2) => {
+        const sups = (res2.data ?? []).filter((s) => s.room === r.number);
+        if (!sups.length) return;
+        const extras: InspRow[] = sups.map((s) => ({ item: { id: 'sup-' + s.id, type: 'AMENITY', name: s.description, reusable: true }, tipo: 'EXTRA' as const, state: 'OK' as const, pickup: true, qty: s.quantity ?? 1 }));
+        this.rows.set([...this.rows(), ...extras]);
+      });
     });
   }
+
+  /** Los edredones no se reponen automáticamente (por nombre de categoría). */
+  isEdredon(type: string): boolean { return (type || '').toUpperCase().includes('EDRED'); }
 
   setState(row: InspRow, state: 'OK' | 'ROBADA' | 'DETERIORADA'): void {
     row.state = state;
