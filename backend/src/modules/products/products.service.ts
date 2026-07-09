@@ -57,6 +57,10 @@ export const productsService = {
     if (area === 'RECEPTION' || area === 'FRIGOBAR') {
       const areaWh = await prisma.warehouse.findFirst({ where: { branchId, type: area } });
       whId = areaWh?.id ?? '';
+    } else if (area === 'AMENITIES') {
+      // Almacén PRINCIPAL de amenities (excluye el de limpieza "AMENITIES - LIMPIEZA").
+      const areaWh = await prisma.warehouse.findFirst({ where: { branchId, type: 'AMENITIES', NOT: { name: 'AMENITIES - LIMPIEZA' } }, orderBy: { createdAt: 'asc' } });
+      whId = areaWh?.id ?? '';
     } else {
       whId = (await productsRepository.defaultWarehouse(branchId)).id;
     }

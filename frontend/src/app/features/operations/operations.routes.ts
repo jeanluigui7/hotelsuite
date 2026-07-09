@@ -80,6 +80,10 @@ const routes: Routes = [
     loadComponent: () => import('./board/almacen-ropa.component').then((m) => m.AlmacenRopaComponent),
   },
   {
+    path: 'almacen-amenities',
+    loadComponent: () => import('./board/almacen-amenities.component').then((m) => m.AlmacenAmenitiesComponent),
+  },
+  {
     path: 'revision-periodica',
     loadComponent: () => import('./board/revision-periodica.component').then((m) => m.RevisionPeriodicaComponent),
   },

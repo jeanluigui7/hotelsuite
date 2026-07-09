@@ -50,7 +50,7 @@ export class QuickPillsComponent {
     { label: 'Productos', icon: 'pi pi-box', route: '/operations/almacen-productos', color: '#8b5cf6' },
     { label: 'Recepción', icon: 'pi pi-building', route: '/operations/inventario-recepcion', color: '#f97316' },
     { label: 'Ropa', icon: 'pi pi-stop', route: '/operations/almacen-ropa', color: '#ec4899' },
-    { label: 'Amenities', icon: 'pi pi-sparkles', route: '/inventory/almacen', queryParams: { type: 'AMENITIES' }, color: '#10b981' },
+    { label: 'Amenities', icon: 'pi pi-sparkles', route: '/operations/almacen-amenities', color: '#10b981' },
     { label: 'Limpieza', icon: 'pi pi-trash', route: '/operations/inventario-limpieza', color: '#3b82f6' },
   ];
 }
