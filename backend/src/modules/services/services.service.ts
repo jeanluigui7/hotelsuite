@@ -142,8 +142,11 @@ export const servicesService = {
     if (!supply || supply.branchId !== branchId) throw new ValidationError('Suministro no encontrado');
     if (supply.status === 'DELIVERED') return supply;
 
-    const room = await prisma.room.findUnique({ where: { id: supply.roomId }, select: { floor: true, number: true } });
-    const floor = room?.floor ?? null;
+    const room = await prisma.room.findUnique({ where: { id: supply.roomId }, select: { floor: true, tower: true, number: true } });
+    // El floor del LinenStock === nombre del subalmacén que cubre la habitación (= room.tower),
+    // NO el dígito room.floor. Se resuelve por cobertura y cae a tower/floor.
+    const cover = await prisma.subWarehouseRoom.findFirst({ where: { branchId, roomId: supply.roomId }, include: { subWarehouse: { select: { name: true } } } });
+    const floor = cover?.subWarehouse?.name ?? room?.tower ?? room?.floor ?? null;
     // Resuelve el ítem de ropa por nombre para descontar del remanente del piso.
     const linen = await prisma.linenItem.findMany({ where: { branchId, status: 'active' }, select: { id: true, name: true } });
     const item = linen.find((l) => supply.description.toUpperCase().includes(l.name.toUpperCase()) || l.name.toUpperCase().includes(supply.description.toUpperCase()));

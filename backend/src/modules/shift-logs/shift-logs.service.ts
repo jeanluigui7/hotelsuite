@@ -2,6 +2,7 @@ import type { RequestScope } from '../../shared/context';
 import { NotFoundError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
+import { closeLinenShiftForBranch } from '../linen-admin/linen-admin.service';
 
 // ── Helpers de tiempo ──
 const toMin = (hhmm: string): number => {
@@ -119,9 +120,13 @@ export const shiftLogsService = {
 
     const snapshot = await buildSnapshot(branchId, role, windowStart, cutAt);
     try {
-      return await prisma.shiftLog.create({
+      const created = await prisma.shiftLog.create({
         data: { branchId, role, shift, businessDate, closedAt: cutAt, closedByUserId: opts.userId ?? null, auto, snapshot: JSON.stringify(snapshot) },
       });
+      // Cambio de turno de LIMPIEZA: consolida el suministrado del turno en el remanente
+      // (NUEVO REM = REM + SUM, SUM = 0). El snapshot de arriba ya capturó el estado con SUM.
+      if (role === 'LIMPIEZA') await closeLinenShiftForBranch(branchId).catch(() => undefined);
+      return created;
     } catch {
       // Carrera con otro corte (unique) — devuelve el existente.
       return prisma.shiftLog.findUnique({ where: { branchId_role_shift_businessDate: { branchId, role, shift, businessDate } } });

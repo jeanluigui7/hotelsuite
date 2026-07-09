@@ -72,6 +72,18 @@ async function supplyToFloor(branchId: string, linenItemId: string, floor: strin
   await prisma.$transaction((tx) => supplyToFloorTx(tx, branchId, linenItemId, floor, quantity, userId, type, reference));
 }
 
+/**
+ * Cierre de turno de ropa a nivel SUCURSAL: en cada piso, NUEVO REM = REM + SUM y SUM = 0.
+ * Idempotente (si no hay SUM pendiente no hace nada). Lo invoca el cierre manual y también
+ * el corte de turno automático de LIMPIEZA (scheduler / recordCut).
+ */
+export async function closeLinenShiftForBranch(branchId: string) {
+  const rows = await prisma.linenStock.findMany({ where: { branchId, floor: { not: LINEN_CENTRAL }, sum: { gt: 0 } } });
+  if (!rows.length) return { floors: 0, moved: 0 };
+  await prisma.$transaction(rows.map((s) => prisma.linenStock.update({ where: { id: s.id }, data: { rem: s.rem + s.sum, sum: 0 } })));
+  return { floors: new Set(rows.map((r) => r.floor)).size, moved: rows.reduce((a, r) => a + r.sum, 0) };
+}
+
 /** Transferencia masiva: varias filas (ítem × piso × cantidad) en una sola operación atómica. */
 export const transferBulkSchema = z.object({
   rows: z.array(z.object({
@@ -188,16 +200,7 @@ export const linenAdminService = {
    */
   async closeShift(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);
-    const rows = await prisma.linenStock.findMany({ where: { branchId, floor: { not: LINEN_CENTRAL }, sum: { gt: 0 } } });
-    if (!rows.length) return { ok: true, floors: 0, moved: 0 };
-    await prisma.$transaction(
-      rows.map((s) =>
-        prisma.linenStock.update({ where: { id: s.id }, data: { rem: s.rem + s.sum, sum: 0 } }),
-      ),
-    );
-    const floors = new Set(rows.map((r) => r.floor)).size;
-    const moved = rows.reduce((a, r) => a + r.sum, 0);
-    return { ok: true, floors, moved };
+    return { ok: true, ...(await closeLinenShiftForBranch(branchId)) };
   },
 
   /**
