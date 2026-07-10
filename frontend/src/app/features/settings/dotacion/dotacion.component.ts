@@ -250,21 +250,31 @@ export class DotacionComponent implements OnInit {
       const data = lin.data ?? null;
       this.primera.set(data);
       // Regla del tipo: cantidades base por categoría de ROPA (Dotación Base).
-      this.http.get<ApiResponse<{ name: string; articleKind: string; baseQty: number; source: string }[]>>(`${this.api}/rooms/${id}/inventory`).subscribe((invr) => {
+      // OJO: /rooms/:id/inventory devuelve { room, rows }, no un array plano.
+      this.http.get<ApiResponse<{ rows: { name: string; articleKind: string; baseQty: number; source: string }[] }>>(`${this.api}/rooms/${id}/inventory`).subscribe((invr) => {
         const req = new Map<string, number>();
-        for (const row of invr.data ?? []) {
+        for (const row of invr.data?.rows ?? []) {
           if (row.source === 'dotacion' && row.articleKind === 'LINEN_REUSABLE' && row.baseQty > 0) req.set(row.name.toUpperCase(), row.baseQty);
         }
         const avail = data?.floorAvailable ?? [];
+        // Agrupa la ropa disponible del piso por tipo. La regla (req) marca lo requerido y
+        // autorellena; los tipos sin regla quedan disponibles (0) para agregarlos manualmente.
+        const byType = new Map<string, FloorItem[]>();
+        for (const f of avail) {
+          const k = (f.type || '').toUpperCase();
+          if (!byType.has(k)) byType.set(k, []);
+          byType.get(k)!.push({ ...f, enviar: 0 as number });
+        }
+        for (const catUpper of req.keys()) if (!byType.has(catUpper)) byType.set(catUpper, []);
         const groups: PlanGroup[] = [];
-        for (const [catUpper, required] of req) {
-          const items = avail.filter((f) => (f.type || '').toUpperCase() === catUpper).map((f) => ({ ...f, enviar: 0 as number }));
-          if (!items.length) { groups.push({ category: this.prettyCat(avail, catUpper), required, items }); continue; }
-          // Auto-rellena para cumplir la cantidad requerida (greedy por disponible).
+        for (const [typeUpper, items] of byType) {
+          const required = req.get(typeUpper) ?? 0;
           let left = required;
           for (const it of items) { const take = Math.min(left, it.available); it.enviar = take; left -= take; if (left <= 0) break; }
-          groups.push({ category: items[0]?.type ?? this.prettyCat(avail, catUpper), required, items });
+          groups.push({ category: items[0]?.type ?? this.prettyCat(avail, typeUpper), required, items });
         }
+        // Primero las categorías con regla, luego el resto (alfabético).
+        groups.sort((a, b) => (b.required > 0 ? 1 : 0) - (a.required > 0 ? 1 : 0) || a.category.localeCompare(b.category));
         this.planGroups.set(groups);
       });
     });
