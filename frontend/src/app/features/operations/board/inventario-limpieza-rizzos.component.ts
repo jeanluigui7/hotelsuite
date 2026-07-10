@@ -60,12 +60,17 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
               @for (c of cols(); track c.type) {
                 <div class="thead" [style.background]="c.color">{{ c.label }}</div>
               }
-              <!-- Fila REM (remanente del turno anterior, solo lectura) -->
+              <!-- Fila REM (remanente del turno anterior; accionable: solicitar / manchada) -->
               <div class="rowlabel rem">REM</div>
               @for (c of cols(); track c.type) {
                 <div class="cell">
                   @for (r of byType(f, c.type); track r.linenItemId) {
-                    @if (r.rem > 0) { <span class="chip ro"><span class="dot" [style.background]="r.color || '#888'"></span>{{ r.rem }} {{ r.name }}</span> }
+                    @if (r.rem > 0) {
+                      <label class="chip">
+                        <input type="checkbox" [checked]="isSel(f.floor, r.linenItemId)" (change)="toggle(f.floor, r.linenItemId)" />
+                        <span class="dot" [style.background]="r.color || '#888'"></span>{{ r.rem }} {{ r.name }}
+                      </label>
+                    }
                   }
                 </div>
               }
@@ -75,20 +80,6 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
                 <div class="cell">
                   @for (r of byType(f, c.type); track r.linenItemId) {
                     @if (r.sum > 0) { <span class="chip ro"><span class="dot" [style.background]="r.color || '#888'"></span>{{ r.sum }} {{ r.name }}</span> }
-                  }
-                </div>
-              }
-              <!-- Fila DISPONIBLE = REM + SUM (accionable: solicitar / manchada) -->
-              <div class="rowlabel disp">DISP</div>
-              @for (c of cols(); track c.type) {
-                <div class="cell">
-                  @for (r of byType(f, c.type); track r.linenItemId) {
-                    @if (avail(r) > 0) {
-                      <label class="chip">
-                        <input type="checkbox" [checked]="isSel(f.floor, r.linenItemId)" (change)="toggle(f.floor, r.linenItemId)" />
-                        <span class="dot" [style.background]="r.color || '#888'"></span>{{ avail(r) }} {{ r.name }}
-                      </label>
-                    }
                   }
                 </div>
               }
