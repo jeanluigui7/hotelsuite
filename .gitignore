@@ -52,6 +52,10 @@ DESPLIEGUE.html
 ESPECIFICACIONES_TECNICAS.html
 ESPECIFICACIONES_TECNICAS.pdf
 
+# Runbook de despliegue manual (contiene la frase de la llave SSH — NUNCA commitear)
+DESPLIEGUE_MANUAL.html
+DESPLIEGUE_MANUAL.pdf
+
 # PDFs/HTML generados de documentación (regenerables; el .md sí se versiona)
 MANUAL_USUARIO.pdf
 MANUAL_USUARIO.html
