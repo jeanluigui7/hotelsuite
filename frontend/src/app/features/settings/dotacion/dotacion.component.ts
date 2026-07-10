@@ -104,7 +104,7 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
                     <div class="row">
                       <span class="rn">{{ it.name }}</span>
                       @if (g.key === 'CLOTHING') {
-                        <input class="size" pInputText [(ngModel)]="it.size" (blur)="saveField(it)" placeholder="Tamaño (ej. King, 2 plazas)" />
+                        <p-select class="size" [options]="sizesFor(it.name)" [(ngModel)]="it.size" (onChange)="saveField(it)" [placeholder]="sizesFor(it.name).length ? 'Tamaño' : 'Sin tamaños'" [showClear]="true" appendTo="body" styleClass="size-sel" />
                       }
                       <span class="q">Cant. <p-inputNumber [(ngModel)]="it.baseQty" [min]="1" [showButtons]="true" buttonLayout="horizontal" (onBlur)="saveField(it)" inputStyleClass="qi" /></span>
                       @if (canDelete) { <button class="del" (click)="removeItem(it)" title="Quitar"><i class="pi pi-trash"></i></button> }
@@ -285,6 +285,12 @@ export class DotacionComponent implements OnInit {
   }
 
   selectedTypeName(): string { return this.roomTypes().find((t) => t.id === this.roomTypeId)?.name ?? ''; }
+
+  /** Tamaños de una categoría de Ropa (por nombre), definidos en Inventario › Configuración › Categorías. */
+  sizesFor(name: string): string[] {
+    const c = this.categories().find((x) => x.name.toUpperCase() === (name || '').toUpperCase());
+    return c?.sizes ?? [];
+  }
 
   /** Chips agrupados: Ropa / Amenities / Sin clasificar. */
   readonly chipGroups = computed(() => {

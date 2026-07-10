@@ -62,9 +62,9 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
         <div class="search"><i class="pi pi-search"></i><input [(ngModel)]="search" placeholder="Buscar artículos..." /></div>
         <button class="pill" [class.on]="sortBy === 'code'" (click)="sortBy = 'code'"><i class="pi pi-sort-numeric-down"></i> Código</button>
         <button class="pill" [class.on]="sortBy === 'name'" (click)="sortBy = 'name'"><i class="pi pi-sort-alpha-down"></i> Nombre</button>
-        <button class="pill" [class.on]="typeFilter === 'TOALLA'" (click)="toggleType('TOALLA')"><i class="pi pi-inbox"></i> Toallas</button>
-        <button class="pill" [class.on]="typeFilter === 'SABANA'" (click)="toggleType('SABANA')"><i class="pi pi-inbox"></i> Sábanas</button>
-        <button class="pill" [class.on]="typeFilter === 'EDREDON'" (click)="toggleType('EDREDON')"><i class="pi pi-inbox"></i> Edredones</button>
+        @for (t of types(); track t) {
+          <button class="pill" [class.on]="typeFilter === t" (click)="toggleType(t)"><i class="pi pi-inbox"></i> {{ typeLabel(t) }}</button>
+        }
         <span class="sp"></span>
         <button class="op reponer" (click)="goRecepcionar()"><i class="pi pi-arrow-right-arrow-left"></i> Recepcionar Ropa Limpia</button>
         <button class="op enviar" (click)="goEnviar()"><i class="pi pi-arrow-right-arrow-left"></i> Enviar Ropa Solicitada</button>
@@ -345,6 +345,11 @@ export class AlmacenRopaComponent implements OnInit {
   }
 
   toggleType(t: string): void { this.typeFilter = this.typeFilter === t ? null : t; }
+
+  /** Tipos reales presentes (los ítems guardan como `type` el nombre de su categoría). */
+  types(): string[] {
+    return [...new Set(this.rows().map((r) => r.type).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+  }
 
   filtered(): Row[] {
     const q = this.search.trim().toLowerCase();
