@@ -48,6 +48,10 @@ DESPLIEGUE.md
 DESPLIEGUE.pdf
 DESPLIEGUE.html
 
+# Documento de especificaciones técnicas / entrega (tiene IP y credenciales por defecto)
+ESPECIFICACIONES_TECNICAS.html
+ESPECIFICACIONES_TECNICAS.pdf
+
 # PDFs/HTML generados de documentación (regenerables; el .md sí se versiona)
 MANUAL_USUARIO.pdf
 MANUAL_USUARIO.html
