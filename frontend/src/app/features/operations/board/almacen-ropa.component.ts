@@ -119,7 +119,7 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
           <button class="pg" [disabled]="page() === 1" (click)="page.set(page() - 1)"><i class="pi pi-chevron-left"></i></button>
           <span class="pg-cur">{{ page() }} / {{ totalPages() }}</span>
           <button class="pg" [disabled]="page() >= totalPages()" (click)="page.set(page() + 1)"><i class="pi pi-chevron-right"></i></button>
-          <select class="pg-size" [(ngModel)]="pageSize" (change)="page.set(1)"><option [ngValue]="10">10</option><option [ngValue]="25">25</option><option [ngValue]="50">50</option></select>
+          <select class="pg-size" [(ngModel)]="pageSize" (change)="page.set(1)"><option [ngValue]="9999">Todos</option><option [ngValue]="10">10</option><option [ngValue]="25">25</option><option [ngValue]="50">50</option></select>
         </div>
       }
     </section>
@@ -233,10 +233,10 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
       .op2 { display: inline-flex; align-items: center; gap: 0.4rem; border: 1px solid #274468; border-radius: 8px; padding: 0.5rem 0.9rem; font-weight: 700; font-size: 0.8rem; cursor: pointer; background: transparent; color: #cbd5e1; }
       .op2.in { background: #22c55e; color: #04130d; border: 0; } .op2.tr { background: #6366f1; color: #fff; border: 0; } .op2:disabled { opacity: 0.5; cursor: not-allowed; }
       .op2.ghost.on { background: #78350f; color: #fbbf24; }
-      .tbl-wrap { overflow-x: auto; border: 1px solid #1c2c44; border-radius: 12px; }
+      .tbl-wrap { max-height: 68vh; overflow: auto; border: 1px solid #1c2c44; border-radius: 12px; }
       .tbl { width: 100%; border-collapse: collapse; }
       .tbl th, .tbl td { padding: 0.6rem 0.7rem; border-bottom: 1px solid #16233a; text-align: left; font-size: 0.82rem; white-space: nowrap; vertical-align: middle; }
-      .tbl th { color: #8aa0bd; font-weight: 600; font-size: 0.7rem; background: #101a2c; }
+      .tbl th { color: #8aa0bd; font-weight: 600; font-size: 0.7rem; background: #101a2c; position: sticky; top: 0; z-index: 2; }
       .tbl .n { text-align: right; } .tbl .c { text-align: center; }
       .tbl tr.low { background: rgba(248,113,113,0.06); }
       .code { font-weight: 700; color: #cbd5e1; } .code small, .art small, td small { font-weight: 400; }
@@ -362,7 +362,7 @@ export class AlmacenRopaComponent implements OnInit {
 
   // ── Paginación ──
   readonly page = signal(1);
-  pageSize = 10;
+  pageSize = 9999; // por defecto: todos (se navega con scroll)
   totalPages(): number { return Math.max(1, Math.ceil(this.filtered().length / this.pageSize)); }
   paged(): Row[] {
     const p = Math.min(this.page(), this.totalPages());
