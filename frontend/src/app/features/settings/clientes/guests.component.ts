@@ -51,8 +51,9 @@ const EMPTY: Form = {
       </header>
 
       <div class="cat-toolbar">
-        <input pInputText placeholder="Buscar por nombre o documento…" [(ngModel)]="search" (keyup.enter)="reload()" />
+        <input pInputText placeholder="Buscar por nombre o documento…" [(ngModel)]="search" (ngModelChange)="onSearchChange()" (keyup.enter)="reload()" />
         <p-button label="Buscar" severity="secondary" (onClick)="reload()" />
+        @if (search) { <p-button label="Limpiar" severity="secondary" [text]="true" icon="pi pi-times" (onClick)="clearSearch()" /> }
       </div>
 
       <p-table [value]="items()" [loading]="loading()" [paginator]="true" [rows]="10" styleClass="p-datatable-sm">
@@ -152,7 +153,21 @@ export class GuestsComponent implements OnInit {
   readonly canEdit = this.auth.can('settings', 'edit');
   readonly canDelete = this.auth.can('settings', 'delete');
 
+  private searchTimer: ReturnType<typeof setTimeout> | null = null;
+
   ngOnInit(): void {
+    this.reload();
+  }
+
+  /** Filtro en vivo: recarga con debounce mientras se escribe. */
+  onSearchChange(): void {
+    if (this.searchTimer) clearTimeout(this.searchTimer);
+    this.searchTimer = setTimeout(() => this.reload(), 350);
+  }
+
+  clearSearch(): void {
+    this.search = '';
+    if (this.searchTimer) clearTimeout(this.searchTimer);
     this.reload();
   }
 
