@@ -96,15 +96,15 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
         } @empty { <p class="muted">Sin inventario de ropa configurado.</p> }
       </div>
 
-      <h3>Amenities y Productos por Áreas</h3>
+      <h3>Amenities de Limpieza</h3>
       <div class="amen-grid">
         <div class="amen-card">
-          <div class="amen-h">{{ amenWh() || 'ALMACEN AMENITIES' }}<small>{{ amenities().length }} items</small></div>
+          <div class="amen-h">{{ amenWh() || 'AMENITIES - LIMPIEZA' }}<small>{{ amenities().length }} items</small></div>
           <div class="amen-sum">SUMINISTRADO</div>
           <div class="amen-list">
             @for (a of amenities(); track a.productId) {
               <div class="amen-row"><span class="an">{{ a.name }}</span><span class="aq">{{ a.quantity }}</span></div>
-            } @empty { <p class="muted amen-empty">Sin amenities cargados en el almacén.</p> }
+            } @empty { <p class="muted amen-empty">Aún no se ha suministrado amenities a limpieza. Transfiérelos desde Almacén de Amenities → "Transferir a Limpieza".</p> }
           </div>
         </div>
       </div>

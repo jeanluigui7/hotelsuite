@@ -665,12 +665,13 @@ export const cleaningService = {
   },
 
   /**
-   * Amenities de limpieza (solo lectura): stock del ALMACEN AMENITIES de la sede.
-   * Son productos clasificados como Amenities, cargados en ese almacén.
+   * Amenities de limpieza (solo lectura): stock del almacén AMENITIES - LIMPIEZA (el que se
+   * abastece desde el ALMACEN AMENITIES general). NO muestra el almacén general: aquí solo
+   * se ven las cantidades suministradas en físico al personal de limpieza.
    */
   async amenitiesInventory(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);
-    const wh = await prisma.warehouse.findFirst({ where: { branchId, type: 'AMENITIES' } });
+    const wh = await prisma.warehouse.findFirst({ where: { branchId, type: 'AMENITIES', name: 'AMENITIES - LIMPIEZA' } });
     if (!wh) return { warehouse: null, items: [] };
     const stocks = await prisma.stock.findMany({ where: { warehouseId: wh.id }, orderBy: { updatedAt: 'desc' } });
     const products = await prisma.product.findMany({ where: { id: { in: stocks.map((s) => s.productId) } }, select: { id: true, name: true, sku: true } });
