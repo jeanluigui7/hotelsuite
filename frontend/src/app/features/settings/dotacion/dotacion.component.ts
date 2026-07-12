@@ -24,10 +24,12 @@ interface Dotacion {
   status: string;
 }
 interface FloorItem { linenItemId: string; name: string; type: string; color?: string | null; available: number; enviar: number; }
+interface AmenLine { productId: string; name: string; reusable: boolean; available: number; enviar: number; }
 interface PrimeraData {
-  room: { id: string; number: string; floor?: string | null; tower?: string | null; roomType?: { name: string }; linenFloor: string | null };
+  room: { id: string; number: string; floor?: string | null; tower?: string | null; roomType?: { name: string }; linenFloor: string | null; amenitiesWarehouse?: string | null };
   items: { linenItemId: string; name: string; type: string; quantity: number }[];
   floorAvailable: { linenItemId: string; name: string; type: string; color?: string | null; available: number }[];
+  amenitiesAvailable?: { productId: string; name: string; reusable: boolean; available: number }[];
 }
 interface PlanGroup { category: string; required: number; items: FloorItem[]; }
 
@@ -131,8 +133,10 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
 
       @if (primeraRoomId && primera(); as p) {
         <div class="pd-info">Piso de ropa: <b>{{ p.room.linenFloor || 'sin piso' }}</b> · Regla del tipo <b>{{ p.room.roomType?.name }}</b></div>
-        @if (!p.room.linenFloor) { <p class="muted">La habitación no tiene un piso/subalmacén asignado (configúralo en Inventario › Áreas).</p> }
-        @else if (planGroups().length === 0) { <p class="muted">El tipo de habitación no tiene ropa en su Dotación Base, o no hay ropa disponible en el piso.</p> }
+        <!-- ROPA -->
+        <div class="pd-sect">Ropa @if (p.room.linenFloor) { · piso {{ p.room.linenFloor }} }</div>
+        @if (!p.room.linenFloor) { <p class="muted">La habitación no tiene un piso/subalmacén asignado; no se puede dotar ropa (configúralo en Inventario › Áreas).</p> }
+        @else if (planGroups().length === 0) { <p class="muted">Sin ropa disponible en el piso, o el tipo no tiene regla de ropa.</p> }
         @else {
           @for (g of planGroups(); track g.category) {
             <div class="pd-cat">
@@ -151,8 +155,29 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
               </table>
             </div>
           }
-          @if (primeraOver()) { <p class="pd-over"><i class="pi pi-exclamation-triangle"></i> Alguna cantidad supera el disponible del piso.</p> }
         }
+
+        <!-- AMENITIES -->
+        <div class="pd-sect">Amenities · {{ p.room.amenitiesWarehouse || 'AMENITIES - LIMPIEZA' }}</div>
+        @if (amenLines().length > 0) {
+          <div class="pd-cat">
+            <table class="pd-tbl">
+              <thead><tr><th>Amenity</th><th class="cn">Disp.</th><th class="cn">Dotar</th></tr></thead>
+              <tbody>
+                @for (a of amenLines(); track a.productId) {
+                  <tr>
+                    <td class="nm">{{ a.name }} @if (a.reusable) { <span class="reu">reutilizable</span> }</td>
+                    <td class="cn" [class.zero]="a.available === 0">{{ a.available }}</td>
+                    <td class="cn"><p-inputNumber [(ngModel)]="a.enviar" [min]="0" [max]="a.available" inputStyleClass="qi" /></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        } @else {
+          <p class="muted">Sin amenities en AMENITIES - LIMPIEZA. Transfiérelos primero desde Almacén de Amenities → "Transferir a Limpieza".</p>
+        }
+        @if (primeraOver()) { <p class="pd-over"><i class="pi pi-exclamation-triangle"></i> Alguna cantidad supera el disponible.</p> }
       }
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="primeraVisible = false" />
@@ -191,6 +216,8 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
       .pd-sub { color: #8b97a8; font-size: 0.86rem; margin: 0 0 0.6rem; }
       .pd-bar { margin-bottom: 0.8rem; } :host ::ng-deep .w { width: 100%; }
       .pd-info { background: #101a2c; border: 1px solid #24344a; border-radius: 8px; padding: 0.5rem 0.8rem; font-size: 0.84rem; color: #cdd8e6; margin-bottom: 0.7rem; }
+      .pd-sect { font-size: 0.78rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: #6ee7b7; margin: 1rem 0 0.5rem; }
+      .reu { font-size: 0.66rem; font-weight: 700; background: #064e3b; color: #6ee7b7; border-radius: 999px; padding: 0.08rem 0.45rem; margin-left: 0.35rem; }
       .pd-cat { border: 1px solid #1f2a3a; border-radius: 10px; margin-bottom: 0.7rem; overflow: hidden; }
       .pd-cat-h { background: #101a2c; padding: 0.5rem 0.8rem; font-weight: 700; color: #cdd8e6; display: flex; justify-content: space-between; align-items: center; }
       .pd-req { font-size: 0.74rem; font-weight: 700; color: #fbbf24; background: #2a2410; border-radius: 999px; padding: 0.12rem 0.55rem; } .pd-req.ok { color: #6ee7b7; background: #06281f; }
@@ -225,6 +252,7 @@ export class DotacionComponent implements OnInit {
   readonly rooms = signal<{ id: string; number: string; floor?: string | null; roomType?: { name: string } }[]>([]);
   readonly primera = signal<PrimeraData | null>(null);
   readonly planGroups = signal<PlanGroup[]>([]);
+  readonly amenLines = signal<AmenLine[]>([]);
   readonly primeraBusy = signal(false);
   primeraVisible = false;
   primeraRoomId: string | null = null;
@@ -239,16 +267,18 @@ export class DotacionComponent implements OnInit {
       .subscribe((r) => this.rooms.set(r.data ?? []));
   }
 
-  openPrimera(): void { this.primeraVisible = true; this.primeraRoomId = null; this.primera.set(null); this.planGroups.set([]); }
+  openPrimera(): void { this.primeraVisible = true; this.primeraRoomId = null; this.primera.set(null); this.planGroups.set([]); this.amenLines.set([]); }
 
   /** Carga la ropa disponible del piso + la regla del tipo, y arma el plan auto-rellenado. */
   loadPrimera(): void {
     const id = this.primeraRoomId;
-    if (!id) { this.primera.set(null); this.planGroups.set([]); return; }
-    this.primera.set(null); this.planGroups.set([]);
+    if (!id) { this.primera.set(null); this.planGroups.set([]); this.amenLines.set([]); return; }
+    this.primera.set(null); this.planGroups.set([]); this.amenLines.set([]);
     this.http.get<ApiResponse<PrimeraData>>(`${this.api}/rooms/${id}/linen`).subscribe((lin) => {
       const data = lin.data ?? null;
       this.primera.set(data);
+      // Amenities disponibles en AMENITIES - LIMPIEZA (para dotar; cantidad manual).
+      this.amenLines.set((data?.amenitiesAvailable ?? []).map((a) => ({ ...a, enviar: 0 })));
       // Regla del tipo: cantidades base por categoría de ROPA (Dotación Base).
       // OJO: /rooms/:id/inventory devuelve { room, rows }, no un array plano.
       this.http.get<ApiResponse<{ rows: { name: string; articleKind: string; baseQty: number; source: string }[] }>>(`${this.api}/rooms/${id}/inventory`).subscribe((invr) => {
@@ -281,15 +311,22 @@ export class DotacionComponent implements OnInit {
   }
   private prettyCat(avail: { type: string }[], up: string): string { return avail.find((a) => (a.type || '').toUpperCase() === up)?.type ?? up; }
   assigned(g: PlanGroup): number { return g.items.reduce((a, f) => a + (Number(f.enviar) || 0), 0); }
-  primeraOver(): boolean { return this.planGroups().some((g) => g.items.some((f) => (Number(f.enviar) || 0) > f.available)); }
-  primeraReady(): boolean { return !this.primeraOver() && this.planGroups().some((g) => this.assigned(g) > 0); }
+  amenOver(): boolean { return this.amenLines().some((a) => (Number(a.enviar) || 0) > a.available); }
+  totalAmen(): number { return this.amenLines().reduce((s, a) => s + (Number(a.enviar) || 0), 0); }
+  primeraOver(): boolean { return this.planGroups().some((g) => g.items.some((f) => (Number(f.enviar) || 0) > f.available)) || this.amenOver(); }
+  primeraReady(): boolean {
+    if (this.primeraOver()) return false;
+    const anyRopa = this.planGroups().some((g) => this.assigned(g) > 0);
+    return anyRopa || this.totalAmen() > 0;
+  }
   confirmPrimera(): void {
     const id = this.primeraRoomId;
     if (!id || !this.primeraReady()) return;
     const items = this.planGroups().flatMap((g) => g.items).filter((f) => (Number(f.enviar) || 0) > 0).map((f) => ({ linenItemId: f.linenItemId, quantity: Number(f.enviar) || 0 }));
+    const amenities = this.amenLines().filter((a) => (Number(a.enviar) || 0) > 0).map((a) => ({ productId: a.productId, quantity: Number(a.enviar) || 0 }));
     this.primeraBusy.set(true);
-    this.http.post<ApiResponse<{ items: number }>>(`${this.api}/rooms/${id}/dote-linen`, { items }).subscribe({
-      next: () => { this.primeraBusy.set(false); this.primeraVisible = false; this.messages.add({ severity: 'success', summary: 'Habitación dotada', detail: `${items.length} prenda(s) asignadas y descontadas del piso.` }); },
+    this.http.post<ApiResponse<{ items: number; amenities: number }>>(`${this.api}/rooms/${id}/dote-linen`, { items, amenities }).subscribe({
+      next: () => { this.primeraBusy.set(false); this.primeraVisible = false; this.messages.add({ severity: 'success', summary: 'Habitación dotada', detail: `${items.length} prenda(s) y ${amenities.length} amenity(s) asignados.` }); },
       error: (e: HttpErrorResponse) => { this.primeraBusy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo dotar.' }); },
     });
   }

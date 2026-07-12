@@ -16,13 +16,14 @@ export const saveInitialSchema = z.object({
 
 export const loadBaseSchema = z.object({ note: z.string().max(300).optional().or(z.literal('')) });
 
-// Dotación por PRENDA ESPECÍFICA: coloca ropa exacta en la habitación descontándola del piso.
-export const doteLinenSchema = z.object({
-  items: z
-    .array(z.object({ linenItemId: z.string().min(1), quantity: z.coerce.number().int().min(1) }))
-    .min(1),
-  note: z.string().max(300).optional().or(z.literal('')),
-});
+// Dotación de habitación: prendas de ropa (del piso) y/o amenities (de AMENITIES - LIMPIEZA).
+export const doteLinenSchema = z
+  .object({
+    items: z.array(z.object({ linenItemId: z.string().min(1), quantity: z.coerce.number().int().min(1) })).optional().default([]),
+    amenities: z.array(z.object({ productId: z.string().min(1), quantity: z.coerce.number().int().min(1) })).optional().default([]),
+    note: z.string().max(300).optional().or(z.literal('')),
+  })
+  .refine((v) => v.items.length > 0 || v.amenities.length > 0, { message: 'Indica al menos una prenda o amenity a dotar' });
 
 export type SaveInitialDto = z.infer<typeof saveInitialSchema>;
 export type LoadBaseDto = z.infer<typeof loadBaseSchema>;

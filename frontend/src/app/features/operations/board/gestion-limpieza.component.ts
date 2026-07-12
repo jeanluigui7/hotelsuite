@@ -583,13 +583,18 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     this.iniStep = 'fase1';
     this.rows.set([]);
     this.iniciarVisible = true;
-    // BASE: SOLO la ropa realmente dotada a ESTA habitación (no todo el almacén).
-    this.http.get<ApiResponse<{ items: { linenItemId: string; name: string; type: string; color: string | null; quantity: number }[] }>>(`${this.api}/rooms/${r.id}/linen`).subscribe((res) => {
+    // BASE: SOLO lo realmente dotado a ESTA habitación (ropa + amenities), no todo el almacén.
+    this.http.get<ApiResponse<{ items: { linenItemId: string; name: string; type: string; color: string | null; quantity: number }[]; amenities: { productId: string; name: string; reusable: boolean; quantity: number }[] }>>(`${this.api}/rooms/${r.id}/linen`).subscribe((res) => {
       const base: InspRow[] = (res.data?.items ?? []).map((it) => ({
         item: { id: it.linenItemId, type: it.type, name: it.name, color: it.color, reusable: true },
         tipo: 'BASE' as const, state: 'OK' as const, pickup: !this.isEdredon(it.type), qty: it.quantity,
       }));
-      this.rows.set(base);
+      // Amenities dotados a la habitación (se recogen por defecto).
+      const amenities: InspRow[] = (res.data?.amenities ?? []).map((a) => ({
+        item: { id: 'amn-' + a.productId, type: 'AMENITY', name: a.name, reusable: a.reusable },
+        tipo: 'BASE' as const, state: 'OK' as const, pickup: true, qty: a.quantity,
+      }));
+      this.rows.set([...base, ...amenities]);
       // EXTRA: suministros pendientes de la habitación (recoger obligatorio).
       this.http.get<ApiResponse<{ id: string; room: string; description: string; quantity?: number }[]>>(`${this.api}/services/supplies?status=PENDING`).subscribe((res2) => {
         const sups = (res2.data ?? []).filter((s) => s.room === r.number);
@@ -631,7 +636,7 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     if (!this.selRoom) return;
     this.busy.set(true);
     const inspections = this.rows().map((r) => ({
-      linenItemId: r.item.id.startsWith('sup-') ? undefined : r.item.id,
+      linenItemId: r.item.id.startsWith('sup-') || r.item.id.startsWith('amn-') ? undefined : r.item.id,
       description: `${this.typeLabel(r.item.type)} ${r.item.name}`,
       state: r.state,
       pickup: this.effPickup(r),

@@ -165,7 +165,23 @@ export const roomInventoryService = {
       .filter((x) => x.available > 0 && x.name)
       .map((x) => ({ linenItemId: x.linenItemId, name: x.name as string, type: x.type ?? 'ROPA', color: x.color ?? null, available: x.available }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    return { room: { id: room.id, number: room.number, floor: room.floor, tower: room.tower, roomType: room.roomType, linenFloor: floor }, items, floorAvailable };
+
+    // Amenities: los que tiene la habitación + los disponibles en AMENITIES - LIMPIEZA.
+    const amenLimp = await prisma.warehouse.findFirst({ where: { branchId, type: 'AMENITIES', name: 'AMENITIES - LIMPIEZA' } });
+    const [amenInv, amenStock] = await Promise.all([
+      prisma.roomInventory.findMany({ where: { roomId, articleKind: 'AMENITY', productId: { not: null }, quantity: { gt: 0 } } }),
+      amenLimp ? prisma.stock.findMany({ where: { warehouseId: amenLimp.id, quantity: { gt: 0 } } }) : Promise.resolve([]),
+    ]);
+    const amenIds = [...new Set([...amenInv.map((i) => i.productId), ...amenStock.map((s) => s.productId)].filter((x): x is string => !!x))];
+    const amenProds = await prisma.product.findMany({ where: { id: { in: amenIds } }, select: { id: true, name: true, reusable: true } });
+    const apm = new Map(amenProds.map((p) => [p.id, p]));
+    const amenities = amenInv.map((i) => ({ productId: i.productId, name: apm.get(i.productId ?? '')?.name ?? i.name, reusable: apm.get(i.productId ?? '')?.reusable ?? false, quantity: i.quantity }));
+    const amenitiesAvailable = amenStock
+      .map((s) => ({ productId: s.productId, name: apm.get(s.productId)?.name ?? '—', reusable: apm.get(s.productId)?.reusable ?? false, available: s.quantity }))
+      .filter((x) => x.name !== '—')
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return { room: { id: room.id, number: room.number, floor: room.floor, tower: room.tower, roomType: room.roomType, linenFloor: floor, amenitiesWarehouse: amenLimp?.name ?? null }, items, floorAvailable, amenities, amenitiesAvailable };
   },
 
   /**
@@ -175,18 +191,26 @@ export const roomInventoryService = {
   async doteLinen(scope: RequestScope, roomId: string, dto: DoteLinenDto) {
     const room = await getRoom(scope, roomId);
     const branchId = room.branchId;
-    const floor = await resolveRoomFloor(branchId, roomId, room.tower, room.floor);
-    if (!floor) throw new ValidationError('La habitación no tiene un piso/subalmacén asignado para tomar la ropa.');
+    const floor = dto.items.length ? await resolveRoomFloor(branchId, roomId, room.tower, room.floor) : null;
+    if (dto.items.length && !floor) throw new ValidationError('La habitación no tiene un piso/subalmacén asignado para tomar la ropa.');
     const ids = [...new Set(dto.items.map((i) => i.linenItemId))];
     const linen = await prisma.linenItem.findMany({ where: { id: { in: ids }, branchId }, select: { id: true, name: true, type: true } });
     if (linen.length !== ids.length) throw new ValidationError('Prenda de ropa no encontrada');
     const lmap = new Map(linen.map((l) => [l.id, l]));
+
+    // Amenities: se toman del almacén AMENITIES - LIMPIEZA.
+    const amenIds = [...new Set(dto.amenities.map((a) => a.productId))];
+    const amenLimp = amenIds.length ? await prisma.warehouse.findFirst({ where: { branchId, type: 'AMENITIES', name: 'AMENITIES - LIMPIEZA' } }) : null;
+    if (amenIds.length && !amenLimp) throw new ValidationError('No existe el almacén AMENITIES - LIMPIEZA en esta sucursal.');
+    const amenProds = await prisma.product.findMany({ where: { id: { in: amenIds }, branchId }, select: { id: true, name: true } });
+    if (amenProds.length !== amenIds.length) throw new ValidationError('Amenity no encontrado');
+    const apMap = new Map(amenProds.map((p) => [p.id, p]));
+
     await prisma.$transaction(async (tx) => {
+      // ── Ropa ──
       for (const it of dto.items) {
         const l = lmap.get(it.linenItemId)!;
-        // Descuenta del piso (lanza si el disponible REM+SUM es insuficiente).
-        await consumeFloorTx(tx, it.linenItemId, floor, it.quantity);
-        // Suma a la habitación (por prenda específica).
+        await consumeFloorTx(tx, it.linenItemId, floor!, it.quantity);
         const key = { roomId_articleKind_name: { roomId, articleKind: 'LINEN_REUSABLE', name: l.name } };
         const existing = await tx.roomInventory.findUnique({ where: key });
         await tx.roomInventory.upsert({
@@ -195,13 +219,30 @@ export const roomInventoryService = {
           create: { branchId, roomId, articleKind: 'LINEN_REUSABLE', name: l.name, linenItemId: it.linenItemId, quantity: it.quantity },
         });
         await tx.roomInventoryMovement.create({
-          data: { branchId, roomId, type: 'ROOM_LOAD', articleKind: 'LINEN_REUSABLE', name: l.name, quantity: it.quantity, fromLocation: floor, toLocation: `Habitación ${room.number}`, reference: 'Dotación de ropa a la habitación', note: dto.note || null, createdByUserId: scope.userId },
+          data: { branchId, roomId, type: 'ROOM_LOAD', articleKind: 'LINEN_REUSABLE', name: l.name, quantity: it.quantity, fromLocation: floor!, toLocation: `Habitación ${room.number}`, reference: 'Dotación de ropa a la habitación', note: dto.note || null, createdByUserId: scope.userId },
         });
         await tx.linenMovement.create({
-          data: { branchId, linenItemId: it.linenItemId, type: 'SUPPLY', quantity: -it.quantity, floor, areaFrom: floor, areaTo: `Hab. ${room.number}`, reference: 'Dotación a habitación', createdByUserId: scope.userId },
+          data: { branchId, linenItemId: it.linenItemId, type: 'SUPPLY', quantity: -it.quantity, floor: floor!, areaFrom: floor!, areaTo: `Hab. ${room.number}`, reference: 'Dotación a habitación', createdByUserId: scope.userId },
+        });
+      }
+      // ── Amenities (desde AMENITIES - LIMPIEZA) ──
+      for (const a of dto.amenities) {
+        const p = apMap.get(a.productId)!;
+        const st = await tx.stock.findFirst({ where: { productId: a.productId, warehouseId: amenLimp!.id } });
+        if (!st || st.quantity < a.quantity) throw new ValidationError(`Amenity "${p.name}" insuficiente en AMENITIES - LIMPIEZA (disponible ${st?.quantity ?? 0}).`);
+        await tx.stock.update({ where: { id: st.id }, data: { quantity: { decrement: a.quantity } } });
+        const key = { roomId_articleKind_name: { roomId, articleKind: 'AMENITY', name: p.name } };
+        const existing = await tx.roomInventory.findUnique({ where: key });
+        await tx.roomInventory.upsert({
+          where: key,
+          update: { quantity: (existing?.quantity ?? 0) + a.quantity, productId: a.productId },
+          create: { branchId, roomId, articleKind: 'AMENITY', name: p.name, productId: a.productId, quantity: a.quantity },
+        });
+        await tx.roomInventoryMovement.create({
+          data: { branchId, roomId, type: 'ROOM_LOAD', articleKind: 'AMENITY', name: p.name, quantity: a.quantity, fromLocation: 'AMENITIES - LIMPIEZA', toLocation: `Habitación ${room.number}`, reference: 'Dotación de amenity a la habitación', note: dto.note || null, createdByUserId: scope.userId },
         });
       }
     });
-    return { ok: true, items: dto.items.length };
+    return { ok: true, items: dto.items.length, amenities: dto.amenities.length };
   },
 };
