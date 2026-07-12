@@ -25,6 +25,10 @@ export const startSchema = z.object({
       }),
     )
     .default([]),
+  // Amenities recogidos en la FASE 1 (desechable se consume + repone; reutilizable retorna).
+  amenityRecojo: z
+    .array(z.object({ productId: z.string().min(1), reusable: z.boolean().default(false), quantity: z.coerce.number().int().min(1) }))
+    .default([]),
 });
 export type StartDto = z.infer<typeof startSchema>;
 
@@ -123,6 +127,35 @@ export const cleaningService = {
       },
     });
     await prisma.room.update({ where: { id: roomId }, data: { status: 'LIMPIEZA_EN_CURSO' } });
+
+    // Amenities recogidos: desechable se consume y se repone desde AMENITIES - LIMPIEZA
+    // (decrementa su stock); reutilizable retorna (neto sin cambio). La habitación conserva
+    // su dotación (la reposición reemplaza lo recogido), por eso NO se toca RoomInventory.
+    if (dto.amenityRecojo.length) {
+      const amenLimp = await prisma.warehouse.findFirst({ where: { branchId, type: 'AMENITIES', name: 'AMENITIES - LIMPIEZA' } });
+      const prods = await prisma.product.findMany({ where: { id: { in: dto.amenityRecojo.map((a) => a.productId) }, branchId }, select: { id: true, name: true } });
+      const pm = new Map(prods.map((p) => [p.id, p.name]));
+      await prisma.$transaction(async (tx) => {
+        for (const a of dto.amenityRecojo) {
+          const name = pm.get(a.productId) ?? 'Amenity';
+          if (!a.reusable && amenLimp) {
+            // Desechable: la reposición toma uno nuevo del almacén de limpieza.
+            const st = await tx.stock.findFirst({ where: { productId: a.productId, warehouseId: amenLimp.id } });
+            const dec = Math.min(a.quantity, st?.quantity ?? 0);
+            if (dec > 0 && st) await tx.stock.update({ where: { id: st.id }, data: { quantity: { decrement: dec } } });
+          }
+          await tx.roomInventoryMovement.create({
+            data: {
+              branchId, roomId, type: 'RECOJO', articleKind: 'AMENITY', name, quantity: -a.quantity,
+              fromLocation: `Habitación ${room.number}`,
+              toLocation: a.reusable ? 'AMENITIES - LIMPIEZA (retorno)' : 'Consumido',
+              reference: a.reusable ? 'Amenity reutilizable recogido (retorna)' : 'Amenity desechable recogido (repuesto)',
+              createdByUserId: scope.userId,
+            },
+          });
+        }
+      });
+    }
     return { taskId: task.id };
   },
 

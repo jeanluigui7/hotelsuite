@@ -624,7 +624,12 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     if (row.state === 'ROBADA') return 'Marcado como ausente "—" → reposición automática (sábanas/toallas).';
     if (row.state === 'DETERIORADA') return 'Deteriorada → se recoge y se repone.';
     if (row.tipo === 'EXTRA') return 'Suministro adicional → se recoge obligatoriamente (no se repone).';
-    if (row.item.type === 'AMENITY') return 'Se recoge → va al inventario correspondiente.';
+    if (row.item.type === 'AMENITY') {
+      if (!this.effPickup(row)) return 'Se deja → permanece en la habitación.';
+      return row.item.reusable
+        ? 'Amenity reutilizable → se recoge, retorna y se repone desde AMENITIES - LIMPIEZA.'
+        : 'Amenity desechable → se recoge (consumido) y se repone desde AMENITIES - LIMPIEZA.';
+    }
     return this.effPickup(row)
       ? 'Se recoge → va a lavandería y se repone automáticamente.'
       : 'Se deja en la habitación → permanece hasta la próxima limpieza (sin reposición).';
@@ -641,7 +646,11 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
       state: r.state,
       pickup: this.effPickup(r),
     }));
-    this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/${this.selRoom.id}/start`, { inspections }).subscribe({
+    // Amenities recogidos (desechable/reutilizable) → el backend consume/repone.
+    const amenityRecojo = this.rows()
+      .filter((r) => r.item.id.startsWith('amn-') && this.effPickup(r))
+      .map((r) => ({ productId: r.item.id.slice(4), reusable: !!r.item.reusable, quantity: r.qty }));
+    this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/${this.selRoom.id}/start`, { inspections, amenityRecojo }).subscribe({
       next: () => { this.busy.set(false); this.iniciarVisible = false; this.toast.add({ severity: 'success', summary: 'Limpieza iniciada', detail: `Hab. ${this.selRoom?.number} en curso` }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo iniciar.' }); },
     });
