@@ -394,7 +394,7 @@ export class AlmacenProductosComponent implements OnInit {
   }
 
   reload(): void {
-    this.inventory.products.list({ pageSize: 300 }).subscribe((r) => this.products.set(r.data ?? []));
+    this.inventory.products.list({ pageSize: 300, itemType: 'PRODUCT' }).subscribe((r) => this.products.set(r.data ?? []));
     this.http.get<ApiResponse<Req[]>>(`${this.api}/reception-inventory/requests`).subscribe((r) => this.requests.set(r.data ?? []));
   }
 
@@ -608,7 +608,7 @@ export class AlmacenProductosComponent implements OnInit {
   }
   /** Recarga productos+solicitudes y reconstruye las líneas; cierra si ya no queda nada. */
   private afterSendReload(): void {
-    this.inventory.products.list({ pageSize: 300 }).subscribe((r) => this.products.set(r.data ?? []));
+    this.inventory.products.list({ pageSize: 300, itemType: 'PRODUCT' }).subscribe((r) => this.products.set(r.data ?? []));
     this.http.get<ApiResponse<Req[]>>(`${this.api}/reception-inventory/requests`).subscribe((r) => {
       this.requests.set(r.data ?? []);
       this.openEnviarRebuild();

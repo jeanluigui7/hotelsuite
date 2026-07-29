@@ -49,7 +49,7 @@ async function assertCategoryInBranch(categoryId: string | null | undefined, bra
 }
 
 export const productsService = {
-  async list(scope: RequestScope, params: PaginationParams, area?: string, status?: string) {
+  async list(scope: RequestScope, params: PaginationParams, area?: string, status?: string, itemType?: string) {
     const branchId = requireActiveBranch(scope);
     // El stock mostrado depende del área: general (PRODUCTS) o el almacén de
     // Recepción/Frigobar cuando la venta es de esa área.
@@ -69,6 +69,15 @@ export const productsService = {
     // Filtro por estado: 'active' | 'inactive'. Sin valor (o 'all') devuelve todos
     // (la grilla admin filtra en cliente); venta/check-in piden solo 'active'.
     if (status === 'active' || status === 'inactive') where.status = status;
+    // Separación por tipo de ítem: un AMENITY se identifica por productType='AMENITY'
+    // o por su categoría (type='AMENITY'), NO por el prefijo del código.
+    // - Amenities (o area AMENITIES): SOLO amenities.
+    // - Recepción/Frigobar o itemType=PRODUCT: EXCLUYE amenities.
+    const AMENITY: Prisma.ProductWhereInput = { OR: [{ productType: 'AMENITY' }, { category: { type: 'AMENITY' } }] };
+    const onlyAmenities = area === 'AMENITIES' || itemType === 'AMENITY';
+    const excludeAmenities = area === 'RECEPTION' || area === 'FRIGOBAR' || itemType === 'PRODUCT';
+    if (onlyAmenities) where.AND = [AMENITY];
+    else if (excludeAmenities) where.AND = [{ NOT: AMENITY }];
     const { skip, take } = toPrismaPaging(params);
     const [rows, total] = await Promise.all([
       productsRepository.list({ where, skip, take, orderBy: buildOrderBy(params, SORTABLE, 'name') }),

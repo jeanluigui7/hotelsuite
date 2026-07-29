@@ -92,7 +92,8 @@ export const receptionInventoryService = {
     const win = this.turnWindow(shifts, opts?.date, opts?.shift);
 
     const [products, stocks, movs] = await Promise.all([
-      prisma.product.findMany({ where: { branchId, status: 'active' }, include: { category: { select: { name: true } } }, orderBy: { sku: 'asc' } }),
+      // Recepción = SOLO productos (excluye amenities: productType o categoría AMENITY).
+      prisma.product.findMany({ where: { branchId, status: 'active', NOT: { OR: [{ productType: 'AMENITY' }, { category: { type: 'AMENITY' } }] } }, include: { category: { select: { name: true } } }, orderBy: { sku: 'asc' } }),
       prisma.stock.findMany({ where: { warehouseId: whId } }),
       // Solo se necesitan los movimientos desde el inicio del turno en adelante.
       prisma.inventoryMovement.findMany({

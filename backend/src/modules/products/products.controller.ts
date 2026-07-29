@@ -11,7 +11,8 @@ export const productsController = {
     const params = paginationSchema.parse(req.query);
     const area = typeof req.query.area === 'string' ? req.query.area : undefined;
     const status = typeof req.query.status === 'string' ? req.query.status : undefined;
-    const { items, meta } = await productsService.list(req.scope, params, area, status);
+    const itemType = typeof req.query.itemType === 'string' ? req.query.itemType : undefined;
+    const { items, meta } = await productsService.list(req.scope, params, area, status, itemType);
     res.status(200).json(ok(items, meta));
   },
   async getById(req: Request, res: Response): Promise<void> {
