@@ -24,14 +24,15 @@ interface Dotacion {
   status: string;
 }
 interface FloorItem { linenItemId: string; name: string; type: string; size?: string | null; color?: string | null; available: number; enviar: number; }
-interface AmenLine { productId: string; name: string; reusable: boolean; available: number; enviar: number; }
+interface AmenVariant { productId: string; name: string; reusable: boolean; category?: string | null; available: number; enviar: number; }
 interface PrimeraData {
   room: { id: string; number: string; floor?: string | null; tower?: string | null; roomType?: { name: string }; linenFloor: string | null; amenitiesWarehouse?: string | null };
   items: { linenItemId: string; name: string; type: string; quantity: number }[];
   floorAvailable: { linenItemId: string; name: string; type: string; size?: string | null; color?: string | null; available: number }[];
-  amenitiesAvailable?: { productId: string; name: string; reusable: boolean; available: number }[];
+  amenitiesAvailable?: { productId: string; name: string; reusable: boolean; category?: string | null; available: number }[];
 }
 interface PlanGroup { category: string; size: string | null; required: number; items: FloorItem[]; }
+interface AmenGroup { category: string; required: number; items: AmenVariant[]; }
 
 /** Tipo de ítem de la categoría → clase de artículo de la dotación. */
 const TYPE_TO_KIND: Record<string, string> = { CLOTHING: 'LINEN_REUSABLE', AMENITY: 'AMENITY', PRODUCT: 'SALE', CLEANING_SUPPLY: 'ASSET' };
@@ -136,11 +137,11 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
         <!-- ROPA -->
         <div class="pd-sect">Ropa @if (p.room.linenFloor) { · piso {{ p.room.linenFloor }} }</div>
         @if (!p.room.linenFloor) { <p class="muted">La habitación no tiene un piso/subalmacén asignado; no se puede dotar ropa (configúralo en Inventario › Áreas).</p> }
-        @else if (planGroups().length === 0) { <p class="muted">Sin ropa disponible en el piso, o el tipo no tiene regla de ropa.</p> }
+        @else if (planGroups().length === 0) { <p class="muted">El tipo <b>{{ p.room.roomType?.name }}</b> no tiene regla de ropa en la Dotación Base.</p> }
         @else {
           @for (g of planGroups(); track g.category) {
             <div class="pd-cat">
-              <div class="pd-cat-h">{{ g.category }} @if (g.size) { <span class="pd-size">Tamaño: {{ g.size }}</span> } <span class="pd-req" [class.ok]="assigned(g) >= g.required">asignadas {{ assigned(g) }} / requeridas {{ g.required }}</span></div>
+              <div class="pd-cat-h">{{ g.category }} @if (g.size) { <span class="pd-size">Tamaño: {{ g.size }}</span> } <span class="pd-req" [class.ok]="assigned(g) === g.required" [class.bad]="assigned(g) > g.required">asignadas {{ assigned(g) }} / requeridas {{ g.required }}</span></div>
               <table class="pd-tbl">
                 <thead><tr><th>Prenda</th><th class="cn">Tamaño</th><th class="cn">Disp. piso</th><th class="cn">Dotar</th></tr></thead>
                 <tbody>
@@ -156,31 +157,40 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
                   }
                 </tbody>
               </table>
+              @if (g.items.length > 0 && assigned(g) < g.required) { <p class="pd-short"><i class="pi pi-exclamation-triangle"></i> Faltan {{ g.required - assigned(g) }} de <b>{{ g.category }}</b>@if (g.size) { tamaño {{ g.size }} } en el piso. No se puede dotar hasta cubrir la regla.</p> }
+              @if (assigned(g) > g.required) { <p class="pd-short"><i class="pi pi-exclamation-triangle"></i> La regla pide {{ g.required }}; reduce la cantidad.</p> }
             </div>
           }
         }
 
         <!-- AMENITIES -->
         <div class="pd-sect">Amenities · {{ p.room.amenitiesWarehouse || 'AMENITIES - LIMPIEZA' }}</div>
-        @if (amenLines().length > 0) {
-          <div class="pd-cat">
-            <table class="pd-tbl">
-              <thead><tr><th>Amenity</th><th class="cn">Disp.</th><th class="cn">Dotar</th></tr></thead>
-              <tbody>
-                @for (a of amenLines(); track a.productId) {
-                  <tr>
-                    <td class="nm">{{ a.name }} @if (a.reusable) { <span class="reu">reutilizable</span> }</td>
-                    <td class="cn" [class.zero]="a.available === 0">{{ a.available }}</td>
-                    <td class="cn"><p-inputNumber [(ngModel)]="a.enviar" [min]="0" [max]="a.available" inputStyleClass="qi" /></td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        } @else {
-          <p class="muted">Sin amenities en AMENITIES - LIMPIEZA. Transfiérelos primero desde Almacén de Amenities → "Transferir a Limpieza".</p>
+        @if (amenGroups().length === 0) { <p class="muted">El tipo <b>{{ p.room.roomType?.name }}</b> no tiene regla de amenities en la Dotación Base.</p> }
+        @else {
+          @for (g of amenGroups(); track g.category) {
+            <div class="pd-cat">
+              <div class="pd-cat-h">{{ g.category }} <span class="pd-req" [class.ok]="assignedAmen(g) === g.required" [class.bad]="assignedAmen(g) > g.required">asignadas {{ assignedAmen(g) }} / requeridas {{ g.required }}</span></div>
+              <table class="pd-tbl">
+                <thead><tr><th>Amenity</th><th class="cn">Disp.</th><th class="cn">Dotar</th></tr></thead>
+                <tbody>
+                  @for (a of g.items; track a.productId) {
+                    <tr>
+                      <td class="nm">{{ a.name }} @if (a.reusable) { <span class="reu">reutilizable</span> }</td>
+                      <td class="cn" [class.zero]="a.available === 0">{{ a.available }}</td>
+                      <td class="cn"><p-inputNumber [(ngModel)]="a.enviar" [min]="0" [max]="a.available" inputStyleClass="qi" /></td>
+                    </tr>
+                  } @empty {
+                    <tr><td colspan="3" class="cn muted" style="padding:.6rem;">No hay amenities de <b>{{ g.category }}</b> con stock en AMENITIES - LIMPIEZA. Transfiérelos desde Almacén de Amenities → "Transferir a Limpieza".</td></tr>
+                  }
+                </tbody>
+              </table>
+              @if (g.items.length > 0 && assignedAmen(g) < g.required) { <p class="pd-short"><i class="pi pi-exclamation-triangle"></i> Faltan {{ g.required - assignedAmen(g) }} de <b>{{ g.category }}</b> en Limpieza. No se puede dotar hasta cubrir la regla.</p> }
+              @if (assignedAmen(g) > g.required) { <p class="pd-short"><i class="pi pi-exclamation-triangle"></i> La regla pide {{ g.required }}; reduce la cantidad.</p> }
+            </div>
+          }
         }
         @if (primeraOver()) { <p class="pd-over"><i class="pi pi-exclamation-triangle"></i> Alguna cantidad supera el disponible.</p> }
+        @else if (!primeraReady()) { <p class="pd-over"><i class="pi pi-info-circle"></i> La dotación debe cubrir <b>exactamente</b> la regla de cada categoría (ropa y amenities) para habilitar el botón.</p> }
       }
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="primeraVisible = false" />
@@ -223,8 +233,9 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
       .reu { font-size: 0.66rem; font-weight: 700; background: #064e3b; color: #6ee7b7; border-radius: 999px; padding: 0.08rem 0.45rem; margin-left: 0.35rem; }
       .pd-cat { border: 1px solid #1f2a3a; border-radius: 10px; margin-bottom: 0.7rem; overflow: hidden; }
       .pd-cat-h { background: #101a2c; padding: 0.5rem 0.8rem; font-weight: 700; color: #cdd8e6; display: flex; justify-content: space-between; align-items: center; }
-      .pd-req { font-size: 0.74rem; font-weight: 700; color: #fbbf24; background: #2a2410; border-radius: 999px; padding: 0.12rem 0.55rem; } .pd-req.ok { color: #6ee7b7; background: #06281f; }
+      .pd-req { font-size: 0.74rem; font-weight: 700; color: #fbbf24; background: #2a2410; border-radius: 999px; padding: 0.12rem 0.55rem; } .pd-req.ok { color: #6ee7b7; background: #06281f; } .pd-req.bad { color: #fca5a5; background: #2a1414; }
       .pd-size { font-size: 0.72rem; font-weight: 700; color: #93c5fd; background: #14233a; border-radius: 999px; padding: 0.12rem 0.55rem; margin-right: 0.4rem; }
+      .pd-short { margin: 0.35rem 0 0; font-size: 0.8rem; color: #fca5a5; display: flex; align-items: center; gap: 0.4rem; }
       .pd-tbl { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
       .pd-tbl th { text-align: left; padding: 0.4rem 0.8rem; color: #9fb0c3; font-weight: 600; border-bottom: 1px solid #1c2c44; font-size: 0.72rem; }
       .pd-tbl td { padding: 0.4rem 0.8rem; border-bottom: 1px solid #16202e; } .pd-tbl tr:last-child td { border-bottom: 0; }
@@ -256,7 +267,7 @@ export class DotacionComponent implements OnInit {
   readonly rooms = signal<{ id: string; number: string; floor?: string | null; roomType?: { name: string } }[]>([]);
   readonly primera = signal<PrimeraData | null>(null);
   readonly planGroups = signal<PlanGroup[]>([]);
-  readonly amenLines = signal<AmenLine[]>([]);
+  readonly amenGroups = signal<AmenGroup[]>([]);
   readonly primeraBusy = signal(false);
   primeraVisible = false;
   primeraRoomId: string | null = null;
@@ -271,65 +282,76 @@ export class DotacionComponent implements OnInit {
       .subscribe((r) => this.rooms.set(r.data ?? []));
   }
 
-  openPrimera(): void { this.primeraVisible = true; this.primeraRoomId = null; this.primera.set(null); this.planGroups.set([]); this.amenLines.set([]); }
+  openPrimera(): void { this.primeraVisible = true; this.primeraRoomId = null; this.primera.set(null); this.planGroups.set([]); this.amenGroups.set([]); }
 
-  /** Carga la ropa disponible del piso + la regla del tipo, y arma el plan auto-rellenado. */
+  /**
+   * Carga la regla del tipo (Dotación Base) y arma el plan que la RESPETA:
+   * ropa = solo categorías con regla, filtradas por tamaño, cantidad exacta requerida;
+   * amenities = solo categorías con regla, cantidad exacta requerida. Auto-rellena.
+   */
   loadPrimera(): void {
     const id = this.primeraRoomId;
-    if (!id) { this.primera.set(null); this.planGroups.set([]); this.amenLines.set([]); return; }
-    this.primera.set(null); this.planGroups.set([]); this.amenLines.set([]);
+    if (!id) { this.primera.set(null); this.planGroups.set([]); this.amenGroups.set([]); return; }
+    this.primera.set(null); this.planGroups.set([]); this.amenGroups.set([]);
     this.http.get<ApiResponse<PrimeraData>>(`${this.api}/rooms/${id}/linen`).subscribe((lin) => {
       const data = lin.data ?? null;
       this.primera.set(data);
-      // Amenities disponibles en AMENITIES - LIMPIEZA (para dotar; cantidad manual).
-      this.amenLines.set((data?.amenitiesAvailable ?? []).map((a) => ({ ...a, enviar: 0 })));
-      // Regla del tipo: cantidades base por categoría de ROPA (Dotación Base).
       // OJO: /rooms/:id/inventory devuelve { room, rows }, no un array plano.
       this.http.get<ApiResponse<{ rows: { name: string; articleKind: string; size?: string | null; baseQty: number; source: string }[] }>>(`${this.api}/rooms/${id}/inventory`).subscribe((invr) => {
-        // Regla del tipo: por categoría, cantidad y TAMAÑO requerido.
-        const req = new Map<string, { qty: number; size: string | null }>();
+        // Reglas del tipo: ropa (categoría + tamaño + cantidad) y amenities (categoría + cantidad).
+        const ropaReq = new Map<string, { qty: number; size: string | null; name: string }>();
+        const amenReq = new Map<string, { qty: number; name: string }>();
         for (const row of invr.data?.rows ?? []) {
-          if (row.source === 'dotacion' && row.articleKind === 'LINEN_REUSABLE' && row.baseQty > 0) req.set(row.name.toUpperCase(), { qty: row.baseQty, size: row.size ?? null });
+          if (row.source !== 'dotacion' || row.baseQty <= 0) continue;
+          if (row.articleKind === 'LINEN_REUSABLE') ropaReq.set(row.name.toUpperCase(), { qty: row.baseQty, size: row.size ?? null, name: row.name });
+          else if (row.articleKind === 'AMENITY') amenReq.set(row.name.toUpperCase(), { qty: row.baseQty, name: row.name });
         }
+        // ── ROPA: solo categorías con regla; variantes = mismo tipo + mismo tamaño con stock. ──
         const avail = data?.floorAvailable ?? [];
-        const byType = new Map<string, FloorItem[]>();
-        for (const f of avail) {
-          const k = (f.type || '').toUpperCase();
-          if (!byType.has(k)) byType.set(k, []);
-          byType.get(k)!.push({ ...f, enviar: 0 as number });
-        }
-        for (const catUpper of req.keys()) if (!byType.has(catUpper)) byType.set(catUpper, []);
         const groups: PlanGroup[] = [];
-        for (const [typeUpper, items] of byType) {
-          const rule = req.get(typeUpper);
-          const required = rule?.qty ?? 0;
-          const reqSize = rule?.size ?? null;
-          // Filtra por el TAMAÑO exigido por la Dotación Base (si la regla define tamaño).
-          const matching = reqSize ? items.filter((it) => (it.size || '').toUpperCase() === reqSize.toUpperCase()) : items;
-          let left = required;
-          for (const it of matching) { const take = Math.min(left, it.available); it.enviar = take; left -= take; if (left <= 0) break; }
-          groups.push({ category: matching[0]?.type ?? this.prettyCat(avail, typeUpper), size: reqSize, required, items: matching });
+        for (const [, rule] of ropaReq) {
+          const items = avail
+            .filter((f) => (f.type || '').toUpperCase() === rule.name.toUpperCase() && (rule.size ? (f.size || '').toUpperCase() === rule.size.toUpperCase() : true))
+            .map((f) => ({ ...f, enviar: 0 as number }));
+          let left = rule.qty;
+          for (const it of items) { const take = Math.min(left, it.available); it.enviar = take; left -= take; if (left <= 0) break; }
+          groups.push({ category: rule.name, size: rule.size, required: rule.qty, items });
         }
-        groups.sort((a, b) => (b.required > 0 ? 1 : 0) - (a.required > 0 ? 1 : 0) || a.category.localeCompare(b.category));
+        groups.sort((a, b) => a.category.localeCompare(b.category));
         this.planGroups.set(groups);
+        // ── AMENITIES: solo categorías con regla; variantes = misma categoría con stock. ──
+        const amenAvail = data?.amenitiesAvailable ?? [];
+        const ag: AmenGroup[] = [];
+        for (const [, rule] of amenReq) {
+          const items = amenAvail
+            .filter((a) => (a.category || '').toUpperCase() === rule.name.toUpperCase())
+            .map((a) => ({ ...a, enviar: 0 as number }));
+          let left = rule.qty;
+          for (const it of items) { const take = Math.min(left, it.available); it.enviar = take; left -= take; if (left <= 0) break; }
+          ag.push({ category: rule.name, required: rule.qty, items });
+        }
+        ag.sort((a, b) => a.category.localeCompare(b.category));
+        this.amenGroups.set(ag);
       });
     });
   }
-  private prettyCat(avail: { type: string }[], up: string): string { return avail.find((a) => (a.type || '').toUpperCase() === up)?.type ?? up; }
   assigned(g: PlanGroup): number { return g.items.reduce((a, f) => a + (Number(f.enviar) || 0), 0); }
-  amenOver(): boolean { return this.amenLines().some((a) => (Number(a.enviar) || 0) > a.available); }
-  totalAmen(): number { return this.amenLines().reduce((s, a) => s + (Number(a.enviar) || 0), 0); }
+  assignedAmen(g: AmenGroup): number { return g.items.reduce((a, f) => a + (Number(f.enviar) || 0), 0); }
+  amenOver(): boolean { return this.amenGroups().some((g) => g.items.some((a) => (Number(a.enviar) || 0) > a.available)); }
   primeraOver(): boolean { return this.planGroups().some((g) => g.items.some((f) => (Number(f.enviar) || 0) > f.available)) || this.amenOver(); }
+  /** Cada categoría de la regla (ropa y amenities) debe quedar EXACTA (asignadas === requeridas). */
   primeraReady(): boolean {
     if (this.primeraOver()) return false;
-    const anyRopa = this.planGroups().some((g) => this.assigned(g) > 0);
-    return anyRopa || this.totalAmen() > 0;
+    const hasRule = this.planGroups().length > 0 || this.amenGroups().length > 0;
+    const ropaOk = this.planGroups().every((g) => this.assigned(g) === g.required);
+    const amenOk = this.amenGroups().every((g) => this.assignedAmen(g) === g.required);
+    return hasRule && ropaOk && amenOk;
   }
   confirmPrimera(): void {
     const id = this.primeraRoomId;
     if (!id || !this.primeraReady()) return;
     const items = this.planGroups().flatMap((g) => g.items).filter((f) => (Number(f.enviar) || 0) > 0).map((f) => ({ linenItemId: f.linenItemId, quantity: Number(f.enviar) || 0 }));
-    const amenities = this.amenLines().filter((a) => (Number(a.enviar) || 0) > 0).map((a) => ({ productId: a.productId, quantity: Number(a.enviar) || 0 }));
+    const amenities = this.amenGroups().flatMap((g) => g.items).filter((a) => (Number(a.enviar) || 0) > 0).map((a) => ({ productId: a.productId, quantity: Number(a.enviar) || 0 }));
     this.primeraBusy.set(true);
     this.http.post<ApiResponse<{ items: number; amenities: number }>>(`${this.api}/rooms/${id}/dote-linen`, { items, amenities }).subscribe({
       next: () => { this.primeraBusy.set(false); this.primeraVisible = false; this.messages.add({ severity: 'success', summary: 'Habitación dotada', detail: `${items.length} prenda(s) y ${amenities.length} amenity(s) asignados.` }); },

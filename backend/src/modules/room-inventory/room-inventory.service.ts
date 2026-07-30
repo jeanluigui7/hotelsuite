@@ -174,11 +174,11 @@ export const roomInventoryService = {
       amenLimp ? prisma.stock.findMany({ where: { warehouseId: amenLimp.id, quantity: { gt: 0 } } }) : Promise.resolve([]),
     ]);
     const amenIds = [...new Set([...amenInv.map((i) => i.productId), ...amenStock.map((s) => s.productId)].filter((x): x is string => !!x))];
-    const amenProds = await prisma.product.findMany({ where: { id: { in: amenIds } }, select: { id: true, name: true, reusable: true } });
+    const amenProds = await prisma.product.findMany({ where: { id: { in: amenIds } }, select: { id: true, name: true, reusable: true, category: { select: { name: true } } } });
     const apm = new Map(amenProds.map((p) => [p.id, p]));
-    const amenities = amenInv.map((i) => ({ productId: i.productId, name: apm.get(i.productId ?? '')?.name ?? i.name, reusable: apm.get(i.productId ?? '')?.reusable ?? false, quantity: i.quantity }));
+    const amenities = amenInv.map((i) => ({ productId: i.productId, name: apm.get(i.productId ?? '')?.name ?? i.name, reusable: apm.get(i.productId ?? '')?.reusable ?? false, category: apm.get(i.productId ?? '')?.category?.name ?? null, quantity: i.quantity }));
     const amenitiesAvailable = amenStock
-      .map((s) => ({ productId: s.productId, name: apm.get(s.productId)?.name ?? '—', reusable: apm.get(s.productId)?.reusable ?? false, available: s.quantity }))
+      .map((s) => ({ productId: s.productId, name: apm.get(s.productId)?.name ?? '—', reusable: apm.get(s.productId)?.reusable ?? false, category: apm.get(s.productId)?.category?.name ?? null, available: s.quantity }))
       .filter((x) => x.name !== '—')
       .sort((a, b) => a.name.localeCompare(b.name));
 
