@@ -1,7 +1,6 @@
 import { Component, inject } from '@angular/core';
 import { RouterModule } from '@angular/router';
 import { AuthService } from '../../core/auth/auth.service';
-import { profileForRole } from '../menu';
 
 interface Pill { label: string; icon: string; route: string; color: string; queryParams?: Record<string, string>; }
 
@@ -13,7 +12,7 @@ interface Pill { label: string; icon: string; route: string; color: string; quer
   standalone: true,
   imports: [RouterModule],
   template: `
-    @if (!isRecepcion()) {
+    @if (canSeePills()) {
       <div class="pills">
         @for (p of pills; track p.route) {
           <a class="pill" [routerLink]="p.route" [queryParams]="p.queryParams ?? {}" routerLinkActive="active" [style.--c]="p.color">
@@ -41,10 +40,12 @@ interface Pill { label: string; icon: string; route: string; color: string; quer
 })
 export class QuickPillsComponent {
   private readonly auth = inject(AuthService);
-  /** Los pills (atajos a almacenes) se ocultan para el perfil de recepción. */
-  isRecepcion(): boolean {
+  /** Los pills (atajos a almacenes) SOLO son visibles para Administrador y Gerente. */
+  canSeePills(): boolean {
     const u = this.auth.user();
-    return profileForRole(u?.roleName, u?.isSuperAdmin ?? false) === 'recepcion';
+    if (u?.isSuperAdmin) return true;
+    const r = (u?.roleName ?? '').toLowerCase();
+    return r.includes('admin') || r.includes('gerente');
   }
   readonly pills: Pill[] = [
     { label: 'Productos', icon: 'pi pi-box', route: '/operations/almacen-productos', color: '#8b5cf6' },
