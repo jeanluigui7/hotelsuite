@@ -23,15 +23,15 @@ interface Dotacion {
   baseQty: number;
   status: string;
 }
-interface FloorItem { linenItemId: string; name: string; type: string; color?: string | null; available: number; enviar: number; }
+interface FloorItem { linenItemId: string; name: string; type: string; size?: string | null; color?: string | null; available: number; enviar: number; }
 interface AmenLine { productId: string; name: string; reusable: boolean; available: number; enviar: number; }
 interface PrimeraData {
   room: { id: string; number: string; floor?: string | null; tower?: string | null; roomType?: { name: string }; linenFloor: string | null; amenitiesWarehouse?: string | null };
   items: { linenItemId: string; name: string; type: string; quantity: number }[];
-  floorAvailable: { linenItemId: string; name: string; type: string; color?: string | null; available: number }[];
+  floorAvailable: { linenItemId: string; name: string; type: string; size?: string | null; color?: string | null; available: number }[];
   amenitiesAvailable?: { productId: string; name: string; reusable: boolean; available: number }[];
 }
-interface PlanGroup { category: string; required: number; items: FloorItem[]; }
+interface PlanGroup { category: string; size: string | null; required: number; items: FloorItem[]; }
 
 /** Tipo de ítem de la categoría → clase de artículo de la dotación. */
 const TYPE_TO_KIND: Record<string, string> = { CLOTHING: 'LINEN_REUSABLE', AMENITY: 'AMENITY', PRODUCT: 'SALE', CLEANING_SUPPLY: 'ASSET' };
@@ -140,16 +140,19 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
         @else {
           @for (g of planGroups(); track g.category) {
             <div class="pd-cat">
-              <div class="pd-cat-h">{{ g.category }} <span class="pd-req" [class.ok]="assigned(g) >= g.required">asignadas {{ assigned(g) }} / requeridas {{ g.required }}</span></div>
+              <div class="pd-cat-h">{{ g.category }} @if (g.size) { <span class="pd-size">Tamaño: {{ g.size }}</span> } <span class="pd-req" [class.ok]="assigned(g) >= g.required">asignadas {{ assigned(g) }} / requeridas {{ g.required }}</span></div>
               <table class="pd-tbl">
-                <thead><tr><th>Prenda</th><th class="cn">Disp. piso</th><th class="cn">Dotar</th></tr></thead>
+                <thead><tr><th>Prenda</th><th class="cn">Tamaño</th><th class="cn">Disp. piso</th><th class="cn">Dotar</th></tr></thead>
                 <tbody>
                   @for (f of g.items; track f.linenItemId) {
                     <tr>
                       <td class="nm"><span class="dot" [style.background]="f.color || '#888'"></span>{{ f.name }}</td>
+                      <td class="cn muted">{{ f.size || '—' }}</td>
                       <td class="cn" [class.zero]="f.available === 0">{{ f.available }}</td>
                       <td class="cn"><p-inputNumber [(ngModel)]="f.enviar" [min]="0" [max]="f.available" inputStyleClass="qi" /></td>
                     </tr>
+                  } @empty {
+                    <tr><td colspan="4" class="cn muted" style="padding:.6rem;">@if (g.size) { No hay prendas de tamaño <b>{{ g.size }}</b> con stock en el piso. Transfiérelas o ajusta el tamaño en la Dotación Base. } @else { Sin prendas de esta categoría con stock en el piso. }</td></tr>
                   }
                 </tbody>
               </table>
@@ -221,6 +224,7 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
       .pd-cat { border: 1px solid #1f2a3a; border-radius: 10px; margin-bottom: 0.7rem; overflow: hidden; }
       .pd-cat-h { background: #101a2c; padding: 0.5rem 0.8rem; font-weight: 700; color: #cdd8e6; display: flex; justify-content: space-between; align-items: center; }
       .pd-req { font-size: 0.74rem; font-weight: 700; color: #fbbf24; background: #2a2410; border-radius: 999px; padding: 0.12rem 0.55rem; } .pd-req.ok { color: #6ee7b7; background: #06281f; }
+      .pd-size { font-size: 0.72rem; font-weight: 700; color: #93c5fd; background: #14233a; border-radius: 999px; padding: 0.12rem 0.55rem; margin-right: 0.4rem; }
       .pd-tbl { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
       .pd-tbl th { text-align: left; padding: 0.4rem 0.8rem; color: #9fb0c3; font-weight: 600; border-bottom: 1px solid #1c2c44; font-size: 0.72rem; }
       .pd-tbl td { padding: 0.4rem 0.8rem; border-bottom: 1px solid #16202e; } .pd-tbl tr:last-child td { border-bottom: 0; }
@@ -281,14 +285,13 @@ export class DotacionComponent implements OnInit {
       this.amenLines.set((data?.amenitiesAvailable ?? []).map((a) => ({ ...a, enviar: 0 })));
       // Regla del tipo: cantidades base por categoría de ROPA (Dotación Base).
       // OJO: /rooms/:id/inventory devuelve { room, rows }, no un array plano.
-      this.http.get<ApiResponse<{ rows: { name: string; articleKind: string; baseQty: number; source: string }[] }>>(`${this.api}/rooms/${id}/inventory`).subscribe((invr) => {
-        const req = new Map<string, number>();
+      this.http.get<ApiResponse<{ rows: { name: string; articleKind: string; size?: string | null; baseQty: number; source: string }[] }>>(`${this.api}/rooms/${id}/inventory`).subscribe((invr) => {
+        // Regla del tipo: por categoría, cantidad y TAMAÑO requerido.
+        const req = new Map<string, { qty: number; size: string | null }>();
         for (const row of invr.data?.rows ?? []) {
-          if (row.source === 'dotacion' && row.articleKind === 'LINEN_REUSABLE' && row.baseQty > 0) req.set(row.name.toUpperCase(), row.baseQty);
+          if (row.source === 'dotacion' && row.articleKind === 'LINEN_REUSABLE' && row.baseQty > 0) req.set(row.name.toUpperCase(), { qty: row.baseQty, size: row.size ?? null });
         }
         const avail = data?.floorAvailable ?? [];
-        // Agrupa la ropa disponible del piso por tipo. La regla (req) marca lo requerido y
-        // autorellena; los tipos sin regla quedan disponibles (0) para agregarlos manualmente.
         const byType = new Map<string, FloorItem[]>();
         for (const f of avail) {
           const k = (f.type || '').toUpperCase();
@@ -298,12 +301,15 @@ export class DotacionComponent implements OnInit {
         for (const catUpper of req.keys()) if (!byType.has(catUpper)) byType.set(catUpper, []);
         const groups: PlanGroup[] = [];
         for (const [typeUpper, items] of byType) {
-          const required = req.get(typeUpper) ?? 0;
+          const rule = req.get(typeUpper);
+          const required = rule?.qty ?? 0;
+          const reqSize = rule?.size ?? null;
+          // Filtra por el TAMAÑO exigido por la Dotación Base (si la regla define tamaño).
+          const matching = reqSize ? items.filter((it) => (it.size || '').toUpperCase() === reqSize.toUpperCase()) : items;
           let left = required;
-          for (const it of items) { const take = Math.min(left, it.available); it.enviar = take; left -= take; if (left <= 0) break; }
-          groups.push({ category: items[0]?.type ?? this.prettyCat(avail, typeUpper), required, items });
+          for (const it of matching) { const take = Math.min(left, it.available); it.enviar = take; left -= take; if (left <= 0) break; }
+          groups.push({ category: matching[0]?.type ?? this.prettyCat(avail, typeUpper), size: reqSize, required, items: matching });
         }
-        // Primero las categorías con regla, luego el resto (alfabético).
         groups.sort((a, b) => (b.required > 0 ? 1 : 0) - (a.required > 0 ? 1 : 0) || a.category.localeCompare(b.category));
         this.planGroups.set(groups);
       });

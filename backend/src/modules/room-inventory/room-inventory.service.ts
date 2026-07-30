@@ -70,6 +70,7 @@ export const roomInventoryService = {
       name: d.name,
       articleKind: d.articleKind,
       category: d.category,
+      size: d.size,
       baseQty: d.baseQty,
       required: d.required,
       allowExtra: d.allowExtra,
@@ -80,7 +81,7 @@ export const roomInventoryService = {
     // Artículos presentes en la habitación que no están en la dotación (extras).
     for (const i of inv) {
       if (!dotKeys.has(`${i.articleKind}|${i.name}`)) {
-        rows.push({ name: i.name, articleKind: i.articleKind, category: null, baseQty: 0, required: false, allowExtra: true, linenItemId: i.linenItemId, quantity: i.quantity, source: 'extra' as never });
+        rows.push({ name: i.name, articleKind: i.articleKind, category: null, size: null, baseQty: 0, required: false, allowExtra: true, linenItemId: i.linenItemId, quantity: i.quantity, source: 'extra' as never });
       }
     }
     return { room: { id: room.id, number: room.number, floor: room.floor, roomType: room.roomType }, rows };
@@ -152,18 +153,18 @@ export const roomInventoryService = {
     const floor = await resolveRoomFloor(branchId, roomId, room.tower, room.floor);
     const [inv, linen, floorStock] = await Promise.all([
       prisma.roomInventory.findMany({ where: { roomId, articleKind: 'LINEN_REUSABLE', linenItemId: { not: null }, quantity: { gt: 0 } } }),
-      prisma.linenItem.findMany({ where: { branchId, status: 'active' }, select: { id: true, name: true, type: true, color: true } }),
+      prisma.linenItem.findMany({ where: { branchId, status: 'active' }, select: { id: true, name: true, type: true, color: true, size: true } }),
       floor ? prisma.linenStock.findMany({ where: { branchId, floor } }) : Promise.resolve([]),
     ]);
     const lmap = new Map(linen.map((l) => [l.id, l]));
     const items = inv.map((i) => {
       const l = i.linenItemId ? lmap.get(i.linenItemId) : undefined;
-      return { linenItemId: i.linenItemId, name: l?.name ?? i.name, type: l?.type ?? 'ROPA', color: l?.color ?? null, quantity: i.quantity };
+      return { linenItemId: i.linenItemId, name: l?.name ?? i.name, type: l?.type ?? 'ROPA', size: l?.size ?? null, color: l?.color ?? null, quantity: i.quantity };
     });
     const floorAvailable = floorStock
       .map((s) => ({ linenItemId: s.linenItemId, ...lmap.get(s.linenItemId), available: s.rem + s.sum }))
       .filter((x) => x.available > 0 && x.name)
-      .map((x) => ({ linenItemId: x.linenItemId, name: x.name as string, type: x.type ?? 'ROPA', color: x.color ?? null, available: x.available }))
+      .map((x) => ({ linenItemId: x.linenItemId, name: x.name as string, type: x.type ?? 'ROPA', size: x.size ?? null, color: x.color ?? null, available: x.available }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
     // Amenities: los que tiene la habitación + los disponibles en AMENITIES - LIMPIEZA.
