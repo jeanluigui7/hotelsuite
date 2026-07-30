@@ -344,10 +344,11 @@ export const cleaningService = {
       .map((i) => {
         const li = lmap.get(i.linenItemId as string);
         const type = li?.type ?? null;
+        const size = li?.size ?? null;
         const qty = invQty.get(i.linenItemId as string) ?? 1;
-        // Variantes: SOLO ropa de la MISMA categoría con stock>0 en el SUBALMACÉN asignado.
+        // Variantes: SOLO ropa de la MISMA categoría Y MISMO TAMAÑO con stock>0 en el SUBALMACÉN asignado.
         const variants = linen
-          .filter((l) => l.type === type && (avail.get(l.id) ?? 0) > 0)
+          .filter((l) => l.type === type && (l.size ?? '').toUpperCase() === (size ?? '').toUpperCase() && (avail.get(l.id) ?? 0) > 0)
           .map((l) => ({ linenItemId: l.id, name: l.name, size: l.size, color: l.color, available: avail.get(l.id) ?? 0 }))
           .sort((a, b) => a.name.localeCompare(b.name));
         return {

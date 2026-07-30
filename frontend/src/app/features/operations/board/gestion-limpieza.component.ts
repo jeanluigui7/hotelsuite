@@ -16,7 +16,7 @@ interface LinenItem { id: string; type: string; name: string; color?: string | n
 interface InspRow { item: LinenItem; tipo: 'BASE' | 'EXTRA'; state: 'OK' | 'ROBADA' | 'DETERIORADA'; pickup: boolean; qty: number; }
 interface RepoVariant { linenItemId?: string; productId?: string; name: string; size?: string | null; color?: string | null; available: number; }
 interface RepoRow {
-  section: string; tipo: string; name: string; code: string; type: string | null; color: string | null; cant: number; mantiene: boolean; motivo: string; subName?: string; subIndex?: number;
+  section: string; tipo: string; name: string; code: string; type: string | null; size?: string | null; color: string | null; cant: number; mantiene: boolean; motivo: string; subName?: string; subIndex?: number;
   // Reposición desde el subalmacén / AMENITIES - LIMPIEZA: variantes disponibles y la elegida.
   recogidoLinenItemId?: string; recogidoProductId?: string; quantity?: number; variants?: RepoVariant[];
   chosenLinenItemId?: string; chosenProductId?: string;
@@ -200,11 +200,11 @@ const ACCIONES_PERIODICAS = [
           @for (r of reposicion().ropa; track $index) {
             <div class="rep-row" [class.norepo]="!r.mantiene && !r.chosenLinenItemId">
               <span><span class="base">BASE</span></span>
-              <span class="it"><strong>{{ r.subName || r.name }}</strong><small>{{ r.mantiene ? r.code : (r.chosenLinenItemId ? 'del subalmacén · disp. ' + chosenAvail(r) : '') }}</small></span>
+              <span class="it"><strong>{{ r.subName || r.name }}</strong> @if (r.size) { <span class="sz">{{ r.size }}</span> }<small>{{ r.mantiene ? r.code : (r.chosenLinenItemId ? 'del subalmacén · disp. ' + chosenAvail(r) : '') }}</small></span>
               <span>@if (r.mantiene) { <span class="mant">MANTIENE</span> } @else { <span class="cant"><i class="pi pi-check-circle"></i> {{ r.cant }}</span> }</span>
               <span class="motivo">
                 @if (r.mantiene) { Permanece en habitación }
-                @else if (!r.chosenLinenItemId) { <span class="norepo-msg"><i class="pi pi-exclamation-triangle"></i> Sin stock en el subalmacén para reponer esta categoría</span> }
+                @else if (!r.chosenLinenItemId) { <span class="norepo-msg"><i class="pi pi-exclamation-triangle"></i> Sin stock de {{ r.type }}@if (r.size) { tamaño {{ r.size }} } en el subalmacén</span> }
                 @else { Reponer · <button class="refresh-i" (click)="cycleSub(r)" title="Cambiar variante (rota entre las del subalmacén con stock)"><i class="pi pi-sync"></i> cambiar</button> }
               </span>
             </div>
@@ -457,7 +457,8 @@ const ACCIONES_PERIODICAS = [
       .rep-row { display: grid; grid-template-columns: 4rem 1.6fr 0.8fr 2fr; gap: 0.5rem; align-items: center; padding: 0.55rem 0.8rem; border-top: 1px solid #14271f; font-size: 0.82rem; }
       .rep-row.rh { background: #12231b; border-top: 0; color: #8aa499; font-size: 0.72rem; }
       .base { background: #064e3b; color: #6ee7b7; border: 1px solid #14633f; border-radius: 6px; padding: 0.1rem 0.45rem; font-size: 0.68rem; font-weight: 700; }
-      .it strong { display: block; } .it small { color: #8aa499; }
+      .it strong { display: inline; } .it small { color: #8aa499; display: block; }
+      .sz { display: inline-block; background: #14233a; color: #93c5fd; border-radius: 999px; padding: 0.05rem 0.45rem; font-size: 0.66rem; font-weight: 700; margin-left: 0.35rem; }
       .cant { color: #34d399; display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 700; }
       .mant { background: #1e3a8a; color: #93c5fd; border-radius: 6px; padding: 0.1rem 0.5rem; font-size: 0.68rem; font-weight: 700; }
       .motivo { color: #9fe7c4; display: flex; align-items: center; gap: 0.4rem; }
