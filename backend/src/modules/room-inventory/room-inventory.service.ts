@@ -16,7 +16,7 @@ async function getRoom(scope: RequestScope, roomId: string) {
  * cubre (SubWarehouseRoom) y, si no hay cobertura, la torre/piso de la habitación.
  * (En los datos, LinenStock.floor === nombre del subalmacén === room.tower.)
  */
-async function resolveRoomFloor(branchId: string, roomId: string, tower: string | null, floor: string | null): Promise<string | null> {
+export async function resolveRoomFloor(branchId: string, roomId: string, tower: string | null, floor: string | null): Promise<string | null> {
   const cover = await prisma.subWarehouseRoom.findFirst({ where: { branchId, roomId }, include: { subWarehouse: { select: { name: true } } } });
   return cover?.subWarehouse?.name ?? tower ?? floor ?? null;
 }

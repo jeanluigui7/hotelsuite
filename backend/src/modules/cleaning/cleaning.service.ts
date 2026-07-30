@@ -6,6 +6,7 @@ import { prisma } from '../../config/prisma';
 import { notifyAdmin } from '../../shared/notify';
 import { shiftLogsService } from '../shift-logs/shift-logs.service';
 import { consumeFloorTx } from '../linen-admin/linen-admin.service';
+import { resolveRoomFloor } from '../room-inventory/room-inventory.service';
 
 /** Flujo de limpieza RIZZOS: iniciar limpieza (recoger ropa con estado OK/ROBADA/DETERIORADA)
  *  → habitación EN CURSO → finalizar limpieza → Disponible. */
@@ -61,6 +62,16 @@ export const finishSchema = z.object({
     observacion: z.string().max(500).optional().or(z.literal('')),
   })).default([]),
   observacionesGenerales: z.string().max(1000).optional().or(z.literal('')),
+  // Reposición de ropa: por cada prenda recogida, la variante elegida del subalmacén.
+  reposicion: z
+    .object({
+      ropa: z.array(z.object({
+        recogidoLinenItemId: z.string().min(1),
+        chosenLinenItemId: z.string().min(1),
+        quantity: z.coerce.number().int().min(1),
+      })).default([]),
+    })
+    .optional(),
 });
 export type FinishDto = z.infer<typeof finishSchema>;
 
@@ -165,6 +176,47 @@ export const cleaningService = {
     const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room || room.branchId !== branchId) throw new ValidationError('Habitación no encontrada');
     const task = await prisma.housekeepingTask.findFirst({ where: { branchId, roomId, status: 'IN_PROGRESS' } });
+
+    // ── Reposición de ropa: por cada prenda RECOGIDA, la variante elegida del SUBALMACÉN
+    // asignado. Descuenta del subalmacén y actualiza el inventario ACTUAL de la habitación
+    // (quita lo recogido, agrega lo repuesto). Todo en una transacción. Lo dejado no se toca.
+    const repo = dto?.reposicion?.ropa ?? [];
+    if (repo.length) {
+      const floor = await resolveRoomFloor(branchId, roomId, room.tower, room.floor);
+      if (!floor) throw new ValidationError('La habitación no tiene un subalmacén asignado para reponer.');
+      const ids = [...new Set(repo.flatMap((r) => [r.recogidoLinenItemId, r.chosenLinenItemId]))];
+      const linen = await prisma.linenItem.findMany({ where: { id: { in: ids }, branchId }, select: { id: true, name: true } });
+      const lm = new Map(linen.map((l) => [l.id, l.name]));
+      await prisma.$transaction(async (tx) => {
+        for (const r of repo) {
+          // 1) Descuenta la variante elegida del subalmacén (lanza si no hay stock → no negativos).
+          await consumeFloorTx(tx, r.chosenLinenItemId, floor, r.quantity);
+          // 2) Quita la prenda recogida del inventario ACTUAL de la habitación.
+          const recogidoName = lm.get(r.recogidoLinenItemId) ?? 'prenda';
+          const keyR = { roomId_articleKind_name: { roomId, articleKind: 'LINEN_REUSABLE', name: recogidoName } };
+          const exR = await tx.roomInventory.findUnique({ where: keyR });
+          if (exR) {
+            const q = Math.max(0, exR.quantity - r.quantity);
+            if (q === 0) await tx.roomInventory.delete({ where: keyR });
+            else await tx.roomInventory.update({ where: keyR, data: { quantity: q } });
+          }
+          // 3) Agrega la variante elegida como inventario ACTUAL.
+          const chosenName = lm.get(r.chosenLinenItemId) ?? 'prenda';
+          const keyC = { roomId_articleKind_name: { roomId, articleKind: 'LINEN_REUSABLE', name: chosenName } };
+          const exC = await tx.roomInventory.findUnique({ where: keyC });
+          await tx.roomInventory.upsert({
+            where: keyC,
+            update: { quantity: (exC?.quantity ?? 0) + r.quantity, linenItemId: r.chosenLinenItemId },
+            create: { branchId, roomId, articleKind: 'LINEN_REUSABLE', name: chosenName, linenItemId: r.chosenLinenItemId, quantity: r.quantity },
+          });
+          // 4) Trazabilidad.
+          await tx.linenMovement.create({ data: { branchId, linenItemId: r.chosenLinenItemId, type: 'SUPPLY', quantity: -r.quantity, floor, areaFrom: floor, areaTo: `Hab. ${room.number}`, reference: 'Reposición de limpieza', createdByUserId: scope.userId } });
+          await tx.roomInventoryMovement.create({ data: { branchId, roomId, type: 'RECOJO', articleKind: 'LINEN_REUSABLE', name: recogidoName, quantity: -r.quantity, fromLocation: `Habitación ${room.number}`, toLocation: 'Recogido (lavandería)', reference: 'Recojo de limpieza', createdByUserId: scope.userId } });
+          await tx.roomInventoryMovement.create({ data: { branchId, roomId, type: 'REPOSICION', articleKind: 'LINEN_REUSABLE', name: chosenName, quantity: r.quantity, fromLocation: floor, toLocation: `Habitación ${room.number}`, reference: 'Reposición de limpieza', createdByUserId: scope.userId } });
+        }
+      });
+    }
+
     if (task) {
       await prisma.housekeepingTask.update({ where: { id: task.id }, data: { status: 'DONE', result: 'APPROVED', completedAt: new Date() } });
     }
@@ -254,28 +306,45 @@ export const cleaningService = {
       include: { linenInspections: true },
       orderBy: { createdAt: 'desc' },
     });
-    if (!task) return { ropa: [], amenities: [] };
-    const ids = task.linenInspections.map((i) => i.linenItemId).filter((x): x is string => !!x);
-    const linen = await prisma.linenItem.findMany({ where: { id: { in: ids } } });
+    if (!task) return { ropa: [], amenities: [], subalmacen: null };
+    const room = await prisma.room.findUnique({ where: { id: roomId }, select: { tower: true, floor: true } });
+    // Subalmacén asignado a la habitación (por cobertura configurada, no por número).
+    const floor = room ? await resolveRoomFloor(branchId, roomId, room.tower, room.floor) : null;
+    // Catálogo de ropa (nombre/tipo/tamaño) + stock del subalmacén (REM+SUM) + inventario actual.
+    const [linen, floorStock, inv] = await Promise.all([
+      prisma.linenItem.findMany({ where: { branchId, status: 'active' }, select: { id: true, name: true, type: true, color: true, size: true } }),
+      floor ? prisma.linenStock.findMany({ where: { branchId, floor } }) : Promise.resolve([]),
+      prisma.roomInventory.findMany({ where: { roomId, articleKind: 'LINEN_REUSABLE' } }),
+    ]);
     const lmap = new Map(linen.map((l) => [l.id, l]));
-    const rows = task.linenInspections.map((i) => {
-      const li = i.linenItemId ? lmap.get(i.linenItemId) : null;
-      const isAmenity = li?.type === 'AMENITY';
-      return {
-        section: isAmenity ? 'amenity' : 'ropa',
-        tipo: 'BASE',
-        name: i.description,
-        code: i.linenItemId ? i.linenItemId.slice(-7).toUpperCase() : '—',
-        type: li?.type ?? null,
-        color: li?.color ?? null,
-        cant: i.pickup ? 1 : 0,
-        mantiene: !i.pickup,
-        motivo: i.pickup
-          ? (isAmenity ? 'Amenity recogido - Reponer desde inv. limpieza' : `Ropa recogida - Reponer desde inv. limpieza (${li?.name ?? ''})`)
-          : 'Permanece en habitación',
-      };
-    });
-    return { ropa: rows.filter((r) => r.section === 'ropa'), amenities: rows.filter((r) => r.section === 'amenity') };
+    const avail = new Map(floorStock.map((s) => [s.linenItemId, s.rem + s.sum]));
+    const invQty = new Map(inv.filter((i) => i.linenItemId).map((i) => [i.linenItemId as string, i.quantity]));
+
+    const ropa = task.linenInspections
+      .filter((i) => i.linenItemId && lmap.get(i.linenItemId)?.type !== 'AMENITY')
+      .map((i) => {
+        const li = lmap.get(i.linenItemId as string);
+        const type = li?.type ?? null;
+        const qty = invQty.get(i.linenItemId as string) ?? 1;
+        // Variantes: SOLO ropa de la MISMA categoría con stock>0 en el SUBALMACÉN asignado.
+        const variants = linen
+          .filter((l) => l.type === type && (avail.get(l.id) ?? 0) > 0)
+          .map((l) => ({ linenItemId: l.id, name: l.name, size: l.size, color: l.color, available: avail.get(l.id) ?? 0 }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        return {
+          recogidoLinenItemId: i.linenItemId as string,
+          recogidoName: li?.name ?? i.description,
+          category: type,
+          size: li?.size ?? null,
+          quantity: qty,
+          variants,
+          // Compat con la UI actual mientras se actualiza el frontend (Tanda 2).
+          section: 'ropa', tipo: 'BASE', name: i.description, code: (i.linenItemId as string).slice(-7).toUpperCase(),
+          type, color: li?.color ?? null, cant: i.pickup ? qty : 0, mantiene: !i.pickup,
+          motivo: i.pickup ? `Reponer desde subalmacén ${floor ?? ''}`.trim() : 'Permanece en habitación',
+        };
+      });
+    return { ropa, amenities: [], subalmacen: floor };
   },
 
   /** Inicia una revisión periódica: pone la habitación EN REVISIÓN y arranca el cronómetro. */
