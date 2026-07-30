@@ -14,7 +14,12 @@ interface Supply { id: string; roomId: string; room: string; floor?: string | nu
 interface SupplyGroup { roomId: string; room: string; floor?: string | null; roomType?: string; items: Supply[]; }
 interface LinenItem { id: string; type: string; name: string; color?: string | null; reusable: boolean; }
 interface InspRow { item: LinenItem; tipo: 'BASE' | 'EXTRA'; state: 'OK' | 'ROBADA' | 'DETERIORADA'; pickup: boolean; qty: number; }
-interface RepoRow { section: string; tipo: string; name: string; code: string; type: string | null; color: string | null; cant: number; mantiene: boolean; motivo: string; subName?: string; subIndex?: number; }
+interface RepoVariant { linenItemId: string; name: string; size?: string | null; color?: string | null; available: number; }
+interface RepoRow {
+  section: string; tipo: string; name: string; code: string; type: string | null; color: string | null; cant: number; mantiene: boolean; motivo: string; subName?: string; subIndex?: number;
+  // Reposición desde el subalmacén (Tanda 1/2): variantes disponibles y la elegida.
+  recogidoLinenItemId?: string; quantity?: number; variants?: RepoVariant[]; chosenLinenItemId?: string;
+}
 
 const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana', EDREDON: 'Edredón', AMENITY: 'Amenity' };
 
@@ -192,11 +197,15 @@ const ACCIONES_PERIODICAS = [
         <div class="rep-tbl">
           <div class="rep-row rh"><span>Tipo</span><span>Item</span><span>Cant.</span><span>Motivo</span></div>
           @for (r of reposicion().ropa; track $index) {
-            <div class="rep-row">
+            <div class="rep-row" [class.norepo]="!r.mantiene && !r.chosenLinenItemId">
               <span><span class="base">BASE</span></span>
-              <span class="it"><strong>{{ r.subName || r.name }}</strong><small>{{ r.code }}</small></span>
+              <span class="it"><strong>{{ r.subName || r.name }}</strong><small>{{ r.mantiene ? r.code : (r.chosenLinenItemId ? 'del subalmacén · disp. ' + chosenAvail(r) : '') }}</small></span>
               <span>@if (r.mantiene) { <span class="mant">MANTIENE</span> } @else { <span class="cant"><i class="pi pi-check-circle"></i> {{ r.cant }}</span> }</span>
-              <span class="motivo">{{ r.mantiene ? 'Permanece en habitación' : r.motivo }} @if (!r.mantiene && r.type) { <button class="refresh-i" (click)="cycleSub(r)" title="Cambiar color/sustituto"><i class="pi pi-sync"></i></button> }</span>
+              <span class="motivo">
+                @if (r.mantiene) { Permanece en habitación }
+                @else if (!r.chosenLinenItemId) { <span class="norepo-msg"><i class="pi pi-exclamation-triangle"></i> Sin stock en el subalmacén para reponer esta categoría</span> }
+                @else { Reponer · <button class="refresh-i" (click)="cycleSub(r)" title="Cambiar variante (rota entre las del subalmacén con stock)"><i class="pi pi-sync"></i> cambiar</button> }
+              </span>
             </div>
           } @empty { <div class="rep-row"><span class="muted" style="grid-column:1/-1">Sin ropa recogida.</span></div> }
         </div>
@@ -251,7 +260,7 @@ const ACCIONES_PERIODICAS = [
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="finVisible = false" />
         @if (finStep === 'reposicion') {
-          <p-button label="Siguiente" icon="pi pi-arrow-right" iconPos="right" (onClick)="finStep = 'revision'" />
+          <p-button label="Siguiente" icon="pi pi-arrow-right" iconPos="right" [disabled]="!reposicionCompleta()" (onClick)="finStep = 'revision'" />
         } @else {
           <p-button label="Finalizar Limpieza" icon="pi pi-check" [disabled]="!canFinalizar()" [loading]="busy()" (onClick)="confirmFinalizar()" />
         }
@@ -447,7 +456,9 @@ const ACCIONES_PERIODICAS = [
       .cant { color: #34d399; display: inline-flex; align-items: center; gap: 0.3rem; font-weight: 700; }
       .mant { background: #1e3a8a; color: #93c5fd; border-radius: 6px; padding: 0.1rem 0.5rem; font-size: 0.68rem; font-weight: 700; }
       .motivo { color: #9fe7c4; display: flex; align-items: center; gap: 0.4rem; }
-      .refresh-i { background: transparent; border: 0; color: #34d399; cursor: pointer; }
+      .refresh-i { background: transparent; border: 1px solid #14633f; color: #34d399; cursor: pointer; border-radius: 6px; padding: 0.1rem 0.45rem; font-size: 0.72rem; display: inline-flex; align-items: center; gap: 0.2rem; }
+      .rep-row.norepo { background: rgba(180,35,24,0.08); }
+      .norepo-msg { color: #f87171; display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.76rem; }
       .q { color: #34d399; margin: 0.8rem 0 0.5rem; }
       .okno { display: flex; gap: 0.6rem; margin-bottom: 0.8rem; }
       .okno button { flex: 1; background: #0e241c; border: 1px solid #1f3a2c; color: #e6efe9; border-radius: 10px; padding: 0.8rem; cursor: pointer; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
@@ -671,22 +682,40 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     this.obsGenerales = '';
     this.cats = this.CATS.map((c) => ({ ...c, selected: false, falla: '', observacion: '' }));
     this.reposicion.set({ ropa: [], amenities: [] });
-    this.http.get<ApiResponse<{ ropa: RepoRow[]; amenities: RepoRow[] }>>(`${this.api}/cleaning/${r.id}/reposicion`).subscribe((res) => this.reposicion.set(res.data ?? { ropa: [], amenities: [] }));
+    this.http.get<ApiResponse<{ ropa: RepoRow[]; amenities: RepoRow[] }>>(`${this.api}/cleaning/${r.id}/reposicion`).subscribe((res) => {
+      const data = res.data ?? { ropa: [], amenities: [] };
+      // Por cada prenda recogida, elige por defecto la MISMA variante si tiene stock;
+      // si no, la primera variante disponible del subalmacén.
+      for (const row of data.ropa) {
+        if (row.mantiene) continue;
+        const vs = row.variants ?? [];
+        const chosen = vs.find((v) => v.linenItemId === row.recogidoLinenItemId) ?? vs[0];
+        row.chosenLinenItemId = chosen?.linenItemId;
+        row.subIndex = chosen ? vs.indexOf(chosen) : 0;
+        row.subName = chosen ? `${TYPE_LABEL[row.type ?? ''] ?? ''} ${chosen.name}`.trim() : undefined;
+      }
+      this.reposicion.set(data);
+    });
     this.finVisible = true;
   }
   setOk(v: boolean): void { this.todoOk = v; }
   repoCount(): number { return this.reposicion().ropa.length + this.reposicion().amenities.length; }
   repoRopaRepuestos(): number { return this.reposicion().ropa.filter((r) => !r.mantiene).length; }
   repoAmenRepuestos(): number { return this.reposicion().amenities.filter((r) => !r.mantiene).length; }
-  /** "Ruedita de refrescar": intercala el sustituto entre prendas del mismo tipo. */
+  /** Selector rotativo: rota SOLO entre variantes con stock en el subalmacén asignado. */
   cycleSub(r: RepoRow): void {
-    const same = this.linen().filter((l) => l.type === r.type);
-    if (same.length < 2) { this.toast.add({ severity: 'info', summary: 'Sin sustitutos', detail: 'No hay otro color/prenda del mismo tipo en inventario.' }); return; }
-    r.subIndex = ((r.subIndex ?? 0) + 1) % same.length;
-    const li = same[r.subIndex];
-    r.subName = `${TYPE_LABEL[r.type ?? ''] ?? ''} ${li.name}`.trim();
+    const vs = r.variants ?? [];
+    if (vs.length < 2) { this.toast.add({ severity: 'info', summary: 'Sin más variantes', detail: 'No hay otra prenda de esta categoría con stock en el subalmacén.' }); return; }
+    r.subIndex = ((r.subIndex ?? 0) + 1) % vs.length;
+    const v = vs[r.subIndex];
+    r.chosenLinenItemId = v.linenItemId;
+    r.subName = `${TYPE_LABEL[r.type ?? ''] ?? ''} ${v.name}`.trim();
     this.reposicion.set({ ...this.reposicion() });
   }
+  /** Reposición completa: cada prenda recogida tiene una variante elegida con stock. */
+  reposicionCompleta(): boolean { return this.reposicion().ropa.every((r) => r.mantiene || !!r.chosenLinenItemId); }
+  /** Disponible de la variante elegida (para mostrar). */
+  chosenAvail(r: RepoRow): number { return (r.variants ?? []).find((v) => v.linenItemId === r.chosenLinenItemId)?.available ?? 0; }
   fallasFor(key: string): string[] { return FALLAS[key] ?? ['Otro']; }
   /** Habilita Finalizar: todo OK, o cada categoría marcada tiene una falla seleccionada. */
   canFinalizar(): boolean {
@@ -701,8 +730,12 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     const problems = this.todoOk
       ? []
       : this.cats.filter((c) => c.selected).map((c) => ({ category: c.label, falla: c.falla, observacion: c.observacion }));
+    // Reposición: por cada prenda recogida, la variante elegida del subalmacén.
+    const ropaRepo = this.reposicion().ropa
+      .filter((x) => !x.mantiene && x.recogidoLinenItemId && x.chosenLinenItemId)
+      .map((x) => ({ recogidoLinenItemId: x.recogidoLinenItemId, chosenLinenItemId: x.chosenLinenItemId, quantity: x.quantity ?? 1 }));
     this.busy.set(true);
-    this.http.post<ApiResponse<{ maintenance: boolean }>>(`${this.api}/cleaning/${r.id}/finish`, { problems, observacionesGenerales: this.obsGenerales }).subscribe({
+    this.http.post<ApiResponse<{ maintenance: boolean }>>(`${this.api}/cleaning/${r.id}/finish`, { problems, observacionesGenerales: this.obsGenerales, reposicion: { ropa: ropaRepo } }).subscribe({
       next: (res) => {
         this.busy.set(false); this.finVisible = false;
         const m = res.data?.maintenance;
