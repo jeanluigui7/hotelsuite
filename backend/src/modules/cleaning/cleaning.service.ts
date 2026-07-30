@@ -19,16 +19,14 @@ export const startSchema = z.object({
   inspections: z
     .array(
       z.object({
+        // Ropa: linenItemId. Amenity: productId (se guarda en note para reponer luego).
         linenItemId: z.string().min(1).optional(),
+        productId: z.string().min(1).optional(),
         description: z.string().min(1).max(200),
         state: z.enum(['OK', 'ROBADA', 'DETERIORADA']).default('OK'),
         pickup: z.boolean().default(false),
       }),
     )
-    .default([]),
-  // Amenities recogidos en la FASE 1 (desechable se consume + repone; reutilizable retorna).
-  amenityRecojo: z
-    .array(z.object({ productId: z.string().min(1), reusable: z.boolean().default(false), quantity: z.coerce.number().int().min(1) }))
     .default([]),
 });
 export type StartDto = z.infer<typeof startSchema>;
@@ -62,12 +60,18 @@ export const finishSchema = z.object({
     observacion: z.string().max(500).optional().or(z.literal('')),
   })).default([]),
   observacionesGenerales: z.string().max(1000).optional().or(z.literal('')),
-  // Reposición de ropa: por cada prenda recogida, la variante elegida del subalmacén.
+  // Reposición: por cada prenda/amenity recogido, la variante elegida del subalmacén /
+  // AMENITIES - LIMPIEZA respectivamente.
   reposicion: z
     .object({
       ropa: z.array(z.object({
         recogidoLinenItemId: z.string().min(1),
         chosenLinenItemId: z.string().min(1),
+        quantity: z.coerce.number().int().min(1),
+      })).default([]),
+      amenities: z.array(z.object({
+        recogidoProductId: z.string().min(1),
+        chosenProductId: z.string().min(1),
         quantity: z.coerce.number().int().min(1),
       })).default([]),
     })
@@ -128,9 +132,13 @@ export const cleaningService = {
         status: 'IN_PROGRESS',
         result: 'PENDING',
         linenInspections: {
+          // Ropa: linenItemId. Amenity: linenItemId=null y el productId guardado en `note`
+          // (para ofrecer variantes de AMENITIES - LIMPIEZA en la reposición). NO se descuenta
+          // stock aquí; el consumo/reposición ocurre al finalizar (como la ropa).
           create: dto.inspections.map((i) => ({
             description: i.description,
             linenItemId: i.linenItemId ?? null,
+            note: i.productId ?? null,
             state: i.state,
             pickup: i.pickup,
           })),
@@ -138,35 +146,6 @@ export const cleaningService = {
       },
     });
     await prisma.room.update({ where: { id: roomId }, data: { status: 'LIMPIEZA_EN_CURSO' } });
-
-    // Amenities recogidos: desechable se consume y se repone desde AMENITIES - LIMPIEZA
-    // (decrementa su stock); reutilizable retorna (neto sin cambio). La habitación conserva
-    // su dotación (la reposición reemplaza lo recogido), por eso NO se toca RoomInventory.
-    if (dto.amenityRecojo.length) {
-      const amenLimp = await prisma.warehouse.findFirst({ where: { branchId, type: 'AMENITIES', name: 'AMENITIES - LIMPIEZA' } });
-      const prods = await prisma.product.findMany({ where: { id: { in: dto.amenityRecojo.map((a) => a.productId) }, branchId }, select: { id: true, name: true } });
-      const pm = new Map(prods.map((p) => [p.id, p.name]));
-      await prisma.$transaction(async (tx) => {
-        for (const a of dto.amenityRecojo) {
-          const name = pm.get(a.productId) ?? 'Amenity';
-          if (!a.reusable && amenLimp) {
-            // Desechable: la reposición toma uno nuevo del almacén de limpieza.
-            const st = await tx.stock.findFirst({ where: { productId: a.productId, warehouseId: amenLimp.id } });
-            const dec = Math.min(a.quantity, st?.quantity ?? 0);
-            if (dec > 0 && st) await tx.stock.update({ where: { id: st.id }, data: { quantity: { decrement: dec } } });
-          }
-          await tx.roomInventoryMovement.create({
-            data: {
-              branchId, roomId, type: 'RECOJO', articleKind: 'AMENITY', name, quantity: -a.quantity,
-              fromLocation: `Habitación ${room.number}`,
-              toLocation: a.reusable ? 'AMENITIES - LIMPIEZA (retorno)' : 'Consumido',
-              reference: a.reusable ? 'Amenity reutilizable recogido (retorna)' : 'Amenity desechable recogido (repuesto)',
-              createdByUserId: scope.userId,
-            },
-          });
-        }
-      });
-    }
     return { taskId: task.id };
   },
 
@@ -213,6 +192,46 @@ export const cleaningService = {
           await tx.linenMovement.create({ data: { branchId, linenItemId: r.chosenLinenItemId, type: 'SUPPLY', quantity: -r.quantity, floor, areaFrom: floor, areaTo: `Hab. ${room.number}`, reference: 'Reposición de limpieza', createdByUserId: scope.userId } });
           await tx.roomInventoryMovement.create({ data: { branchId, roomId, type: 'RECOJO', articleKind: 'LINEN_REUSABLE', name: recogidoName, quantity: -r.quantity, fromLocation: `Habitación ${room.number}`, toLocation: 'Recogido (lavandería)', reference: 'Recojo de limpieza', createdByUserId: scope.userId } });
           await tx.roomInventoryMovement.create({ data: { branchId, roomId, type: 'REPOSICION', articleKind: 'LINEN_REUSABLE', name: chosenName, quantity: r.quantity, fromLocation: floor, toLocation: `Habitación ${room.number}`, reference: 'Reposición de limpieza', createdByUserId: scope.userId } });
+        }
+      });
+    }
+
+    // ── Reposición de AMENITIES: por cada amenity recogido, la variante elegida de
+    // AMENITIES - LIMPIEZA. Descuenta su stock y actualiza el inventario ACTUAL. ──
+    const repoAmen = dto?.reposicion?.amenities ?? [];
+    if (repoAmen.length) {
+      const amenLimp = await prisma.warehouse.findFirst({ where: { branchId, type: 'AMENITIES', name: 'AMENITIES - LIMPIEZA' } });
+      if (!amenLimp) throw new ValidationError('No existe el almacén AMENITIES - LIMPIEZA.');
+      const pids = [...new Set(repoAmen.flatMap((r) => [r.recogidoProductId, r.chosenProductId]))];
+      const prods = await prisma.product.findMany({ where: { id: { in: pids }, branchId }, select: { id: true, name: true } });
+      const pm = new Map(prods.map((p) => [p.id, p.name]));
+      await prisma.$transaction(async (tx) => {
+        for (const r of repoAmen) {
+          // 1) Descuenta la variante elegida de AMENITIES - LIMPIEZA (sin negativos).
+          const st = await tx.stock.findFirst({ where: { productId: r.chosenProductId, warehouseId: amenLimp.id } });
+          if (!st || st.quantity < r.quantity) throw new ValidationError(`Amenity "${pm.get(r.chosenProductId) ?? ''}" insuficiente en AMENITIES - LIMPIEZA (disp. ${st?.quantity ?? 0}).`);
+          await tx.stock.update({ where: { id: st.id }, data: { quantity: { decrement: r.quantity } } });
+          // 2) Quita el amenity recogido del inventario ACTUAL.
+          const recogidoName = pm.get(r.recogidoProductId) ?? 'amenity';
+          const keyR = { roomId_articleKind_name: { roomId, articleKind: 'AMENITY', name: recogidoName } };
+          const exR = await tx.roomInventory.findUnique({ where: keyR });
+          if (exR) {
+            const q = Math.max(0, exR.quantity - r.quantity);
+            if (q === 0) await tx.roomInventory.delete({ where: keyR });
+            else await tx.roomInventory.update({ where: keyR, data: { quantity: q } });
+          }
+          // 3) Agrega la variante elegida como inventario ACTUAL.
+          const chosenName = pm.get(r.chosenProductId) ?? 'amenity';
+          const keyC = { roomId_articleKind_name: { roomId, articleKind: 'AMENITY', name: chosenName } };
+          const exC = await tx.roomInventory.findUnique({ where: keyC });
+          await tx.roomInventory.upsert({
+            where: keyC,
+            update: { quantity: (exC?.quantity ?? 0) + r.quantity, productId: r.chosenProductId },
+            create: { branchId, roomId, articleKind: 'AMENITY', name: chosenName, productId: r.chosenProductId, quantity: r.quantity },
+          });
+          // 4) Trazabilidad.
+          await tx.roomInventoryMovement.create({ data: { branchId, roomId, type: 'RECOJO', articleKind: 'AMENITY', name: recogidoName, quantity: -r.quantity, fromLocation: `Habitación ${room.number}`, toLocation: 'Recogido', reference: 'Recojo de limpieza (amenity)', createdByUserId: scope.userId } });
+          await tx.roomInventoryMovement.create({ data: { branchId, roomId, type: 'REPOSICION', articleKind: 'AMENITY', name: chosenName, quantity: r.quantity, fromLocation: 'AMENITIES - LIMPIEZA', toLocation: `Habitación ${room.number}`, reference: 'Reposición de limpieza (amenity)', createdByUserId: scope.userId } });
         }
       });
     }
@@ -344,7 +363,43 @@ export const cleaningService = {
           motivo: i.pickup ? `Reponer desde subalmacén ${floor ?? ''}`.trim() : 'Permanece en habitación',
         };
       });
-    return { ropa, amenities: [], subalmacen: floor };
+
+    // ── Amenities: variantes de AMENITIES - LIMPIEZA (misma categoría, stock>0) ──
+    const amenInsp = task.linenInspections.filter((i) => !i.linenItemId && i.note); // note = productId
+    let amenities: Record<string, unknown>[] = [];
+    if (amenInsp.length) {
+      const amenLimp = await prisma.warehouse.findFirst({ where: { branchId, type: 'AMENITIES', name: 'AMENITIES - LIMPIEZA' } });
+      const [prodsAll, amenStock, invAmen] = await Promise.all([
+        prisma.product.findMany({ where: { branchId }, select: { id: true, name: true, categoryId: true } }),
+        amenLimp ? prisma.stock.findMany({ where: { warehouseId: amenLimp.id, quantity: { gt: 0 } } }) : Promise.resolve([]),
+        prisma.roomInventory.findMany({ where: { roomId, articleKind: 'AMENITY' } }),
+      ]);
+      const pmap = new Map(prodsAll.map((p) => [p.id, p]));
+      const stockAvail = new Map(amenStock.map((s) => [s.productId, s.quantity]));
+      const invAmenQty = new Map(invAmen.filter((i) => i.productId).map((i) => [i.productId as string, i.quantity]));
+      amenities = amenInsp.map((i) => {
+        const pid = i.note as string;
+        const p = pmap.get(pid);
+        const catId = p?.categoryId ?? null;
+        const qty = invAmenQty.get(pid) ?? 1;
+        // Variantes: amenities de la MISMA categoría con stock>0 en AMENITIES - LIMPIEZA.
+        const variants = prodsAll
+          .filter((x) => x.categoryId === catId && (stockAvail.get(x.id) ?? 0) > 0)
+          .map((x) => ({ productId: x.id, name: x.name, available: stockAvail.get(x.id) ?? 0 }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        return {
+          recogidoProductId: pid,
+          recogidoName: p?.name ?? i.description,
+          quantity: qty,
+          variants,
+          // Compat UI.
+          name: i.description, code: pid.slice(-7).toUpperCase(), type: 'AMENITY',
+          cant: i.pickup ? qty : 0, mantiene: !i.pickup,
+          motivo: i.pickup ? 'Reponer desde AMENITIES - LIMPIEZA' : 'Permanece en habitación',
+        };
+      });
+    }
+    return { ropa, amenities, subalmacen: floor };
   },
 
   /** Inicia una revisión periódica: pone la habitación EN REVISIÓN y arranca el cronómetro. */

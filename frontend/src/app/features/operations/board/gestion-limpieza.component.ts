@@ -14,11 +14,12 @@ interface Supply { id: string; roomId: string; room: string; floor?: string | nu
 interface SupplyGroup { roomId: string; room: string; floor?: string | null; roomType?: string; items: Supply[]; }
 interface LinenItem { id: string; type: string; name: string; color?: string | null; reusable: boolean; }
 interface InspRow { item: LinenItem; tipo: 'BASE' | 'EXTRA'; state: 'OK' | 'ROBADA' | 'DETERIORADA'; pickup: boolean; qty: number; }
-interface RepoVariant { linenItemId: string; name: string; size?: string | null; color?: string | null; available: number; }
+interface RepoVariant { linenItemId?: string; productId?: string; name: string; size?: string | null; color?: string | null; available: number; }
 interface RepoRow {
   section: string; tipo: string; name: string; code: string; type: string | null; color: string | null; cant: number; mantiene: boolean; motivo: string; subName?: string; subIndex?: number;
-  // Reposición desde el subalmacén (Tanda 1/2): variantes disponibles y la elegida.
-  recogidoLinenItemId?: string; quantity?: number; variants?: RepoVariant[]; chosenLinenItemId?: string;
+  // Reposición desde el subalmacén / AMENITIES - LIMPIEZA: variantes disponibles y la elegida.
+  recogidoLinenItemId?: string; recogidoProductId?: string; quantity?: number; variants?: RepoVariant[];
+  chosenLinenItemId?: string; chosenProductId?: string;
 }
 
 const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana', EDREDON: 'Edredón', AMENITY: 'Amenity' };
@@ -214,11 +215,15 @@ const ACCIONES_PERIODICAS = [
         <div class="rep-tbl">
           <div class="rep-row rh"><span>Tipo</span><span>Item</span><span>Cant.</span><span>Motivo</span></div>
           @for (r of reposicion().amenities; track $index) {
-            <div class="rep-row">
+            <div class="rep-row" [class.norepo]="!r.mantiene && !r.chosenProductId">
               <span><span class="base">BASE</span></span>
-              <span class="it"><strong>{{ r.name }}</strong><small>{{ r.code }}</small></span>
+              <span class="it"><strong>{{ r.subName || r.name }}</strong><small>{{ r.mantiene ? r.code : (r.chosenProductId ? 'de AMENITIES - LIMPIEZA · disp. ' + chosenAvail(r) : '') }}</small></span>
               <span>@if (r.mantiene) { <span class="mant">MANTIENE</span> } @else { <span class="cant"><i class="pi pi-check-circle"></i> {{ r.cant }}</span> }</span>
-              <span class="motivo">{{ r.motivo }}</span>
+              <span class="motivo">
+                @if (r.mantiene) { Permanece en habitación }
+                @else if (!r.chosenProductId) { <span class="norepo-msg"><i class="pi pi-exclamation-triangle"></i> Sin stock en AMENITIES - LIMPIEZA para reponer</span> }
+                @else { Reponer · <button class="refresh-i" (click)="cycleSub(r)" title="Cambiar variante (rota entre las de AMENITIES - LIMPIEZA con stock)"><i class="pi pi-sync"></i> cambiar</button> }
+              </span>
             </div>
           } @empty { <div class="rep-row"><span class="muted" style="grid-column:1/-1">Sin amenities recogidos.</span></div> }
         </div>
@@ -651,17 +656,15 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   confirmRecojo(): void {
     if (!this.selRoom) return;
     this.busy.set(true);
+    // Ropa lleva linenItemId; amenity lleva productId (se repone luego desde AMENITIES - LIMPIEZA).
     const inspections = this.rows().map((r) => ({
       linenItemId: r.item.id.startsWith('sup-') || r.item.id.startsWith('amn-') ? undefined : r.item.id,
+      productId: r.item.id.startsWith('amn-') ? r.item.id.slice(4) : undefined,
       description: `${this.typeLabel(r.item.type)} ${r.item.name}`,
       state: r.state,
       pickup: this.effPickup(r),
     }));
-    // Amenities recogidos (desechable/reutilizable) → el backend consume/repone.
-    const amenityRecojo = this.rows()
-      .filter((r) => r.item.id.startsWith('amn-') && this.effPickup(r))
-      .map((r) => ({ productId: r.item.id.slice(4), reusable: !!r.item.reusable, quantity: r.qty }));
-    this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/${this.selRoom.id}/start`, { inspections, amenityRecojo }).subscribe({
+    this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/${this.selRoom.id}/start`, { inspections }).subscribe({
       next: () => { this.busy.set(false); this.iniciarVisible = false; this.toast.add({ severity: 'success', summary: 'Limpieza iniciada', detail: `Hab. ${this.selRoom?.number} en curso` }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo iniciar.' }); },
     });
@@ -684,8 +687,8 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     this.reposicion.set({ ropa: [], amenities: [] });
     this.http.get<ApiResponse<{ ropa: RepoRow[]; amenities: RepoRow[] }>>(`${this.api}/cleaning/${r.id}/reposicion`).subscribe((res) => {
       const data = res.data ?? { ropa: [], amenities: [] };
-      // Por cada prenda recogida, elige por defecto la MISMA variante si tiene stock;
-      // si no, la primera variante disponible del subalmacén.
+      // Por cada prenda/amenity recogido, elige por defecto la MISMA variante si tiene stock;
+      // si no, la primera disponible del subalmacén / AMENITIES - LIMPIEZA.
       for (const row of data.ropa) {
         if (row.mantiene) continue;
         const vs = row.variants ?? [];
@@ -693,6 +696,14 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
         row.chosenLinenItemId = chosen?.linenItemId;
         row.subIndex = chosen ? vs.indexOf(chosen) : 0;
         row.subName = chosen ? `${TYPE_LABEL[row.type ?? ''] ?? ''} ${chosen.name}`.trim() : undefined;
+      }
+      for (const row of data.amenities) {
+        if (row.mantiene) continue;
+        const vs = row.variants ?? [];
+        const chosen = vs.find((v) => v.productId === row.recogidoProductId) ?? vs[0];
+        row.chosenProductId = chosen?.productId;
+        row.subIndex = chosen ? vs.indexOf(chosen) : 0;
+        row.subName = chosen ? chosen.name : undefined;
       }
       this.reposicion.set(data);
     });
@@ -702,20 +713,27 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   repoCount(): number { return this.reposicion().ropa.length + this.reposicion().amenities.length; }
   repoRopaRepuestos(): number { return this.reposicion().ropa.filter((r) => !r.mantiene).length; }
   repoAmenRepuestos(): number { return this.reposicion().amenities.filter((r) => !r.mantiene).length; }
-  /** Selector rotativo: rota SOLO entre variantes con stock en el subalmacén asignado. */
+  /** Selector rotativo: rota SOLO entre variantes con stock del subalmacén / AMENITIES - LIMPIEZA. */
   cycleSub(r: RepoRow): void {
     const vs = r.variants ?? [];
-    if (vs.length < 2) { this.toast.add({ severity: 'info', summary: 'Sin más variantes', detail: 'No hay otra prenda de esta categoría con stock en el subalmacén.' }); return; }
+    if (vs.length < 2) { this.toast.add({ severity: 'info', summary: 'Sin más variantes', detail: 'No hay otra variante de esta categoría con stock disponible.' }); return; }
     r.subIndex = ((r.subIndex ?? 0) + 1) % vs.length;
     const v = vs[r.subIndex];
-    r.chosenLinenItemId = v.linenItemId;
-    r.subName = `${TYPE_LABEL[r.type ?? ''] ?? ''} ${v.name}`.trim();
+    if (r.type === 'AMENITY') { r.chosenProductId = v.productId; r.subName = v.name; }
+    else { r.chosenLinenItemId = v.linenItemId; r.subName = `${TYPE_LABEL[r.type ?? ''] ?? ''} ${v.name}`.trim(); }
     this.reposicion.set({ ...this.reposicion() });
   }
-  /** Reposición completa: cada prenda recogida tiene una variante elegida con stock. */
-  reposicionCompleta(): boolean { return this.reposicion().ropa.every((r) => r.mantiene || !!r.chosenLinenItemId); }
+  /** Reposición completa: cada prenda/amenity recogido tiene una variante elegida con stock. */
+  reposicionCompleta(): boolean {
+    return this.reposicion().ropa.every((r) => r.mantiene || !!r.chosenLinenItemId)
+      && this.reposicion().amenities.every((r) => r.mantiene || !!r.chosenProductId);
+  }
+  chosenId(r: RepoRow): string | undefined { return r.type === 'AMENITY' ? r.chosenProductId : r.chosenLinenItemId; }
   /** Disponible de la variante elegida (para mostrar). */
-  chosenAvail(r: RepoRow): number { return (r.variants ?? []).find((v) => v.linenItemId === r.chosenLinenItemId)?.available ?? 0; }
+  chosenAvail(r: RepoRow): number {
+    const id = this.chosenId(r);
+    return (r.variants ?? []).find((v) => (r.type === 'AMENITY' ? v.productId : v.linenItemId) === id)?.available ?? 0;
+  }
   fallasFor(key: string): string[] { return FALLAS[key] ?? ['Otro']; }
   /** Habilita Finalizar: todo OK, o cada categoría marcada tiene una falla seleccionada. */
   canFinalizar(): boolean {
@@ -730,12 +748,15 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     const problems = this.todoOk
       ? []
       : this.cats.filter((c) => c.selected).map((c) => ({ category: c.label, falla: c.falla, observacion: c.observacion }));
-    // Reposición: por cada prenda recogida, la variante elegida del subalmacén.
+    // Reposición: por cada prenda/amenity recogido, la variante elegida del subalmacén / AMENITIES - LIMPIEZA.
     const ropaRepo = this.reposicion().ropa
       .filter((x) => !x.mantiene && x.recogidoLinenItemId && x.chosenLinenItemId)
       .map((x) => ({ recogidoLinenItemId: x.recogidoLinenItemId, chosenLinenItemId: x.chosenLinenItemId, quantity: x.quantity ?? 1 }));
+    const amenRepo = this.reposicion().amenities
+      .filter((x) => !x.mantiene && x.recogidoProductId && x.chosenProductId)
+      .map((x) => ({ recogidoProductId: x.recogidoProductId, chosenProductId: x.chosenProductId, quantity: x.quantity ?? 1 }));
     this.busy.set(true);
-    this.http.post<ApiResponse<{ maintenance: boolean }>>(`${this.api}/cleaning/${r.id}/finish`, { problems, observacionesGenerales: this.obsGenerales, reposicion: { ropa: ropaRepo } }).subscribe({
+    this.http.post<ApiResponse<{ maintenance: boolean }>>(`${this.api}/cleaning/${r.id}/finish`, { problems, observacionesGenerales: this.obsGenerales, reposicion: { ropa: ropaRepo, amenities: amenRepo } }).subscribe({
       next: (res) => {
         this.busy.set(false); this.finVisible = false;
         const m = res.data?.maintenance;
