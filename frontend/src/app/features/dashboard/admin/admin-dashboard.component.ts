@@ -15,6 +15,7 @@ interface StatCard {
   value: number | string;
   label: string;
   color: string; // gradiente CSS
+  estado?: string; // si está, la tarjeta es clickeable y filtra habitaciones por este estado
 }
 
 @Component({
@@ -33,8 +34,8 @@ interface StatCard {
           <h2>Resumen de Recepción / Estancias</h2>
           <div class="stat-grid">
             @for (s of recepcionCards(); track s.label) {
-              <div class="stat" [style.background]="s.color">
-                <span class="num">{{ s.value }}</span><span class="lbl">{{ s.label }}</span>
+              <div class="stat" [class.clk]="s.estado" [style.background]="s.color" (click)="go(s)" [title]="s.estado ? 'Ver habitaciones' : ''">
+                <span class="num">{{ s.value }}</span><span class="lbl">{{ s.label }} @if (s.estado) { <i class="pi pi-arrow-right"></i> }</span>
               </div>
             }
           </div>
@@ -45,8 +46,8 @@ interface StatCard {
           <h2>Resumen de Limpieza</h2>
           <div class="stat-grid">
             @for (s of limpiezaCards(); track s.label) {
-              <div class="stat" [style.background]="s.color">
-                <span class="num">{{ s.value }}</span><span class="lbl">{{ s.label }}</span>
+              <div class="stat" [class.clk]="s.estado" [style.background]="s.color" (click)="go(s)" [title]="s.estado ? 'Ver habitaciones' : ''">
+                <span class="num">{{ s.value }}</span><span class="lbl">{{ s.label }} @if (s.estado) { <i class="pi pi-arrow-right"></i> }</span>
               </div>
             }
           </div>
@@ -116,7 +117,11 @@ interface StatCard {
       }
       .stat.soft { background: var(--p-content-hover-background, #142339); }
       .stat .num { font-size: 1.8rem; font-weight: 800; line-height: 1; }
-      .stat .lbl { font-size: 0.78rem; opacity: 0.92; }
+      .stat .lbl { font-size: 0.78rem; opacity: 0.92; display: inline-flex; align-items: center; gap: 0.3rem; }
+      .stat .lbl .pi { font-size: 0.68rem; opacity: 0; transition: opacity 0.15s, transform 0.15s; }
+      .stat.clk { cursor: pointer; transition: transform 0.12s, filter 0.12s, box-shadow 0.12s; }
+      .stat.clk:hover { transform: translateY(-2px); filter: brightness(1.08); box-shadow: 0 8px 22px rgba(0,0,0,0.28); }
+      .stat.clk:hover .lbl .pi { opacity: 0.95; transform: translateX(2px); }
 
       .money { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
       .mc-title { font-weight: 700; font-size: 0.95rem; display: block; margin-bottom: 0.4rem; }
@@ -174,14 +179,20 @@ export class AdminDashboardComponent implements OnInit {
     });
   }
 
+  /** Navega al mapa de habitaciones con el filtro de estado de la tarjeta. */
+  go(card: StatCard): void {
+    if (!card.estado) return;
+    this.router.navigate(['/operations/habitaciones'], { queryParams: { estado: card.estado } });
+  }
+
   recepcionCards(): StatCard[] {
     const d = this.recepcion();
     const s = d?.rooms.byStatus ?? {};
     return [
-      { value: s['FREE'] ?? 0, label: 'Habitaciones disponibles', color: 'linear-gradient(135deg,#065f46,#10b981)' },
-      { value: s['OCCUPIED'] ?? 0, label: 'Habitaciones ocupadas', color: 'linear-gradient(135deg,#5b21b6,#7c3aed)' },
-      { value: s['MAINTENANCE'] ?? 0, label: 'Habitaciones en mantenimiento', color: 'linear-gradient(135deg,#9a3412,#f97316)' },
-      { value: d?.reservationsPending ?? 0, label: 'Habitaciones reservadas', color: 'linear-gradient(135deg,#7f1d1d,#b91c1c)' },
+      { value: s['FREE'] ?? 0, label: 'Habitaciones disponibles', color: 'linear-gradient(135deg,#065f46,#10b981)', estado: 'FREE' },
+      { value: s['OCCUPIED'] ?? 0, label: 'Habitaciones ocupadas', color: 'linear-gradient(135deg,#5b21b6,#7c3aed)', estado: 'OCCUPIED' },
+      { value: s['MAINTENANCE'] ?? 0, label: 'Habitaciones en mantenimiento', color: 'linear-gradient(135deg,#9a3412,#f97316)', estado: 'MAINTENANCE' },
+      { value: d?.reservationsPending ?? 0, label: 'Habitaciones reservadas', color: 'linear-gradient(135deg,#7f1d1d,#b91c1c)', estado: 'RESERVADA' },
     ];
   }
 
@@ -189,10 +200,10 @@ export class AdminDashboardComponent implements OnInit {
     const d = this.limpieza();
     const byStatus = (st: string): number => d?.byStatus.find((x) => x.status === st)?.count ?? 0;
     return [
-      { value: byStatus('DONE'), label: 'Limpiezas realizadas', color: 'linear-gradient(135deg,#115e59,#14b8a6)' },
-      { value: byStatus('PENDING'), label: 'Limpiezas en espera', color: 'linear-gradient(135deg,#9a3412,#f97316)' },
-      { value: d?.roomsCleaning ?? 0, label: 'Limpiezas en curso', color: 'linear-gradient(135deg,#1e40af,#3b82f6)' },
-      { value: d?.pendingInspections ?? 0, label: 'Mantenimiento preventivo / periódico', color: 'linear-gradient(135deg,#5b21b6,#7c3aed)' },
+      { value: byStatus('DONE'), label: 'Limpiezas realizadas', color: 'linear-gradient(135deg,#115e59,#14b8a6)', estado: 'FREE' },
+      { value: byStatus('PENDING'), label: 'Limpiezas en espera', color: 'linear-gradient(135deg,#9a3412,#f97316)', estado: 'CLEANING' },
+      { value: d?.roomsCleaning ?? 0, label: 'Limpiezas en curso', color: 'linear-gradient(135deg,#1e40af,#3b82f6)', estado: 'CLEANING' },
+      { value: d?.pendingInspections ?? 0, label: 'Mantenimiento preventivo / periódico', color: 'linear-gradient(135deg,#5b21b6,#7c3aed)', estado: 'MAINTENANCE' },
     ];
   }
 

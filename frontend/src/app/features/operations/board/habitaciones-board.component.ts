@@ -978,7 +978,8 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   readonly stateOptions = [
     { label: 'Disponible', value: 'FREE' },
     { label: 'Ocupada', value: 'OCCUPIED' },
-    { label: 'Limpieza en espera', value: 'CLEANING' },
+    { label: 'Reservada', value: 'RESERVADA' },
+    { label: 'Limpieza', value: 'CLEANING' },
     { label: 'Mantenimiento', value: 'MAINTENANCE' },
   ];
 
