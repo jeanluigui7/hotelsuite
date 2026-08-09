@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { ok } from '../../shared/response';
 import { UnauthorizedError } from '../../shared/errors';
-import { linenAdminService, transferSchema, transferBulkSchema, replenishSchema, createItemSchema, updateItemSchema } from './linen-admin.service';
+import { linenAdminService, transferSchema, transferBulkSchema, replenishSchema, writeoffSchema, createItemSchema, updateItemSchema } from './linen-admin.service';
 
 export const linenAdminController = {
   async requests(req: Request, res: Response): Promise<void> {
@@ -54,5 +54,15 @@ export const linenAdminController = {
   async closeShift(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await linenAdminService.closeShift(req.scope)));
+  },
+  async writeoff(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = writeoffSchema.parse(req.body);
+    res.status(201).json(ok(await linenAdminService.writeoff(req.scope, dto)));
+  },
+  async writeoffs(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const limit = req.query.limit ? Number(req.query.limit) : 200;
+    res.status(200).json(ok(await linenAdminService.writeoffHistory(req.scope, limit)));
   },
 };

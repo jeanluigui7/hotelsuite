@@ -69,6 +69,7 @@ model Branch {
   wifiCredentials  WifiCredential[]
   linenItems       LinenItem[]
   linenStocks      LinenStock[]
+  linenWriteoffs   LinenWriteoff[]
   linenMovements   LinenMovement[]
   cleaningShifts   CleaningShift[]
   roomSupplies     RoomSupply[]
@@ -1436,6 +1437,7 @@ model LinenItem {
   stocks      LinenStock[]
   movements   LinenMovement[]
   inspections LinenInspection[]
+  writeoffs   LinenWriteoff[]
 
   @@index([branchId])
   @@index([type])
@@ -1470,6 +1472,31 @@ model LinenMovement {
   areaFrom        String?
   areaTo          String?
   reference       String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  branch    Branch    @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  linenItem LinenItem @relation(fields: [linenItemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([branchId])
+  @@index([linenItemId])
+}
+
+/// Historial de bajas de ropa (Retorno / Dañado / Robado) con stock antes/después.
+/// RETORNO: devuelve del piso al almacén central (no altera el Stock Base).
+/// DANADO/ROBADO: sale definitivamente del piso y reduce el Stock Base.
+model LinenWriteoff {
+  id              String   @id @default(uuid())
+  branchId        String
+  linenItemId     String
+  floor           String
+  motivo          String // RETORNO | DANADO | ROBADO
+  quantity        Int
+  remBefore       Int      @default(0)
+  remAfter        Int      @default(0)
+  baseBefore      Int      @default(0)
+  baseAfter       Int      @default(0)
+  notes           String?  @db.NVarChar(Max)
   createdByUserId String?
   createdAt       DateTime @default(now())
 

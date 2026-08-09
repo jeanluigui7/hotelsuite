@@ -73,6 +73,31 @@ async function supplyToFloor(branchId: string, linenItemId: string, floor: strin
 }
 
 /**
+ * Calcula el Stock Base de un ítem = Disponible (REM del almacén central) + Transferido
+ * (REM+SUM en los pisos + lo que está en lavandería). Mismo criterio que warehouse().
+ * Se usa para registrar el stock antes/después en el historial de bajas.
+ */
+async function computeBaseTx(tx: LinenTx, branchId: string, linenItemId: string) {
+  const stocks = await tx.linenStock.findMany({ where: { branchId, linenItemId } });
+  let central = 0;
+  let atFloors = 0;
+  for (const s of stocks) {
+    if (s.floor === LINEN_CENTRAL) central += s.rem;
+    else atFloors += s.rem + s.sum;
+  }
+  const movs = await tx.linenMovement.groupBy({ by: ['type'], where: { branchId, linenItemId, type: { in: ['LAUNDRY', 'PICKUP'] } }, _sum: { quantity: true } });
+  let sent = 0;
+  let back = 0;
+  for (const m of movs) {
+    const q = Math.abs(m._sum.quantity ?? 0);
+    if (m.type === 'LAUNDRY') sent += q;
+    else back += q;
+  }
+  const inLaundry = Math.max(0, sent - back);
+  return central + atFloors + inLaundry;
+}
+
+/**
  * Cierre de turno de ropa a nivel SUCURSAL: en cada piso, NUEVO REM = REM + SUM y SUM = 0.
  * Idempotente (si no hay SUM pendiente no hace nada). Lo invoca el cierre manual y también
  * el corte de turno automático de LIMPIEZA (scheduler / recordCut).
@@ -100,6 +125,22 @@ export const replenishSchema = z.object({
   quantity: z.coerce.number().int().min(1),
 });
 export type ReplenishDto = z.infer<typeof replenishSchema>;
+
+/**
+ * Baja masiva de ropa desde el REM de uno o varios pisos. Un solo motivo por operación,
+ * varias referencias/cantidades. RETORNO devuelve al almacén central; DANADO/ROBADO
+ * dan salida definitiva (reducen el Stock Base).
+ */
+export const writeoffSchema = z.object({
+  motivo: z.enum(['RETORNO', 'DANADO', 'ROBADO']),
+  notes: z.string().max(2000).optional().or(z.literal('')),
+  rows: z.array(z.object({
+    linenItemId: z.string().min(1),
+    floor: z.string().min(1),
+    quantity: z.coerce.number().int().min(1),
+  })).min(1).max(500),
+});
+export type WriteoffDto = z.infer<typeof writeoffSchema>;
 
 const itemFields = {
   // El tipo ya no se pide en el formulario: se autocompleta con el nombre de la Categoría.
@@ -201,6 +242,92 @@ export const linenAdminService = {
   async closeShift(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);
     return { ok: true, ...(await closeLinenShiftForBranch(branchId)) };
+  },
+
+  /**
+   * Baja masiva de ropa desde el REM de los pisos (corrección de diferencias).
+   * - RETORNO: descuenta del REM del piso y lo devuelve al REM del almacén central
+   *   (baja el Transferido, sube el Disponible; el Stock Base NO cambia).
+   * - DANADO/ROBADO: descuenta del REM del piso y sale definitivamente (baja el Stock Base).
+   * Registra cada línea en el historial de bajas (stock antes/después) y en LinenMovement.
+   */
+  async writeoff(scope: RequestScope, dto: WriteoffDto) {
+    const branchId = requireActiveBranch(scope);
+    const notes = dto.notes && dto.notes.trim() ? dto.notes.trim() : null;
+    const movType = dto.motivo === 'RETORNO' ? 'RETURN' : dto.motivo === 'DANADO' ? 'DAMAGE' : 'THEFT';
+    const done = await prisma.$transaction(async (tx) => {
+      const records: { id: string }[] = [];
+      for (const row of dto.rows) {
+        const stock = await tx.linenStock.findUnique({ where: { linenItemId_floor: { linenItemId: row.linenItemId, floor: row.floor } } });
+        const rem = stock?.rem ?? 0;
+        if (row.quantity > rem) {
+          const item = await tx.linenItem.findUnique({ where: { id: row.linenItemId }, select: { name: true } });
+          throw new ValidationError(`No se puede dar de baja ${row.quantity} de "${item?.name ?? 'ítem'}"; el remanente (REM) del piso ${row.floor} es ${rem}.`);
+        }
+        const baseBefore = await computeBaseTx(tx, branchId, row.linenItemId);
+        const remAfter = rem - row.quantity;
+        // Descontar del REM del piso.
+        await tx.linenStock.update({ where: { linenItemId_floor: { linenItemId: row.linenItemId, floor: row.floor } }, data: { rem: remAfter } });
+        let baseAfter = baseBefore;
+        if (dto.motivo === 'RETORNO') {
+          // Devolver al almacén central (sube el Disponible; el Base se mantiene).
+          await tx.linenStock.upsert({
+            where: { linenItemId_floor: { linenItemId: row.linenItemId, floor: LINEN_CENTRAL } },
+            update: { rem: { increment: row.quantity } },
+            create: { branchId, linenItemId: row.linenItemId, floor: LINEN_CENTRAL, rem: row.quantity, sum: 0 },
+          });
+        } else {
+          // Salida definitiva: baja el Stock Base.
+          baseAfter = baseBefore - row.quantity;
+        }
+        const wo = await tx.linenWriteoff.create({
+          data: {
+            branchId, linenItemId: row.linenItemId, floor: row.floor, motivo: dto.motivo, quantity: row.quantity,
+            remBefore: rem, remAfter, baseBefore, baseAfter, notes, createdByUserId: scope.userId,
+          },
+          select: { id: true },
+        });
+        await tx.linenMovement.create({
+          data: {
+            branchId, linenItemId: row.linenItemId, type: movType, quantity: -row.quantity, floor: row.floor,
+            areaFrom: row.floor, areaTo: dto.motivo === 'RETORNO' ? LINEN_CENTRAL : dto.motivo,
+            reference: `Baja ${dto.motivo}${notes ? ' · ' + notes : ''}`, createdByUserId: scope.userId,
+          },
+        });
+        records.push(wo);
+      }
+      return records.length;
+    });
+    return { ok: true, count: done, motivo: dto.motivo };
+  },
+
+  /** Historial de bajas de ropa (más reciente primero). */
+  async writeoffHistory(scope: RequestScope, limit = 200) {
+    const branchId = requireActiveBranch(scope);
+    const rows = await prisma.linenWriteoff.findMany({ where: { branchId }, orderBy: { createdAt: 'desc' }, take: Math.min(Math.max(limit, 1), 1000) });
+    const itemIds = [...new Set(rows.map((r) => r.linenItemId))];
+    const userIds = [...new Set(rows.map((r) => r.createdByUserId).filter((x): x is string => !!x))];
+    const [items, users] = await Promise.all([
+      prisma.linenItem.findMany({ where: { id: { in: itemIds } }, select: { id: true, name: true, type: true } }),
+      prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, email: true } }),
+    ]);
+    const imap = new Map(items.map((i) => [i.id, i]));
+    const umap = new Map(users.map((u) => [u.id, u]));
+    return rows.map((r) => ({
+      id: r.id,
+      createdAt: r.createdAt,
+      floor: r.floor,
+      article: imap.get(r.linenItemId)?.name ?? '—',
+      type: imap.get(r.linenItemId)?.type ?? '',
+      motivo: r.motivo,
+      quantity: r.quantity,
+      remBefore: r.remBefore,
+      remAfter: r.remAfter,
+      baseBefore: r.baseBefore,
+      baseAfter: r.baseAfter,
+      notes: r.notes,
+      user: umap.get(r.createdByUserId ?? '')?.name ?? umap.get(r.createdByUserId ?? '')?.email ?? '—',
+    }));
   },
 
   /**

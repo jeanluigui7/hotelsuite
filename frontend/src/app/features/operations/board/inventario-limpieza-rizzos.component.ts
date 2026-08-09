@@ -6,6 +6,7 @@ import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { InputTextModule } from 'primeng/inputtext';
+import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import { forkJoin, of } from 'rxjs';
 import { environment } from '../../../../environments/environment';
@@ -17,6 +18,7 @@ interface Row { linenItemId: string; type: string; name: string; color?: string 
 interface Floor { floor: string; rows: Row[]; }
 interface Supply { id: string; roomId: string; room: string; floor?: string | null; roomType?: string; description: string; category?: string; quantity: number; status: string; createdAt: string; }
 interface SupplyGroup { roomId: string; room: string; floor?: string | null; roomType?: string; items: Supply[]; }
+interface WriteoffRow { id: string; createdAt: string; user: string; floor: string; article: string; type: string; motivo: string; quantity: number; remBefore: number; remAfter: number; baseBefore: number; baseAfter: number; notes: string | null; }
 
 // Colores conocidos por tipo (los ítems de ropa llevan como `type` el NOMBRE de su
 // categoría, que varía por sucursal). Se normaliza a mayúsculas para el match.
@@ -31,7 +33,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
 @Component({
   selector: 'app-inventario-limpieza-rizzos',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule],
+  imports: [DatePipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule],
   template: `
     <section class="il">
       <header class="top">
@@ -45,6 +47,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
             <button [class.on]="mode() === 'turno'" (click)="mode.set('turno')">Por Turnos</button>
           </div>
           <button class="cerrar" (click)="closeShift()" [disabled]="busy()" title="Pasa lo suministrado (SUM) al remanente (REM) y reinicia SUM a 0"><i class="pi pi-flag"></i> Cerrar Turno</button>
+          <button class="icon" (click)="openHistory()" title="Historial de bajas"><i class="pi pi-history"></i></button>
           <button class="icon" (click)="print()" title="Imprimir"><i class="pi pi-print"></i></button>
         </div>
       </header>
@@ -90,6 +93,9 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
               </button>
               <button class="manch" [disabled]="floorSelected(f.floor).length === 0" (click)="openLaundry(f.floor)">
                 <i class="pi pi-exclamation-triangle"></i> Manchada / Deteriorada
+              </button>
+              <button class="baja" [disabled]="floorSelected(f.floor).length === 0" (click)="openBaja(f.floor)">
+                <i class="pi pi-trash"></i> Dar de baja ({{ floorSelected(f.floor).length }})
               </button>
             </div>
           </div>
@@ -170,6 +176,67 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
         <p-button label="Enviar a lavandería" icon="pi pi-check" [loading]="busy()" (onClick)="sendLaundry()" />
       </ng-template>
     </p-dialog>
+
+    <!-- Dar de Baja Masiva -->
+    <p-dialog [(visible)]="bajaVisible" [modal]="true" [style]="{ width: '38rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      <ng-template pTemplate="header"><div class="baja-head"><i class="pi pi-trash"></i> Dar de Baja Masiva</div></ng-template>
+      <p class="baja-sub">Dando de baja {{ bajaRows.length }} referencia(s) · Piso {{ bajaFloor }}</p>
+      <div class="form">
+        <label>Motivo</label>
+        <p-select [options]="motivos" [(ngModel)]="bajaMotivo" optionLabel="label" optionValue="value" appendTo="body" styleClass="w" />
+        <p class="baja-hint">
+          @switch (bajaMotivo) {
+            @case ('RETORNO') { <i class="pi pi-undo"></i> <span>Se transfirió por error o de más. Devuelve la ropa al <b>almacén</b> (baja el Transferido, sube el Disponible). <b>No altera el Stock Base.</b></span> }
+            @case ('DANADO') { <i class="pi pi-exclamation-triangle"></i> <span>Prenda inutilizable. Sale <b>definitivamente</b> del piso y <b>reduce el Stock Base.</b></span> }
+            @case ('ROBADO') { <i class="pi pi-ban"></i> <span>Prenda perdida o sustraída. Sale <b>definitivamente</b> del piso y <b>reduce el Stock Base.</b></span> }
+          }
+        </p>
+
+        <div class="baja-list">
+          @for (r of bajaRows; track r.linenItemId; let i = $index) {
+            <div class="baja-row">
+              <div class="bi">
+                <strong><span class="dot" [style.background]="r.color || '#888'"></span>{{ r.name }}</strong>
+                <small>Piso: {{ r.floor }} | Remanente | Máx: {{ r.rem }}</small>
+              </div>
+              <p-inputNumber [(ngModel)]="r.qty" [min]="1" [max]="r.rem" [showButtons]="true" buttonLayout="horizontal" inputStyleClass="qi" />
+              <button class="bx" (click)="removeBajaRow(i)" title="Quitar"><i class="pi pi-trash"></i></button>
+            </div>
+          } @empty { <p class="muted">No hay prendas seleccionadas.</p> }
+        </div>
+
+        <label>Notas</label>
+        <input pInputText [(ngModel)]="bajaNotes" placeholder="Notas adicionales (opcional)" />
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="bajaVisible = false" />
+        <p-button label="Dar de Baja Productos" icon="pi pi-check" severity="danger" [loading]="busy()" [disabled]="bajaRows.length === 0" (onClick)="confirmBaja()" />
+      </ng-template>
+    </p-dialog>
+
+    <!-- Historial de Bajas -->
+    <p-dialog [(visible)]="histVisible" [modal]="true" header="Historial de Bajas de Ropa" [style]="{ width: '64rem', maxWidth: '97vw' }" styleClass="dk-dialog">
+      <div class="hist-wrap">
+        <table class="hist">
+          <thead><tr><th>Fecha/Hora</th><th>Usuario</th><th>Piso</th><th>Artículo</th><th class="cn">Cant.</th><th>Motivo</th><th class="cn">REM</th><th class="cn">Base</th><th>Notas</th></tr></thead>
+          <tbody>
+            @for (h of history(); track h.id) {
+              <tr>
+                <td>{{ h.createdAt | date: 'dd/MM/yy HH:mm' }}</td>
+                <td>{{ h.user }}</td>
+                <td>{{ h.floor }}</td>
+                <td class="art"><b>{{ h.article }}</b><small>{{ h.type }}</small></td>
+                <td class="cn">{{ h.quantity }}</td>
+                <td><span class="mtag" [class.ret]="h.motivo === 'RETORNO'" [class.dan]="h.motivo === 'DANADO'" [class.rob]="h.motivo === 'ROBADO'">{{ motivoLabel(h.motivo) }}</span></td>
+                <td class="cn">{{ h.remBefore }} → {{ h.remAfter }}</td>
+                <td class="cn">{{ h.baseBefore }} → {{ h.baseAfter }}</td>
+                <td class="nt">{{ h.notes || '—' }}</td>
+              </tr>
+            } @empty { <tr><td colspan="9" class="muted" style="padding:1rem;text-align:center;">Aún no hay bajas registradas.</td></tr> }
+          </tbody>
+        </table>
+      </div>
+    </p-dialog>
   `,
   styles: [
     `
@@ -200,7 +267,27 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
       .fbtns { display: flex; flex-direction: column; gap: 0.4rem; padding: 0.7rem; }
       .solicitar, .manch { border: 0; border-radius: 9px; padding: 0.6rem; font-weight: 700; cursor: pointer; font-size: 0.82rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; color: #fff; }
       .solicitar { background: #2563eb; } .manch { background: #b91c1c; }
-      .solicitar:disabled, .manch:disabled { opacity: 0.45; cursor: not-allowed; }
+      .baja { background: #7f1d1d; border: 1px solid #b91c1c !important; }
+      .solicitar, .manch, .baja { border: 0; border-radius: 9px; padding: 0.6rem; font-weight: 700; cursor: pointer; font-size: 0.82rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; color: #fff; }
+      .solicitar:disabled, .manch:disabled, .baja:disabled { opacity: 0.45; cursor: not-allowed; }
+
+      .baja-head { display: flex; align-items: center; gap: 0.5rem; font-size: 1.2rem; font-weight: 800; color: #fff; } .baja-head .pi { color: #f87171; }
+      .baja-sub { margin: 0 0 0.6rem; color: #8aa499; font-size: 0.84rem; }
+      .baja-hint { display: flex; align-items: flex-start; gap: 0.45rem; background: rgba(180,35,35,0.1); border: 1px solid rgba(180,35,35,0.35); border-radius: 10px; padding: 0.6rem 0.8rem; color: #f0c9c9; font-size: 0.8rem; margin: 0.3rem 0 0.3rem; } .baja-hint .pi { margin-top: 0.1rem; color: #f87171; } .baja-hint b { color: #fff; }
+      .baja-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.3rem; }
+      .baja-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 0.7rem; background: #0e241c; border: 1px solid #1f3a2c; border-radius: 10px; padding: 0.55rem 0.7rem; }
+      .baja-row .bi strong { display: flex; align-items: center; gap: 0.35rem; font-size: 0.9rem; color: #e6efe9; } .baja-row .bi small { color: #8aa499; font-size: 0.74rem; }
+      .bx { background: transparent; border: 0; color: #f87171; cursor: pointer; padding: 0.3rem 0.4rem; border-radius: 6px; } .bx:hover { background: rgba(248,113,113,0.15); }
+      :host ::ng-deep .w { width: 100%; }
+
+      .hist-wrap { overflow-x: auto; }
+      .hist { width: 100%; border-collapse: collapse; min-width: 780px; font-size: 0.82rem; }
+      .hist thead th { text-align: left; color: #9fb0c3; font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; padding: 0.5rem 0.6rem; border-bottom: 1px solid #1f3a2c; position: sticky; top: 0; background: #0e1a14; }
+      .hist thead th.cn, .hist td.cn { text-align: center; }
+      .hist td { padding: 0.5rem 0.6rem; border-bottom: 1px solid #14251d; color: #dbe7f0; vertical-align: middle; }
+      .hist td.art b { display: block; } .hist td.art small { color: #8aa499; font-size: 0.72rem; } .hist td.nt { color: #9fb0c3; max-width: 220px; }
+      .mtag { font-size: 0.7rem; font-weight: 800; border-radius: 999px; padding: 0.1rem 0.5rem; }
+      .mtag.ret { color: #93c5fd; background: rgba(37,99,235,0.18); } .mtag.dan { color: #fbbf24; background: rgba(217,119,6,0.18); } .mtag.rob { color: #fca5a5; background: rgba(180,35,35,0.2); }
 
       .amen-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; margin-bottom: 0.5rem; }
       .amen-card { background: #0c1f1a; border: 1px solid #14603f; border-radius: 14px; overflow: hidden; }
@@ -260,6 +347,21 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
   reqFloor = '';
   delVisible = false;
   delGroup: SupplyGroup | null = null;
+
+  // Dar de baja masiva
+  readonly motivos = [
+    { label: 'Retorno', value: 'RETORNO' },
+    { label: 'Dañado', value: 'DANADO' },
+    { label: 'Robado', value: 'ROBADO' },
+  ];
+  bajaVisible = false;
+  bajaFloor = '';
+  bajaMotivo: 'RETORNO' | 'DANADO' | 'ROBADO' = 'RETORNO';
+  bajaRows: { linenItemId: string; name: string; color?: string | null; floor: string; rem: number; qty: number }[] = [];
+  bajaNotes = '';
+  // Historial de bajas
+  histVisible = false;
+  readonly history = signal<WriteoffRow[]>([]);
 
   /** Agrupa los suministros pendientes por habitación (una tarjeta por habitación). */
   readonly groups = computed<SupplyGroup[]>(() => {
@@ -393,6 +495,54 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
       next: () => { this.busy.set(false); this.delVisible = false; this.toast.add({ severity: 'warn', summary: 'Rechazado', detail: `Hab. ${g.room}: entrega rechazada.` }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
     });
+  }
+
+  // ── Dar de baja masiva ──
+  openBaja(floor: string): void {
+    this.bajaFloor = floor;
+    this.bajaMotivo = 'RETORNO';
+    this.bajaNotes = '';
+    this.bajaRows = this.floorSelected(floor)
+      .filter((r) => r.rem > 0)
+      .map((r) => ({ linenItemId: r.linenItemId, name: r.name, color: r.color, floor, rem: r.rem, qty: 1 }));
+    this.bajaVisible = true;
+  }
+
+  removeBajaRow(i: number): void {
+    const removed = this.bajaRows[i];
+    this.bajaRows = this.bajaRows.filter((_, idx) => idx !== i);
+    // Deselecciona el chip correspondiente en la matriz.
+    if (removed) {
+      const s = new Set(this.selected());
+      s.delete(this.k(this.bajaFloor, removed.linenItemId));
+      this.selected.set(s);
+    }
+    if (this.bajaRows.length === 0) this.bajaVisible = false;
+  }
+
+  confirmBaja(): void {
+    const rows = this.bajaRows
+      .filter((r) => (Number(r.qty) || 0) > 0)
+      .map((r) => ({ linenItemId: r.linenItemId, floor: r.floor, quantity: Math.min(Number(r.qty) || 1, r.rem) }));
+    if (!rows.length) return;
+    this.busy.set(true);
+    this.http.post<ApiResponse<{ count: number; motivo: string }>>(`${this.api}/admin/linen/writeoff`, { motivo: this.bajaMotivo, notes: this.bajaNotes, rows }).subscribe({
+      next: (r) => {
+        this.busy.set(false);
+        this.bajaVisible = false;
+        this.clearFloor(this.bajaFloor);
+        this.toast.add({ severity: 'success', summary: 'Baja registrada', detail: `${r.data?.count ?? rows.length} prenda(s) dadas de baja por ${this.motivoLabel(this.bajaMotivo)}.` });
+        this.reload();
+      },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo dar de baja.' }); },
+    });
+  }
+
+  motivoLabel(m: string): string { return this.motivos.find((x) => x.value === m)?.label ?? m; }
+
+  openHistory(): void {
+    this.histVisible = true;
+    this.http.get<ApiResponse<WriteoffRow[]>>(`${this.api}/admin/linen/writeoffs`).subscribe((r) => this.history.set(r.data ?? []));
   }
 
   print(): void {
