@@ -12,6 +12,10 @@ import { LayoutService } from '../layout.service';
   template: `
     <div class="shell">
       <app-sidebar></app-sidebar>
+      <!-- Zona sensible en el borde izquierdo: al acercar el mouse, el sidebar reaparece (escritorio). -->
+      @if (layout.collapsed()) {
+        <div class="edge-trigger" (mouseenter)="layout.showSidebar()" aria-hidden="true"></div>
+      }
       @if (layout.sidebarOpen()) {
         <div class="backdrop" (click)="layout.closeSidebar()"></div>
       }
@@ -42,6 +46,18 @@ import { LayoutService } from '../layout.service';
         flex: 1;
         overflow-y: auto;
         padding: 1.5rem;
+      }
+      /* Zona sensible del borde izquierdo (escritorio): reaparece el sidebar al acercar el mouse. */
+      .edge-trigger {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 12px;
+        height: 100vh;
+        z-index: 800;
+      }
+      @media (max-width: 880px) {
+        .edge-trigger { display: none; }
       }
       /* Backdrop del drawer (solo visible en móvil cuando el menú está abierto) */
       .backdrop {

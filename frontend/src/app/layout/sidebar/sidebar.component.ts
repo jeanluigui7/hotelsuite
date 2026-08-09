@@ -10,7 +10,7 @@ import { LayoutService } from '../layout.service';
   standalone: true,
   imports: [FormsModule, RouterModule],
   template: `
-    <nav class="sidebar" [class.open]="layout.sidebarOpen()" [class.collapsed]="layout.collapsed()">
+    <nav class="sidebar" [class.open]="layout.sidebarOpen()" [class.collapsed]="layout.collapsed()" (mouseleave)="autoHide()" (mouseenter)="layout.showSidebar()">
       <!-- Marca -->
       <div class="brand">
         <div class="logo">
@@ -252,6 +252,11 @@ export class SidebarComponent {
       })
       .filter((x): x is MenuItem => x !== null);
   });
+
+  /** Auto-ocultar al salir el mouse (solo en escritorio; en móvil es un drawer). */
+  autoHide(): void {
+    if (typeof window !== 'undefined' && window.innerWidth >= 881) this.layout.hideSidebar();
+  }
 
   isOpen(route: string): boolean {
     return this.openGroups().has(route) || this.query().trim().length > 0;

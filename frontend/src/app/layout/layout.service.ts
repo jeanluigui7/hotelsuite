@@ -20,4 +20,12 @@ export class LayoutService {
   closeSidebar(): void {
     this.sidebarOpen.set(false);
   }
+
+  /** Auto-ocultar/mostrar el sidebar en escritorio (al salir/entrar el mouse). */
+  showSidebar(): void {
+    this.collapsed.set(false);
+  }
+  hideSidebar(): void {
+    this.collapsed.set(true);
+  }
 }
