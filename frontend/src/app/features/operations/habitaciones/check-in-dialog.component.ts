@@ -73,7 +73,7 @@ const PAY_TYPES = [
         <div class="grid2">
           <div class="fld"><label>Documento</label>
             <div class="doc-row">
-              <input pInputText [(ngModel)]="docNumber" placeholder="Número de documento" (keyup.enter)="lookupDoc(); reniec()" (blur)="lookupDoc()" />
+              <input pInputText [(ngModel)]="docNumber" placeholder="Número de documento" (ngModelChange)="onDocInput()" (keyup.enter)="lookupDoc(); reniec()" (blur)="lookupDoc()" />
               @if (docType === 'DNI') {
                 <button type="button" class="reniec-btn" [disabled]="reniecBusy()" (click)="reniec()" title="Buscar en RENIEC">
                   <i class="pi" [class.pi-search]="!reniecBusy()" [class.pi-spin]="reniecBusy()" [class.pi-spinner]="reniecBusy()"></i> RENIEC
@@ -478,7 +478,7 @@ export class CheckInDialogComponent {
   private init(room: RoomMapItem): void {
     this.tab.set('huesped');
     this.targetRoomId = room.id;
-    this.docType = 'DNI'; this.docNumber = ''; this.guestName = ''; this.phone = ''; this.vehiclePlate = '';
+    this.docType = 'DNI'; this.docNumber = ''; this.guestName = ''; this.phone = ''; this.vehiclePlate = ''; this.lastReniec = '';
     this.selectedRateId = null; this.selectedTierId = null; this.checkoutAt = ''; this.notes = '';
     this.customPrice = null; this.applyEarly = false; this.finalPrice = null;
     this.earlyAmount = null; this.earlyCortesia = false;
@@ -528,6 +528,25 @@ export class CheckInDialogComponent {
   }
 
   /** Consulta RENIEC por DNI y autocompleta el nombre del huésped. */
+  /** Guard para no reconsultar RENIEC el mismo DNI mientras se sigue escribiendo. */
+  private lastReniec = '';
+  /**
+   * Al terminar de escribir el documento: si es DNI y ya tiene 8 dígitos, consulta
+   * automáticamente RENIEC (nombre) y el registro local (deudas / huésped conocido).
+   */
+  onDocInput(): void {
+    const doc = (this.docNumber || '').trim();
+    if (this.docType === 'DNI' && /^\d{8}$/.test(doc)) {
+      if (doc !== this.lastReniec && !this.reniecBusy()) {
+        this.lastReniec = doc;
+        this.lookupDoc();
+        this.reniec();
+      }
+    } else {
+      this.lastReniec = '';
+    }
+  }
+
   reniec(): void {
     const doc = this.docNumber.trim();
     if (this.docType !== 'DNI' || !/^\d{8}$/.test(doc)) {

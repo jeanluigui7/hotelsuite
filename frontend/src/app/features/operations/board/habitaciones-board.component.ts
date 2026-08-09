@@ -9,7 +9,7 @@ import { DatePickerModule } from 'primeng/datepicker';
 import { TooltipModule } from 'primeng/tooltip';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
-import { Router } from '@angular/router';
+import { Router, ActivatedRoute } from '@angular/router';
 import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
@@ -80,6 +80,7 @@ const MANT_CATS = [
           <p-select [options]="floorOptions()" [(ngModel)]="floorFilter" placeholder="Todos los pisos" [showClear]="true" styleClass="dk" />
           <p-select [options]="stateOptions" [(ngModel)]="stateFilter" optionLabel="label" optionValue="value" placeholder="Todos los estados" [showClear]="true" styleClass="dk" />
           <p-select [options]="typeOptions()" [(ngModel)]="typeFilter" placeholder="Todos los tipos" [showClear]="true" styleClass="dk" />
+          <p-select [options]="estanciaOptions" [(ngModel)]="estanciaFilter" optionLabel="label" optionValue="value" placeholder="Todas las estancias" [showClear]="true" styleClass="dk" />
           <button class="refresh" (click)="reload()" pTooltip="Actualizar"><i class="pi pi-refresh"></i></button>
         </div>
       </header>
@@ -774,6 +775,7 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   private readonly ops = inject(OperationsApiService);
   private readonly toast = inject(MessageService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly printing = inject(PrintingService);
   private readonly auth = inject(AuthService);
   private readonly catalog = inject(CatalogApiService);
@@ -921,6 +923,11 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   search = '';
   floorFilter: string | null = null;
   stateFilter: string | null = null;
+  estanciaFilter: string | null = null;
+  readonly estanciaOptions = [
+    { label: 'Pernoctación', value: 'PERNOCTA' },
+    { label: 'Estadía corta', value: 'CORTA' },
+  ];
   typeFilter: string | null = null;
 
   checkInVisible = false;
@@ -997,12 +1004,27 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     let list = this.rooms();
     if (this.search) list = list.filter((r) => r.number.toLowerCase().includes(this.search.toLowerCase()));
     if (this.floorFilter) list = list.filter((r) => r.floor === this.floorFilter);
-    if (this.stateFilter) list = list.filter((r) => r.status === this.stateFilter);
+    if (this.stateFilter) {
+      const sf = this.stateFilter;
+      // CLEANING agrupa toda la familia de limpieza (en espera / solicitada / en curso / repaso).
+      const cleaning = ['CLEANING', 'LIMPIEZA_SOLICITADA', 'LIMPIEZA_EN_CURSO', 'REQUIERE_REPASO'];
+      list = sf === 'CLEANING' ? list.filter((r) => cleaning.includes(r.status)) : list.filter((r) => r.status === sf);
+    }
     if (this.typeFilter) list = list.filter((r) => r.roomType.name === this.typeFilter);
+    if (this.estanciaFilter) {
+      const wantPern = this.estanciaFilter === 'PERNOCTA';
+      list = list.filter((r) => (r.activeStay ? this.isPernocta(r.activeStay) === wantPern : false));
+    }
     return list;
   }
 
   ngOnInit(): void {
+    // Filtros iniciales desde la URL (p.ej. redirección desde el Dashboard).
+    const qp = this.route.snapshot.queryParamMap;
+    const estado = qp.get('estado');
+    if (estado) this.stateFilter = estado;
+    const estancia = qp.get('estancia');
+    if (estancia) this.estanciaFilter = estancia;
     this.reload();
     // Tipos (con atributos) para el alta y la edición de habitaciones — disponible para todos los perfiles.
     this.catalog.roomTypes.list({ pageSize: 100, sortBy: 'name' }).subscribe((res) => this.roomTypes.set(res.data ?? []));

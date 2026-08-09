@@ -2,6 +2,7 @@ import { Component, OnDestroy, OnInit, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
+import { Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { TooltipModule } from 'primeng/tooltip';
@@ -61,17 +62,17 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sabanas'
       <!-- KPIs de limpieza -->
       @if (data(); as d) {
         <div class="stat-grid">
-          <div class="stat" style="background:linear-gradient(135deg,#115e59,#14b8a6)">
-            <span class="num">{{ done(d) }}</span><span class="lbl">Limpiezas realizadas</span>
+          <div class="stat clk" style="background:linear-gradient(135deg,#115e59,#14b8a6)" (click)="go('FREE')" title="Ver habitaciones disponibles">
+            <span class="num">{{ done(d) }}</span><span class="lbl">Limpiezas realizadas <i class="pi pi-arrow-right"></i></span>
           </div>
-          <div class="stat" style="background:linear-gradient(135deg,#1e40af,#3b82f6)">
-            <span class="num">{{ d.roomsCleaning }}</span><span class="lbl">Limpiezas en curso</span>
+          <div class="stat clk" style="background:linear-gradient(135deg,#1e40af,#3b82f6)" (click)="go('CLEANING')" title="Ver habitaciones en limpieza">
+            <span class="num">{{ d.roomsCleaning }}</span><span class="lbl">Limpiezas en curso <i class="pi pi-arrow-right"></i></span>
           </div>
-          <div class="stat" style="background:linear-gradient(135deg,#9a3412,#f97316)">
-            <span class="num">{{ d.pendingTasks }}</span><span class="lbl">Tareas pendientes</span>
+          <div class="stat clk" style="background:linear-gradient(135deg,#9a3412,#f97316)" (click)="go('CLEANING')" title="Ver habitaciones con tareas de limpieza">
+            <span class="num">{{ d.pendingTasks }}</span><span class="lbl">Tareas pendientes <i class="pi pi-arrow-right"></i></span>
           </div>
-          <div class="stat" style="background:linear-gradient(135deg,#5b21b6,#7c3aed)">
-            <span class="num">{{ d.pendingInspections }}</span><span class="lbl">Inspecciones pendientes</span>
+          <div class="stat clk" style="background:linear-gradient(135deg,#5b21b6,#7c3aed)" (click)="go('CLEANING')" title="Ver habitaciones pendientes de inspección">
+            <span class="num">{{ d.pendingInspections }}</span><span class="lbl">Inspecciones pendientes <i class="pi pi-arrow-right"></i></span>
           </div>
         </div>
       }
@@ -135,7 +136,11 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sabanas'
       .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap: 1rem; }
       .stat { border-radius: 14px; padding: 1.1rem 1.25rem; color: #fff; display: flex; flex-direction: column; gap: 0.2rem; }
       .stat .num { font-size: 2rem; font-weight: 800; line-height: 1; }
-      .stat .lbl { font-size: 0.82rem; opacity: 0.92; }
+      .stat .lbl { font-size: 0.82rem; opacity: 0.92; display: inline-flex; align-items: center; gap: 0.3rem; }
+      .stat .lbl .pi { font-size: 0.7rem; opacity: 0; transition: opacity 0.15s, transform 0.15s; }
+      .stat.clk { cursor: pointer; transition: transform 0.12s, filter 0.12s, box-shadow 0.12s; }
+      .stat.clk:hover { transform: translateY(-2px); filter: brightness(1.08); box-shadow: 0 8px 22px rgba(0,0,0,0.28); }
+      .stat.clk:hover .lbl .pi { opacity: 0.95; transform: translateX(2px); }
 
       .sr-title { font-size: 1.4rem; font-weight: 800; color: #fff; margin: 1.5rem 0 1rem; }
       .sr-card { background: var(--p-content-background,#0f1a2b); border: 1px solid var(--p-content-border-color,#1c2c44); border-radius: 16px; overflow: hidden; }
@@ -162,6 +167,12 @@ export class LimpiezaSummaryComponent implements OnInit, OnDestroy {
   private readonly http = inject(HttpClient);
   private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);
+  private readonly router = inject(Router);
+
+  /** Navega al mapa de habitaciones con el filtro de estado aplicado. */
+  go(estado: string): void {
+    this.router.navigate(['/operations/habitaciones'], { queryParams: { estado } });
+  }
   private readonly apiUrl = environment.apiUrl;
 
   readonly data = signal<LimpiezaSummary | null>(null);
