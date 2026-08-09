@@ -56,7 +56,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
       <div class="floors">
         @for (f of floors(); track f.floor) {
           <div class="floor">
-            <div class="fh">{{ f.floor }}</div>
+            <div class="fh"><i class="pi pi-building"></i> {{ f.floor }}</div>
             <div class="matrix" [style.grid-template-columns]="gridCols()">
               <!-- Cabecera de tipos -->
               <div class="corner"></div>
@@ -66,24 +66,24 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
               <!-- Fila REM (remanente del turno anterior; accionable: solicitar / manchada) -->
               <div class="rowlabel rem">REM</div>
               @for (c of cols(); track c.type) {
-                <div class="cell">
+                <div class="cell rem-cell">
                   @for (r of byType(f, c.type); track r.linenItemId) {
                     @if (r.rem > 0) {
                       <label class="chip">
                         <input type="checkbox" [checked]="isSel(f.floor, r.linenItemId)" (change)="toggle(f.floor, r.linenItemId)" />
-                        <span class="dot" [style.background]="r.color || '#888'"></span>{{ r.rem }} {{ r.name }}
+                        <span class="dot" [style.background]="r.color || '#888'"></span><b>{{ r.rem }}</b> {{ r.name }}
                       </label>
                     }
-                  }
+                  } @empty { <span class="empty">—</span> }
                 </div>
               }
               <!-- Fila SUM (suministrado este turno, solo lectura) -->
               <div class="rowlabel sum">SUM</div>
               @for (c of cols(); track c.type) {
-                <div class="cell">
+                <div class="cell sum-cell">
                   @for (r of byType(f, c.type); track r.linenItemId) {
-                    @if (r.sum > 0) { <span class="chip ro"><span class="dot" [style.background]="r.color || '#888'"></span>{{ r.sum }} {{ r.name }}</span> }
-                  }
+                    @if (r.sum > 0) { <span class="chip ro"><span class="dot" [style.background]="r.color || '#888'"></span><b>{{ r.sum }}</b> {{ r.name }}</span> }
+                  } @empty { <span class="empty">—</span> }
                 </div>
               }
             </div>
@@ -252,24 +252,30 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
       .cerrar { background: #047857; border: 0; color: #fff; border-radius: 8px; padding: 0.45rem 0.85rem; cursor: pointer; font-weight: 700; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.4rem; } .cerrar:hover { background: #059669; } .cerrar:disabled { opacity: 0.5; cursor: not-allowed; }
       .muted { color: #8aa499; }
 
-      .floors { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px,1fr)); gap: 1rem; }
-      .floor { background: #0e1f29; border: 1px solid #1c3340; border-radius: 14px; overflow: hidden; }
-      .fh { background: #122633; text-align: center; font-weight: 800; padding: 0.6rem; color: #fff; letter-spacing: 0.06em; }
-      .matrix { display: grid; grid-template-columns: 3rem 1fr 1fr 1fr; gap: 1px; background: #1c3340; padding: 1px; }
-      .corner { background: #0e1f29; }
-      .thead { color: #1a0b00; font-weight: 800; font-size: 0.68rem; text-align: center; padding: 0.4rem 0.2rem; letter-spacing: 0.03em; }
-      .rowlabel { display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.78rem; color: #fff; }
-      .rowlabel.rem { background: #b91c1c; } .rowlabel.sum { background: #1d4ed8; } .rowlabel.disp { background: #047857; }
-      .cell { background: #0b1923; padding: 0.4rem; display: flex; flex-direction: column; gap: 0.3rem; min-height: 2.4rem; }
-      .chip { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.78rem; color: #dbe7f0; cursor: pointer; }
-      .chip.ro { cursor: default; opacity: 0.92; }
-      .dot { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 50%; border: 1px solid rgba(255,255,255,0.3); }
-      .fbtns { display: flex; flex-direction: column; gap: 0.4rem; padding: 0.7rem; }
-      .solicitar, .manch { border: 0; border-radius: 9px; padding: 0.6rem; font-weight: 700; cursor: pointer; font-size: 0.82rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; color: #fff; }
-      .solicitar { background: #2563eb; } .manch { background: #b91c1c; }
-      .baja { background: #7f1d1d; border: 1px solid #b91c1c !important; }
-      .solicitar, .manch, .baja { border: 0; border-radius: 9px; padding: 0.6rem; font-weight: 700; cursor: pointer; font-size: 0.82rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; color: #fff; }
-      .solicitar:disabled, .manch:disabled, .baja:disabled { opacity: 0.45; cursor: not-allowed; }
+      .floors { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px,1fr)); gap: 1.1rem; }
+      .floor { background: #0f1e28; border: 1px solid #24455a; border-radius: 16px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.25), 0 10px 26px rgba(0,0,0,0.22); }
+      .fh { background: linear-gradient(180deg, #16324a 0%, #112637 100%); text-align: center; font-weight: 800; padding: 0.7rem; color: #fff; letter-spacing: 0.08em; font-size: 0.95rem; border-bottom: 1px solid #24455a; display: flex; align-items: center; justify-content: center; gap: 0.45rem; }
+      .fh .pi { color: #5fd0a3; font-size: 0.9rem; }
+      .matrix { display: grid; gap: 2px; background: #24455a; padding: 2px; }
+      .corner { background: #0f1e28; }
+      .thead { color: #14100a; font-weight: 800; font-size: 0.7rem; text-align: center; padding: 0.5rem 0.2rem; letter-spacing: 0.04em; text-shadow: 0 1px 0 rgba(255,255,255,0.25); display: flex; align-items: center; justify-content: center; }
+      .rowlabel { display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.76rem; color: #fff; letter-spacing: 0.05em; }
+      .rowlabel.rem { background: linear-gradient(180deg, #dc2626, #b91c1c); } .rowlabel.sum { background: linear-gradient(180deg, #2563eb, #1d4ed8); }
+      .cell { padding: 0.45rem; display: flex; flex-direction: column; gap: 0.35rem; min-height: 2.6rem; justify-content: center; }
+      .rem-cell { background: #14262f; box-shadow: inset 3px 0 0 rgba(220,38,38,0.55); }
+      .sum-cell { background: #0f2130; box-shadow: inset 3px 0 0 rgba(37,99,235,0.55); }
+      .empty { color: #45606c; font-size: 0.8rem; text-align: center; }
+      .chip { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.79rem; color: #eaf2ec; cursor: pointer; padding: 0.12rem 0.15rem; border-radius: 6px; transition: background 0.12s; } .chip:hover { background: rgba(255,255,255,0.05); }
+      .chip b { color: #fff; font-weight: 800; } .chip.ro { cursor: default; }
+      .chip input[type=checkbox] { accent-color: #dc2626; width: 0.95rem; height: 0.95rem; }
+      .dot { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 50%; border: 1px solid rgba(255,255,255,0.35); flex: none; }
+      .fbtns { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.8rem; }
+      .solicitar, .manch, .baja { border: 0; border-radius: 10px; padding: 0.62rem; font-weight: 800; cursor: pointer; font-size: 0.82rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; color: #fff; letter-spacing: 0.02em; transition: filter 0.12s, transform 0.05s; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }
+      .solicitar:hover, .manch:hover, .baja:hover { filter: brightness(1.1); } .solicitar:active, .manch:active, .baja:active { transform: translateY(1px); }
+      .solicitar { background: linear-gradient(180deg, #2f6bf0, #2158d8); }
+      .manch { background: linear-gradient(180deg, #f59e0b, #d97706); color: #241300; }
+      .baja { background: linear-gradient(180deg, #ef4444, #b91c1c); }
+      .solicitar:disabled, .manch:disabled, .baja:disabled { opacity: 0.4; cursor: not-allowed; filter: none; box-shadow: none; }
 
       .baja-head { display: flex; align-items: center; gap: 0.5rem; font-size: 1.2rem; font-weight: 800; color: #fff; } .baja-head .pi { color: #f87171; }
       .baja-sub { margin: 0 0 0.6rem; color: #8aa499; font-size: 0.84rem; }
@@ -325,12 +331,27 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
   private readonly auth = inject(AuthService);
 
   readonly floors = signal<Floor[]>([]);
-  /** Columnas de tipo derivadas de la data real (nombres de categoría de ropa por sucursal). */
+  /**
+   * Columnas: SIEMPRE las tres canónicas (Toallas / Sábanas / Edredones) aunque estén
+   * vacías, y luego cualquier otra categoría con data (dedup por nombre, sin distinguir
+   * mayúsculas). Así se recupera la columna EDREDONES aunque no tenga prendas.
+   */
   readonly cols = computed<{ type: string; label: string; color: string }[]>(() => {
-    const types: string[] = [];
-    for (const f of this.floors()) for (const r of f.rows) if (r.type && !types.includes(r.type)) types.push(r.type);
-    types.sort((a, b) => a.localeCompare(b, 'es'));
-    return types.map((t, i) => ({ type: t, label: t.toUpperCase(), color: TYPE_COLORS[t.toUpperCase()] ?? TYPE_PALETTE[i % TYPE_PALETTE.length] }));
+    const CANON = [
+      { type: 'Toallas', label: 'TOALLAS' },
+      { type: 'Sabanas', label: 'SÁBANAS' },
+      { type: 'Edredones', label: 'EDREDONES' },
+    ];
+    const seen = new Set(CANON.map((c) => c.type.toUpperCase()));
+    const out = CANON.map((c) => ({ type: c.type, label: c.label, color: TYPE_COLORS[c.type.toUpperCase()] ?? '#888' }));
+    const extras: string[] = [];
+    for (const f of this.floors()) for (const r of f.rows) {
+      const u = (r.type || '').toUpperCase();
+      if (r.type && !seen.has(u) && !extras.some((e) => e.toUpperCase() === u)) extras.push(r.type);
+    }
+    extras.sort((a, b) => a.localeCompare(b, 'es'));
+    extras.forEach((t, i) => out.push({ type: t, label: t.toUpperCase(), color: TYPE_COLORS[t.toUpperCase()] ?? TYPE_PALETTE[i % TYPE_PALETTE.length] }));
+    return out;
   });
   gridCols(): string { return `3rem ${'1fr '.repeat(Math.max(1, this.cols().length)).trim()}`; }
   readonly amenities = signal<{ productId: string; name: string; code: string | null; quantity: number }[]>([]);
@@ -388,7 +409,8 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
   }
 
   byType(f: Floor, type: string): Row[] {
-    return f.rows.filter((r) => r.type === type);
+    const u = type.toUpperCase();
+    return f.rows.filter((r) => (r.type || '').toUpperCase() === u);
   }
 
   /** Disponible del piso = remanente (REM) + suministrado en el turno (SUM). */
