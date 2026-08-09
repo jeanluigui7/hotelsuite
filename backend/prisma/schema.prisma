@@ -1490,6 +1490,7 @@ model LinenWriteoff {
   branchId        String
   linenItemId     String
   floor           String
+  source          String   @default("REM") // REM | SUM (columna de origen de la baja)
   motivo          String // RETORNO | DANADO | ROBADO
   quantity        Int
   remBefore       Int      @default(0)

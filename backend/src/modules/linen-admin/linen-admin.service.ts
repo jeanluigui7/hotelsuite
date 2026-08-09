@@ -137,6 +137,8 @@ export const writeoffSchema = z.object({
   rows: z.array(z.object({
     linenItemId: z.string().min(1),
     floor: z.string().min(1),
+    // Columna de origen: REM (remanente) o SUM (suministrado en el turno).
+    source: z.enum(['REM', 'SUM']).optional().default('REM'),
     quantity: z.coerce.number().int().min(1),
   })).min(1).max(500),
 });
@@ -258,16 +260,21 @@ export const linenAdminService = {
     const done = await prisma.$transaction(async (tx) => {
       const records: { id: string }[] = [];
       for (const row of dto.rows) {
+        const source = row.source ?? 'REM';
         const stock = await tx.linenStock.findUnique({ where: { linenItemId_floor: { linenItemId: row.linenItemId, floor: row.floor } } });
-        const rem = stock?.rem ?? 0;
-        if (row.quantity > rem) {
+        // Descontar de la columna de origen elegida: REM (remanente) o SUM (suministrado en el turno).
+        const pool = source === 'SUM' ? stock?.sum ?? 0 : stock?.rem ?? 0;
+        if (row.quantity > pool) {
           const item = await tx.linenItem.findUnique({ where: { id: row.linenItemId }, select: { name: true } });
-          throw new ValidationError(`No se puede dar de baja ${row.quantity} de "${item?.name ?? 'ítem'}"; el remanente (REM) del piso ${row.floor} es ${rem}.`);
+          throw new ValidationError(`No se puede dar de baja ${row.quantity} de "${item?.name ?? 'ítem'}"; el ${source} del piso ${row.floor} es ${pool}.`);
         }
         const baseBefore = await computeBaseTx(tx, branchId, row.linenItemId);
-        const remAfter = rem - row.quantity;
-        // Descontar del REM del piso.
-        await tx.linenStock.update({ where: { linenItemId_floor: { linenItemId: row.linenItemId, floor: row.floor } }, data: { rem: remAfter } });
+        const poolAfter = pool - row.quantity;
+        // Descontar de la columna de origen (rem o sum) del piso.
+        await tx.linenStock.update({
+          where: { linenItemId_floor: { linenItemId: row.linenItemId, floor: row.floor } },
+          data: source === 'SUM' ? { sum: poolAfter } : { rem: poolAfter },
+        });
         let baseAfter = baseBefore;
         if (dto.motivo === 'RETORNO') {
           // Devolver al almacén central (sube el Disponible; el Base se mantiene).
@@ -282,16 +289,16 @@ export const linenAdminService = {
         }
         const wo = await tx.linenWriteoff.create({
           data: {
-            branchId, linenItemId: row.linenItemId, floor: row.floor, motivo: dto.motivo, quantity: row.quantity,
-            remBefore: rem, remAfter, baseBefore, baseAfter, notes, createdByUserId: scope.userId,
+            branchId, linenItemId: row.linenItemId, floor: row.floor, source, motivo: dto.motivo, quantity: row.quantity,
+            remBefore: pool, remAfter: poolAfter, baseBefore, baseAfter, notes, createdByUserId: scope.userId,
           },
           select: { id: true },
         });
         await tx.linenMovement.create({
           data: {
             branchId, linenItemId: row.linenItemId, type: movType, quantity: -row.quantity, floor: row.floor,
-            areaFrom: row.floor, areaTo: dto.motivo === 'RETORNO' ? LINEN_CENTRAL : dto.motivo,
-            reference: `Baja ${dto.motivo}${notes ? ' · ' + notes : ''}`, createdByUserId: scope.userId,
+            areaFrom: `${row.floor} (${source})`, areaTo: dto.motivo === 'RETORNO' ? LINEN_CENTRAL : dto.motivo,
+            reference: `Baja ${dto.motivo} (${source})${notes ? ' · ' + notes : ''}`, createdByUserId: scope.userId,
           },
         });
         records.push(wo);
@@ -317,6 +324,7 @@ export const linenAdminService = {
       id: r.id,
       createdAt: r.createdAt,
       floor: r.floor,
+      source: r.source,
       article: imap.get(r.linenItemId)?.name ?? '—',
       type: imap.get(r.linenItemId)?.type ?? '',
       motivo: r.motivo,

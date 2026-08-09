@@ -18,7 +18,7 @@ interface Row { linenItemId: string; type: string; name: string; color?: string 
 interface Floor { floor: string; rows: Row[]; }
 interface Supply { id: string; roomId: string; room: string; floor?: string | null; roomType?: string; description: string; category?: string; quantity: number; status: string; createdAt: string; }
 interface SupplyGroup { roomId: string; room: string; floor?: string | null; roomType?: string; items: Supply[]; }
-interface WriteoffRow { id: string; createdAt: string; user: string; floor: string; article: string; type: string; motivo: string; quantity: number; remBefore: number; remAfter: number; baseBefore: number; baseAfter: number; notes: string | null; }
+interface WriteoffRow { id: string; createdAt: string; user: string; floor: string; source: string; article: string; type: string; motivo: string; quantity: number; remBefore: number; remAfter: number; baseBefore: number; baseAfter: number; notes: string | null; }
 
 // Colores conocidos por tipo (los ítems de ropa llevan como `type` el NOMBRE de su
 // categoría, que varía por sucursal). Se normaliza a mayúsculas para el match.
@@ -70,32 +70,37 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
                   @for (r of byType(f, c.type); track r.linenItemId) {
                     @if (r.rem > 0) {
                       <label class="chip">
-                        <input type="checkbox" [checked]="isSel(f.floor, r.linenItemId)" (change)="toggle(f.floor, r.linenItemId)" />
+                        <input type="checkbox" class="cr" [checked]="isSel(f.floor, r.linenItemId, 'rem')" (change)="toggle(f.floor, r.linenItemId, 'rem')" />
                         <span class="dot" [style.background]="r.color || '#888'"></span><b>{{ r.rem }}</b> {{ r.name }}
                       </label>
                     }
                   } @empty { <span class="empty">—</span> }
                 </div>
               }
-              <!-- Fila SUM (suministrado este turno, solo lectura) -->
+              <!-- Fila SUM (suministrado este turno; seleccionable para corregir errores del suministro) -->
               <div class="rowlabel sum">SUM</div>
               @for (c of cols(); track c.type) {
                 <div class="cell sum-cell">
                   @for (r of byType(f, c.type); track r.linenItemId) {
-                    @if (r.sum > 0) { <span class="chip ro"><span class="dot" [style.background]="r.color || '#888'"></span><b>{{ r.sum }}</b> {{ r.name }}</span> }
+                    @if (r.sum > 0) {
+                      <label class="chip">
+                        <input type="checkbox" class="cs" [checked]="isSel(f.floor, r.linenItemId, 'sum')" (change)="toggle(f.floor, r.linenItemId, 'sum')" />
+                        <span class="dot" [style.background]="r.color || '#888'"></span><b>{{ r.sum }}</b> {{ r.name }}
+                      </label>
+                    }
                   } @empty { <span class="empty">—</span> }
                 </div>
               }
             </div>
             <div class="fbtns">
-              <button class="solicitar" [disabled]="floorSelected(f.floor).length === 0" (click)="openRequest(f.floor)">
-                <i class="pi pi-send"></i> Solicitar ropa ({{ floorSelected(f.floor).length }})
+              <button class="solicitar" [disabled]="floorSel(f.floor).length === 0" (click)="openRequest(f.floor)">
+                <i class="pi pi-send"></i> Solicitar ropa ({{ floorSelUnique(f.floor).length }})
               </button>
-              <button class="manch" [disabled]="floorSelected(f.floor).length === 0" (click)="openLaundry(f.floor)">
+              <button class="manch" [disabled]="floorSel(f.floor).length === 0" (click)="openLaundry(f.floor)">
                 <i class="pi pi-exclamation-triangle"></i> Manchada / Deteriorada
               </button>
-              <button class="baja" [disabled]="floorSelected(f.floor).length === 0" (click)="openBaja(f.floor)">
-                <i class="pi pi-trash"></i> Dar de baja ({{ floorSelected(f.floor).length }})
+              <button class="baja" [disabled]="floorSel(f.floor).length === 0" (click)="openBaja(f.floor)">
+                <i class="pi pi-trash"></i> Dar de baja ({{ floorSel(f.floor).length }})
               </button>
             </div>
           </div>
@@ -150,7 +155,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
     <!-- Solicitar ropa -->
     <p-dialog [(visible)]="reqVisible" [modal]="true" [header]="'Solicitar ropa · ' + reqFloor" [style]="{ width: '30rem' }" styleClass="dk-dialog">
       <div class="form">
-        @for (s of floorSelected(reqFloor); track s.linenItemId) {
+        @for (s of floorSelUnique(reqFloor); track s.linenItemId) {
           <div class="qrow"><span>{{ s.name }}</span><p-inputNumber [(ngModel)]="qty[reqFloor + '|' + s.linenItemId]" [min]="1" [showButtons]="true" buttonLayout="horizontal" /></div>
         }
         <p class="hint"><i class="pi pi-whatsapp"></i> Se enviará un aviso al administrador para que provea la ropa.</p>
@@ -164,7 +169,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
     <!-- Lavandería / Manchada -->
     <p-dialog [(visible)]="lndVisible" [modal]="true" [header]="'Manchada / Deteriorada · Piso ' + reqFloor" [style]="{ width: '28rem' }" styleClass="dk-dialog">
       <div class="form">
-        @for (s of floorSelected(reqFloor); track s.linenItemId) {
+        @for (s of floorSelUnique(reqFloor); track s.linenItemId) {
           <div class="qrow"><span>{{ s.name }} (disp. {{ avail(s) }})</span><p-inputNumber [(ngModel)]="lndQty[s.linenItemId]" [min]="1" [max]="avail(s)" [showButtons]="true" buttonLayout="horizontal" /></div>
         }
         <label>Motivo</label>
@@ -193,13 +198,13 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
         </p>
 
         <div class="baja-list">
-          @for (r of bajaRows; track r.linenItemId; let i = $index) {
+          @for (r of bajaRows; track r.source + r.linenItemId; let i = $index) {
             <div class="baja-row">
               <div class="bi">
-                <strong><span class="dot" [style.background]="r.color || '#888'"></span>{{ r.name }}</strong>
-                <small>Piso: {{ r.floor }} | Remanente | Máx: {{ r.rem }}</small>
+                <strong><span class="dot" [style.background]="r.color || '#888'"></span>{{ r.name }} <span class="src" [class.rem]="r.source === 'rem'" [class.sum]="r.source === 'sum'">{{ r.source === 'rem' ? 'REM' : 'SUM' }}</span></strong>
+                <small>Piso: {{ r.floor }} | {{ r.source === 'rem' ? 'Remanente' : 'Suministrado' }} | Máx: {{ r.avail }}</small>
               </div>
-              <p-inputNumber [(ngModel)]="r.qty" [min]="1" [max]="r.rem" [showButtons]="true" buttonLayout="horizontal" inputStyleClass="qi" />
+              <p-inputNumber [(ngModel)]="r.qty" [min]="1" [max]="r.avail" [showButtons]="true" buttonLayout="horizontal" inputStyleClass="qi" />
               <button class="bx" (click)="removeBajaRow(i)" title="Quitar"><i class="pi pi-trash"></i></button>
             </div>
           } @empty { <p class="muted">No hay prendas seleccionadas.</p> }
@@ -218,13 +223,14 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
     <p-dialog [(visible)]="histVisible" [modal]="true" header="Historial de Bajas de Ropa" [style]="{ width: '64rem', maxWidth: '97vw' }" styleClass="dk-dialog">
       <div class="hist-wrap">
         <table class="hist">
-          <thead><tr><th>Fecha/Hora</th><th>Usuario</th><th>Piso</th><th>Artículo</th><th class="cn">Cant.</th><th>Motivo</th><th class="cn">REM</th><th class="cn">Base</th><th>Notas</th></tr></thead>
+          <thead><tr><th>Fecha/Hora</th><th>Usuario</th><th>Piso</th><th class="cn">Origen</th><th>Artículo</th><th class="cn">Cant.</th><th>Motivo</th><th class="cn">Stock origen</th><th class="cn">Base</th><th>Notas</th></tr></thead>
           <tbody>
             @for (h of history(); track h.id) {
               <tr>
                 <td>{{ h.createdAt | date: 'dd/MM/yy HH:mm' }}</td>
                 <td>{{ h.user }}</td>
                 <td>{{ h.floor }}</td>
+                <td class="cn"><span class="src" [class.rem]="h.source === 'REM'" [class.sum]="h.source === 'SUM'">{{ h.source }}</span></td>
                 <td class="art"><b>{{ h.article }}</b><small>{{ h.type }}</small></td>
                 <td class="cn">{{ h.quantity }}</td>
                 <td><span class="mtag" [class.ret]="h.motivo === 'RETORNO'" [class.dan]="h.motivo === 'DANADO'" [class.rob]="h.motivo === 'ROBADO'">{{ motivoLabel(h.motivo) }}</span></td>
@@ -232,7 +238,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
                 <td class="cn">{{ h.baseBefore }} → {{ h.baseAfter }}</td>
                 <td class="nt">{{ h.notes || '—' }}</td>
               </tr>
-            } @empty { <tr><td colspan="9" class="muted" style="padding:1rem;text-align:center;">Aún no hay bajas registradas.</td></tr> }
+            } @empty { <tr><td colspan="10" class="muted" style="padding:1rem;text-align:center;">Aún no hay bajas registradas.</td></tr> }
           </tbody>
         </table>
       </div>
@@ -268,6 +274,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
       .chip { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.79rem; color: #eaf2ec; cursor: pointer; padding: 0.12rem 0.15rem; border-radius: 6px; transition: background 0.12s; } .chip:hover { background: rgba(255,255,255,0.05); }
       .chip b { color: #fff; font-weight: 800; } .chip.ro { cursor: default; }
       .chip input[type=checkbox] { accent-color: #dc2626; width: 0.95rem; height: 0.95rem; }
+      .chip input.cs { accent-color: #2563eb; }
       .dot { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 50%; border: 1px solid rgba(255,255,255,0.35); flex: none; }
       .fbtns { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.8rem; }
       .solicitar, .manch, .baja { border: 0; border-radius: 10px; padding: 0.62rem; font-weight: 800; cursor: pointer; font-size: 0.82rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; color: #fff; letter-spacing: 0.02em; transition: filter 0.12s, transform 0.05s; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }
@@ -294,6 +301,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
       .hist td.art b { display: block; } .hist td.art small { color: #8aa499; font-size: 0.72rem; } .hist td.nt { color: #9fb0c3; max-width: 220px; }
       .mtag { font-size: 0.7rem; font-weight: 800; border-radius: 999px; padding: 0.1rem 0.5rem; }
       .mtag.ret { color: #93c5fd; background: rgba(37,99,235,0.18); } .mtag.dan { color: #fbbf24; background: rgba(217,119,6,0.18); } .mtag.rob { color: #fca5a5; background: rgba(180,35,35,0.2); }
+      .src { font-size: 0.62rem; font-weight: 800; border-radius: 999px; padding: 0.05rem 0.4rem; letter-spacing: 0.03em; } .src.rem { color: #fca5a5; background: rgba(220,38,38,0.2); } .src.sum { color: #93c5fd; background: rgba(37,99,235,0.2); }
 
       .amen-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; margin-bottom: 0.5rem; }
       .amen-card { background: #0c1f1a; border: 1px solid #14603f; border-radius: 14px; overflow: hidden; }
@@ -378,7 +386,7 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
   bajaVisible = false;
   bajaFloor = '';
   bajaMotivo: 'RETORNO' | 'DANADO' | 'ROBADO' = 'RETORNO';
-  bajaRows: { linenItemId: string; name: string; color?: string | null; floor: string; rem: number; qty: number }[] = [];
+  bajaRows: { linenItemId: string; name: string; color?: string | null; floor: string; source: 'rem' | 'sum'; avail: number; qty: number }[] = [];
   bajaNotes = '';
   // Historial de bajas
   histVisible = false;
@@ -426,31 +434,47 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
     });
   }
 
-  private k(floor: string, id: string): string { return floor + '|' + id; }
-  isSel(floor: string, id: string): boolean { return this.selected().has(this.k(floor, id)); }
-  toggle(floor: string, id: string): void {
+  // La selección distingue la COLUMNA (rem o sum): un mismo ítem puede marcarse en
+  // ambas filas por separado. Clave: floor|linenItemId|source.
+  private k(floor: string, id: string, source: 'rem' | 'sum'): string { return `${floor}|${id}|${source}`; }
+  isSel(floor: string, id: string, source: 'rem' | 'sum'): boolean { return this.selected().has(this.k(floor, id, source)); }
+  toggle(floor: string, id: string, source: 'rem' | 'sum'): void {
     const s = new Set(this.selected());
-    const key = this.k(floor, id);
+    const key = this.k(floor, id, source);
     if (s.has(key)) s.delete(key);
-    else { s.add(key); this.qty[key] = this.qty[key] || 1; }
+    else s.add(key);
     this.selected.set(s);
   }
 
-  floorSelected(floor: string): Row[] {
+  /** Entradas seleccionadas del piso, cada una con su columna de origen (rem/sum) y su disponible. */
+  floorSel(floor: string): (Row & { source: 'rem' | 'sum'; avail: number })[] {
     const f = this.floors().find((x) => x.floor === floor);
     if (!f) return [];
-    return f.rows.filter((r) => this.selected().has(this.k(floor, r.linenItemId)));
+    const out: (Row & { source: 'rem' | 'sum'; avail: number })[] = [];
+    for (const r of f.rows) {
+      if (r.rem > 0 && this.isSel(floor, r.linenItemId, 'rem')) out.push({ ...r, source: 'rem', avail: r.rem });
+      if (r.sum > 0 && this.isSel(floor, r.linenItemId, 'sum')) out.push({ ...r, source: 'sum', avail: r.sum });
+    }
+    return out;
+  }
+
+  /** Ítems únicos seleccionados (sin distinguir columna): para Solicitar y Manchada. */
+  floorSelUnique(floor: string): Row[] {
+    const seen = new Set<string>();
+    const out: Row[] = [];
+    for (const e of this.floorSel(floor)) if (!seen.has(e.linenItemId)) { seen.add(e.linenItemId); out.push(e); }
+    return out;
   }
 
   openRequest(floor: string): void {
     this.reqFloor = floor;
-    for (const s of this.floorSelected(floor)) this.qty[this.k(floor, s.linenItemId)] = this.qty[this.k(floor, s.linenItemId)] || 1;
+    for (const s of this.floorSelUnique(floor)) this.qty[floor + '|' + s.linenItemId] = this.qty[floor + '|' + s.linenItemId] || 1;
     this.reqVisible = true;
   }
 
   sendRequest(): void {
     this.busy.set(true);
-    const items = this.floorSelected(this.reqFloor).map((s) => ({ linenItemId: s.linenItemId, floor: this.reqFloor, quantity: this.qty[this.k(this.reqFloor, s.linenItemId)] || 1 }));
+    const items = this.floorSelUnique(this.reqFloor).map((s) => ({ linenItemId: s.linenItemId, floor: this.reqFloor, quantity: this.qty[this.reqFloor + '|' + s.linenItemId] || 1 }));
     this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/linen/request`, { items }).subscribe({
       next: () => { this.busy.set(false); this.reqVisible = false; this.clearFloor(this.reqFloor); this.toast.add({ severity: 'success', summary: 'Solicitud enviada', detail: 'Se avisó al administrador.' }); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
@@ -459,13 +483,13 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
 
   openLaundry(floor: string): void {
     this.reqFloor = floor;
-    for (const s of this.floorSelected(floor)) this.lndQty[s.linenItemId] = Math.min(this.lndQty[s.linenItemId] || 1, this.avail(s));
+    for (const s of this.floorSelUnique(floor)) this.lndQty[s.linenItemId] = Math.min(this.lndQty[s.linenItemId] || 1, this.avail(s));
     this.lndReason = '';
     this.lndVisible = true;
   }
 
   sendLaundry(): void {
-    const items = this.floorSelected(this.reqFloor);
+    const items = this.floorSelUnique(this.reqFloor);
     if (!items.length) return;
     this.busy.set(true);
     // Envía cada prenda seleccionada de forma secuencial.
@@ -524,19 +548,19 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
     this.bajaFloor = floor;
     this.bajaMotivo = 'RETORNO';
     this.bajaNotes = '';
-    this.bajaRows = this.floorSelected(floor)
-      .filter((r) => r.rem > 0)
-      .map((r) => ({ linenItemId: r.linenItemId, name: r.name, color: r.color, floor, rem: r.rem, qty: 1 }));
+    this.bajaRows = this.floorSel(floor)
+      .filter((r) => r.avail > 0)
+      .map((r) => ({ linenItemId: r.linenItemId, name: r.name, color: r.color, floor, source: r.source, avail: r.avail, qty: 1 }));
     this.bajaVisible = true;
   }
 
   removeBajaRow(i: number): void {
     const removed = this.bajaRows[i];
     this.bajaRows = this.bajaRows.filter((_, idx) => idx !== i);
-    // Deselecciona el chip correspondiente en la matriz.
+    // Deselecciona la casilla correspondiente (misma columna) en la matriz.
     if (removed) {
       const s = new Set(this.selected());
-      s.delete(this.k(this.bajaFloor, removed.linenItemId));
+      s.delete(this.k(this.bajaFloor, removed.linenItemId, removed.source));
       this.selected.set(s);
     }
     if (this.bajaRows.length === 0) this.bajaVisible = false;
@@ -545,7 +569,7 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
   confirmBaja(): void {
     const rows = this.bajaRows
       .filter((r) => (Number(r.qty) || 0) > 0)
-      .map((r) => ({ linenItemId: r.linenItemId, floor: r.floor, quantity: Math.min(Number(r.qty) || 1, r.rem) }));
+      .map((r) => ({ linenItemId: r.linenItemId, floor: r.floor, source: r.source.toUpperCase(), quantity: Math.min(Number(r.qty) || 1, r.avail) }));
     if (!rows.length) return;
     this.busy.set(true);
     this.http.post<ApiResponse<{ count: number; motivo: string }>>(`${this.api}/admin/linen/writeoff`, { motivo: this.bajaMotivo, notes: this.bajaNotes, rows }).subscribe({
