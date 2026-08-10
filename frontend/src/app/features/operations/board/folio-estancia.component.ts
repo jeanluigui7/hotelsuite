@@ -1,8 +1,9 @@
 import { Component, EventEmitter, Input, OnDestroy, Output, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
 import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
+import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 
@@ -12,7 +13,7 @@ interface Folio {
   room: { number: string; typeName: string };
   checkInAt: string; plannedCheckoutAt: string; durationMinutes: number; renewals: number;
   amounts: { habitacion: number; renovaciones: number; consumos: number; total: number; paid: number };
-  cleaning: { done: number; allowed: number };
+  cleaning: { done: number; allowed: number; status: string; pernocta: boolean };
   cleaningLog: { at: string; action: string; by: string }[];
   movements: { at: string; type: string; description: string; method?: string; charge: number; payment: number; balance: number; by: string }[];
   products: { name: string; quantity: number; amount: number; at: string; paid: boolean }[];
@@ -62,7 +63,18 @@ type Tab = 'resumen' | 'folio' | 'historial' | 'operacion';
                     <span class="rchip"><i class="pi pi-refresh"></i> Renovación</span>
                     @if (f.renewals > 0) { <span class="rchip"><i class="pi pi-refresh"></i> {{ f.renewals }} renovación(es) previas</span> }
                   </div>
-                  <div class="clean-box"><div><i class="pi pi-bolt"></i> LIMPIEZA PROGRAMADA<br><small>Progreso: {{ f.cleaning.done }}/{{ f.cleaning.allowed }}</small></div></div>
+                  @if (showCleaning(f)) {
+                    <div class="clean-box">
+                      <div><i class="pi pi-bolt"></i> LIMPIEZA PROGRAMADA<br><small>Progreso: {{ f.cleaning.done }}/{{ f.cleaning.allowed }}</small></div>
+                      @if (f.cleaning.status === 'SOLICITADA') {
+                        <span class="cl-badge sol"><i class="pi pi-clock"></i> Limpieza solicitada</span>
+                      } @else if (f.cleaning.status === 'EN_CURSO') {
+                        <span class="cl-badge cur"><i class="pi pi-spin pi-spinner"></i> Limpieza en curso</span>
+                      } @else if (canRequestCleaning(f)) {
+                        <button class="cl-btn" [disabled]="busy()" (click)="requestCleaning()"><i class="pi pi-send"></i> Solicitar limpieza</button>
+                      }
+                    </div>
+                  }
                   <div class="dates2">
                     <div><span>CHECK-IN</span><strong>{{ f.checkInAt | date: 'dd/MM/yyyy, hh:mm a' }}</strong></div>
                     <div><span>CHECK-OUT PROGRAMADO</span><strong>{{ f.plannedCheckoutAt | date: 'dd/MM/yyyy, hh:mm a' }}</strong></div>
@@ -189,8 +201,12 @@ type Tab = 'resumen' | 'folio' | 'historial' | 'operacion';
       .bh { display: flex; justify-content: space-between; color: #fbbf24; font-weight: 700; margin-bottom: 0.4rem; }
       .chips { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.7rem; }
       .rchip { background: rgba(45,212,191,0.15); color: #5eead4; border: 1px solid #155e63; border-radius: 999px; padding: 0.2rem 0.6rem; font-size: 0.72rem; }
-      .clean-box { background: rgba(96,165,250,0.1); border: 1px solid #1e3a8a; border-radius: 10px; padding: 0.7rem 0.9rem; margin-bottom: 0.7rem; color: #93c5fd; font-weight: 700; font-size: 0.82rem; }
+      .clean-box { background: rgba(96,165,250,0.1); border: 1px solid #1e3a8a; border-radius: 10px; padding: 0.7rem 0.9rem; margin-bottom: 0.7rem; color: #93c5fd; font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
       .clean-box small { color: #8aa0bd; font-weight: 400; }
+      .cl-btn { background: linear-gradient(135deg,#2563eb,#3b82f6); color: #fff; border: 0; border-radius: 9px; padding: 0.5rem 0.85rem; font-weight: 700; font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; }
+      .cl-btn:hover { filter: brightness(1.1); } .cl-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+      .cl-badge { border-radius: 999px; padding: 0.3rem 0.7rem; font-size: 0.74rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+      .cl-badge.sol { background: rgba(245,158,11,0.18); color: #fbbf24; } .cl-badge.cur { background: rgba(59,130,246,0.22); color: #93c5fd; }
       .dates2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
       .dates2 > div { background: #0b1220; border: 1px solid #1c2c44; border-radius: 8px; padding: 0.5rem 0.7rem; }
       .dates2 span { font-size: 0.66rem; color: #8aa0bd; display: block; } .dates2 strong { font-size: 0.82rem; }
@@ -241,16 +257,35 @@ export class FolioEstanciaComponent implements OnDestroy {
   private readonly http = inject(HttpClient);
   private readonly api = environment.apiUrl;
 
+  private readonly toast = inject(MessageService);
+
   @Input() visible = false;
   @Input() stayId: string | null = null;
   @Output() visibleChange = new EventEmitter<boolean>();
+  /** Notifica al board que algo cambió (p.ej. se solicitó limpieza → recargar el mapa). */
+  @Output() changed = new EventEmitter<void>();
 
   readonly data = signal<Folio | null>(null);
   readonly tab = signal<Tab>('resumen');
   readonly nowTick = signal(Date.now());
+  readonly busy = signal(false);
   private clock?: ReturnType<typeof setInterval>;
 
   ngOnDestroy(): void { if (this.clock) clearInterval(this.clock); }
+
+  /** La sección de limpieza programada solo aplica a pernoctación o estancias renovadas. */
+  showCleaning(f: Folio): boolean { return f.cleaning.pernocta || f.renewals > 0; }
+  /** Se puede solicitar cuando hay una limpieza programada pendiente y ninguna en curso. */
+  canRequestCleaning(f: Folio): boolean { return f.cleaning.status === 'NONE' && f.cleaning.allowed > f.cleaning.done; }
+
+  requestCleaning(): void {
+    if (!this.stayId) return;
+    this.busy.set(true);
+    this.http.post<ApiResponse<unknown>>(`${this.api}/stays/${this.stayId}/request-renewal-cleaning`, {}).subscribe({
+      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Limpieza solicitada', detail: 'La habitación se envió al personal de limpieza.' }); this.load(); this.changed.emit(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo solicitar la limpieza.' }); },
+    });
+  }
 
   load(): void {
     this.tab.set('resumen');

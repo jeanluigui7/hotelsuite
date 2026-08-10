@@ -684,6 +684,7 @@ model Stay {
   cleaningRequested Boolean   @default(false) // limpieza de renovación pendiente (no libera la habitación)
   renewalCleaningStatus String @default("NONE") // NONE | SOLICITADA | EN_CURSO (limpieza de renovación)
   renewalCleaningStep   Int    @default(0) // progreso por pasos de la limpieza de renovación
+  renewalCleaningDone   Int    @default(0) // limpiezas de renovación completadas (progreso done/allowed)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -1076,6 +1077,7 @@ model HousekeepingTask {
   assignedToUserId  String?
   status            String    @default("PENDING") // PENDING | IN_PROGRESS | DONE | INSPECTED
   result            String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  type              String    @default("CHECKOUT") // CHECKOUT (salida) | RENOVACION (durante estadía)
   notes             String?
   completedAt       DateTime?
   inspectedAt       DateTime?

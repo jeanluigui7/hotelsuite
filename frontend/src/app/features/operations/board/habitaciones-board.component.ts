@@ -120,8 +120,8 @@ const MANT_CATS = [
       } @else {
       <div class="grid" [class.real]="view() === 'real'">
         @for (r of filtered(); track r.id) {
-          @if (r.status === 'OCCUPIED' && r.activeStay) {
-            <!-- Tarjeta de habitación ocupada / pernoctando -->
+          @if (r.activeStay && (r.status === 'OCCUPIED' || r.status === 'LIMPIEZA_SOLICITADA' || r.status === 'LIMPIEZA_EN_CURSO')) {
+            <!-- Tarjeta de habitación ocupada / pernoctando (incluye limpieza de renovación en curso) -->
             <article class="ocard" [class.exp]="isExpired(r.activeStay)">
               <div class="oc-head">
                 <span class="oc-num"># {{ r.number }} <span class="oc-tag">{{ isPernocta(r.activeStay) ? '🌙 PERNOCTANDO' : 'HOSPEDAJE' }}</span></span>
@@ -162,23 +162,10 @@ const MANT_CATS = [
                 @if (r.activeStay.vehiclePlate) { <span class="chip plate"><i class="pi pi-car"></i> {{ r.activeStay.vehiclePlate }}</span> }
                 <button class="chip total clickable" (click)="openFolio(r)" pTooltip="Ver folio de estancia"><i class="pi pi-search"></i> Total S/ {{ stayTotal(r.activeStay) | number: '1.2-2' }}</button>
               </div>
-              @if (r.activeStay.renewalCleaningStatus === 'SOLICITADA' || r.activeStay.renewalCleaningStatus === 'EN_CURSO') {
-                <div class="oc-clean">
-                  @if (r.activeStay.renewalCleaningStatus === 'SOLICITADA') {
-                    <button class="cta out clean-start" [disabled]="busyStay() === r.activeStay.id" (click)="renewalCleaning(r, 'start')"><i class="pi pi-play"></i> Iniciar limpieza</button>
-                    <button class="cta out clean-reject" [disabled]="busyStay() === r.activeStay.id" (click)="renewalCleaning(r, 'reject')"><i class="pi pi-times"></i> Rechazar</button>
-                  } @else {
-                    <div class="clean-prog">
-                      <div class="cp-top">Limpieza · Progreso {{ r.activeStay.renewalCleaningStep || 0 }}/{{ r.activeStay.renewalCleaningTotal || 1 }}</div>
-                      <div class="cp-bar"><span [style.width.%]="((r.activeStay.renewalCleaningStep || 0) / (r.activeStay.renewalCleaningTotal || 1)) * 100"></span></div>
-                    </div>
-                    @if ((r.activeStay.renewalCleaningStep || 0) < (r.activeStay.renewalCleaningTotal || 1)) {
-                      <button class="cta out clean-start" [disabled]="busyStay() === r.activeStay.id" (click)="renewalCleaning(r, 'advance')"><i class="pi pi-check-circle"></i> Tomar {{ (r.activeStay.renewalCleaningStep || 0) + 1 }}/{{ r.activeStay.renewalCleaningTotal || 1 }}</button>
-                    } @else {
-                      <button class="cta out clean-ok" [disabled]="busyStay() === r.activeStay.id" (click)="renewalCleaning(r, 'finish')"><i class="pi pi-check"></i> Finalizar limpieza</button>
-                    }
-                  }
-                </div>
+              @if (r.activeStay.renewalCleaningStatus === 'SOLICITADA') {
+                <div class="oc-cleaninfo sol"><i class="pi pi-clock"></i> Limpieza solicitada · en cola del personal de limpieza</div>
+              } @else if (r.activeStay.renewalCleaningStatus === 'EN_CURSO') {
+                <div class="oc-cleaninfo cur"><i class="pi pi-spin pi-spinner"></i> Limpieza de renovación en curso…</div>
               }
               <div class="oc-foot">
                 <button class="cta out" (click)="confirmCheckout(r)"><i class="pi pi-sign-out"></i> Pre Checkout</button>
@@ -548,7 +535,7 @@ const MANT_CATS = [
       </ng-template>
     </p-dialog>
 
-    <app-folio-estancia [(visible)]="folioVisible" [stayId]="folioStayId" />
+    <app-folio-estancia [(visible)]="folioVisible" [stayId]="folioStayId" (changed)="reload()" />
   `,
   styles: [
     `
@@ -705,6 +692,9 @@ const MANT_CATS = [
       .ob.renov { background: rgba(16,185,129,0.85); color: #04130d; }
       .ob.limp { background: rgba(245,158,11,0.85); color: #2a1a04; }
       .ob.limp-curso { background: rgba(59,130,246,0.85); color: #fff; }
+      .oc-cleaninfo { border-radius: 10px; padding: 0.55rem 0.7rem; font-size: 0.8rem; font-weight: 700; display: flex; align-items: center; gap: 0.45rem; }
+      .oc-cleaninfo.sol { background: rgba(245,158,11,0.16); color: #fbbf24; border: 1px solid rgba(245,158,11,0.35); }
+      .oc-cleaninfo.cur { background: rgba(59,130,246,0.18); color: #93c5fd; border: 1px solid rgba(59,130,246,0.4); }
       .oc-clean { display: flex; gap: 0.5rem; }
       .oc-clean .cta.out { flex: 1; width: auto; background: rgba(255,255,255,0.92); color: #0b1018; border: 0; border-radius: 10px; padding: 0.55rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
       .oc-clean .cta.out.clean-start { background: #3b82f6; color: #fff; }
@@ -1197,6 +1187,7 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   isPernocta(s: ActiveStay): boolean {
     return (s.durationMinutes ?? 0) >= 1440;
   }
+
   isExpired(s: ActiveStay): boolean {
     return new Date(s.plannedCheckoutAt).getTime() - this.nowTick() < 0;
   }

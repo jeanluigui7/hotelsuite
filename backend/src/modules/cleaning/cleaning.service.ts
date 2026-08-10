@@ -124,6 +124,12 @@ export const cleaningService = {
     if (!room || room.branchId !== branchId) throw new ValidationError('Habitación no encontrada');
     if (!CLEANABLE.includes(room.status)) throw new ValidationError('La habitación no está pendiente de limpieza');
 
+    // Si hay una estancia ACTIVA (el huésped sigue dentro), es una limpieza de RENOVACIÓN;
+    // si no, es una limpieza de salida (CHECKOUT). El tipo se fija al iniciar (fiable para
+    // el historial y para decidir si al finalizar la habitación vuelve a OCUPADA o a Disponible).
+    const activeStay = await prisma.stay.findFirst({ where: { branchId, roomId, status: 'OPEN' } });
+    const type = activeStay ? 'RENOVACION' : 'CHECKOUT';
+
     const task = await prisma.housekeepingTask.create({
       data: {
         branchId,
@@ -131,6 +137,7 @@ export const cleaningService = {
         assignedToUserId: scope.userId,
         status: 'IN_PROGRESS',
         result: 'PENDING',
+        type,
         linenInspections: {
           // Ropa: linenItemId. Amenity: linenItemId=null y el productId guardado en `note`
           // (para ofrecer variantes de AMENITIES - LIMPIEZA en la reposición). NO se descuenta
@@ -146,6 +153,8 @@ export const cleaningService = {
       },
     });
     await prisma.room.update({ where: { id: roomId }, data: { status: 'LIMPIEZA_EN_CURSO' } });
+    // Renovación: refleja "en curso" en la estancia (para el folio).
+    if (activeStay) await prisma.stay.update({ where: { id: activeStay.id }, data: { renewalCleaningStatus: 'EN_CURSO' } });
     return { taskId: task.id };
   },
 
@@ -250,7 +259,17 @@ export const cleaningService = {
       await prisma.room.update({ where: { id: roomId }, data: { status: 'MAINTENANCE' } });
       return { ok: true, maintenance: true };
     }
-    // Todo OK → habitación disponible.
+    // Renovación (el huésped sigue dentro): la habitación NO se libera, vuelve a OCUPADA
+    // y se registra el progreso de la limpieza de renovación.
+    if (task?.type === 'RENOVACION') {
+      const activeStay = await prisma.stay.findFirst({ where: { branchId, roomId, status: 'OPEN' } });
+      await prisma.room.update({ where: { id: roomId }, data: { status: 'OCCUPIED' } });
+      if (activeStay) {
+        await prisma.stay.update({ where: { id: activeStay.id }, data: { renewalCleaningStatus: 'NONE', renewalCleaningStep: 0, renewalCleaningDone: { increment: 1 }, cleaningRequested: false } });
+      }
+      return { ok: true, maintenance: false, renewal: true };
+    }
+    // Check out → habitación disponible.
     await prisma.room.update({ where: { id: roomId }, data: { status: 'FREE' } });
     return { ok: true, maintenance: false };
   },
@@ -606,7 +625,7 @@ export const cleaningService = {
    */
   async history(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);
-    const [tasks, rooms, stays, supplies] = await Promise.all([
+    const [tasks, rooms, supplies] = await Promise.all([
       prisma.housekeepingTask.findMany({
         where: { branchId, status: { in: ['DONE', 'INSPECTED'] }, completedAt: { not: null } },
         include: { linenInspections: true },
@@ -614,7 +633,6 @@ export const cleaningService = {
         take: 500,
       }),
       prisma.room.findMany({ where: { branchId }, select: { id: true, number: true, floor: true } }),
-      prisma.stay.findMany({ where: { branchId }, select: { roomId: true, durationMinutes: true, checkInAt: true, checkOutAt: true }, orderBy: { checkInAt: 'desc' } }),
       prisma.roomSupply.findMany({ where: { branchId, status: 'DELIVERED' }, orderBy: { deliveredAt: 'desc' }, take: 500 }),
     ]);
     const rmap = new Map(rooms.map((r) => [r.id, r]));
@@ -651,16 +669,10 @@ export const cleaningService = {
       const winEnd = (t.completedAt?.getTime() ?? Date.now()) + 60 * 60 * 1000;
       const adic = supplies.filter((s) => s.roomId === t.roomId && s.deliveredAt && s.deliveredAt.getTime() >= winStart && s.deliveredAt.getTime() <= winEnd);
       adic.forEach((s) => matchedSupplyIds.add(s.id));
-      // El TIPO refleja la INTERVENCIÓN de limpieza, NO la modalidad/tarifa de la estancia.
-      // CHECK OUT: hubo una salida (checkOutAt) cercana a la limpieza → la habitación quedó Disponible.
-      //   Aplica tanto a estadía corta como a pernocta (nunca se clasifica por duración).
-      // RENOVACIÓN: limpieza durante la estadía (sin salida cercana) → la habitación siguió Ocupada.
-      const start = t.createdAt.getTime();
-      const end = t.completedAt?.getTime() ?? Date.now();
-      const checkoutStay = stays.find(
-        (s) => s.roomId === t.roomId && s.checkOutAt && s.checkOutAt.getTime() >= start - 12 * 60 * 60 * 1000 && s.checkOutAt.getTime() <= end + 60 * 60 * 1000,
-      );
-      const tipo = checkoutStay ? 'CHECKOUT' : 'RENOVACION';
+      // El TIPO refleja la INTERVENCIÓN de limpieza (fijada al iniciar), NO la tarifa/modalidad.
+      // CHECK OUT: limpieza tras la salida → la habitación quedó Disponible (estadía corta o pernocta).
+      // RENOVACIÓN: limpieza durante la estadía (el huésped siguió dentro) → la habitación siguió Ocupada.
+      const tipo = t.type === 'RENOVACION' ? 'RENOVACION' : 'CHECKOUT';
       const estadoFinal = tipo === 'CHECKOUT' ? 'Disponible' : 'Ocupada';
       const durationMinutes = t.completedAt ? Math.max(0, Math.round((t.completedAt.getTime() - t.createdAt.getTime()) / 60000)) : 0;
       return {
