@@ -76,7 +76,7 @@ const MANT_CATS = [
         </div>
 
         <div class="filters">
-          <span class="f"><i class="pi pi-search"></i><input pInputText placeholder="Buscar por número…" [(ngModel)]="search" /></span>
+          <span class="f"><i class="pi pi-search"></i><input pInputText placeholder="Buscar por número, tipo, DNI o nombre" [(ngModel)]="search" /></span>
           <p-select [options]="floorOptions()" [(ngModel)]="floorFilter" placeholder="Todos los pisos" [showClear]="true" styleClass="dk" />
           <p-select [options]="stateOptions" [(ngModel)]="stateFilter" optionLabel="label" optionValue="value" placeholder="Todos los estados" [showClear]="true" styleClass="dk" />
           <p-select [options]="typeOptions()" [(ngModel)]="typeFilter" placeholder="Todos los tipos" [showClear]="true" styleClass="dk" />
@@ -85,7 +85,40 @@ const MANT_CATS = [
         </div>
       </header>
 
-      <div class="grid" [class.compacta]="view() === 'compacta'" [class.real]="view() === 'real'">
+      @if (view() === 'compacta') {
+        <!-- Vista compacta: agrupada por piso, tarjetas pequeñas con nº + tipo + menú. -->
+        <div class="floor-groups">
+          @for (g of floorGroups(); track g.floor) {
+            <section class="fg">
+              <header class="fg-head"><span class="fg-n">{{ g.floor }}</span> <strong>Piso {{ g.floor }}</strong> <span class="fg-count">({{ g.rooms.length }} {{ g.rooms.length === 1 ? 'habitación' : 'habitaciones' }})</span></header>
+              <div class="fg-cards">
+                @for (r of g.rooms; track r.id) {
+                  <div class="ccard" [style.background]="st(r).gradient" (click)="compactClick(r)" [title]="r.roomType.name + ' · ' + st(r).label">
+                    <button class="cc-menu" (click)="toggleMenu(r.id, $event)" title="Acciones"><i class="pi pi-ellipsis-v"></i></button>
+                    <span class="cc-num">{{ r.number }}</span>
+                    <span class="cc-type">{{ abbr(r.roomType.name) }}</span>
+                    @if (menuRoomId() === r.id) {
+                      <div class="cc-pop" (click)="$event.stopPropagation()">
+                        @if (r.status === 'FREE' || r.status === 'RESERVADA') { <button (click)="act(r, 'checkin')"><i class="pi pi-sign-in"></i> Registrar</button> }
+                        @if (r.status === 'OCCUPIED') {
+                          <button (click)="act(r, 'folio')"><i class="pi pi-search"></i> Ver folio</button>
+                          <button (click)="act(r, 'renovar')"><i class="pi pi-refresh"></i> Renovar</button>
+                          <button (click)="act(r, 'ticket')"><i class="pi pi-dollar"></i> Ticket</button>
+                          <button (click)="act(r, 'checkout')"><i class="pi pi-sign-out"></i> Pre Checkout</button>
+                        }
+                        @if (isAdminProfile()) { <button (click)="act(r, 'edit')"><i class="pi pi-pencil"></i> Editar</button> }
+                        @if (canDeleteRoom() && r.status !== 'OCCUPIED') { <button class="dg" (click)="act(r, 'delete')"><i class="pi pi-trash"></i> Eliminar</button> }
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            </section>
+          } @empty { <p class="muted empty">No hay habitaciones que coincidan con el filtro.</p> }
+        </div>
+        @if (menuRoomId()) { <div class="cc-backdrop" (click)="menuRoomId.set(null)"></div> }
+      } @else {
+      <div class="grid" [class.real]="view() === 'real'">
         @for (r of filtered(); track r.id) {
           @if (r.status === 'OCCUPIED' && r.activeStay) {
             <!-- Tarjeta de habitación ocupada / pernoctando -->
@@ -178,6 +211,7 @@ const MANT_CATS = [
           <p class="muted empty">No hay habitaciones que coincidan con el filtro.</p>
         }
       </div>
+      }
     </section>
 
     <app-check-in-dialog [(visible)]="checkInVisible" [room]="selectedRoom" (done)="reload()" />
@@ -558,6 +592,26 @@ const MANT_CATS = [
       .rc-body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem; text-align: center; }
       .rc-body > i { font-size: 1.7rem; opacity: 0.9; }
       .grid.compacta .rc-line, .grid.compacta .rc-body > i { display: none; }
+      /* Vista compacta agrupada por piso (paneles claros con tarjetas pequeñas). */
+      .floor-groups { display: flex; flex-direction: column; gap: 1.1rem; margin-top: 0.5rem; }
+      .fg { background: #ffffff; border: 1px solid #e6e9f0; border-radius: 14px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+      .fg-head { display: flex; align-items: center; gap: 0.6rem; padding: 0.8rem 1.1rem; background: #f5f7fa; border-bottom: 1px solid #eceff4; }
+      .fg-n { width: 26px; height: 26px; border-radius: 50%; background: #d1fae5; color: #059669; font-weight: 800; font-size: 0.8rem; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
+      .fg-head strong { font-size: 1.05rem; color: #111827; }
+      .fg-count { color: #9ca3af; font-size: 0.9rem; }
+      .fg-cards { display: flex; flex-wrap: wrap; gap: 1rem; padding: 1.1rem; }
+      .ccard { position: relative; width: 150px; min-height: 92px; border-radius: 14px; padding: 0.8rem 0.95rem; color: #fff; cursor: pointer; display: flex; flex-direction: column; box-shadow: 0 2px 6px rgba(0,0,0,0.18); transition: transform 0.1s ease, filter 0.1s ease; }
+      .ccard:hover { transform: translateY(-2px); filter: brightness(1.06); }
+      .cc-num { font-size: 1.5rem; font-weight: 800; line-height: 1; }
+      .cc-type { font-size: 0.72rem; opacity: 0.92; margin-top: 0.25rem; letter-spacing: 0.03em; }
+      .cc-menu { position: absolute; top: 0.45rem; right: 0.35rem; background: transparent; border: 0; color: rgba(255,255,255,0.9); cursor: pointer; padding: 0.15rem 0.35rem; border-radius: 6px; line-height: 1; }
+      .cc-menu:hover { background: rgba(255,255,255,0.2); }
+      .cc-pop { position: absolute; top: 2rem; right: 0.35rem; z-index: 30; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.22); padding: 0.3rem; min-width: 152px; display: flex; flex-direction: column; }
+      .cc-pop button { display: flex; align-items: center; gap: 0.5rem; background: transparent; border: 0; color: #1f2937; padding: 0.5rem 0.6rem; border-radius: 7px; cursor: pointer; font-size: 0.85rem; text-align: left; }
+      .cc-pop button:hover { background: #f3f4f6; }
+      .cc-pop button.dg { color: #dc2626; }
+      .cc-backdrop { position: fixed; inset: 0; z-index: 20; }
+      @media (max-width: 680px) { .ccard { width: calc(50% - 0.5rem); } }
       .caption { font-size: 1.05rem; font-weight: 600; }
       .rc-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding-top: 0.6rem; flex-wrap: wrap; }
       .rc-attrs { font-style: italic; font-size: 0.8rem; opacity: 0.85; }
@@ -920,6 +974,8 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
 
   readonly rooms = signal<RoomMapItem[]>([]);
   readonly view = signal<ViewMode>('normal');
+  /** Menú (⋮) abierto en la vista compacta. */
+  readonly menuRoomId = signal<string | null>(null);
   search = '';
   floorFilter: string | null = null;
   stateFilter: string | null = null;
@@ -1003,7 +1059,15 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   // Método (no computed) para que reaccione a los filtros con ngModel (props no-signal).
   filtered(): RoomMapItem[] {
     let list = this.rooms();
-    if (this.search) list = list.filter((r) => r.number.toLowerCase().includes(this.search.toLowerCase()));
+    if (this.search) {
+      const q = this.search.toLowerCase().trim();
+      list = list.filter((r) =>
+        r.number.toLowerCase().includes(q) ||
+        (r.roomType.name ?? '').toLowerCase().includes(q) ||
+        (r.activeStay?.documentNumber ?? '').toLowerCase().includes(q) ||
+        (r.activeStay?.guestName ?? '').toLowerCase().includes(q),
+      );
+    }
     if (this.floorFilter) list = list.filter((r) => r.floor === this.floorFilter);
     if (this.stateFilter) {
       const sf = this.stateFilter;
@@ -1017,6 +1081,48 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
       list = list.filter((r) => (r.activeStay ? this.isPernocta(r.activeStay) === wantPern : false));
     }
     return list;
+  }
+
+  /** Vista compacta: habitaciones filtradas agrupadas por piso (ordenadas). */
+  floorGroups(): { floor: string; rooms: RoomMapItem[] }[] {
+    const map = new Map<string, RoomMapItem[]>();
+    for (const r of this.filtered()) {
+      const f = r.floor || '-';
+      if (!map.has(f)) map.set(f, []);
+      map.get(f)!.push(r);
+    }
+    return [...map.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0], 'es', { numeric: true }))
+      .map(([floor, rooms]) => ({ floor, rooms: rooms.sort((x, y) => x.number.localeCompare(y.number, 'es', { numeric: true })) }));
+  }
+
+  /** Abreviatura del tipo para la tarjeta compacta (DOBL, MATR…). */
+  abbr(name: string): string { return (name || '').replace(/[^a-zA-ZÀ-ÿ]/g, '').slice(0, 4).toUpperCase(); }
+
+  toggleMenu(id: string, ev: Event): void {
+    ev.stopPropagation();
+    this.menuRoomId.update((cur) => (cur === id ? null : id));
+  }
+
+  /** Click en la tarjeta compacta: acción principal según estado. */
+  compactClick(r: RoomMapItem): void {
+    if (this.menuRoomId()) { this.menuRoomId.set(null); return; }
+    if (r.status === 'FREE' || r.status === 'RESERVADA') this.openCheckIn(r);
+    else if (r.status === 'OCCUPIED') this.openFolio(r);
+  }
+
+  /** Acciones del menú (⋮) de la tarjeta compacta. */
+  act(r: RoomMapItem, action: 'checkin' | 'folio' | 'renovar' | 'ticket' | 'checkout' | 'edit' | 'delete'): void {
+    this.menuRoomId.set(null);
+    switch (action) {
+      case 'checkin': this.openCheckIn(r); break;
+      case 'folio': this.openFolio(r); break;
+      case 'renovar': this.openRenovar(r); break;
+      case 'ticket': this.ticket(r); break;
+      case 'checkout': this.confirmCheckout(r); break;
+      case 'edit': this.openEdit(r); break;
+      case 'delete': this.deleteRoom(r); break;
+    }
   }
 
   ngOnInit(): void {
@@ -1401,8 +1507,11 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     this.checkInVisible = true;
   }
 
+  /** Botón global Check-in: abre el modal con una habitación libre para registrar/reservar. */
   checkInHint(): void {
-    this.toast.add({ severity: 'info', summary: 'Check-in', detail: 'Pulsa "Check-in" en una habitación disponible (verde).' });
+    const free = this.rooms().find((r) => r.status === 'FREE') ?? this.rooms().find((r) => r.status === 'RESERVADA');
+    if (!free) { this.toast.add({ severity: 'info', summary: 'Check-in', detail: 'No hay habitaciones disponibles para registrar.' }); return; }
+    this.openCheckIn(free);
   }
 
   // Cobro del pendiente de la estancia.
