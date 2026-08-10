@@ -651,11 +651,20 @@ export const cleaningService = {
       const winEnd = (t.completedAt?.getTime() ?? Date.now()) + 60 * 60 * 1000;
       const adic = supplies.filter((s) => s.roomId === t.roomId && s.deliveredAt && s.deliveredAt.getTime() >= winStart && s.deliveredAt.getTime() <= winEnd);
       adic.forEach((s) => matchedSupplyIds.add(s.id));
-      const stay = stays.find((s) => s.roomId === t.roomId && s.checkOutAt && Math.abs(s.checkOutAt.getTime() - t.createdAt.getTime()) < 24 * 60 * 60 * 1000) ?? stays.find((s) => s.roomId === t.roomId);
-      const tipo = stay ? (stay.durationMinutes >= 600 ? 'PERNOCTA' : 'CHECKOUT') : 'CHECKOUT';
+      // El TIPO refleja la INTERVENCIÓN de limpieza, NO la modalidad/tarifa de la estancia.
+      // CHECK OUT: hubo una salida (checkOutAt) cercana a la limpieza → la habitación quedó Disponible.
+      //   Aplica tanto a estadía corta como a pernocta (nunca se clasifica por duración).
+      // RENOVACIÓN: limpieza durante la estadía (sin salida cercana) → la habitación siguió Ocupada.
+      const start = t.createdAt.getTime();
+      const end = t.completedAt?.getTime() ?? Date.now();
+      const checkoutStay = stays.find(
+        (s) => s.roomId === t.roomId && s.checkOutAt && s.checkOutAt.getTime() >= start - 12 * 60 * 60 * 1000 && s.checkOutAt.getTime() <= end + 60 * 60 * 1000,
+      );
+      const tipo = checkoutStay ? 'CHECKOUT' : 'RENOVACION';
+      const estadoFinal = tipo === 'CHECKOUT' ? 'Disponible' : 'Ocupada';
       const durationMinutes = t.completedAt ? Math.max(0, Math.round((t.completedAt.getTime() - t.createdAt.getTime()) / 60000)) : 0;
       return {
-        id: t.id, kind: 'TASK', dateTime: t.createdAt, fin: t.completedAt, roomNumber: r.number, floor: r.floor, tipo,
+        id: t.id, kind: 'TASK', dateTime: t.createdAt, fin: t.completedAt, roomNumber: r.number, floor: r.floor, tipo, estadoFinal,
         estado: 'Finalizado', durationMinutes, excedido: durationMinutes > LIMIT_MIN,
         recogidos, dejados: groupCount(dejadasInsp), repuestos: recogidos, // cada prenda recogida se repone con una limpia
         adicionales: adic.map((a) => ({ name: a.description, units: a.quantity, cortesia: true })),
@@ -667,7 +676,7 @@ export const cleaningService = {
       const r = rmap.get(s.roomId);
       return {
         id: s.id, kind: 'SUPPLY', dateTime: s.deliveredAt ?? s.createdAt, fin: s.deliveredAt ?? s.createdAt,
-        roomNumber: r?.number ?? '—', floor: r?.floor ?? null, tipo: 'SUMINISTRO',
+        roomNumber: r?.number ?? '—', floor: r?.floor ?? null, tipo: 'ADICIONAL', estadoFinal: 'Ocupada',
         estado: 'Finalizado', durationMinutes: 0, excedido: false,
         recogidos: [] as { name: string; units: number }[], dejados: [] as { name: string; units: number }[], repuestos: [] as { name: string; units: number }[],
         adicionales: [{ name: s.description, units: s.quantity, cortesia: true }],

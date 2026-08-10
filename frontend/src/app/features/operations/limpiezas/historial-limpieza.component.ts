@@ -14,8 +14,9 @@ interface HistoryRow {
   fin: string | null;
   roomNumber: string;
   floor: string | null;
-  tipo: 'CHECKOUT' | 'PERNOCTA' | 'SUMINISTRO';
+  tipo: 'CHECKOUT' | 'RENOVACION' | 'ADICIONAL';
   estado: string;
+  estadoFinal: string;
   durationMinutes: number;
   excedido: boolean;
   recogidos: LinenLine[];
@@ -36,9 +37,9 @@ interface Shift {
 }
 
 const TIPO_META: Record<string, { label: string; cls: string; icon?: string }> = {
-  CHECKOUT: { label: 'Check Out', cls: 'co' },
-  PERNOCTA: { label: 'Pernocta', cls: 'pe', icon: 'pi pi-moon' },
-  SUMINISTRO: { label: 'SUMINISTRO', cls: 'su', icon: 'pi pi-box' },
+  CHECKOUT: { label: 'Check Out', cls: 'co', icon: 'pi pi-sign-out' },
+  RENOVACION: { label: 'Renovación', cls: 'rn', icon: 'pi pi-refresh' },
+  ADICIONAL: { label: 'Adicional', cls: 'ad', icon: 'pi pi-box' },
 };
 
 @Component({
@@ -70,8 +71,8 @@ const TIPO_META: Record<string, { label: string; cls: string; icon?: string }> =
           <span class="lbl">TIPO:</span>
           <button class="chip" [class.on]="tipoFilter() === null" (click)="tipoFilter.set(null)">Todos</button>
           <button class="chip" [class.on]="tipoFilter() === 'CHECKOUT'" (click)="tipoFilter.set('CHECKOUT')">Check Out</button>
-          <button class="chip" [class.on]="tipoFilter() === 'PERNOCTA'" (click)="tipoFilter.set('PERNOCTA')">Pernocta</button>
-          <button class="chip" [class.on]="tipoFilter() === 'SUMINISTRO'" (click)="tipoFilter.set('SUMINISTRO')">Suministro</button>
+          <button class="chip" [class.on]="tipoFilter() === 'RENOVACION'" (click)="tipoFilter.set('RENOVACION')">Renovación</button>
+          <button class="chip" [class.on]="tipoFilter() === 'ADICIONAL'" (click)="tipoFilter.set('ADICIONAL')">Adicional</button>
         </div>
       }
 
@@ -111,6 +112,7 @@ const TIPO_META: Record<string, { label: string; cls: string; icon?: string }> =
               <th class="c green">Repuestos</th>
               <th>Adicionales</th>
               <th>Usuario</th>
+              <th class="c">Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -127,9 +129,24 @@ const TIPO_META: Record<string, { label: string; cls: string; icon?: string }> =
                   @if (r.excedido) { <div class="dur red">{{ durLabel(r.durationMinutes) }}</div><div class="exc">Excedido</div> }
                   @else { <div class="dur ok">{{ durLabel(r.durationMinutes) }}</div> }
                 </td>
-                <td>{{ cell(r, 'recogidos') }}</td>
-                <td>{{ cell(r, 'dejados') }}</td>
-                <td>{{ cell(r, 'repuestos') }}</td>
+                <td>
+                  @if (r.recogidos.length) {
+                    <button class="linen-tog" (click)="toggleCell(r.id, 'recogidos')">{{ r.recogidos.length }} <small>({{ unitsOf(r.recogidos) }} unidades)</small><i class="pi chev" [class.pi-chevron-down]="!isExp(r.id,'recogidos')" [class.pi-chevron-up]="isExp(r.id,'recogidos')"></i></button>
+                    @if (isExp(r.id, 'recogidos')) { <div class="linen-list">@for (l of r.recogidos; track l.name) { <div><b>{{ l.units }}</b> {{ l.name }}</div> }</div> }
+                  } @else { <span class="zero">0</span> }
+                </td>
+                <td>
+                  @if (r.dejados.length) {
+                    <button class="linen-tog" (click)="toggleCell(r.id, 'dejados')">{{ r.dejados.length }} <small>({{ unitsOf(r.dejados) }} unidades)</small><i class="pi chev" [class.pi-chevron-down]="!isExp(r.id,'dejados')" [class.pi-chevron-up]="isExp(r.id,'dejados')"></i></button>
+                    @if (isExp(r.id, 'dejados')) { <div class="linen-list">@for (l of r.dejados; track l.name) { <div><b>{{ l.units }}</b> {{ l.name }}</div> }</div> }
+                  } @else { <span class="zero">0</span> }
+                </td>
+                <td>
+                  @if (r.repuestos.length) {
+                    <button class="linen-tog" (click)="toggleCell(r.id, 'repuestos')">{{ r.repuestos.length }} <small>({{ unitsOf(r.repuestos) }} unidades)</small><i class="pi chev" [class.pi-chevron-down]="!isExp(r.id,'repuestos')" [class.pi-chevron-up]="isExp(r.id,'repuestos')"></i></button>
+                    @if (isExp(r.id, 'repuestos')) { <div class="linen-list">@for (l of r.repuestos; track l.name) { <div><b>{{ l.units }}</b> {{ l.name }}</div> }</div> }
+                  } @else { <span class="zero">0</span> }
+                </td>
                 <td>
                   @if (r.adicionales.length) {
                     <div class="adi-h">{{ r.adicionales.length }} items <small>({{ unitsOf(r.adicionales) }} unidades)</small></div>
@@ -138,13 +155,41 @@ const TIPO_META: Record<string, { label: string; cls: string; icon?: string }> =
                   } @else { <span class="zero">0</span> }
                 </td>
                 <td class="user">{{ r.user }}</td>
+                <td><button class="btn det" (click)="openDetail(r)"><i class="pi pi-eye"></i> Detalles</button></td>
               </tr>
             } @empty {
-              <tr><td colspan="10" class="empty">{{ loading() ? 'Cargando…' : 'Sin registros en este turno.' }}</td></tr>
+              <tr><td colspan="11" class="empty">{{ loading() ? 'Cargando…' : 'Sin registros en este turno.' }}</td></tr>
             }
           </tbody>
         </table>
       </div>
+
+      <!-- Detalle de la operación de limpieza -->
+      @if (detail(); as d) {
+        <div class="modal-bg" (click)="detail.set(null)">
+          <div class="modal" (click)="$event.stopPropagation()">
+            <header class="m-head">
+              <div><h2>Detalle de limpieza · Hab. {{ d.roomNumber }}</h2><span class="m-sub">Piso {{ d.floor || '-' }}</span></div>
+              <button class="m-x" (click)="detail.set(null)"><i class="pi pi-times"></i></button>
+            </header>
+            <div class="m-grid">
+              <div class="m-fld"><span>Tipo</span><b><span class="tipo" [class]="tm(d.tipo).cls">@if (tm(d.tipo).icon) { <i [class]="tm(d.tipo).icon"></i> } {{ tm(d.tipo).label }}</span></b></div>
+              <div class="m-fld"><span>Estado</span><b class="ok">{{ d.estado }}</b></div>
+              <div class="m-fld"><span>Inicio</span><b>{{ d.dateTime | date: 'dd/MM/yyyy HH:mm' }}</b></div>
+              <div class="m-fld"><span>Fin</span><b>{{ d.fin | date: 'dd/MM/yyyy HH:mm' }}</b></div>
+              <div class="m-fld"><span>Duración</span><b [class.red]="d.excedido">{{ durLabel(d.durationMinutes) }} @if (d.excedido) { · Excedido }</b></div>
+              <div class="m-fld"><span>Usuario</span><b>{{ d.user }}</b></div>
+              <div class="m-fld"><span>Estado final habitación</span><b>{{ d.estadoFinal }}</b></div>
+            </div>
+            <div class="m-cols">
+              <div class="m-col"><h4 class="blue">Recogidas ({{ unitsOf(d.recogidos) }})</h4>@for (l of d.recogidos; track l.name) { <div class="m-li"><b>{{ l.units }}</b> {{ l.name }}</div> } @empty { <div class="m-empty">—</div> }</div>
+              <div class="m-col"><h4 class="gray">Dejadas ({{ unitsOf(d.dejados) }})</h4>@for (l of d.dejados; track l.name) { <div class="m-li"><b>{{ l.units }}</b> {{ l.name }}</div> } @empty { <div class="m-empty">—</div> }</div>
+              <div class="m-col"><h4 class="green">Repuestas ({{ unitsOf(d.repuestos) }})</h4>@for (l of d.repuestos; track l.name) { <div class="m-li"><b>{{ l.units }}</b> {{ l.name }}</div> } @empty { <div class="m-empty">—</div> }</div>
+              <div class="m-col"><h4>Adicionales ({{ unitsOf(d.adicionales) }})</h4>@for (a of d.adicionales; track a.name) { <div class="m-li"><b>{{ a.units }}</b> {{ a.name }} @if (a.cortesia) { <span class="cortesia">CORTESÍA</span> }</div> } @empty { <div class="m-empty">—</div> }</div>
+            </div>
+          </div>
+        </div>
+      }
     </section>
   `,
   styles: [
@@ -190,8 +235,29 @@ const TIPO_META: Record<string, { label: string; cls: string; icon?: string }> =
       .extra { display: inline-block; margin-top: 0.25rem; background: rgba(16,185,129,0.16); color: #34d399; border: 1px solid rgba(16,185,129,0.4); border-radius: 6px; padding: 0.1rem 0.45rem; font-size: 0.72rem; font-weight: 700; }
       .tipo { display: inline-flex; align-items: center; gap: 0.35rem; border-radius: 999px; padding: 0.32rem 0.8rem; font-size: 0.8rem; font-weight: 700; }
       .tipo.co { background: rgba(16,185,129,0.14); color: #34d399; }
-      .tipo.pe { background: rgba(124,58,237,0.2); color: #c4b5fd; }
-      .tipo.su { background: rgba(245,158,11,0.16); color: #fbbf24; }
+      .tipo.rn { background: rgba(59,130,246,0.18); color: #93c5fd; }
+      .tipo.ad { background: rgba(245,158,11,0.16); color: #fbbf24; }
+      .linen-tog { background: transparent; border: 0; color: #e6eef7; cursor: pointer; font-size: 0.9rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.1rem 0; }
+      .linen-tog small { color: #8aa0ba; font-weight: 500; }
+      .linen-tog .chev { font-size: 0.7rem; color: #8aa0ba; }
+      .linen-tog:hover { color: #fff; } .linen-tog:hover .chev { color: #cfd9e6; }
+      .linen-list { margin-top: 0.35rem; display: flex; flex-direction: column; gap: 0.2rem; border-left: 2px solid #2b3a4f; padding-left: 0.55rem; }
+      .linen-list div { font-size: 0.8rem; color: #cfd9e6; } .linen-list b { color: #fff; }
+      .btn.det { background: #131c2b; color: #cfd9e6; border: 1px solid #2b3a4f; padding: 0.45rem 0.75rem; font-size: 0.82rem; }
+      .btn.det:hover { background: #1b2433; }
+
+      .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+      .modal { background: #0e1622; border: 1px solid #22304a; border-radius: 16px; width: 720px; max-width: 96vw; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+      .m-head { display: flex; align-items: center; justify-content: space-between; padding: 1.1rem 1.3rem; border-bottom: 1px solid #1c2738; }
+      .m-head h2 { margin: 0; font-size: 1.15rem; color: #fff; } .m-sub { color: #8aa0ba; font-size: 0.82rem; }
+      .m-x { background: transparent; border: 0; color: #8aa0ba; cursor: pointer; font-size: 1.1rem; } .m-x:hover { color: #fff; }
+      .m-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.9rem; padding: 1.2rem 1.3rem; }
+      .m-fld { display: flex; flex-direction: column; gap: 0.2rem; } .m-fld span { color: #8aa0ba; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.03em; } .m-fld b { color: #e6eef7; }
+      .m-fld b.ok { color: #34d399; } .m-fld b.red { color: #f87171; }
+      .m-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; padding: 0 1.3rem 1.3rem; }
+      .m-col { background: #0b1220; border: 1px solid #1c2738; border-radius: 10px; padding: 0.8rem; }
+      .m-col h4 { margin: 0 0 0.5rem; font-size: 0.82rem; color: #b7c4d4; } .m-col h4.blue { color: #60a5fa; } .m-col h4.gray { color: #94a3b8; } .m-col h4.green { color: #34d399; }
+      .m-li { font-size: 0.82rem; color: #cfd9e6; padding: 0.15rem 0; } .m-li b { color: #fff; } .m-empty { color: #6b7c91; }
       .estado { color: #34d399; font-weight: 600; }
       .dur.ok { color: #34d399; font-weight: 700; } .dur.red { color: #f87171; font-weight: 700; } .exc { color: #f87171; font-size: 0.75rem; }
       .zero { color: #6b7c91; }
@@ -215,6 +281,10 @@ export class HistorialLimpiezaComponent implements OnInit {
   readonly habApplied = signal('');
   readonly floorFilter = signal<string | null>(null);
   readonly tipoFilter = signal<string | null>(null);
+  /** Celdas de prendas desplegadas (clave: `${rowId}|${col}`). */
+  readonly expanded = signal<Set<string>>(new Set());
+  /** Fila abierta en el modal de Detalles. */
+  readonly detail = signal<HistoryRow | null>(null);
 
   readonly current = computed<Shift | undefined>(() => this.shifts()[this.idx()]);
   readonly floors = computed(() => {
@@ -261,11 +331,15 @@ export class HistorialLimpiezaComponent implements OnInit {
   unitsOf(list: { units: number }[]): number { return list.reduce((n, a) => n + a.units, 0); }
   anyCortesia(list: Adicional[]): boolean { return list.some((a) => a.cortesia); }
 
-  /** Texto de celda Recogidos/Dejados/Repuestos: "N (U unidades)". */
-  cell(r: HistoryRow, col: 'recogidos' | 'dejados' | 'repuestos'): string {
-    const list = r[col];
-    if (!list.length) return '0';
-    const units = this.unitsOf(list);
-    return `${list.length} (${units} unidades)`;
+  /** Despliegue de prendas por columna (Recogidos/Dejados/Repuestos). */
+  private ck(id: string, col: string): string { return `${id}|${col}`; }
+  isExp(id: string, col: string): boolean { return this.expanded().has(this.ck(id, col)); }
+  toggleCell(id: string, col: string): void {
+    const s = new Set(this.expanded());
+    const k = this.ck(id, col);
+    if (s.has(k)) s.delete(k); else s.add(k);
+    this.expanded.set(s);
   }
+
+  openDetail(r: HistoryRow): void { this.detail.set(r); }
 }
