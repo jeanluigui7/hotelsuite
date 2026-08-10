@@ -124,11 +124,11 @@ export const cleaningService = {
     if (!room || room.branchId !== branchId) throw new ValidationError('Habitación no encontrada');
     if (!CLEANABLE.includes(room.status)) throw new ValidationError('La habitación no está pendiente de limpieza');
 
-    // Si hay una estancia ACTIVA (el huésped sigue dentro), es una limpieza de RENOVACIÓN;
-    // si no, es una limpieza de salida (CHECKOUT). El tipo se fija al iniciar (fiable para
-    // el historial y para decidir si al finalizar la habitación vuelve a OCUPADA o a Disponible).
-    const activeStay = await prisma.stay.findFirst({ where: { branchId, roomId, status: 'OPEN' } });
-    const type = activeStay ? 'RENOVACION' : 'CHECKOUT';
+    // RENOVACIÓN solo si el huésped SOLICITÓ una limpieza de renovación (renewalCleaningStatus
+    // SOLICITADA/EN_CURSO). En un CHECK OUT la estancia sigue OPEN hasta cerrar la limpieza,
+    // así que NO basta con "hay estancia abierta" (eso marcaba mal los check-out como renovación).
+    const renewalStay = await prisma.stay.findFirst({ where: { branchId, roomId, status: 'OPEN', renewalCleaningStatus: { in: ['SOLICITADA', 'EN_CURSO'] } } });
+    const type = renewalStay ? 'RENOVACION' : 'CHECKOUT';
 
     const task = await prisma.housekeepingTask.create({
       data: {
@@ -154,7 +154,7 @@ export const cleaningService = {
     });
     await prisma.room.update({ where: { id: roomId }, data: { status: 'LIMPIEZA_EN_CURSO' } });
     // Renovación: refleja "en curso" en la estancia (para el folio).
-    if (activeStay) await prisma.stay.update({ where: { id: activeStay.id }, data: { renewalCleaningStatus: 'EN_CURSO' } });
+    if (renewalStay) await prisma.stay.update({ where: { id: renewalStay.id }, data: { renewalCleaningStatus: 'EN_CURSO' } });
     return { taskId: task.id };
   },
 
