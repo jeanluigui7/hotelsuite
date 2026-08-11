@@ -85,7 +85,7 @@ async function buildSnapshot(branchId: string, role: string, windowStart: Date, 
   const stock = stocks
     .map((s) => ({ name: pname.get(s.productId) ?? s.productId, quantity: s.quantity }))
     .sort((a, b) => a.name.localeCompare(b.name));
-  const byMethod: Record<string, number> = { CASH: 0, CARD: 0, TRANSFER: 0, WALLET: 0 };
+  const byMethod: Record<string, number> = { CASH: 0, CARD: 0, TRANSFER: 0, YAPE: 0, PLIN: 0, WALLET: 0 };
   let salesTotal = 0;
   for (const sale of sales) {
     for (const p of sale.payments) {

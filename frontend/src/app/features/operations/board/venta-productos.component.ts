@@ -18,13 +18,14 @@ import type { Product } from '../../inventory/services/inventory.models';
 import { OperationsApiService } from '../services/operations-api.service';
 import type { Stay } from '../services/operations.models';
 
-interface Pay { method: 'CASH' | 'CARD' | 'TRANSFER' | 'WALLET'; amount: number; reference?: string; }
+interface Pay { method: 'CASH' | 'CARD' | 'TRANSFER' | 'YAPE' | 'PLIN' | 'WALLET'; amount: number; reference?: string; }
 
 const METHODS = [
   { label: 'Efectivo', value: 'CASH' },
   { label: 'Tarjeta', value: 'CARD' },
   { label: 'Transferencia', value: 'TRANSFER' },
-  { label: 'Yape/Plin', value: 'WALLET' },
+  { label: 'Yape', value: 'YAPE' },
+  { label: 'Plin', value: 'PLIN' },
 ];
 const DOC_TYPES = [
   { label: 'DNI', value: 'DNI' },

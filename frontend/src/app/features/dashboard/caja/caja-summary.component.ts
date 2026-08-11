@@ -7,7 +7,9 @@ const METHOD_LABEL: Record<string, string> = {
   CASH: 'Efectivo',
   CARD: 'Tarjeta',
   TRANSFER: 'Transferencia',
-  WALLET: 'Yape/Plin',
+  YAPE: 'Yape',
+  PLIN: 'Plin',
+  WALLET: 'Billetera',
 };
 
 @Component({

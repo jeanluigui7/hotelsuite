@@ -25,7 +25,8 @@ const METHODS: { label: string; value: PaymentMethod }[] = [
   { label: 'Efectivo', value: 'CASH' },
   { label: 'Tarjeta', value: 'CARD' },
   { label: 'Transferencia', value: 'TRANSFER' },
-  { label: 'Yape/Plin', value: 'WALLET' },
+  { label: 'Yape', value: 'YAPE' },
+  { label: 'Plin', value: 'PLIN' },
 ];
 
 interface Line extends SaleItemInput {

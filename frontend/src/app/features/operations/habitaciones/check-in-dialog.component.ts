@@ -37,7 +37,8 @@ const PAY_TYPES = [
   { value: 'CARD_CREDIT', label: 'Tarjeta de crédito', commission: 5, ref: true, backend: 'CARD' as const },
   { value: 'CARD_DEBIT', label: 'Tarjeta de débito', commission: 0, ref: true, backend: 'CARD' as const },
   { value: 'TRANSFER', label: 'Transferencia', commission: 0, ref: true, backend: 'TRANSFER' as const },
-  { value: 'WALLET', label: 'Yape/Plin', commission: 0, ref: true, backend: 'WALLET' as const },
+  { value: 'YAPE', label: 'Yape', commission: 0, ref: true, backend: 'YAPE' as const },
+  { value: 'PLIN', label: 'Plin', commission: 0, ref: true, backend: 'PLIN' as const },
 ];
 
 @Component({

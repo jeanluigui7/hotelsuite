@@ -235,7 +235,7 @@ export const staysService = {
     const uname = (uid?: string | null): string => (uid ? users.find((u) => u.id === uid)?.name ?? '—' : '—');
 
     const isRoomLine = (desc: string): boolean => /^tarifa[:\s]/i.test(desc) || /pernocta|renovaci|tiempo extra|extensi/i.test(desc);
-    const METHOD: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', WALLET: 'Yape/Plin' };
+    const METHOD: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera' };
 
     // Movimientos (ledger) y productos
     type Mov = { at: Date; type: string; description: string; method?: string; charge: number; payment: number; by: string };

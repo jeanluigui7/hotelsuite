@@ -67,7 +67,8 @@ interface StatCard {
                 <div class="money-col">
                   <span class="mc-title virtual">Virtuales</span>
                   <div class="kv"><span>Total:</span><strong>S/.{{ virtuales(c) | number: '1.2-2' }}</strong></div>
-                  <div class="kv"><span>Yape:</span><strong>S/.{{ (c.paymentsByMethod?.['WALLET'] ?? 0) | number: '1.2-2' }}</strong></div>
+                  <div class="kv"><span>Yape:</span><strong>S/.{{ (c.paymentsByMethod?.['YAPE'] ?? 0) | number: '1.2-2' }}</strong></div>
+                  <div class="kv"><span>Plin:</span><strong>S/.{{ (c.paymentsByMethod?.['PLIN'] ?? 0) | number: '1.2-2' }}</strong></div>
                   <div class="kv"><span>Tarjetas:</span><strong>S/.{{ (c.paymentsByMethod?.['CARD'] ?? 0) | number: '1.2-2' }}</strong></div>
                   <div class="kv"><span>Transferencias:</span><strong>S/.{{ (c.paymentsByMethod?.['TRANSFER'] ?? 0) | number: '1.2-2' }}</strong></div>
                 </div>
@@ -228,6 +229,6 @@ export class AdminDashboardComponent implements OnInit {
 
   virtuales(c: CajaSummary): number {
     const m = c.paymentsByMethod ?? {};
-    return Math.round(((m['WALLET'] ?? 0) + (m['CARD'] ?? 0) + (m['TRANSFER'] ?? 0)) * 100) / 100;
+    return Math.round(((m['YAPE'] ?? 0) + (m['PLIN'] ?? 0) + (m['WALLET'] ?? 0) + (m['CARD'] ?? 0) + (m['TRANSFER'] ?? 0)) * 100) / 100;
   }
 }

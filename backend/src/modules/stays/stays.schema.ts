@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PAYMENT_METHODS } from '../../shared/payments';
 
 const newGuestSchema = z.object({
   documentType: z.enum(['DNI', 'CE', 'PASAPORTE', 'RUC']).default('DNI'),
@@ -62,7 +63,7 @@ export const renewSchema = z.object({
   payments: z
     .array(
       z.object({
-        method: z.enum(['CASH', 'CARD', 'TRANSFER', 'WALLET']),
+        method: z.enum(PAYMENT_METHODS),
         amount: z.coerce.number().min(0),
         reference: z.string().max(120).optional().or(z.literal('')),
       }),
@@ -74,7 +75,7 @@ export const renewSchema = z.object({
 
 /** Cobro del pendiente de una estancia (abona a sus ventas OPEN / adeudo). */
 export const payStaySchema = z.object({
-  method: z.enum(['CASH', 'CARD', 'TRANSFER', 'WALLET']),
+  method: z.enum(PAYMENT_METHODS),
   amount: z.coerce.number().positive(),
   reference: z.string().max(120).optional().or(z.literal('')),
 });

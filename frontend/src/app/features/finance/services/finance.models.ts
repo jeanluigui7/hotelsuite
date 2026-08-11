@@ -1,4 +1,4 @@
-export type PaymentMethod = 'CASH' | 'CARD' | 'TRANSFER' | 'WALLET';
+export type PaymentMethod = 'CASH' | 'CARD' | 'TRANSFER' | 'YAPE' | 'PLIN' | 'WALLET';
 
 export interface CashSession {
   id: string;

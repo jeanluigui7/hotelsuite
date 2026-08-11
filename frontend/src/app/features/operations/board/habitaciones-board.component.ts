@@ -847,7 +847,7 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   readonly savingRenovar = signal(false);
   readonly renovarPayMethods = [
     { label: 'Efectivo', value: 'CASH' }, { label: 'Tarjeta', value: 'CARD' },
-    { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Billetera', value: 'WALLET' },
+    { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' },
   ];
   // Carga inicial de dotación tras crear habitación
   dotacionVisible = false;
@@ -1512,7 +1512,7 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   payAmount: number | null = null;
   payReference = '';
   readonly payMethods = [
-    { label: 'Efectivo', value: 'CASH' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Yape/Plin', value: 'WALLET' },
+    { label: 'Efectivo', value: 'CASH' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' },
   ];
   goProcesarPago(): void {
     this.payAmount = this.checkoutData()?.totalWithLate || null;

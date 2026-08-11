@@ -36,7 +36,7 @@ const TIPO: Record<string, { label: string; color: string }> = {
   RENOVACION: { label: 'Renovación', color: '#f59e0b' },
   PERNOCTA: { label: 'Pernocta', color: '#a855f7' },
 };
-const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', WALLET: 'Yape', TRANSFER: 'Plin', CARD: 'Tarjeta', MIXTO: 'Mixto' };
+const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera', MIXTO: 'Mixto' };
 const SHIFT_LABEL: Record<string, string> = { MANANA: 'Turno Mañana', TARDE: 'Turno Tarde', NOCHE: 'Turno Noche' };
 const SHIFTS = ['MANANA', 'TARDE', 'NOCHE'];
 const SHIFT_RANGE: Record<string, string> = { MANANA: '06:30 - 14:30', TARDE: '14:30 - 22:30', NOCHE: '22:30 - 06:30' };

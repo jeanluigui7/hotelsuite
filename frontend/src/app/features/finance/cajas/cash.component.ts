@@ -16,8 +16,10 @@ import type { CashCurrent, CashDetail, CashDetailMovement, CashSessionRow } from
 const METHOD_LABEL: Record<string, string> = {
   CASH: 'Efectivo',
   CARD: 'Tarjeta',
-  WALLET: 'Yape',
-  TRANSFER: 'Plin',
+  TRANSFER: 'Transferencia',
+  YAPE: 'Yape',
+  PLIN: 'Plin',
+  WALLET: 'Billetera',
   MIXTO: 'Mixto',
   PENDIENTE: 'Pendiente',
 };
@@ -185,8 +187,9 @@ const TYPE_COLOR: Record<string, [string, string]> = {
         <div class="bar">
           <span>Total Turno Parcial: <b>S/ {{ d.methodBar.total | number: '1.2-2' }}</b></span>
           <span>Efectivo: <b class="pos">S/ {{ (d.methodBar.byMethod['CASH'] || 0) | number: '1.2-2' }}</b></span>
-          <span>Plin: <b>S/ {{ (d.methodBar.byMethod['TRANSFER'] || 0) | number: '1.2-2' }}</b></span>
-          <span>Yape: <b style="color:#a855f7">S/ {{ (d.methodBar.byMethod['WALLET'] || 0) | number: '1.2-2' }}</b></span>
+          <span>Transferencia: <b>S/ {{ (d.methodBar.byMethod['TRANSFER'] || 0) | number: '1.2-2' }}</b></span>
+          <span>Yape: <b style="color:#a855f7">S/ {{ (d.methodBar.byMethod['YAPE'] || 0) | number: '1.2-2' }}</b></span>
+          <span>Plin: <b style="color:#34d399">S/ {{ (d.methodBar.byMethod['PLIN'] || 0) | number: '1.2-2' }}</b></span>
           <span>Tarjeta: <b style="color:#60a5fa">S/ {{ (d.methodBar.byMethod['CARD'] || 0) | number: '1.2-2' }}</b></span>
           <span>Ingresos: <b class="pos">+S/ {{ d.methodBar.ingresos | number: '1.2-2' }}</b></span>
           <span>Egresos: <b class="neg">-S/ {{ d.methodBar.egresos | number: '1.2-2' }}</b></span>
@@ -379,8 +382,9 @@ export class CashComponent implements OnInit {
   readonly methodFilterOpts = [
     { label: 'Todos', value: '' },
     { label: 'Efectivo', value: 'CASH' },
-    { label: 'Yape', value: 'WALLET' },
-    { label: 'Plin', value: 'TRANSFER' },
+    { label: 'Transferencia', value: 'TRANSFER' },
+    { label: 'Yape', value: 'YAPE' },
+    { label: 'Plin', value: 'PLIN' },
     { label: 'Tarjeta', value: 'CARD' },
   ];
   filteredMovements(): CashDetailMovement[] {
@@ -477,8 +481,9 @@ export class CashComponent implements OnInit {
   correctMovConcept = '';
   readonly methodEditOpts = [
     { label: 'Efectivo', value: 'CASH' },
-    { label: 'Yape', value: 'WALLET' },
-    { label: 'Plin', value: 'TRANSFER' },
+    { label: 'Transferencia', value: 'TRANSFER' },
+    { label: 'Yape', value: 'YAPE' },
+    { label: 'Plin', value: 'PLIN' },
     { label: 'Tarjeta', value: 'CARD' },
   ];
   readonly movTypeOpts = [

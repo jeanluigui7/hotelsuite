@@ -115,7 +115,7 @@ export const dashboardService = {
       }),
     ]);
 
-    const paymentsByMethod: Record<string, number> = { CASH: 0, CARD: 0, TRANSFER: 0, WALLET: 0 };
+    const paymentsByMethod: Record<string, number> = { CASH: 0, CARD: 0, TRANSFER: 0, YAPE: 0, PLIN: 0, WALLET: 0 };
     for (const p of payments) paymentsByMethod[p.method] = toNum(p._sum.amount);
     const totalIncome = Object.values(paymentsByMethod).reduce((a, b) => a + b, 0);
     const movIn = toNum(movements.find((m) => m.type === 'IN')?._sum.amount);

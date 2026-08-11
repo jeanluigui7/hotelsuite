@@ -32,7 +32,7 @@ interface MovResp {
 }
 
 const CONCEPT_LABEL: Record<string, string> = { HOSPEDAJE: 'Hospedaje', PRODUCTOS: 'Productos', SERVICIOS: 'Servicios', PENALIDADES: 'Penalidades' };
-const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', WALLET: 'Yape', TRANSFER: 'Plin', CARD: 'Tarjeta', PENDIENTE: 'Pendiente', MIXTO: 'Mixto' };
+const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera', PENDIENTE: 'Pendiente', MIXTO: 'Mixto' };
 const SHIFT_LABEL: Record<string, string> = { MANANA: 'Turno Mañana', TARDE: 'Turno Tarde', NOCHE: 'Turno Noche' };
 const CONCEPT_COLOR: Record<string, string> = { HOSPEDAJE: '#3b82f6', PRODUCTOS: '#22c55e', SERVICIOS: '#f59e0b', PENALIDADES: '#ef4444' };
 const SHIFTS = ['MANANA', 'TARDE', 'NOCHE'];
@@ -182,7 +182,7 @@ export class ProductosServiciosComponent implements OnInit {
     { label: 'Todos', value: 'ALL' }, { label: 'Hospedaje', value: 'HOSPEDAJE' }, { label: 'Productos', value: 'PRODUCTOS' }, { label: 'Servicios', value: 'SERVICIOS' }, { label: 'Penalidades', value: 'PENALIDADES' },
   ];
   readonly methodOpts = [
-    { label: 'Todos', value: 'ALL' }, { label: 'Efectivo', value: 'CASH' }, { label: 'Yape', value: 'WALLET' }, { label: 'Plin', value: 'TRANSFER' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Pendiente', value: 'PENDIENTE' },
+    { label: 'Todos', value: 'ALL' }, { label: 'Efectivo', value: 'CASH' }, { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Pendiente', value: 'PENDIENTE' },
   ];
   readonly roomOpts = computed(() => [{ label: 'Todas', value: null as string | null }, ...this.serverRooms().map((r) => ({ label: r.number, value: r.id }))]);
   readonly collabOpts = computed(() => [{ label: 'Todos', value: null as string | null }, ...this.serverCollabs().map((c) => ({ label: c.name, value: c.id }))]);

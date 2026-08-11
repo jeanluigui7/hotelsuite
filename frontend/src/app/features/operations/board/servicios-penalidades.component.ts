@@ -21,12 +21,12 @@ import type { Stay } from '../services/operations.models';
 
 interface Article { key: string; name: string; unitPrice: number; productId?: string; stock?: number; }
 interface Line { art: Article; quantity: number; }
-interface Pay { method: 'CASH' | 'CARD' | 'TRANSFER' | 'WALLET'; amount: number; }
+interface Pay { method: 'CASH' | 'CARD' | 'TRANSFER' | 'YAPE' | 'PLIN' | 'WALLET'; amount: number; }
 interface CatalogGroup { subcategory: string; services: { id: string; name: string; price: number | null }[]; }
 
 const METHODS = [
   { label: 'Efectivo', value: 'CASH' }, { label: 'Tarjeta', value: 'CARD' },
-  { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Yape/Plin', value: 'WALLET' },
+  { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' },
 ];
 
 @Component({
