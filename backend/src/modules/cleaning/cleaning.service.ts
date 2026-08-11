@@ -178,34 +178,47 @@ export const cleaningService = {
       const floor = await resolveRoomFloor(branchId, roomId, room.tower, room.floor);
       if (!floor) throw new ValidationError('La habitación no tiene un subalmacén asignado para reponer.');
       const ids = [...new Set(repo.flatMap((r) => [r.recogidoLinenItemId, r.chosenLinenItemId]))];
-      const linen = await prisma.linenItem.findMany({ where: { id: { in: ids }, branchId }, select: { id: true, name: true } });
-      const lm = new Map(linen.map((l) => [l.id, l.name]));
+      const linen = await prisma.linenItem.findMany({ where: { id: { in: ids }, branchId }, select: { id: true, name: true, type: true, size: true } });
+      const lm = new Map(linen.map((l) => [l.id, l]));
+      // Dotación Base por (categoría|tamaño): LIMITA cuánto se repone, así la habitación queda
+      // siempre con el número de la regla (autocorrige descuadres, sin acumular de más).
+      const dot = await prisma.roomTypeDotacion.findMany({ where: { branchId, roomTypeId: room.roomTypeId, articleKind: 'LINEN_REUSABLE', status: 'active' } });
+      const dotBase = new Map<string, number>();
+      for (const d of dot) dotBase.set(`${d.name.toUpperCase()}|${(d.size ?? '').toUpperCase()}`, d.baseQty);
       await prisma.$transaction(async (tx) => {
+        const catAdded = new Map<string, number>(); // repuesto por categoría en esta limpieza
         for (const r of repo) {
-          // 1) Descuenta la variante elegida del subalmacén (lanza si no hay stock → no negativos).
-          await consumeFloorTx(tx, r.chosenLinenItemId, floor, r.quantity);
-          // 2) Quita la prenda recogida del inventario ACTUAL de la habitación.
-          const recogidoName = lm.get(r.recogidoLinenItemId) ?? 'prenda';
+          const recogido = lm.get(r.recogidoLinenItemId);
+          const recogidoName = recogido?.name ?? 'prenda';
           const keyR = { roomId_articleKind_name: { roomId, articleKind: 'LINEN_REUSABLE', name: recogidoName } };
           const exR = await tx.roomInventory.findUnique({ where: keyR });
-          if (exR) {
-            const q = Math.max(0, exR.quantity - r.quantity);
-            if (q === 0) await tx.roomInventory.delete({ where: keyR });
-            else await tx.roomInventory.update({ where: keyR, data: { quantity: q } });
+          const recogidoQty = exR?.quantity ?? 0;
+          // La prenda recogida ya no está en la habitación → nada que reponer (evita fantasmas).
+          if (recogidoQty <= 0) continue;
+          // Cuánto reponer: la cantidad recogida, pero SIN exceder la Dotación Base de la categoría.
+          const catKey = `${(recogido?.type ?? '').toUpperCase()}|${(recogido?.size ?? '').toUpperCase()}`;
+          const base = dotBase.get(catKey);
+          const already = catAdded.get(catKey) ?? 0;
+          const reposQty = base != null ? Math.max(0, Math.min(recogidoQty, base - already)) : recogidoQty;
+          catAdded.set(catKey, already + reposQty);
+          // 1) Quita TODO lo recogido del inventario ACTUAL de la habitación.
+          await tx.roomInventory.delete({ where: keyR });
+          await tx.roomInventoryMovement.create({ data: { branchId, roomId, type: 'RECOJO', articleKind: 'LINEN_REUSABLE', name: recogidoName, quantity: -recogidoQty, fromLocation: `Habitación ${room.number}`, toLocation: 'Recogido (lavandería)', reference: 'Recojo de limpieza', createdByUserId: scope.userId } });
+          // 2) Repone la variante elegida hasta la Dotación Base (descuenta del subalmacén).
+          if (reposQty > 0) {
+            await consumeFloorTx(tx, r.chosenLinenItemId, floor, reposQty);
+            const chosen = lm.get(r.chosenLinenItemId);
+            const chosenName = chosen?.name ?? 'prenda';
+            const keyC = { roomId_articleKind_name: { roomId, articleKind: 'LINEN_REUSABLE', name: chosenName } };
+            const exC = await tx.roomInventory.findUnique({ where: keyC });
+            await tx.roomInventory.upsert({
+              where: keyC,
+              update: { quantity: (exC?.quantity ?? 0) + reposQty, linenItemId: r.chosenLinenItemId },
+              create: { branchId, roomId, articleKind: 'LINEN_REUSABLE', name: chosenName, linenItemId: r.chosenLinenItemId, quantity: reposQty },
+            });
+            await tx.linenMovement.create({ data: { branchId, linenItemId: r.chosenLinenItemId, type: 'SUPPLY', quantity: -reposQty, floor, areaFrom: floor, areaTo: `Hab. ${room.number}`, reference: 'Reposición de limpieza', createdByUserId: scope.userId } });
+            await tx.roomInventoryMovement.create({ data: { branchId, roomId, type: 'REPOSICION', articleKind: 'LINEN_REUSABLE', name: chosenName, quantity: reposQty, fromLocation: floor, toLocation: `Habitación ${room.number}`, reference: 'Reposición de limpieza', createdByUserId: scope.userId } });
           }
-          // 3) Agrega la variante elegida como inventario ACTUAL.
-          const chosenName = lm.get(r.chosenLinenItemId) ?? 'prenda';
-          const keyC = { roomId_articleKind_name: { roomId, articleKind: 'LINEN_REUSABLE', name: chosenName } };
-          const exC = await tx.roomInventory.findUnique({ where: keyC });
-          await tx.roomInventory.upsert({
-            where: keyC,
-            update: { quantity: (exC?.quantity ?? 0) + r.quantity, linenItemId: r.chosenLinenItemId },
-            create: { branchId, roomId, articleKind: 'LINEN_REUSABLE', name: chosenName, linenItemId: r.chosenLinenItemId, quantity: r.quantity },
-          });
-          // 4) Trazabilidad.
-          await tx.linenMovement.create({ data: { branchId, linenItemId: r.chosenLinenItemId, type: 'SUPPLY', quantity: -r.quantity, floor, areaFrom: floor, areaTo: `Hab. ${room.number}`, reference: 'Reposición de limpieza', createdByUserId: scope.userId } });
-          await tx.roomInventoryMovement.create({ data: { branchId, roomId, type: 'RECOJO', articleKind: 'LINEN_REUSABLE', name: recogidoName, quantity: -r.quantity, fromLocation: `Habitación ${room.number}`, toLocation: 'Recogido (lavandería)', reference: 'Recojo de limpieza', createdByUserId: scope.userId } });
-          await tx.roomInventoryMovement.create({ data: { branchId, roomId, type: 'REPOSICION', articleKind: 'LINEN_REUSABLE', name: chosenName, quantity: r.quantity, fromLocation: floor, toLocation: `Habitación ${room.number}`, reference: 'Reposición de limpieza', createdByUserId: scope.userId } });
         }
       });
     }
@@ -364,7 +377,9 @@ export const cleaningService = {
     const invQty = new Map(inv.filter((i) => i.linenItemId).map((i) => [i.linenItemId as string, i.quantity]));
 
     const ropa = task.linenInspections
-      .filter((i) => i.linenItemId && lmap.get(i.linenItemId)?.type !== 'AMENITY')
+      // Solo lo que REALMENTE está en la habitación (si se recoge). Evita filas fantasma de
+      // variantes ya reemplazadas (que antes reponían 1 de más y descuadraban el inventario).
+      .filter((i) => i.linenItemId && lmap.get(i.linenItemId)?.type !== 'AMENITY' && (!i.pickup || (invQty.get(i.linenItemId as string) ?? 0) > 0))
       .map((i) => {
         const li = lmap.get(i.linenItemId as string);
         const type = li?.type ?? null;
@@ -402,7 +417,7 @@ export const cleaningService = {
       const pmap = new Map(prodsAll.map((p) => [p.id, p]));
       const stockAvail = new Map(amenStock.map((s) => [s.productId, s.quantity]));
       const invAmenQty = new Map(invAmen.filter((i) => i.productId).map((i) => [i.productId as string, i.quantity]));
-      amenities = amenInsp.map((i) => {
+      amenities = amenInsp.filter((i) => (invAmenQty.get(i.note as string) ?? 0) > 0).map((i) => {
         const pid = i.note as string;
         const p = pmap.get(pid);
         const catId = p?.categoryId ?? null;
