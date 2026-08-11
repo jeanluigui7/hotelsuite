@@ -104,6 +104,33 @@ export const shiftLogsService = {
   },
 
   /**
+   * Ventana del turno ACTUAL de un rol: clave del turno + inicio (Date). Soporta turnos
+   * que cruzan medianoche (p.ej. Noche 23:00–07:00: a las 02:00 el inicio fue ayer 23:00).
+   * Usa la config de roleShift; si no hay turno configurado activo, cae a los turnos fijos
+   * de limpieza (Mañana 07–15, Tarde 15–23, Noche 23–07).
+   */
+  async currentShiftWindow(branchId: string, role: string, at: Date = new Date()): Promise<{ shift: string; start: Date }> {
+    const shifts = await prisma.roleShift.findMany({ where: { branchId, role, status: 'active' } });
+    const key = activeShiftKey(shifts, at);
+    let startTime: string;
+    let shift: string;
+    const cfg = key ? shifts.find((s) => s.shift === key) : undefined;
+    if (cfg) {
+      startTime = cfg.startTime;
+      shift = key as string;
+    } else {
+      const h = at.getHours();
+      if (h >= 7 && h < 15) { startTime = '07:00'; shift = 'MANANA'; }
+      else if (h >= 15 && h < 23) { startTime = '15:00'; shift = 'TARDE'; }
+      else { startTime = '23:00'; shift = 'NOCHE'; }
+    }
+    const [sh, sm] = startTime.split(':').map(Number);
+    const start = new Date(at.getFullYear(), at.getMonth(), at.getDate(), sh, sm, 0, 0);
+    if (at.getHours() * 60 + at.getMinutes() < sh * 60 + sm) start.setDate(start.getDate() - 1);
+    return { shift, start };
+  },
+
+  /**
    * Graba un corte de turno: calcula la ventana del turno, arma el snapshot y crea
    * el ShiftLog. Si ya existe para (sucursal, rol, turno, fecha) no lo duplica.
    */

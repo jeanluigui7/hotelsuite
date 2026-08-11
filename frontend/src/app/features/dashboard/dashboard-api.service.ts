@@ -14,6 +14,12 @@ export interface RecepcionSummary {
 }
 
 export interface LimpiezaSummary {
+  turno: string; // MANANA | TARDE | NOCHE (turno de limpieza actual)
+  shiftStart: string;
+  realizadasTurno: number; // limpiezas finalizadas en el turno actual
+  enEspera: number; // habitaciones pendientes de limpieza (estado actual)
+  enCurso: number; // habitaciones con limpieza iniciada (estado actual)
+  mantenimiento: number; // habitaciones en mantenimiento (estado actual)
   byStatus: { status: string; count: number }[];
   byResult: { result: string; count: number }[];
   roomsCleaning: number;

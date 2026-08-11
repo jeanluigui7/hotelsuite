@@ -1,6 +1,7 @@
 import type { RequestScope } from '../../shared/context';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
+import { shiftLogsService } from '../shift-logs/shift-logs.service';
 
 function toNum(n: unknown): number {
   return n == null ? 0 : Number(n);
@@ -52,9 +53,23 @@ export const dashboardService = {
   },
 
   /** Resumen de Limpieza: tareas por estado/resultado y pendientes. */
+  /**
+   * Resumen de Limpieza para la Vista General (operativo del TURNO ACTUAL, no histórico):
+   *  - realizadasTurno: limpiezas finalizadas desde el inicio del turno de limpieza activo
+   *    (misma lógica de producción por turno del Reporte Turno; suma todos los trabajadores).
+   *  - enEspera / enCurso / mantenimiento: ESTADOS actuales de las habitaciones.
+   */
   async limpieza(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);
-    const [byStatus, byResult, roomsCleaning, pendingTasks, pendingInspections] = await Promise.all([
+    const { shift, start } = await shiftLogsService.currentShiftWindow(branchId, 'LIMPIEZA');
+    const WAITING = ['CLEANING', 'LIMPIEZA_EN_ESPERA', 'LIMPIEZA_SOLICITADA', 'REQUIERE_REPASO'];
+    const [realizadasTurno, enEspera, enCurso, mantenimiento, byStatus, byResult, roomsCleaning, pendingTasks, pendingInspections] = await Promise.all([
+      // Producción del turno actual: tareas finalizadas (DONE/INSPECTED) desde el inicio del turno.
+      prisma.housekeepingTask.count({ where: { branchId, status: { in: ['DONE', 'INSPECTED'] }, completedAt: { gte: start } } }),
+      prisma.room.count({ where: { branchId, status: { in: WAITING } } }),
+      prisma.room.count({ where: { branchId, status: 'LIMPIEZA_EN_CURSO' } }),
+      prisma.room.count({ where: { branchId, status: 'MAINTENANCE' } }),
+      // Compat: campos previos (otros consumidores).
       prisma.housekeepingTask.groupBy({ by: ['status'], where: { branchId }, _count: { _all: true } }),
       prisma.housekeepingTask.groupBy({ by: ['result'], where: { branchId }, _count: { _all: true } }),
       prisma.room.count({ where: { branchId, status: 'CLEANING' } }),
@@ -62,6 +77,12 @@ export const dashboardService = {
       prisma.housekeepingTask.count({ where: { branchId, status: 'DONE', result: 'PENDING' } }),
     ]);
     return {
+      turno: shift,
+      shiftStart: start,
+      realizadasTurno,
+      enEspera,
+      enCurso,
+      mantenimiento,
       byStatus: byStatus.map((g) => ({ status: g.status, count: g._count._all })),
       byResult: byResult.map((g) => ({ result: g.result, count: g._count._all })),
       roomsCleaning,

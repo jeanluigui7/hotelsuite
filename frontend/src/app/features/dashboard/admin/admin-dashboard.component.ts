@@ -43,7 +43,7 @@ interface StatCard {
 
         <!-- Resumen de Limpieza -->
         <div class="panel">
-          <h2>Resumen de Limpieza</h2>
+          <h2>Resumen de Limpieza @if (turnoLimpiezaLabel()) { <span class="turno-chip"><i class="pi pi-clock"></i> Turno {{ turnoLimpiezaLabel() }}</span> }</h2>
           <div class="stat-grid">
             @for (s of limpiezaCards(); track s.label) {
               <div class="stat" [class.clk]="s.estado" [style.background]="s.color" (click)="go(s)" [title]="s.estado ? 'Ver habitaciones' : ''">
@@ -109,7 +109,8 @@ interface StatCard {
         background: var(--p-content-background, #0f1a2b); border: 1px solid var(--p-content-border-color, #1c2c44);
         border-radius: 16px; padding: 1.25rem;
       }
-      h2 { margin: 0 0 1rem; font-size: 1rem; font-weight: 700; }
+      h2 { margin: 0 0 1rem; font-size: 1rem; font-weight: 700; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+      .turno-chip { font-size: 0.72rem; font-weight: 700; color: #34d399; background: rgba(16,185,129,0.14); border: 1px solid rgba(16,185,129,0.35); border-radius: 999px; padding: 0.15rem 0.6rem; display: inline-flex; align-items: center; gap: 0.35rem; }
       .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
       .stat {
         border-radius: 12px; padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.15rem; color: #fff;
@@ -198,13 +199,18 @@ export class AdminDashboardComponent implements OnInit {
 
   limpiezaCards(): StatCard[] {
     const d = this.limpieza();
-    const byStatus = (st: string): number => d?.byStatus.find((x) => x.status === st)?.count ?? 0;
     return [
-      { value: byStatus('DONE'), label: 'Limpiezas realizadas', color: 'linear-gradient(135deg,#115e59,#14b8a6)', estado: 'FREE' },
-      { value: byStatus('PENDING'), label: 'Limpiezas en espera', color: 'linear-gradient(135deg,#9a3412,#f97316)', estado: 'CLEANING' },
-      { value: d?.roomsCleaning ?? 0, label: 'Limpiezas en curso', color: 'linear-gradient(135deg,#1e40af,#3b82f6)', estado: 'CLEANING' },
-      { value: d?.pendingInspections ?? 0, label: 'Mantenimiento preventivo / periódico', color: 'linear-gradient(135deg,#5b21b6,#7c3aed)', estado: 'MAINTENANCE' },
+      { value: d?.realizadasTurno ?? 0, label: 'Limpiezas realizadas', color: 'linear-gradient(135deg,#115e59,#14b8a6)', estado: 'FREE' },
+      { value: d?.enEspera ?? 0, label: 'Limpiezas en espera', color: 'linear-gradient(135deg,#9a3412,#f97316)', estado: 'CLEANING' },
+      { value: d?.enCurso ?? 0, label: 'Limpiezas en curso', color: 'linear-gradient(135deg,#1e40af,#3b82f6)', estado: 'CLEANING' },
+      { value: d?.mantenimiento ?? 0, label: 'Mantenimiento preventivo / periódico', color: 'linear-gradient(135deg,#5b21b6,#7c3aed)', estado: 'MAINTENANCE' },
     ];
+  }
+
+  /** Etiqueta del turno de limpieza actual (para el encabezado del resumen). */
+  turnoLimpiezaLabel(): string {
+    const t = this.limpieza()?.turno;
+    return t === 'MANANA' ? 'Mañana (07:00–15:00)' : t === 'TARDE' ? 'Tarde (15:00–23:00)' : t === 'NOCHE' ? 'Noche (23:00–07:00)' : '';
   }
 
   turnoCards(): StatCard[] {
