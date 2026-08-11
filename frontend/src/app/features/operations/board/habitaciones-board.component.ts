@@ -122,7 +122,7 @@ const MANT_CATS = [
         @for (r of filtered(); track r.id) {
           @if (r.activeStay && (r.status === 'OCCUPIED' || r.status === 'LIMPIEZA_SOLICITADA' || r.status === 'LIMPIEZA_EN_CURSO')) {
             <!-- Tarjeta de habitación ocupada / pernoctando (incluye limpieza de renovación en curso) -->
-            <article class="ocard" [class.exp]="isExpired(r.activeStay)">
+            <article class="ocard" [class.exp]="isExpired(r.activeStay)" [class.cleaning]="r.activeStay.renewalCleaningStatus === 'SOLICITADA' || r.activeStay.renewalCleaningStatus === 'EN_CURSO'">
               <div class="oc-head">
                 <span class="oc-num"># {{ r.number }} <span class="oc-tag">{{ isPernocta(r.activeStay) ? '🌙 PERNOCTANDO' : 'HOSPEDAJE' }}</span></span>
                 <span class="oc-piso"><i class="pi pi-building"></i> {{ r.floor || '-' }}º piso</span>
@@ -682,6 +682,9 @@ const MANT_CATS = [
         background: linear-gradient(160deg, #1e3a8a 0%, #1e40af 55%, #2563eb 100%); border: 2px solid transparent; box-shadow: 0 8px 22px rgba(0,0,0,0.35); }
       .grid.real .ocard { grid-column: span 1; }
       .ocard.exp { border-color: #ef4444; }
+      /* Limpieza de renovación solicitada/en curso: la card se pone fucsia para diferenciarla. */
+      .ocard.cleaning { background: linear-gradient(160deg, #86198f 0%, #a21caf 55%, #c026d3 100%); box-shadow: 0 8px 22px rgba(192,38,211,0.35); }
+      .ocard.cleaning.exp { border-color: #ef4444; }
       .oc-head { display: flex; align-items: center; justify-content: space-between; }
       .oc-num { font-size: 1.3rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.5rem; }
       .oc-tag { font-size: 0.72rem; font-weight: 800; color: #fbbf24; background: rgba(0,0,0,0.25); padding: 0.15rem 0.55rem; border-radius: 999px; }
