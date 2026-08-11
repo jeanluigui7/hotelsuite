@@ -102,6 +102,10 @@ export const cleaningService = {
     const pendingRevs = await prisma.revision.findMany({ where: { branchId, status: 'PENDING' }, orderBy: { createdAt: 'desc' } });
     const revStartByRoom = new Map<string, Date>();
     for (const rv of pendingRevs) if (!revStartByRoom.has(rv.roomId)) revStartByRoom.set(rv.roomId, rv.createdAt);
+    // Renovación: habitaciones con estancia activa y limpieza de renovación solicitada/en curso
+    // (el huésped sigue dentro) → se colorean distinto que un check-out.
+    const renewalStays = await prisma.stay.findMany({ where: { branchId, status: 'OPEN', renewalCleaningStatus: { in: ['SOLICITADA', 'EN_CURSO'] } }, select: { roomId: true } });
+    const renewalRooms = new Set(renewalStays.map((s) => s.roomId));
     return rooms.map((r) => ({
       id: r.id,
       number: r.number,
@@ -112,6 +116,7 @@ export const cleaningService = {
       mantenimiento: r.status === 'MAINTENANCE',
       enCurso: r.status === 'LIMPIEZA_EN_CURSO' || taskByRoom.has(r.id),
       revision: r.status === 'REVISION',
+      renewal: renewalRooms.has(r.id),
       taskId: taskByRoom.get(r.id) ?? null,
       startedAt: startedByRoom.get(r.id) ?? revStartByRoom.get(r.id) ?? null,
     }));

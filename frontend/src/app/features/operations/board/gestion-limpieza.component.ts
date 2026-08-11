@@ -9,7 +9,7 @@ import { forkJoin } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 
-interface CleanRoom { id: string; number: string; floor?: string | null; status: string; typeName: string; repaso: boolean; mantenimiento?: boolean; enCurso: boolean; revision?: boolean; taskId: string | null; startedAt?: string | null; }
+interface CleanRoom { id: string; number: string; floor?: string | null; status: string; typeName: string; repaso: boolean; mantenimiento?: boolean; enCurso: boolean; revision?: boolean; renewal?: boolean; taskId: string | null; startedAt?: string | null; }
 interface Supply { id: string; roomId: string; room: string; floor?: string | null; roomType?: string; description: string; category?: string; quantity: number; }
 interface SupplyGroup { roomId: string; room: string; floor?: string | null; roomType?: string; items: Supply[]; }
 interface LinenItem { id: string; type: string; name: string; color?: string | null; reusable: boolean; }
@@ -107,10 +107,11 @@ const ACCIONES_PERIODICAS = [
       <h3 class="ges"><i class="pi pi-th-large"></i> Gestionar Habitaciones</h3>
       <div class="grid">
         @for (r of normalRooms(); track r.id) {
-          <article class="card" [class.curso]="r.enCurso">
+          <article class="card" [class.curso]="r.enCurso" [class.renewal]="r.renewal" [class.checkout]="!r.renewal">
             <div class="card-top">
               <div class="num">Hab. {{ r.number }}</div>
-              @if (r.enCurso) { <span class="dot-amber"></span> }
+              @if (r.renewal) { <span class="kind-badge rn"><i class="pi pi-refresh"></i> Renovación</span> }
+              @else { <span class="kind-badge co"><i class="pi pi-sign-out"></i> Check out</span> }
             </div>
             <div class="ty">{{ r.typeName }}</div><div class="pi-flo">Piso {{ r.floor || '-' }}</div>
             @if (r.enCurso) {
@@ -359,13 +360,19 @@ const ACCIONES_PERIODICAS = [
       .muted { color: #8aa499; } .center { text-align: center; }
       .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 1rem; }
       .card { background: linear-gradient(160deg, #14352a, #0e241c); border: 1px solid #1f3a2c; border-radius: 14px; padding: 1.1rem; display: flex; flex-direction: column; gap: 0.3rem; }
-      .card.curso { background: linear-gradient(160deg, #6b5d12, #4a3f0c); border-color: #a3870b; }
+      /* Color por TIPO de limpieza: check-out = naranja, renovación = fucsia (adicional/suministro = turquesa, ver .sup-pend). */
+      .card.checkout { background: linear-gradient(160deg, #c2410c 0%, #9a3412 100%); border-color: #ea580c; color: #fff5ed; }
+      .card.renewal { background: linear-gradient(160deg, #a21caf 0%, #86198f 55%, #701a75 100%); border-color: #d946ef; color: #fdf4ff; }
+      /* "En curso" no cambia el color de tipo: solo agrega un resplandor ámbar. */
+      .card.curso { box-shadow: inset 0 0 0 2px #fbbf24, 0 0 16px rgba(251,191,36,0.35); }
+      .kind-badge { font-size: 0.62rem; font-weight: 800; border-radius: 999px; padding: 0.15rem 0.5rem; display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap; }
+      .kind-badge.rn { background: rgba(255,255,255,0.22); color: #fff; } .kind-badge.co { background: rgba(0,0,0,0.28); color: #ffedd5; }
       .card.repaso { background: linear-gradient(160deg, #5b1a1a, #3a0d0d); border-color: #b91c1c; }
       .card.revision { background: linear-gradient(160deg, #3b1c63, #1e1040); border-color: #7c3aed; }
       .card.mantenimiento { background: linear-gradient(160deg, #b91c1c, #7f1d1d); border-color: #ef4444; }
       .count.red { background: #ef4444; } .count.amber { background: #ea7a0b; }
       h3.sup-t { color: #fbbf24; } h3.sup-t .pi { color: #ea7a0b; }
-      .card.sup-pend { background: #11202c; border-color: #1c3340; text-align: center; align-items: center; position: relative; }
+      .card.sup-pend { background: linear-gradient(160deg, #0e7490 0%, #0891b2 55%, #06b6d4 100%); border-color: #22d3ee; text-align: center; align-items: center; position: relative; color: #ecfeff; }
       .card.sup-pend .sp-qty { position: absolute; top: 0.7rem; right: 0.8rem; min-width: 1.7rem; height: 1.7rem; padding: 0 0.45rem; border-radius: 999px; background: #ef4444; color: #fff; font-weight: 800; font-size: 0.9rem; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
       .card.sup-pend .sp-badge { align-self: center; background: #ea7a0b; color: #fff; font-weight: 800; font-size: 0.7rem; border-radius: 999px; padding: 0.22rem 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem; margin-bottom: 0.3rem; }
       .card.sup-pend .num { font-size: 1.7rem; }
