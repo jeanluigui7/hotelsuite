@@ -56,7 +56,12 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
     <section class="dt">
       <header class="top">
         <div><h1>Items BASE de Limpieza</h1><p class="muted">Configura cuáles ítems de cada categoría se reponen al limpiar cada tipo de habitación. Las categorías salen de Inventario › Configuración › Categorías.</p></div>
-        @if (canEdit) { <button class="primera" (click)="openPrimera()"><i class="pi pi-inbox"></i> Primera Dotación</button> }
+        @if (canEdit) {
+          <div class="hdr-actions">
+            <button class="primera" (click)="openPrimera()"><i class="pi pi-inbox"></i> Primera Dotación</button>
+            <button class="setear" (click)="openSetear()"><i class="pi pi-eraser"></i> Setear Habitación</button>
+          </div>
+        }
       </header>
 
       <div class="layout">
@@ -197,6 +202,23 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
         <p-button label="Dotar habitación" icon="pi pi-check" [loading]="primeraBusy()" [disabled]="!primeraReady()" (onClick)="confirmPrimera()" />
       </ng-template>
     </p-dialog>
+
+    <!-- Setear Habitación: deja la habitación sin ropa ni amenities (retornan al stock). -->
+    <p-dialog [(visible)]="setearVisible" [modal]="true" header="Setear Habitación" [style]="{ width: '34rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      <p class="pd-sub">Deja la habitación <b>sin ropa ni amenities</b>. La ropa <b>regresa al stock disponible del Almacén de Ropa</b> y los amenities a <b>AMENITIES - LIMPIEZA</b>. Úsalo para corregir descuadres o cuando la habitación cambia de tipo, y luego vuelve a dotarla.</p>
+      <div class="form">
+        <label>Habitación</label>
+        <p-select [options]="rooms()" [(ngModel)]="setearRoomId" optionValue="id" [filter]="true" filterBy="number" placeholder="Selecciona una habitación" appendTo="body" styleClass="w">
+          <ng-template let-r pTemplate="item">Hab. {{ r.number }} · {{ r.roomType?.name }} · Piso {{ r.floor || '-' }}</ng-template>
+          <ng-template let-r pTemplate="selectedItem">Hab. {{ r.number }} · {{ r.roomType?.name }}</ng-template>
+        </p-select>
+        <p class="setear-warn"><i class="pi pi-exclamation-triangle"></i> Esta acción retira <b>todo</b> el inventario actual de la habitación seleccionada. No afecta la Dotación Base (la regla), solo el inventario real de esa habitación.</p>
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="setearVisible = false" />
+        <p-button label="Setear habitación" icon="pi pi-eraser" severity="danger" [loading]="setearBusy()" [disabled]="!setearRoomId" (onClick)="confirmSetear()" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -225,7 +247,10 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
       :host ::ng-deep .qi { width: 4rem; text-align: center; }
       .del { background: transparent; border: 0; color: #f87171; cursor: pointer; }
       .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+      .hdr-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
       .primera { background: #10b981; color: #04130d; border: 0; border-radius: 8px; padding: 0.6rem 1rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.45rem; white-space: nowrap; } .primera:hover { background: #34d399; }
+      .setear { background: #7f1d1d; color: #fff; border: 1px solid #b91c1c; border-radius: 8px; padding: 0.6rem 1rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.45rem; white-space: nowrap; } .setear:hover { background: #991b1b; }
+      .setear-warn { display: flex; align-items: flex-start; gap: 0.45rem; background: rgba(180,35,35,0.1); border: 1px solid rgba(180,35,35,0.35); border-radius: 10px; padding: 0.6rem 0.8rem; color: #f0c9c9; font-size: 0.82rem; margin-top: 0.6rem; } .setear-warn .pi { margin-top: 0.1rem; color: #f87171; } .setear-warn b { color: #fff; }
       .pd-sub { color: #8b97a8; font-size: 0.86rem; margin: 0 0 0.6rem; }
       .pd-bar { margin-bottom: 0.8rem; } :host ::ng-deep .w { width: 100%; }
       .pd-info { background: #101a2c; border: 1px solid #24344a; border-radius: 8px; padding: 0.5rem 0.8rem; font-size: 0.84rem; color: #cdd8e6; margin-bottom: 0.7rem; }
@@ -283,6 +308,26 @@ export class DotacionComponent implements OnInit {
   }
 
   openPrimera(): void { this.primeraVisible = true; this.primeraRoomId = null; this.primera.set(null); this.planGroups.set([]); this.amenGroups.set([]); }
+
+  // ── Setear Habitación (deja la habitación sin inventario; retorna al stock) ──
+  setearVisible = false;
+  setearRoomId: string | null = null;
+  readonly setearBusy = signal(false);
+  openSetear(): void { this.setearVisible = true; this.setearRoomId = null; }
+  confirmSetear(): void {
+    const id = this.setearRoomId;
+    if (!id) return;
+    this.setearBusy.set(true);
+    this.http.post<ApiResponse<{ linen: number; amenities: number; rows: number }>>(`${this.api}/rooms/${id}/reset-inventory`, {}).subscribe({
+      next: (r) => {
+        this.setearBusy.set(false);
+        this.setearVisible = false;
+        const d = r.data;
+        this.messages.add({ severity: 'success', summary: 'Habitación seteada', detail: d && d.rows ? `Se retiraron ${d.linen} prenda(s) y ${d.amenities} amenity(s); regresaron al stock.` : 'La habitación ya estaba sin inventario.' });
+      },
+      error: (e: HttpErrorResponse) => { this.setearBusy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo setear la habitación.' }); },
+    });
+  }
 
   /**
    * Carga la regla del tipo (Dotación Base) y arma el plan que la RESPETA:

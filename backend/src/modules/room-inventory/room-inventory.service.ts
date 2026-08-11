@@ -2,7 +2,7 @@ import type { RequestScope } from '../../shared/context';
 import { NotFoundError, ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
-import { consumeFloorTx } from '../linen-admin/linen-admin.service';
+import { consumeFloorTx, LINEN_CENTRAL } from '../linen-admin/linen-admin.service';
 import type { SaveInitialDto, LoadBaseDto, DoteLinenDto } from './room-inventory.schema';
 
 async function getRoom(scope: RequestScope, roomId: string) {
@@ -245,5 +245,50 @@ export const roomInventoryService = {
       }
     });
     return { ok: true, items: dto.items.length, amenities: dto.amenities.length };
+  },
+
+  /**
+   * SETEAR HABITACIÓN: deja la habitación SIN inventario (ropa y amenities). La ropa
+   * regresa al stock DISPONIBLE del almacén general de ropa (central ALMACEN) y los
+   * amenities regresan a AMENITIES - LIMPIEZA, para poder re-dotar (ej. cambio de tipo
+   * de habitación o corrección de un descuadre). Todo en una transacción y con traza.
+   */
+  async resetInventory(scope: RequestScope, roomId: string) {
+    const room = await getRoom(scope, roomId);
+    const branchId = room.branchId;
+    const inv = await prisma.roomInventory.findMany({ where: { roomId, quantity: { gt: 0 } } });
+    if (!inv.length) return { ok: true, linen: 0, amenities: 0, rows: 0 };
+    const amenLimp = await prisma.warehouse.findFirst({ where: { branchId, type: 'AMENITIES', name: 'AMENITIES - LIMPIEZA' } });
+    let linen = 0;
+    let amenities = 0;
+    await prisma.$transaction(async (tx) => {
+      for (const i of inv) {
+        if (i.articleKind === 'LINEN_REUSABLE' && i.linenItemId) {
+          // Regresa al stock disponible del almacén general (REM del central ALMACEN).
+          await tx.linenStock.upsert({
+            where: { linenItemId_floor: { linenItemId: i.linenItemId, floor: LINEN_CENTRAL } },
+            update: { rem: { increment: i.quantity } },
+            create: { branchId, linenItemId: i.linenItemId, floor: LINEN_CENTRAL, rem: i.quantity, sum: 0 },
+          });
+          await tx.linenMovement.create({
+            data: { branchId, linenItemId: i.linenItemId, type: 'RETURN', quantity: i.quantity, floor: LINEN_CENTRAL, areaFrom: `Hab. ${room.number}`, areaTo: 'Almacén de Ropa', reference: 'Seteo de habitación (retorno a stock)', createdByUserId: scope.userId },
+          });
+          linen += i.quantity;
+        } else if (i.articleKind === 'AMENITY' && i.productId && amenLimp) {
+          // Regresa al stock de AMENITIES - LIMPIEZA.
+          await tx.stock.upsert({
+            where: { productId_warehouseId: { productId: i.productId, warehouseId: amenLimp.id } },
+            update: { quantity: { increment: i.quantity } },
+            create: { productId: i.productId, warehouseId: amenLimp.id, quantity: i.quantity },
+          });
+          amenities += i.quantity;
+        }
+        await tx.roomInventoryMovement.create({
+          data: { branchId, roomId, type: 'AJUSTE', articleKind: i.articleKind, name: i.name, quantity: -i.quantity, fromLocation: `Habitación ${room.number}`, toLocation: i.articleKind === 'AMENITY' ? 'AMENITIES - LIMPIEZA' : 'Almacén de Ropa', reference: 'Seteo de habitación (retiro y retorno a stock)', createdByUserId: scope.userId },
+        });
+        await tx.roomInventory.delete({ where: { id: i.id } });
+      }
+    });
+    return { ok: true, linen, amenities, rows: inv.length };
   },
 };
