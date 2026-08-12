@@ -101,7 +101,7 @@ const PAY_TYPES = [
           }
           @if (isForeign()) {
             <div class="doc-photo span2">
-              <div class="dp-head"><i class="pi pi-camera"></i> Foto del documento físico <span class="req">(obligatoria)</span></div>
+              <div class="dp-head"><i class="pi pi-camera"></i> Foto del documento físico <span class="opt">(opcional)</span></div>
               @if (docPhoto()) {
                 <div class="dp-preview">
                   <img [src]="docPhoto()!" alt="Documento" />
@@ -382,7 +382,7 @@ const PAY_TYPES = [
       .n-manual { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.6rem; color: #4c1d95; }
       .n-dates { background: #1e1b4b; color: #ddd6fe; border-radius: 10px; padding: 0.7rem 0.9rem; margin-top: 0.7rem; display: flex; flex-direction: column; gap: 0.3rem; }
       .doc-photo { background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 12px; padding: 0.8rem 0.9rem; }
-      .dp-head { display: flex; align-items: center; gap: 0.45rem; font-weight: 700; color: #e6edf5; font-size: 0.9rem; } .dp-head .pi { color: #34d399; } .dp-head .req { color: #f87171; font-weight: 600; font-size: 0.8rem; }
+      .dp-head { display: flex; align-items: center; gap: 0.45rem; font-weight: 700; color: #e6edf5; font-size: 0.9rem; } .dp-head .pi { color: #34d399; } .dp-head .opt { color: #8aa0bd; font-weight: 600; font-size: 0.8rem; }
       .dp-cam { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.5rem; align-items: center; }
       .dp-cam video { width: 100%; max-width: 420px; border-radius: 10px; background: #000; aspect-ratio: 4/3; object-fit: cover; }
       .dp-cam-btns { display: flex; gap: 0.5rem; }
@@ -849,10 +849,9 @@ export class CheckInDialogComponent {
     if (!this.selectedRateId) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Falta tarifa', detail: 'Selecciona una tarifa.' }); return; }
     if (this.isCustom() && (!this.checkoutAt || this.customPrice == null)) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Tarifa personalizada', detail: 'Indica la fecha de salida y el precio a cobrar.' }); return; }
     if (!this.docNumber || !this.guestName) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Datos incompletos', detail: 'Completa documento y nombre del huésped.' }); return; }
-    // Extranjeros: nacionalidad + foto del documento físico obligatorias (lineamiento de turismo).
-    if (this.isForeign()) {
-      if (!this.nationality.trim()) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Falta nacionalidad', detail: 'Ingresa la nacionalidad del huésped extranjero.' }); return; }
-      if (!this.docPhoto()) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Falta la foto del documento', detail: 'Toma la foto del documento físico para poder registrar al huésped extranjero.' }); return; }
+    // Extranjeros: nacionalidad obligatoria. La foto del documento físico es OPCIONAL.
+    if (this.isForeign() && !this.nationality.trim()) {
+      this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Falta nacionalidad', detail: 'Ingresa la nacionalidad del huésped extranjero.' }); return;
     }
     // Early Check-in: si se aplica y no es cortesía, exige un monto para que el cargo
     // quede registrado (antes quedaba la nota pero sin sumar el cargo).
