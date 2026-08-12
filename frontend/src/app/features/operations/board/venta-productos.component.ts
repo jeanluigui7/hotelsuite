@@ -89,7 +89,7 @@ const DOC_TYPES = [
               @if (needsRef(p.method)) {
                 <div class="payref">
                   <i class="pi pi-hashtag"></i>
-                  <input pInputText [(ngModel)]="p.reference" placeholder="Código de confirmación / N° de operación" [class.err]="!p.reference?.trim()" />
+                  <input pInputText [(ngModel)]="p.reference" placeholder="Código de confirmación / N° de operación (opcional)" />
                 </div>
               }
             }
@@ -284,14 +284,10 @@ export class VentaProductosComponent {
     if (!ps.length) return 'Agrega un método de pago para cobrar.';
     for (const p of ps) {
       if (!(p.amount > 0)) return 'Ingresa el monto de cada método de pago.';
-      if (this.needsRef(p.method) && !(p.reference && p.reference.trim())) {
-        return `Ingresa el código de confirmación del pago por ${this.methodLabel(p.method)}.`;
-      }
     }
     if (this.paid() + 0.001 < this.total()) return `El pago no cubre el total (faltan S/ ${(this.total() - this.paid()).toFixed(2)}).`;
     return '';
   }
-  private methodLabel(m: string): string { return this.methods.find((x) => x.value === m)?.label ?? m; }
 
   canSubmit(): boolean {
     if (this.saving() || this.lines().length === 0) return false;
