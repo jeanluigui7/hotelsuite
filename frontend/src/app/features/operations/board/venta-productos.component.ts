@@ -82,12 +82,23 @@ const DOC_TYPES = [
             <div class="pays-head"><span>Método de pago</span><button class="addpay" (click)="addPay()"><i class="pi pi-plus"></i> Añadir</button></div>
             @for (p of pays(); track $index; let i = $index) {
               <div class="payrow">
-                <p-select [options]="methods" [(ngModel)]="p.method" optionLabel="label" optionValue="value" styleClass="w sm" />
-                <p-inputNumber [(ngModel)]="p.amount" mode="decimal" [minFractionDigits]="2" [min]="0" inputStyleClass="amt" />
+                <p-select [options]="methods" [(ngModel)]="p.method" (onChange)="onMethodChange(p)" optionLabel="label" optionValue="value" styleClass="w sm" />
+                <p-inputNumber [(ngModel)]="p.amount" mode="decimal" [minFractionDigits]="2" [min]="0" placeholder="Monto" inputStyleClass="amt" [class.err]="!(p.amount > 0)" />
                 <button class="del" (click)="removePay(i)"><i class="pi pi-times"></i></button>
               </div>
+              @if (needsRef(p.method)) {
+                <div class="payref">
+                  <i class="pi pi-hashtag"></i>
+                  <input pInputText [(ngModel)]="p.reference" placeholder="Código de confirmación / N° de operación" [class.err]="!p.reference?.trim()" />
+                </div>
+              }
             }
-            <div class="paid" [class.warn]="paid() > total()">Pagado: {{ paid() | number: '1.2-2' }} · Vuelto: {{ change() | number: '1.2-2' }}</div>
+            @if (!pays().length) { <p class="pay-hint"><i class="pi pi-info-circle"></i> Agrega un método de pago para poder cobrar.</p> }
+            <div class="paid">
+              <span>Pagado: <b>S/ {{ paid() | number: '1.2-2' }}</b></span>
+              <span class="vuelto" [class.on]="change() > 0">Vuelto: <b>S/ {{ change() | number: '1.2-2' }}</b></span>
+            </div>
+            @if (payError()) { <p class="pay-err"><i class="pi pi-exclamation-triangle"></i> {{ payError() }}</p> }
           </div>
         </div>
 
@@ -153,7 +164,15 @@ const DOC_TYPES = [
       .payrow { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.4rem; align-items: center; margin-top: 0.4rem; }
       :host ::ng-deep .amt { width: 100%; }
       .del { background: transparent; border: 0; color: #f87171; cursor: pointer; }
-      .paid { font-size: 0.8rem; color: #8b97a8; margin-top: 0.4rem; } .paid.warn { color: #fbbf24; }
+      .payref { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.35rem; }
+      .payref .pi { color: #8aa0bd; font-size: 0.8rem; }
+      .payref input { flex: 1; background: #0f1a2b; border: 1px solid #1c2c44; color: #e6edf5; border-radius: 8px; padding: 0.5rem 0.7rem; font: inherit; font-size: 0.85rem; }
+      .payref input.err { border-color: #ef4444; }
+      :host ::ng-deep .payrow .err .p-inputnumber-input, :host ::ng-deep .payrow .err input { border-color: #ef4444 !important; }
+      .paid { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: #cdd8e6; margin-top: 0.6rem; border-top: 1px dashed #1c2a3a; padding-top: 0.5rem; }
+      .paid b { color: #e6edf5; } .paid .vuelto.on b { color: #34d399; }
+      .pay-hint { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: #8aa0bd; margin: 0.4rem 0 0; }
+      .pay-err { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: #fca5a5; background: rgba(180,35,35,0.1); border: 1px solid rgba(180,35,35,0.35); border-radius: 8px; padding: 0.45rem 0.6rem; margin: 0.5rem 0 0; }
 
       .catalog { display: flex; flex-direction: column; gap: 0.6rem; }
       .cat-filters { display: flex; gap: 0.5rem; }
@@ -253,9 +272,31 @@ export class VentaProductosComponent {
     return this.products().filter((p) => (this.qty[p.id] || 0) > 0).map((p) => ({ productId: p.id, quantity: this.qty[p.id] }));
   }
 
+  /** Los pagos virtuales (no efectivo) requieren código/referencia para su rastreo. */
+  needsRef(method: string): boolean { return method !== 'CASH'; }
+  /** Al pasar a Efectivo se limpia la referencia (no aplica). */
+  onMethodChange(p: Pay): void { if (p.method === 'CASH') p.reference = ''; this.pays.set([...this.pays()]); }
+
+  /** Mensaje del primer problema con los pagos (vacío = todo correcto). */
+  payError(): string {
+    if (this.total() <= 0) return '';
+    const ps = this.pays();
+    if (!ps.length) return 'Agrega un método de pago para cobrar.';
+    for (const p of ps) {
+      if (!(p.amount > 0)) return 'Ingresa el monto de cada método de pago.';
+      if (this.needsRef(p.method) && !(p.reference && p.reference.trim())) {
+        return `Ingresa el código de confirmación del pago por ${this.methodLabel(p.method)}.`;
+      }
+    }
+    if (this.paid() + 0.001 < this.total()) return `El pago no cubre el total (faltan S/ ${(this.total() - this.paid()).toFixed(2)}).`;
+    return '';
+  }
+  private methodLabel(m: string): string { return this.methods.find((x) => x.value === m)?.label ?? m; }
+
   canSubmit(): boolean {
     if (this.saving() || this.lines().length === 0) return false;
     if (this.clientType === 'ROOM' && !this.stayId) return false;
+    if (this.payError() !== '') return false;
     return true;
   }
 
@@ -273,7 +314,7 @@ export class VentaProductosComponent {
       stayId: this.clientType === 'ROOM' ? this.stayId : null,
       customerName: this.clientType === 'EXTERNAL' ? this.externalName() : undefined,
       items: this.lines(),
-      payments: this.pays().filter((p) => p.amount > 0).map((p) => ({ method: p.method, amount: p.amount })),
+      payments: this.pays().filter((p) => p.amount > 0).map((p) => ({ method: p.method, amount: p.amount, reference: p.reference?.trim() || undefined })),
       sourceArea: 'RECEPTION',
     }).subscribe({
       next: (res) => {
