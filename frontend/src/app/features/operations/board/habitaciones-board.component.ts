@@ -484,7 +484,7 @@ const MANT_CATS = [
                 </div>
               }
               <button class="add-pay" (click)="addPay()"><i class="pi pi-plus"></i> Agregar método de pago</button>
-              <div class="pay-sum"><span>Cobrado ahora: <b>S/ {{ paidNow() | number: '1.2-2' }}</b></span>@if (renovarAmount && paidNow() < (renovarAmount || 0)) { <span class="debt">Queda deuda: S/ {{ (renovarAmount || 0) - paidNow() | number: '1.2-2' }}</span> }</div>
+              <div class="pay-sum"><span>Cobrado ahora: <b>S/ {{ paidNow() | number: '1.2-2' }}</b></span>@if (renovVuelto() > 0) { <span class="vuelto-r">Vuelto: S/ {{ renovVuelto() | number: '1.2-2' }}</span> }@if (renovarAmount && paidNow() < (renovarAmount || 0)) { <span class="debt">Queda deuda: S/ {{ (renovarAmount || 0) - paidNow() | number: '1.2-2' }}</span> }</div>
             </div>
           }
 
@@ -732,7 +732,7 @@ const MANT_CATS = [
       .m-top { display: flex; justify-content: space-between; color: #9fb0c3; font-size: 0.78rem; margin-bottom: 0.4rem; } .m-top .x { background: transparent; border: 0; color: #f87171; cursor: pointer; }
       .m-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
       .add-pay { background: transparent; border: 1px dashed #2c3a4f; color: #93b3d1; border-radius: 8px; padding: 0.5rem; cursor: pointer; font-weight: 600; }
-      .pay-sum { display: flex; justify-content: space-between; font-size: 0.84rem; color: #9fb0c3; } .pay-sum b { color: #34d399; } .pay-sum .debt { color: #fbbf24; }
+      .pay-sum { display: flex; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; font-size: 0.84rem; color: #9fb0c3; } .pay-sum b { color: #34d399; } .pay-sum .debt { color: #fbbf24; } .pay-sum .vuelto-r { color: #34d399; font-weight: 700; }
       .oc-timer { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; background: rgba(0,0,0,0.22); border-radius: 10px; padding: 0.5rem 0.7rem; }
       .oc-timer .t { font-weight: 800; font-size: 1rem; display: inline-flex; align-items: center; gap: 0.35rem; } .oc-timer .t.red { color: #fca5a5; }
       .exp-badge { background: #dc2626; color: #fff; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 6px; }
@@ -1255,6 +1255,10 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   }
   recalcRenovar(): void { this.renovarAmount = this.renovarGuide() || null; this.onPayModeChange(); }
   paidNow(): number { return Math.round(this.renovarPays.reduce((a, p) => a + (p.amount || 0), 0) * 100) / 100; }
+  /** Vuelto a entregar en efectivo (con cuánto paga − monto), sumado sobre los pagos en efectivo. */
+  renovVuelto(): number {
+    return Math.round(this.renovarPays.reduce((a, p) => a + (p.method === 'CASH' ? Math.max(0, (p.received || 0) - (p.amount || 0)) : 0), 0) * 100) / 100;
+  }
 
   onPayModeChange(): void {
     if (this.renovarPayMode === 'FULL' && this.renovarPays.length) {

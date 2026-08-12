@@ -282,7 +282,7 @@ const PAY_TYPES = [
                       <div class="fld"><label>💰 Con cuánto paga el cliente</label><p-inputNumber [(ngModel)]="p.received" mode="decimal" [minFractionDigits]="2" [min]="0" /></div>
                       <div class="fld"><label>🔁 Vuelto a entregar</label><div class="vuelto">S/ {{ vuelto(p) | number: '1.2-2' }}</div></div>
                     } @else {
-                      <div class="fld span2"><label>Referencia *</label><input pInputText [(ngModel)]="p.reference" placeholder="Obligatorio - N° de transacción, voucher, etc." /></div>
+                      <div class="fld span2"><label>Referencia (opcional)</label><input pInputText [(ngModel)]="p.reference" placeholder="N° de transacción, voucher, etc." /></div>
                     }
                     <div class="fld span2"><label>Notas</label><input pInputText [(ngModel)]="p.notes" placeholder="Notas adicionales del pago" /></div>
                   </div>
@@ -743,8 +743,7 @@ export class CheckInDialogComponent {
       this.messages.add({ severity: 'warn', summary: 'Early Check-in', detail: 'Ingresa el monto del Early Check-in o márcalo como cortesía.' });
       return;
     }
-    const badRef = this.pays().find((p) => this.payMeta(p.type).ref && !p.reference.trim());
-    if (badRef) { this.tab.set('pago'); this.messages.add({ severity: 'warn', summary: 'Falta referencia', detail: 'Los pagos con tarjeta/transferencia requieren referencia.' }); return; }
+    // La referencia (código/voucher) es OPCIONAL para los pagos virtuales.
     // Debe registrarse el pago del cliente antes de confirmar.
     if (this.totalAPagar() > 0 && this.totalPagado() <= 0) {
       this.tab.set('pago'); this.messages.add({ severity: 'warn', summary: 'Falta el pago', detail: 'Agrega el método e ingresa con cuánto paga el cliente.' }); return;
