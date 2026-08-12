@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output, computed, inject, signal } from '@angular/core';
+import { Component, ElementRef, EventEmitter, Input, Output, ViewChild, computed, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
@@ -27,10 +27,11 @@ interface DebtItem { type: string; label: string; amount: number; date: string; 
 interface Debts { items: DebtItem[]; total: number; }
 
 const DOC_TYPES = [
-  { label: 'DNI (Documento Nacional de Identidad)', value: 'DNI' },
-  { label: 'CE (Carné de Extranjería)', value: 'CE' },
-  { label: 'Pasaporte', value: 'PASAPORTE' },
+  { label: 'DNI', value: 'DNI' },
   { label: 'RUC', value: 'RUC' },
+  { label: 'Pasaporte', value: 'PASAPORTE' },
+  { label: 'Carnet de Extranjería', value: 'CE' },
+  { label: 'DNI Extranjero', value: 'DNI_EXT' },
 ];
 const PAY_TYPES = [
   { value: 'CASH', label: 'Efectivo', commission: 0, ref: false, backend: 'CASH' as const },
@@ -83,7 +84,10 @@ const PAY_TYPES = [
               @if (debts().items.length) { <span class="doc-badge" title="Observaciones de deuda"><i class="pi pi-exclamation-triangle"></i> {{ debts().items.length }}</span> }
             </div>
           </div>
-          <div class="fld"><label>Tipo de Documento</label><p-select [options]="docTypes" optionLabel="label" optionValue="value" [(ngModel)]="docType" styleClass="w" /></div>
+          <div class="fld"><label>Tipo de Documento</label><p-select [options]="docTypes" optionLabel="label" optionValue="value" [(ngModel)]="docType" (onChange)="onDocTypeChange()" styleClass="w" /></div>
+          @if (isForeign()) {
+            <div class="fld"><label>Nacionalidad *</label><input pInputText [(ngModel)]="nationality" placeholder="Ej. Colombiana" /></div>
+          }
 
           @if (debts().total > 0) {
             <div class="debt span2">
@@ -93,6 +97,33 @@ const PAY_TYPES = [
                   <li>• {{ d.label }} — <strong>S/ {{ d.amount | number: '1.2-2' }}</strong></li>
                 }
               </ul>
+            </div>
+          }
+          @if (isForeign()) {
+            <div class="doc-photo span2">
+              <div class="dp-head"><i class="pi pi-camera"></i> Foto del documento físico <span class="req">(obligatoria)</span></div>
+              @if (docPhoto()) {
+                <div class="dp-preview">
+                  <img [src]="docPhoto()!" alt="Documento" />
+                  <button type="button" class="dp-btn re" (click)="retakePhoto()"><i class="pi pi-refresh"></i> Volver a tomar</button>
+                </div>
+              } @else if (camActive()) {
+                <div class="dp-cam">
+                  <video #camVideo autoplay playsinline muted></video>
+                  <div class="dp-cam-btns">
+                    <button type="button" class="dp-btn shot" (click)="takePhoto()"><i class="pi pi-camera"></i> Tomar foto</button>
+                    <button type="button" class="dp-btn cancel" (click)="stopCamera()"><i class="pi pi-times"></i> Cancelar</button>
+                  </div>
+                </div>
+              } @else {
+                <div class="dp-actions">
+                  @if (hasCamera()) { <button type="button" class="dp-btn act" (click)="startCamera()"><i class="pi pi-video"></i> Activar cámara</button> }
+                  <button type="button" class="dp-btn act" (click)="pickFile()"><i class="pi pi-camera"></i> Tomar / subir foto</button>
+                </div>
+                <input #fileInput type="file" accept="image/*" capture="environment" hidden (change)="onFileSelected($event)" />
+                <p class="dp-note">Por lineamiento del Ministerio de Turismo, los documentos de extranjeros deben registrarse con la foto del documento físico. Nacionalidad, documento y datos se llenan a mano.</p>
+              }
+              @if (camError()) { <p class="dp-err"><i class="pi pi-exclamation-triangle"></i> {{ camError() }}</p> }
             </div>
           }
           <div class="fld"><label>Nombre del Huésped</label><input pInputText [(ngModel)]="guestName" placeholder="Nombre completo (se autocompleta)" /></div>
@@ -350,6 +381,19 @@ const PAY_TYPES = [
       .n-opts button.pers { background: #2e1065; }
       .n-manual { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.6rem; color: #4c1d95; }
       .n-dates { background: #1e1b4b; color: #ddd6fe; border-radius: 10px; padding: 0.7rem 0.9rem; margin-top: 0.7rem; display: flex; flex-direction: column; gap: 0.3rem; }
+      .doc-photo { background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 12px; padding: 0.8rem 0.9rem; }
+      .dp-head { display: flex; align-items: center; gap: 0.45rem; font-weight: 700; color: #e6edf5; font-size: 0.9rem; } .dp-head .pi { color: #34d399; } .dp-head .req { color: #f87171; font-weight: 600; font-size: 0.8rem; }
+      .dp-cam { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.5rem; align-items: center; }
+      .dp-cam video { width: 100%; max-width: 420px; border-radius: 10px; background: #000; aspect-ratio: 4/3; object-fit: cover; }
+      .dp-cam-btns { display: flex; gap: 0.5rem; }
+      .dp-preview { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.5rem; align-items: center; }
+      .dp-preview img { width: 100%; max-width: 420px; border-radius: 10px; border: 2px solid #34d399; }
+      .dp-btn { border: 0; border-radius: 9px; padding: 0.55rem 1rem; font-weight: 700; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.45rem; }
+      .dp-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.6rem; }
+      .dp-btn.act { background: #13243a; border: 1px solid #274468; color: #a9c7ef; }
+      .dp-btn.shot { background: #10b981; color: #04130d; } .dp-btn.re { background: #13243a; border: 1px solid #274468; color: #a9c7ef; } .dp-btn.cancel { background: rgba(255,255,255,0.06); color: #cdd8e6; border: 1px solid #274468; }
+      .dp-note { font-size: 0.78rem; color: #8aa0bd; margin: 0.5rem 0 0; }
+      .dp-err { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: #fca5a5; margin: 0.5rem 0 0; }
       .n-dates > div { display: flex; justify-content: space-between; font-size: 0.85rem; } .n-dates .out { color: #a78bfa; }
       .n-price { background: #ede9fe; border-radius: 10px; padding: 0.7rem 0.9rem; margin-top: 0.6rem; }
       .np-calc { display: flex; justify-content: space-between; color: #4c1d95; font-size: 0.88rem; } .np-calc .eq { font-weight: 700; }
@@ -451,7 +495,17 @@ export class CheckInDialogComponent {
   docNumber = '';
   guestName = '';
   phone = '';
+  nationality = '';
   vehiclePlate = '';
+  // Foto del documento físico (extranjeros): captura por cámara.
+  @ViewChild('camVideo') camVideo?: ElementRef<HTMLVideoElement>;
+  @ViewChild('fileInput') fileInput?: ElementRef<HTMLInputElement>;
+  readonly docPhoto = signal<string | null>(null);
+  readonly camActive = signal(false);
+  readonly camError = signal('');
+  private camStream: MediaStream | null = null;
+  /** Documentos de extranjero (no DNI ni RUC): requieren nacionalidad + foto física. */
+  isForeign(): boolean { return this.docType !== 'DNI' && this.docType !== 'RUC'; }
   selectedRateId: string | null = null;
   selectedTierId: string | null = null;
   checkoutAt = '';
@@ -479,7 +533,8 @@ export class CheckInDialogComponent {
   private init(room: RoomMapItem): void {
     this.tab.set('huesped');
     this.targetRoomId = room.id;
-    this.docType = 'DNI'; this.docNumber = ''; this.guestName = ''; this.phone = ''; this.vehiclePlate = ''; this.lastReniec = '';
+    this.docType = 'DNI'; this.docNumber = ''; this.guestName = ''; this.phone = ''; this.nationality = ''; this.vehiclePlate = ''; this.lastReniec = '';
+    this.stopCamera(); this.docPhoto.set(null); this.camError.set('');
     this.selectedRateId = null; this.selectedTierId = null; this.checkoutAt = ''; this.notes = '';
     this.customPrice = null; this.applyEarly = false; this.finalPrice = null;
     this.earlyAmount = null; this.earlyCortesia = false;
@@ -571,6 +626,64 @@ export class CheckInDialogComponent {
         this.messages.add({ severity: 'error', summary: 'RENIEC', detail: e.error?.error?.message ?? 'No se pudo consultar el DNI.' });
       },
     });
+  }
+
+  // --- Foto del documento físico (extranjeros) por cámara ---
+  onDocTypeChange(): void {
+    // DNI/RUC no requieren foto ni nacionalidad → se limpian.
+    if (!this.isForeign()) { this.stopCamera(); this.docPhoto.set(null); this.camError.set(''); this.nationality = ''; }
+  }
+  async startCamera(): Promise<void> {
+    this.camError.set(''); this.docPhoto.set(null);
+    try {
+      this.camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      this.camActive.set(true);
+      setTimeout(() => { if (this.camVideo && this.camStream) { this.camVideo.nativeElement.srcObject = this.camStream; this.camVideo.nativeElement.play().catch(() => undefined); } }, 60);
+    } catch {
+      this.camActive.set(false);
+      this.camError.set('No se pudo acceder a la cámara. Revisa los permisos del navegador.');
+    }
+  }
+  takePhoto(): void {
+    const v = this.camVideo?.nativeElement;
+    if (!v || !v.videoWidth) return;
+    const scale = Math.min(1, 900 / v.videoWidth);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(v.videoWidth * scale);
+    canvas.height = Math.round(v.videoHeight * scale);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+    this.docPhoto.set(canvas.toDataURL('image/jpeg', 0.65));
+    this.stopCamera();
+  }
+  retakePhoto(): void { this.docPhoto.set(null); }
+  stopCamera(): void {
+    if (this.camStream) { this.camStream.getTracks().forEach((t) => t.stop()); this.camStream = null; }
+    this.camActive.set(false);
+  }
+  /** La cámara en vivo (getUserMedia) solo funciona en HTTPS/localhost. En HTTP se usa subir foto. */
+  hasCamera(): boolean { return typeof navigator !== 'undefined' && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia); }
+  pickFile(): void { this.fileInput?.nativeElement.click(); }
+  onFileSelected(e: Event): void {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, 900 / img.width);
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext('2d');
+        if (ctx) { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); this.docPhoto.set(canvas.toDataURL('image/jpeg', 0.65)); }
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
   }
 
   // --- Pernoctación / noches de estadía ---
@@ -729,13 +842,18 @@ export class CheckInDialogComponent {
     const order: Tab[] = ['huesped', 'adicionales', 'venta', 'pago'];
     this.tab.set(order[Math.min(order.length - 1, order.indexOf(this.tab()) + 1)]);
   }
-  onVisibleChange(value: boolean): void { this.visible = value; this.visibleChange.emit(value); }
+  onVisibleChange(value: boolean): void { if (!value) this.stopCamera(); this.visible = value; this.visibleChange.emit(value); }
 
   confirm(): void {
     if (!this.room) return;
     if (!this.selectedRateId) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Falta tarifa', detail: 'Selecciona una tarifa.' }); return; }
     if (this.isCustom() && (!this.checkoutAt || this.customPrice == null)) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Tarifa personalizada', detail: 'Indica la fecha de salida y el precio a cobrar.' }); return; }
     if (!this.docNumber || !this.guestName) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Datos incompletos', detail: 'Completa documento y nombre del huésped.' }); return; }
+    // Extranjeros: nacionalidad + foto del documento físico obligatorias (lineamiento de turismo).
+    if (this.isForeign()) {
+      if (!this.nationality.trim()) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Falta nacionalidad', detail: 'Ingresa la nacionalidad del huésped extranjero.' }); return; }
+      if (!this.docPhoto()) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Falta la foto del documento', detail: 'Toma la foto del documento físico para poder registrar al huésped extranjero.' }); return; }
+    }
     // Early Check-in: si se aplica y no es cortesía, exige un monto para que el cargo
     // quede registrado (antes quedaba la nota pero sin sumar el cargo).
     if (this.isPernoctaRate() && this.applyEarly && !this.earlyCortesia && (this.earlyAmount || 0) <= 0) {
@@ -796,7 +914,7 @@ export class CheckInDialogComponent {
         this.catalog.guests.update(this.foundGuestId, { phone: this.phone.trim() } as never).subscribe({ error: () => {} });
       }
     } else {
-      input.newGuest = { documentType: this.docType as never, documentNumber: this.docNumber, firstName: this.guestName, lastName: '', phone: this.phone || '', email: '' };
+      input.newGuest = { documentType: this.docType as never, documentNumber: this.docNumber, firstName: this.guestName, lastName: '', phone: this.phone || '', email: '', nationality: this.nationality.trim() || undefined, documentPhotoUrl: this.docPhoto() || undefined };
     }
     this.ops.checkIn(input).subscribe({
       next: (res) => {

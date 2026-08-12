@@ -74,12 +74,14 @@ export interface RoomUpsert {
 }
 
 export interface NewGuestInput {
-  documentType: 'DNI' | 'CE' | 'PASAPORTE' | 'RUC';
+  documentType: 'DNI' | 'RUC' | 'PASAPORTE' | 'CE' | 'DNI_EXT';
   documentNumber: string;
   firstName: string;
   lastName?: string;
   phone?: string;
   email?: string;
+  nationality?: string;
+  documentPhotoUrl?: string;
 }
 
 export interface CheckInInput {

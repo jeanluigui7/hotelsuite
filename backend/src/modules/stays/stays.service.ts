@@ -104,21 +104,43 @@ export const staysService = {
         dto.newGuest.documentType,
         dto.newGuest.documentNumber,
       );
-      guestId = existing
-        ? existing.id
-        : (
-            await guestsRepository.create({
-              documentType: dto.newGuest.documentType,
-              documentNumber: dto.newGuest.documentNumber,
-              firstName: dto.newGuest.firstName,
-              lastName: dto.newGuest.lastName || null,
-              phone: dto.newGuest.phone || null,
-              email: dto.newGuest.email || null,
-              status: 'active',
-            })
-          ).id;
+      if (existing) {
+        guestId = existing.id;
+        // Actualiza nacionalidad / foto del documento si se enviaron en este check-in.
+        if (dto.newGuest.nationality || dto.newGuest.documentPhotoUrl) {
+          await guestsRepository.update(existing.id, {
+            ...(dto.newGuest.nationality ? { nationality: dto.newGuest.nationality } : {}),
+            ...(dto.newGuest.documentPhotoUrl ? { documentPhotoUrl: dto.newGuest.documentPhotoUrl } : {}),
+          });
+        }
+      } else {
+        guestId = (
+          await guestsRepository.create({
+            documentType: dto.newGuest.documentType,
+            documentNumber: dto.newGuest.documentNumber,
+            firstName: dto.newGuest.firstName,
+            lastName: dto.newGuest.lastName || null,
+            phone: dto.newGuest.phone || null,
+            email: dto.newGuest.email || null,
+            nationality: dto.newGuest.nationality || null,
+            documentPhotoUrl: dto.newGuest.documentPhotoUrl || null,
+            status: 'active',
+          })
+        ).id;
+      }
     }
     if (!guestId) throw new ValidationError('Huésped requerido');
+
+    // REGLA (lineamiento de turismo): un huésped no puede tener OTRA estadía activa.
+    // Aplica al titular y a los acompañantes (por documento, principal o acompañante).
+    const involvedIds = [guestId, ...dto.additionalGuestIds].filter((x): x is string => !!x);
+    const activeStay = await prisma.stay.findFirst({
+      where: { branchId, status: 'OPEN', OR: [{ guestId: { in: involvedIds } }, { additionalGuests: { some: { guestId: { in: involvedIds } } } }] },
+      include: { room: { select: { number: true } } },
+    });
+    if (activeStay) {
+      throw new ConflictError(`Este huésped ya tiene una estadía activa (Hab. ${activeStay.room?.number ?? '—'}). No se puede registrar en otra habitación hasta que haga su check-out.`);
+    }
 
     const checkInAt = new Date();
     let plannedCheckoutAt: Date;

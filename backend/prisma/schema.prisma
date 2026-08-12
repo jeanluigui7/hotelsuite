@@ -268,12 +268,14 @@ model ClientTier {
 /// Cliente / huésped. GLOBAL: compartido entre sucursales.
 model Guest {
   id             String   @id @default(uuid())
-  documentType   String   @default("DNI") // DNI | CE | PASAPORTE | RUC
+  documentType   String   @default("DNI") // DNI | RUC | PASAPORTE | CE | DNI_EXT
   documentNumber String
   firstName      String
   lastName       String?
   phone          String?
   email          String?
+  nationality    String? // nacionalidad (extranjeros)
+  documentPhotoUrl String? @db.NVarChar(Max) // foto del documento físico (extranjeros)
   notes          String?
   status         String   @default("active")
   createdAt      DateTime @default(now())

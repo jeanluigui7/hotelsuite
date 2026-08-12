@@ -2,12 +2,15 @@ import { z } from 'zod';
 import { PAYMENT_METHODS } from '../../shared/payments';
 
 const newGuestSchema = z.object({
-  documentType: z.enum(['DNI', 'CE', 'PASAPORTE', 'RUC']).default('DNI'),
+  documentType: z.enum(['DNI', 'RUC', 'PASAPORTE', 'CE', 'DNI_EXT']).default('DNI'),
   documentNumber: z.string().min(3).max(20),
   firstName: z.string().min(1).max(120),
   lastName: z.string().max(120).optional().or(z.literal('')),
   phone: z.string().max(30).optional().or(z.literal('')),
   email: z.string().email().max(160).optional().or(z.literal('')),
+  // Extranjeros: nacionalidad y foto del documento físico (data URL, obligatoria por regla).
+  nationality: z.string().max(120).optional().or(z.literal('')),
+  documentPhotoUrl: z.string().max(6_000_000).optional().or(z.literal('')),
 });
 
 export const checkInSchema = z
