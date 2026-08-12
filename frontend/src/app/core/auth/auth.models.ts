@@ -17,6 +17,8 @@ export interface Branch {
   taxId?: string | null;
   currency: string;
   cutoffHour: number;
+  /** Administrador presente: ON = cierre de caja detallado; OFF = cierre ciego en recepción. */
+  adminPresent?: boolean;
   status: string;
 }
 

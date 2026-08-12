@@ -4,6 +4,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
+import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { MessageService } from 'primeng/api';
 import { CrudApi } from '../../../core/http/crud-api';
 import { AuthService } from '../../../core/auth/auth.service';
@@ -19,12 +20,13 @@ interface Form {
   logoUrl: string;
   currency: string;
   cutoffHour: number;
+  adminPresent: boolean;
 }
 
 @Component({
   selector: 'app-hotel',
   standalone: true,
-  imports: [FormsModule, ButtonModule, InputTextModule, InputNumberModule],
+  imports: [FormsModule, ButtonModule, InputTextModule, InputNumberModule, ToggleSwitchModule],
   template: `
     <section>
       <header class="cat-head">
@@ -81,6 +83,23 @@ interface Form {
             </div>
           </div>
 
+          <div class="switch-card">
+            <div class="switch-info">
+              <div class="switch-title">
+                <i class="pi pi-user-edit"></i> Administrador presente
+              </div>
+              <p class="switch-desc">
+                <strong>Activado:</strong> al cerrar caja se genera el <em>cuadre detallado</em>
+                (hospedajes, productos, efectivo, Yape/virtuales, sobrantes/faltantes). Es el cierre
+                normal cuando hay un administrador supervisando.<br />
+                <strong>Desactivado (cierre ciego):</strong> recepción cuenta el efectivo y solo declara
+                el <em>monto que entrega</em>. No ve el esperado ni las diferencias; el cuadre real queda
+                guardado para que administración lo audite después.
+              </p>
+            </div>
+            <p-toggleswitch [(ngModel)]="form.adminPresent" [disabled]="!canEdit" />
+          </div>
+
           @if (canEdit) {
             <div class="actions-row">
               <p-button label="Guardar cambios" icon="pi pi-check" [loading]="saving()" (onClick)="save()" />
@@ -101,6 +120,32 @@ interface Form {
       }
       .actions-row {
         margin-top: 1.5rem;
+      }
+      .switch-card {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1.2rem;
+        margin-top: 1.25rem;
+        padding: 1rem 1.1rem;
+        border: 1px solid var(--p-content-border-color, #e2e8f0);
+        border-radius: 10px;
+        background: var(--p-highlight-background, rgba(59, 130, 246, 0.06));
+      }
+      .switch-info {
+        min-width: 0;
+      }
+      .switch-title {
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+      }
+      .switch-desc {
+        margin: 0.4rem 0 0;
+        font-size: 0.82rem;
+        line-height: 1.4;
+        color: var(--p-text-muted-color, #64748b);
       }
     `,
   ],
@@ -126,6 +171,7 @@ export class HotelComponent implements OnInit {
     logoUrl: '',
     currency: 'PEN',
     cutoffHour: 0,
+    adminPresent: true,
   };
 
   ngOnInit(): void {
@@ -147,6 +193,7 @@ export class HotelComponent implements OnInit {
           logoUrl: (b as Branch & { logoUrl?: string }).logoUrl ?? '',
           currency: b.currency ?? 'PEN',
           cutoffHour: b.cutoffHour ?? 0,
+          adminPresent: b.adminPresent ?? true,
         };
         this.loading.set(false);
       },

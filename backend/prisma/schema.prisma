@@ -23,6 +23,8 @@ model Branch {
   logoUrl    String?
   currency   String   @default("PEN")
   cutoffHour Int      @default(0) // hora de corte de turno (0-23)
+  // Administrador presente: ON = cierre de caja con cuadre detallado; OFF = cierre ciego (recepción entrega a ciegas).
+  adminPresent Boolean @default(true)
   status     String   @default("active") // active | inactive
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt

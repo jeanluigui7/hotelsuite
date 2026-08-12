@@ -11,7 +11,7 @@ import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
 import { FinanceApiService } from '../services/finance-api.service';
-import type { CashCurrent, CashDetail, CashDetailMovement, CashSessionRow } from '../services/finance.models';
+import type { CashCurrent, CashDetail, CashDetailMovement, CashSession, CashSessionRow } from '../services/finance.models';
 
 const METHOD_LABEL: Record<string, string> = {
   CASH: 'Efectivo',
@@ -93,13 +93,15 @@ const TYPE_COLOR: Record<string, [string, string]> = {
                 <td class="r">{{ s.closingAmount != null ? ('S/ ' + (s.closingAmount | number: '1.2-2')) : '—' }}</td>
                 <td class="c"><span class="pill" [class.open]="s.status === 'OPEN'" [class.closed]="s.status === 'CLOSED'"><i class="pi" [class.pi-lock-open]="s.status==='OPEN'" [class.pi-lock]="s.status==='CLOSED'"></i> {{ s.status === 'OPEN' ? 'Abierta' : 'Cerrada' }}</span></td>
                 <td class="c">
-                  @if (s.status === 'OPEN' || s.difference == null) { <span class="muted">—</span> }
+                  @if (!canSeeCuadre()) { <span class="muted" title="Cierre ciego: el cuadre lo audita administración"><i class="pi pi-lock"></i></span> }
+                  @else if (s.status === 'OPEN' || s.difference == null) { <span class="muted">—</span> }
                   @else if (s.difference > 0) { <span class="cuadre sob">+S/ {{ s.difference | number: '1.2-2' }} Sobrante</span> }
                   @else if (s.difference < 0) { <span class="cuadre fal">S/ {{ -s.difference | number: '1.2-2' }} Faltante</span> }
                   @else { <span class="cuadre ok"><i class="pi pi-check"></i> OK</span> }
                 </td>
                 <td class="ac">
-                  <button class="mini" (click)="openDetail(s)">Ver</button>
+                  <button class="mini" (click)="viewCuadre(s)"><i class="pi pi-print"></i> Ver</button>
+                  @if (canSeeCuadre() && canEdit) { <button class="mini" (click)="openDetail(s)">Movimientos</button> }
                   @if (s.status === 'OPEN' && canEdit) { <button class="mini close" (click)="openCloseDialog(s)">Cerrar</button> }
                 </td>
               </tr>
@@ -146,20 +148,26 @@ const TYPE_COLOR: Record<string, [string, string]> = {
     </p-dialog>
 
     <!-- Cerrar caja -->
-    <p-dialog [(visible)]="closeVisible" [modal]="true" header="Cerrar caja (arqueo)" [style]="{ width: '28rem' }">
+    <p-dialog [(visible)]="closeVisible" [modal]="true" [header]="blindClose() ? 'Cerrar caja — entrega de efectivo' : 'Cerrar caja (arqueo)'" [style]="{ width: '28rem' }">
       <div class="form">
-        <p class="muted">Efectivo esperado: <strong>S/ {{ expectedCash() | number: '1.2-2' }}</strong></p>
-        <label>Efectivo contado</label>
-        <p-inputNumber [(ngModel)]="closingAmount" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
-        @if (closingAmount !== null) {
-          <p class="diff" [class.neg]="closeDiff() < 0">Diferencia: <strong>{{ closeDiff() | number: '1.2-2' }}</strong></p>
+        @if (blindClose()) {
+          <p class="blind-note"><i class="pi pi-info-circle"></i> Cuenta físicamente el efectivo del cajón y registra el monto que estás entregando.</p>
+          <label>Monto que estoy entregando (S/)</label>
+          <p-inputNumber [(ngModel)]="closingAmount" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
+        } @else {
+          <p class="muted">Efectivo esperado: <strong>S/ {{ expectedCash() | number: '1.2-2' }}</strong></p>
+          <label>Efectivo contado</label>
+          <p-inputNumber [(ngModel)]="closingAmount" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
+          @if (closingAmount !== null) {
+            <p class="diff" [class.neg]="closeDiff() < 0">Diferencia: <strong>{{ closeDiff() | number: '1.2-2' }}</strong></p>
+          }
         }
         <label>Notas de cierre</label>
         <input pInputText [(ngModel)]="closeNotes" />
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="closeVisible = false" />
-        <p-button label="Cerrar turno" icon="pi pi-lock" severity="warn" [loading]="busy()" (onClick)="doClose()" />
+        <p-button [label]="blindClose() ? 'Registrar entrega' : 'Cerrar turno'" icon="pi pi-lock" severity="warn" [loading]="busy()" (onClick)="doClose()" />
       </ng-template>
     </p-dialog>
 
@@ -292,6 +300,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .form label { font-size: 0.82rem; color: #8aa0bd; margin-top: 0.5rem; }
       :host ::ng-deep .form .w, :host ::ng-deep .form input[pInputText] { width: 100%; }
       .diff { margin-top: 0.5rem; } .diff.neg strong { color: #f87171; }
+      .blind-note { display: flex; align-items: flex-start; gap: 0.4rem; margin: 0 0 0.4rem; padding: 0.55rem 0.7rem; border-radius: 8px; background: rgba(59,130,246,0.12); color: #93c5fd; font-size: 0.82rem; }
       .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.6rem; margin-bottom: 0.8rem; }
       .mc { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.8rem 0.9rem; border-radius: 10px; border: 1px solid #1c2c44; }
       .mc span { font-size: 0.72rem; color: #8aa0bd; } .mc strong { font-size: 1.05rem; }
@@ -347,6 +356,14 @@ export class CashComponent implements OnInit {
   readonly busy = signal(false);
   readonly canCreate = this.auth.can('finance', 'create');
   readonly canEdit = this.auth.can('finance', 'edit');
+  // Administración = quien puede editar la configuración del hotel (el switch "Administrador presente").
+  readonly isAdmin = this.auth.can('settings', 'edit');
+  // Modo de trabajo de la sucursal activa.
+  readonly adminPresent = computed(() => this.auth.activeBranch()?.adminPresent ?? true);
+  // Cierre ciego: recepción no ve esperado ni diferencias (solo cuando NO hay administrador presente).
+  readonly blindClose = computed(() => !this.adminPresent());
+  // ¿Puede ver el cuadre (esperado/sobrante/faltante)? Siempre con admin presente; en modo ciego, solo administración.
+  readonly canSeeCuadre = computed(() => this.adminPresent() || this.isAdmin);
 
   // Diálogos
   openVisible = false;
@@ -452,10 +469,28 @@ export class CashComponent implements OnInit {
   // ── Cerrar ──
   openCloseDialog(row: CashSessionRow): void { this.closeTarget = row; this.closingAmount = null; this.closeNotes = ''; this.closeVisible = true; }
   doClose(): void {
-    if (this.closingAmount === null) { this.messages.add({ severity: 'warn', summary: 'Falta el contado', detail: 'Ingresa el efectivo contado.' }); return; }
+    if (this.closingAmount === null) {
+      const msg = this.blindClose() ? 'Ingresa el monto que estás entregando.' : 'Ingresa el efectivo contado.';
+      this.messages.add({ severity: 'warn', summary: 'Falta el monto', detail: msg }); return;
+    }
+    const blind = this.blindClose();
+    const delivered = this.closingAmount;
+    const closingRow = this.closeTarget;
     this.busy.set(true);
     this.finance.closeCash({ closingAmount: this.closingAmount, notes: this.closeNotes || undefined }).subscribe({
-      next: (res) => { this.busy.set(false); this.closeVisible = false; this.messages.add({ severity: res.data.difference === 0 ? 'success' : 'warn', summary: 'Turno cerrado', detail: `Diferencia: ${res.data.difference.toFixed(2)}` }); this.refreshAll(); },
+      next: (res) => {
+        this.busy.set(false); this.closeVisible = false;
+        if (blind) {
+          // Cierre ciego: no se revela la diferencia; solo se confirma la entrega y se imprime el ticket simple.
+          this.messages.add({ severity: 'success', summary: 'Entrega registrada', detail: `Monto entregado: S/ ${delivered.toFixed(2)}` });
+          if (closingRow) this.printSimpleTicket(res.data.session, closingRow, delivered);
+        } else {
+          this.messages.add({ severity: res.data.difference === 0 ? 'success' : 'warn', summary: 'Turno cerrado', detail: `Diferencia: ${res.data.difference.toFixed(2)}` });
+          // Administrador presente: imprime el cuadre detallado del turno recién cerrado.
+          this.finance.sessionDetail(res.data.session.id).subscribe({ next: (d) => this.openTicketWindow(this.buildCuadreHtml(d.data)), error: () => {} });
+        }
+        this.refreshAll();
+      },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo cerrar.' }); },
     });
   }
@@ -558,5 +593,181 @@ export class CashComponent implements OnInit {
     const a = document.createElement('a');
     a.href = url; a.download = `caja-${d.session.number ?? d.session.id}.csv`; a.click();
     URL.revokeObjectURL(url);
+  }
+
+  // ── Vista imprimible del cierre (pestaña aparte) ──
+  /** Abre el resumen de caja en una pestaña nueva; detallado para administración, simple (entrega) para recepción en modo ciego. */
+  viewCuadre(row: CashSessionRow): void {
+    this.finance.sessionDetail(row.id).subscribe({
+      next: (res) => {
+        const d = res.data;
+        const html = this.canSeeCuadre() ? this.buildCuadreHtml(d) : this.buildSimpleHtml(d.session, d.session.closingAmount);
+        this.openTicketWindow(html);
+      },
+      error: () => this.messages.add({ severity: 'error', summary: 'Error', detail: 'No se pudo abrir el resumen.' }),
+    });
+  }
+
+  /** Tras un cierre ciego, imprime el ticket simple de entrega (sin revelar cuadre). */
+  private printSimpleTicket(session: CashSession, row: CashSessionRow, delivered: number): void {
+    this.openTicketWindow(
+      this.buildSimpleHtml(
+        { number: row.number, openedAt: row.openedAt, closedAt: session.closedAt ?? new Date().toISOString(), openedByName: row.openedByName, closedByName: this.auth.user()?.name ?? row.openedByName },
+        delivered,
+      ),
+    );
+  }
+
+  private openTicketWindow(html: string): void {
+    const w = window.open('', '_blank');
+    if (!w) { this.messages.add({ severity: 'warn', summary: 'Ventana bloqueada', detail: 'Permite ventanas emergentes para ver/imprimir el ticket.' }); return; }
+    w.document.open(); w.document.write(html); w.document.close();
+  }
+
+  private fmtDate(v: string | null | undefined): string {
+    if (!v) return '—';
+    const t = new Date(v);
+    return `${t.toLocaleDateString('es-PE')} ${t.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}`;
+  }
+  private hhmm(v: string): string { const t = new Date(v); return `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`; }
+  private soles(n: number | null | undefined): string { return 'S/ ' + (Number(n) || 0).toFixed(2); }
+  private escHtml(v: unknown): string { return String(v ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] as string); }
+
+  private pageShell(title: string, inner: string): string {
+    const brand = this.escHtml(this.auth.activeBranch()?.name ?? 'HotelSuite');
+    return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${this.escHtml(title)}</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f1f5f9; font-family: 'Segoe UI', Roboto, Arial, sans-serif; color: #0f172a; }
+  .toolbar { position: sticky; top: 0; display: flex; gap: .5rem; justify-content: center; padding: .6rem; background: #0f172a; }
+  .toolbar button { border: 0; border-radius: 7px; padding: .5rem 1.1rem; font-weight: 700; font-size: .85rem; cursor: pointer; }
+  .toolbar .print { background: #10b981; color: #04130d; }
+  .toolbar .close { background: #334155; color: #e2e8f0; }
+  .sheet { width: 80mm; max-width: 96vw; margin: 1rem auto; background: #fff; padding: 10mm 6mm; box-shadow: 0 2px 14px rgba(0,0,0,.15); }
+  .brand { text-align: center; font-weight: 800; font-size: 1.05rem; letter-spacing: .5px; }
+  .doc-t { text-align: center; font-size: .8rem; color: #475569; margin: .1rem 0 .6rem; text-transform: uppercase; letter-spacing: 1px; }
+  hr { border: 0; border-top: 1px dashed #94a3b8; margin: .5rem 0; }
+  .kv { width: 100%; border-collapse: collapse; font-size: .78rem; }
+  .kv td { padding: .12rem 0; vertical-align: top; }
+  .kv td.r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .kv tr.tot td { font-weight: 800; border-top: 1px solid #cbd5e1; padding-top: .2rem; }
+  .sec { margin-top: .5rem; }
+  .sec-t { font-weight: 800; font-size: .74rem; text-transform: uppercase; letter-spacing: .8px; color: #334155; margin-bottom: .15rem; }
+  .big { display: flex; justify-content: space-between; font-weight: 800; font-size: .95rem; margin-top: .35rem; }
+  .cuadre-box { margin-top: .5rem; padding: .4rem .5rem; border: 1px solid #cbd5e1; border-radius: 6px; }
+  .sob { color: #047857; } .fal { color: #b91c1c; } .ok { color: #1d4ed8; }
+  table.virt { width: 100%; border-collapse: collapse; font-size: .68rem; margin-top: .2rem; }
+  table.virt th, table.virt td { border-bottom: 1px solid #e2e8f0; padding: .15rem .2rem; text-align: left; }
+  table.virt td.r, table.virt th.r { text-align: right; font-variant-numeric: tabular-nums; }
+  .sign { margin-top: 1.6rem; text-align: center; font-size: .74rem; color: #475569; }
+  .sign .line { border-top: 1px solid #64748b; width: 70%; margin: 0 auto .2rem; }
+  .amount-hero { text-align: center; margin: .8rem 0; }
+  .amount-hero .lbl { font-size: .74rem; color: #475569; text-transform: uppercase; letter-spacing: 1px; }
+  .amount-hero .val { font-size: 1.7rem; font-weight: 800; }
+  @media print { .toolbar { display: none; } body { background: #fff; } .sheet { box-shadow: none; margin: 0; width: auto; } }
+</style></head>
+<body>
+  <div class="toolbar">
+    <button class="print" onclick="window.print()">Imprimir</button>
+    <button class="close" onclick="window.close()">Cerrar</button>
+  </div>
+  <div class="sheet">
+    <div class="brand">${brand}</div>
+    <div class="doc-t">${this.escHtml(title)}</div>
+    ${inner}
+  </div>
+</body></html>`;
+  }
+
+  private buildCuadreHtml(d: CashDetail): string {
+    const s = d.session;
+    const METHODS = ['CASH', 'CARD', 'TRANSFER', 'YAPE', 'PLIN', 'WALLET'];
+    const normal = d.movements.filter((m) => m.status === 'NORMAL');
+    const sumType = (types: string[]) => normal.filter((m) => types.includes(m.type)).reduce((a, m) => a + m.amount, 0);
+    const block = (title: string, types: string[]): string => {
+      const tot = sumType(types);
+      if (tot <= 0) return '';
+      const rows = METHODS.map((mth) => {
+        const val = normal.filter((m) => types.includes(m.type) && m.method === mth).reduce((a, m) => a + m.amount, 0);
+        return val > 0 ? `<tr><td>${this.escHtml(METHOD_LABEL[mth] ?? mth)}</td><td class="r">${this.soles(val)}</td></tr>` : '';
+      }).join('');
+      return `<div class="sec"><div class="sec-t">${this.escHtml(title)}</div><table class="kv">${rows}<tr class="tot"><td>Total</td><td class="r">${this.soles(tot)}</td></tr></table></div>`;
+    };
+
+    // Cuadre de efectivo
+    const base = s.openingAmount;
+    const efTurno = d.methodBar.byMethod['CASH'] || 0;
+    const ing = d.methodBar.ingresos, egr = d.methodBar.egresos;
+    const esperado = Math.round((base + efTurno + ing - egr) * 100) / 100;
+    const contado = s.closingAmount;
+    const diff = contado != null ? Math.round((contado - esperado) * 100) / 100 : null;
+    const diffTxt = diff == null ? '—' : diff > 0 ? `<span class="sob">Sobrante ${this.soles(diff)}</span>` : diff < 0 ? `<span class="fal">Faltante ${this.soles(-diff)}</span>` : `<span class="ok">Cuadra exacto</span>`;
+
+    // Resumen por método (todo lo cobrado)
+    const resumenRows = METHODS.map((mth) => {
+      const val = d.methodBar.byMethod[mth] || 0;
+      return val > 0 ? `<tr><td>${this.escHtml(METHOD_LABEL[mth] ?? mth)}</td><td class="r">${this.soles(val)}</td></tr>` : '';
+    }).join('');
+
+    // Pagos virtuales (detalle)
+    const virt = normal.filter((m) => ['CARD', 'TRANSFER', 'YAPE', 'PLIN', 'WALLET'].includes(m.method));
+    const virtRows = virt.map((m) => `<tr><td>${this.escHtml(METHOD_LABEL[m.method] ?? m.method)}</td><td>${this.hhmm(m.time)}</td><td class="r">${this.soles(m.amount)}</td><td>${this.escHtml(m.description)}</td></tr>`).join('');
+    const virtBlock = virt.length
+      ? `<div class="sec"><div class="sec-t">Pagos virtuales</div><table class="virt"><thead><tr><th>Medio</th><th>Hora</th><th class="r">Monto</th><th>Concepto</th></tr></thead><tbody>${virtRows}</tbody></table></div>`
+      : '';
+
+    const inner = `
+      <table class="kv">
+        <tr><td>Caja N°</td><td class="r">#${s.number ?? '—'}</td></tr>
+        <tr><td>Apertura</td><td class="r">${this.fmtDate(s.openedAt)}</td></tr>
+        <tr><td>Cierre</td><td class="r">${s.closedAt ? this.fmtDate(s.closedAt) : 'En curso'}</td></tr>
+        <tr><td>Abrió</td><td class="r">${this.escHtml(s.openedByName)}</td></tr>
+        <tr><td>Cerró</td><td class="r">${this.escHtml(s.closedByName ?? '—')}</td></tr>
+      </table>
+      <hr>
+      ${block('Hospedaje', ['HOSPEDAJE'])}
+      ${block('Renovaciones / Upgrades / Extras', ['RENOVACION'])}
+      ${block('Servicios y otros', ['SERVICIO'])}
+      ${block('Productos', ['PRODUCTO'])}
+      <div class="sec"><div class="sec-t">Resumen por método</div><table class="kv">${resumenRows}<tr class="tot"><td>Total general</td><td class="r">${this.soles(d.methodBar.total)}</td></tr></table></div>
+      <div class="sec"><div class="sec-t">Ajustes</div><table class="kv">
+        <tr><td>Ingresos</td><td class="r sob">+${this.soles(ing)}</td></tr>
+        <tr><td>Egresos</td><td class="r fal">-${this.soles(egr)}</td></tr>
+        <tr><td>Anulaciones</td><td class="r">${this.soles(d.methodBar.anulaciones)}</td></tr>
+      </table></div>
+      <div class="cuadre-box"><div class="sec-t">Cuadre de efectivo</div><table class="kv">
+        <tr><td>Base configurada</td><td class="r">${this.soles(base)}</td></tr>
+        <tr><td>Efectivo del turno</td><td class="r">${this.soles(efTurno)}</td></tr>
+        <tr><td>Ingresos / Egresos</td><td class="r">+${this.soles(ing)} / -${this.soles(egr)}</td></tr>
+        <tr class="tot"><td>Efectivo esperado en cajón</td><td class="r">${this.soles(esperado)}</td></tr>
+        <tr><td>Efectivo contado</td><td class="r">${contado != null ? this.soles(contado) : '—'}</td></tr>
+        <tr class="tot"><td>Diferencia</td><td class="r">${diffTxt}</td></tr>
+      </table></div>
+      ${virtBlock}
+      <div class="sign"><div class="line"></div>Firma del colaborador</div>`;
+    return this.pageShell(`Resumen de Caja #${s.number ?? ''}`, inner);
+  }
+
+  private buildSimpleHtml(
+    s: { number: number | null; openedAt: string; closedAt: string | null; openedByName: string; closedByName: string | null },
+    delivered: number | null,
+  ): string {
+    const inner = `
+      <table class="kv">
+        <tr><td>Caja N°</td><td class="r">#${s.number ?? '—'}</td></tr>
+        <tr><td>Recepcionista</td><td class="r">${this.escHtml(s.closedByName ?? s.openedByName)}</td></tr>
+        <tr><td>Turno</td><td class="r">${this.fmtDate(s.openedAt)}</td></tr>
+        <tr><td>Fecha y hora</td><td class="r">${this.fmtDate(s.closedAt ?? s.openedAt)}</td></tr>
+      </table>
+      <hr>
+      <div class="amount-hero">
+        <div class="lbl">Monto que estoy entregando</div>
+        <div class="val">${this.soles(delivered)}</div>
+      </div>
+      <hr>
+      <div class="sign"><div class="line"></div>Firma del recepcionista</div>
+      <div class="sign" style="margin-top:1.2rem"><div class="line"></div>Recibí conforme (administración)</div>`;
+    return this.pageShell('Comprobante de entrega de efectivo', inner);
   }
 }

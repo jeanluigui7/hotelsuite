@@ -10,6 +10,8 @@ export const createBranchSchema = z.object({
   logoUrl: z.string().max(500).optional().or(z.literal('')),
   currency: z.string().length(3).default('PEN'),
   cutoffHour: z.coerce.number().int().min(0).max(23).default(0),
+  // Administrador presente: controla el modo de cierre de caja (detallado vs ciego).
+  adminPresent: z.coerce.boolean().optional(),
   status: z.enum(['active', 'inactive']).default('active'),
 });
 
