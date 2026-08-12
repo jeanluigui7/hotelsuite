@@ -624,59 +624,73 @@ export class CashComponent implements OnInit {
     w.document.open(); w.document.write(html); w.document.close();
   }
 
-  private fmtDate(v: string | null | undefined): string {
-    if (!v) return '—';
-    const t = new Date(v);
-    return `${t.toLocaleDateString('es-PE')} ${t.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}`;
-  }
   private hhmm(v: string): string { const t = new Date(v); return `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`; }
-  private soles(n: number | null | undefined): string { return 'S/ ' + (Number(n) || 0).toFixed(2); }
   private escHtml(v: unknown): string { return String(v ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] as string); }
 
-  private pageShell(title: string, inner: string): string {
-    const brand = this.escHtml(this.auth.activeBranch()?.name ?? 'HotelSuite');
+  // ── Formato de ticket térmico (monospace, ancho fijo) ──
+  private readonly TW = 42; // caracteres por línea (impresora 80mm)
+  private tLine(ch: string): string { return ch.repeat(this.TW); }
+  private tCenter(s: string): string { s = s.slice(0, this.TW); const l = Math.max(0, Math.floor((this.TW - s.length) / 2)); return ' '.repeat(l) + s; }
+  private tLR(l: string, r: string): string { const sp = this.TW - l.length - r.length; return l + (sp > 0 ? ' '.repeat(sp) : ' ') + r; }
+  // Clave/valor con columna de dos puntos fija (col 27) para que todos los ':' queden alineados.
+  private tKV(label: string, value: string): string { return label.slice(0, 26).padEnd(27) + ': ' + value; }
+  private tSec(title: string): string { return this.tCenter(`--- ${title} ---`); }
+  private tMoney(label: string, amt: number): string { return label.slice(0, 14).padEnd(14) + 'S/ ' + amt.toFixed(2).padStart(6); }
+  private ticketMethod(m: string): string {
+    return ({ CASH: 'EFECTIVO', CARD: 'TARJETA DE C', TRANSFER: 'TRANSFERENC.', YAPE: 'YAPE', PLIN: 'PLIN', WALLET: 'BILLETERA' } as Record<string, string>)[m] ?? m;
+  }
+  private ticketMedio(m: string): string {
+    return ({ CASH: 'EFEC', CARD: 'TARJ', TRANSFER: 'TRAN', YAPE: 'YAPE', PLIN: 'PLIN', WALLET: 'BILL' } as Record<string, string>)[m] ?? m.slice(0, 4);
+  }
+  private renCode(desc: string): string {
+    if (/upgrade|mejora|\bupg\b/i.test(desc)) return 'UPG';
+    if (/extra|extensi/i.test(desc)) return 'EXT';
+    return 'REN';
+  }
+
+  private ticketHeader(titlePrefix: string, s: { number: number | null; openedAt: string; closedAt: string | null; openedByName: string; closedByName: string | null }): string[] {
+    const brand = (this.auth.activeBranch()?.name ?? 'HOTELSUITE').toUpperCase();
+    const open = new Date(s.openedAt);
+    const close = s.closedAt ? new Date(s.closedAt) : null;
+    const ref = close ?? open;
+    const days = ['DOMINGO', 'LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO'];
+    const dm = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const hm = (d: Date) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    const shift = open.getHours() < 12 ? 'MAÑANA' : open.getHours() < 19 ? 'TARDE' : 'NOCHE';
+    const user = (s.closedByName ?? s.openedByName ?? 'USUARIO').toUpperCase();
+    const fullDate = `${dm(ref)}/${ref.getFullYear()}`;
+    return [
+      this.tLine('='),
+      this.tCenter(`${titlePrefix} - ${brand}`),
+      this.tLine('='),
+      `${dm(open)} ${hm(open)} - CAJA #${s.number ?? '—'} - ${close ? hm(close) : '--:--'}`,
+      this.tLine('-'),
+      `${fullDate} - ${days[ref.getDay()]} - ${shift} - ${user}`,
+      this.tLine('-'),
+      '',
+    ];
+  }
+
+  private ticketPage(title: string, text: string): string {
     return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${this.escHtml(title)}</title>
 <style>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: #f1f5f9; font-family: 'Segoe UI', Roboto, Arial, sans-serif; color: #0f172a; }
+  body { margin: 0; background: #e5e7eb; color: #000; font-family: 'Courier New', ui-monospace, monospace; }
   .toolbar { position: sticky; top: 0; display: flex; gap: .5rem; justify-content: center; padding: .6rem; background: #0f172a; }
-  .toolbar button { border: 0; border-radius: 7px; padding: .5rem 1.1rem; font-weight: 700; font-size: .85rem; cursor: pointer; }
+  .toolbar button { border: 0; border-radius: 7px; padding: .5rem 1.1rem; font-weight: 700; font-size: .85rem; cursor: pointer; font-family: 'Segoe UI', Roboto, Arial, sans-serif; }
   .toolbar .print { background: #10b981; color: #04130d; }
   .toolbar .close { background: #334155; color: #e2e8f0; }
-  .sheet { width: 80mm; max-width: 96vw; margin: 1rem auto; background: #fff; padding: 10mm 6mm; box-shadow: 0 2px 14px rgba(0,0,0,.15); }
-  .brand { text-align: center; font-weight: 800; font-size: 1.05rem; letter-spacing: .5px; }
-  .doc-t { text-align: center; font-size: .8rem; color: #475569; margin: .1rem 0 .6rem; text-transform: uppercase; letter-spacing: 1px; }
-  hr { border: 0; border-top: 1px dashed #94a3b8; margin: .5rem 0; }
-  .kv { width: 100%; border-collapse: collapse; font-size: .78rem; }
-  .kv td { padding: .12rem 0; vertical-align: top; }
-  .kv td.r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .kv tr.tot td { font-weight: 800; border-top: 1px solid #cbd5e1; padding-top: .2rem; }
-  .sec { margin-top: .5rem; }
-  .sec-t { font-weight: 800; font-size: .74rem; text-transform: uppercase; letter-spacing: .8px; color: #334155; margin-bottom: .15rem; }
-  .big { display: flex; justify-content: space-between; font-weight: 800; font-size: .95rem; margin-top: .35rem; }
-  .cuadre-box { margin-top: .5rem; padding: .4rem .5rem; border: 1px solid #cbd5e1; border-radius: 6px; }
-  .sob { color: #047857; } .fal { color: #b91c1c; } .ok { color: #1d4ed8; }
-  table.virt { width: 100%; border-collapse: collapse; font-size: .68rem; margin-top: .2rem; }
-  table.virt th, table.virt td { border-bottom: 1px solid #e2e8f0; padding: .15rem .2rem; text-align: left; }
-  table.virt td.r, table.virt th.r { text-align: right; font-variant-numeric: tabular-nums; }
-  .sign { margin-top: 1.6rem; text-align: center; font-size: .74rem; color: #475569; }
-  .sign .line { border-top: 1px solid #64748b; width: 70%; margin: 0 auto .2rem; }
-  .amount-hero { text-align: center; margin: .8rem 0; }
-  .amount-hero .lbl { font-size: .74rem; color: #475569; text-transform: uppercase; letter-spacing: 1px; }
-  .amount-hero .val { font-size: 1.7rem; font-weight: 800; }
-  @media print { .toolbar { display: none; } body { background: #fff; } .sheet { box-shadow: none; margin: 0; width: auto; } }
+  .sheet { width: 80mm; max-width: 96vw; margin: 12px auto; background: #fff; padding: 6mm 4mm; box-shadow: 0 2px 14px rgba(0,0,0,.18); }
+  pre.ticket { margin: 0; font-family: 'Courier New', ui-monospace, monospace; font-size: 12px; line-height: 1.28; white-space: pre; color: #000; font-weight: 700; }
+  @media print { .toolbar { display: none; } body { background: #fff; } .sheet { box-shadow: none; margin: 0; width: auto; padding: 0; } }
 </style></head>
 <body>
   <div class="toolbar">
     <button class="print" onclick="window.print()">Imprimir</button>
     <button class="close" onclick="window.close()">Cerrar</button>
   </div>
-  <div class="sheet">
-    <div class="brand">${brand}</div>
-    <div class="doc-t">${this.escHtml(title)}</div>
-    ${inner}
-  </div>
+  <div class="sheet"><pre class="ticket">${this.escHtml(text)}</pre></div>
 </body></html>`;
   }
 
@@ -684,90 +698,93 @@ export class CashComponent implements OnInit {
     const s = d.session;
     const METHODS = ['CASH', 'CARD', 'TRANSFER', 'YAPE', 'PLIN', 'WALLET'];
     const normal = d.movements.filter((m) => m.status === 'NORMAL');
-    const sumType = (types: string[]) => normal.filter((m) => types.includes(m.type)).reduce((a, m) => a + m.amount, 0);
-    const block = (title: string, types: string[]): string => {
-      const tot = sumType(types);
-      if (tot <= 0) return '';
-      const rows = METHODS.map((mth) => {
-        const val = normal.filter((m) => types.includes(m.type) && m.method === mth).reduce((a, m) => a + m.amount, 0);
-        return val > 0 ? `<tr><td>${this.escHtml(METHOD_LABEL[mth] ?? mth)}</td><td class="r">${this.soles(val)}</td></tr>` : '';
-      }).join('');
-      return `<div class="sec"><div class="sec-t">${this.escHtml(title)}</div><table class="kv">${rows}<tr class="tot"><td>Total</td><td class="r">${this.soles(tot)}</td></tr></table></div>`;
-    };
+    const sumT = (types: string[]) => normal.filter((m) => types.includes(m.type)).reduce((a, m) => a + m.amount, 0);
+    const sumBy = (types: string[], mth: string) => normal.filter((m) => types.includes(m.type) && m.method === mth).reduce((a, m) => a + m.amount, 0);
 
-    // Cuadre de efectivo
     const base = s.openingAmount;
     const efTurno = d.methodBar.byMethod['CASH'] || 0;
     const ing = d.methodBar.ingresos, egr = d.methodBar.egresos;
     const esperado = Math.round((base + efTurno + ing - egr) * 100) / 100;
     const contado = s.closingAmount;
     const diff = contado != null ? Math.round((contado - esperado) * 100) / 100 : null;
-    const diffTxt = diff == null ? '—' : diff > 0 ? `<span class="sob">Sobrante ${this.soles(diff)}</span>` : diff < 0 ? `<span class="fal">Faltante ${this.soles(-diff)}</span>` : `<span class="ok">Cuadra exacto</span>`;
 
-    // Resumen por método (todo lo cobrado)
-    const resumenRows = METHODS.map((mth) => {
-      const val = d.methodBar.byMethod[mth] || 0;
-      return val > 0 ? `<tr><td>${this.escHtml(METHOD_LABEL[mth] ?? mth)}</td><td class="r">${this.soles(val)}</td></tr>` : '';
-    }).join('');
+    const L: string[] = [];
+    L.push(...this.ticketHeader('CIERRE DE CAJA', s));
 
-    // Pagos virtuales (detalle)
-    const virt = normal.filter((m) => ['CARD', 'TRANSFER', 'YAPE', 'PLIN', 'WALLET'].includes(m.method));
-    const virtRows = virt.map((m) => `<tr><td>${this.escHtml(METHOD_LABEL[m.method] ?? m.method)}</td><td>${this.hhmm(m.time)}</td><td class="r">${this.soles(m.amount)}</td><td>${this.escHtml(m.description)}</td></tr>`).join('');
-    const virtBlock = virt.length
-      ? `<div class="sec"><div class="sec-t">Pagos virtuales</div><table class="virt"><thead><tr><th>Medio</th><th>Hora</th><th class="r">Monto</th><th>Concepto</th></tr></thead><tbody>${virtRows}</tbody></table></div>`
-      : '';
+    // Base / esperado / contado
+    L.push(this.tKV('CAJA BASE CONFIGURADA', 'S/ ' + base.toFixed(2)));
+    L.push(this.tKV('EFECTIVO ESPERADO EN CAJON', 'S/ ' + esperado.toFixed(2)));
+    L.push(this.tKV('EFECTIVO CONTADO EN CAJON', 'S/ ' + (contado != null ? contado.toFixed(2) : '--')));
+    L.push(this.tLine('='), '');
 
-    const inner = `
-      <table class="kv">
-        <tr><td>Caja N°</td><td class="r">#${s.number ?? '—'}</td></tr>
-        <tr><td>Apertura</td><td class="r">${this.fmtDate(s.openedAt)}</td></tr>
-        <tr><td>Cierre</td><td class="r">${s.closedAt ? this.fmtDate(s.closedAt) : 'En curso'}</td></tr>
-        <tr><td>Abrió</td><td class="r">${this.escHtml(s.openedByName)}</td></tr>
-        <tr><td>Cerró</td><td class="r">${this.escHtml(s.closedByName ?? '—')}</td></tr>
-      </table>
-      <hr>
-      ${block('Hospedaje', ['HOSPEDAJE'])}
-      ${block('Renovaciones / Upgrades / Extras', ['RENOVACION'])}
-      ${block('Servicios y otros', ['SERVICIO'])}
-      ${block('Productos', ['PRODUCTO'])}
-      <div class="sec"><div class="sec-t">Resumen por método</div><table class="kv">${resumenRows}<tr class="tot"><td>Total general</td><td class="r">${this.soles(d.methodBar.total)}</td></tr></table></div>
-      <div class="sec"><div class="sec-t">Ajustes</div><table class="kv">
-        <tr><td>Ingresos</td><td class="r sob">+${this.soles(ing)}</td></tr>
-        <tr><td>Egresos</td><td class="r fal">-${this.soles(egr)}</td></tr>
-        <tr><td>Anulaciones</td><td class="r">${this.soles(d.methodBar.anulaciones)}</td></tr>
-      </table></div>
-      <div class="cuadre-box"><div class="sec-t">Cuadre de efectivo</div><table class="kv">
-        <tr><td>Base configurada</td><td class="r">${this.soles(base)}</td></tr>
-        <tr><td>Efectivo del turno</td><td class="r">${this.soles(efTurno)}</td></tr>
-        <tr><td>Ingresos / Egresos</td><td class="r">+${this.soles(ing)} / -${this.soles(egr)}</td></tr>
-        <tr class="tot"><td>Efectivo esperado en cajón</td><td class="r">${this.soles(esperado)}</td></tr>
-        <tr><td>Efectivo contado</td><td class="r">${contado != null ? this.soles(contado) : '—'}</td></tr>
-        <tr class="tot"><td>Diferencia</td><td class="r">${diffTxt}</td></tr>
-      </table></div>
-      ${virtBlock}
-      <div class="sign"><div class="line"></div>Firma del colaborador</div>`;
-    return this.pageShell(`Resumen de Caja #${s.number ?? ''}`, inner);
+    // Secciones agregadas por método
+    const agg = (title: string, types: string[]) => {
+      const tot = sumT(types);
+      if (tot <= 0) return;
+      L.push(this.tSec(title));
+      for (const mth of METHODS) { const v = sumBy(types, mth); if (v > 0) L.push(this.tMoney(this.ticketMethod(mth), v)); }
+      L.push(this.tLine('-'), this.tMoney('TOTAL', tot), '');
+    };
+    agg('HOSPEDAJE / SERVICIOS', ['HOSPEDAJE', 'SERVICIO']);
+    agg('PRODUCTOS', ['PRODUCTO']);
+
+    // Renovaciones / upgrades / extras (línea por línea con código)
+    const renov = normal.filter((m) => m.type === 'RENOVACION');
+    if (renov.length) {
+      const rtot = renov.reduce((a, m) => a + m.amount, 0);
+      L.push(this.tSec('RENOV / UPG / EXTRA'));
+      for (const m of renov) L.push(this.ticketMethod(m.method).slice(0, 9).padEnd(9) + this.renCode(m.description).padEnd(6) + 'S/ ' + m.amount.toFixed(2).padStart(6));
+      L.push(this.tLine('-'), 'TOTAL'.padEnd(15) + 'S/ ' + rtot.toFixed(2).padStart(6), '');
+    }
+
+    // Resumen por método
+    L.push(this.tSec('RESUMEN POR METODO'));
+    for (const mth of METHODS) { const v = d.methodBar.byMethod[mth] || 0; if (v > 0) L.push(this.ticketMethod(mth).slice(0, 14).padEnd(14) + 'TOTAL TURNO : S/ ' + v.toFixed(2).padStart(6)); }
+    L.push(this.tLine('-'), this.tKV('TOTAL GENERAL', 'S/ ' + d.methodBar.total.toFixed(2)), this.tLine('='), '');
+
+    // Ajustes
+    L.push(this.tSec('AJUSTES'));
+    if (ing === 0 && egr === 0) L.push('(Sin ajustes operativos)');
+    else { if (ing > 0) L.push(this.tKV('Ingresos', '+S/ ' + ing.toFixed(2))); if (egr > 0) L.push(this.tKV('Egresos', '-S/ ' + egr.toFixed(2))); }
+    L.push(this.tLine('-'), this.tKV('TOTAL AJUSTES', 'S/ ' + (ing - egr).toFixed(2)), this.tLine('='), '');
+
+    // Cuadre de efectivo
+    const cuadreTxt = diff == null ? '--' : diff === 0 ? 'OK' : diff > 0 ? 'SOBRA S/ ' + diff.toFixed(2) : 'FALTA S/ ' + (-diff).toFixed(2);
+    L.push(this.tSec('CUADRE DE EFECTIVO'));
+    L.push(this.tKV('EFECTIVO (SEGUN SISTEMA)', 'S/ ' + esperado.toFixed(2)));
+    L.push(this.tKV('CAJA BASE', '-S/ ' + base.toFixed(2)));
+    L.push(this.tLine('-'), this.tKV('TOTAL A ENTREGAR', 'S/ ' + (esperado - base).toFixed(2)), this.tLine('-'));
+    L.push(this.tKV('EFECTIVO REAL EN BOLSA', 'S/ ' + (contado != null ? contado.toFixed(2) : '--')));
+    L.push(this.tKV('CUADRE', cuadreTxt));
+    L.push(this.tLine('='), '', 'FIRMA COLABORADOR', '', '____________________', '');
+
+    // Pagos virtuales
+    const vps = d.virtualPayments ?? [];
+    if (vps.length) {
+      const vrow = (medio: string, hora: string, monto: string, cli: string, conc: string, cod: string) =>
+        medio.padEnd(6) + hora.padEnd(6) + monto.padStart(7) + '  ' + cli.padEnd(4) + ' ' + conc.padEnd(4) + ' ' + cod;
+      L.push(this.tSec('PAGOS VIRTUALES'));
+      L.push(vrow('MEDIO', 'HORA', 'MONTO', 'CLI', 'CONC', 'COD'));
+      L.push(this.tLine('-'));
+      for (const p of vps) L.push(vrow(this.ticketMedio(p.method), this.hhmm(p.time), p.amount.toFixed(2) + (p.mixed ? '*' : ''), (p.client || '').slice(0, 4).toUpperCase(), p.concept, p.code));
+      L.push(this.tLine('-'));
+      if (vps.some((p) => p.mixed)) L.push('* = Pago mixto (Hospedaje + Productos)');
+      L.push(this.tLine('='));
+    }
+
+    return this.ticketPage(`Cierre de Caja #${s.number ?? ''}`, L.join('\n'));
   }
 
   private buildSimpleHtml(
     s: { number: number | null; openedAt: string; closedAt: string | null; openedByName: string; closedByName: string | null },
     delivered: number | null,
   ): string {
-    const inner = `
-      <table class="kv">
-        <tr><td>Caja N°</td><td class="r">#${s.number ?? '—'}</td></tr>
-        <tr><td>Recepcionista</td><td class="r">${this.escHtml(s.closedByName ?? s.openedByName)}</td></tr>
-        <tr><td>Turno</td><td class="r">${this.fmtDate(s.openedAt)}</td></tr>
-        <tr><td>Fecha y hora</td><td class="r">${this.fmtDate(s.closedAt ?? s.openedAt)}</td></tr>
-      </table>
-      <hr>
-      <div class="amount-hero">
-        <div class="lbl">Monto que estoy entregando</div>
-        <div class="val">${this.soles(delivered)}</div>
-      </div>
-      <hr>
-      <div class="sign"><div class="line"></div>Firma del recepcionista</div>
-      <div class="sign" style="margin-top:1.2rem"><div class="line"></div>Recibí conforme (administración)</div>`;
-    return this.pageShell('Comprobante de entrega de efectivo', inner);
+    const L: string[] = [];
+    L.push(...this.ticketHeader('ENTREGA DE EFECTIVO', s));
+    L.push('', this.tCenter('MONTO QUE ESTOY ENTREGANDO'), '', this.tCenter('S/ ' + (delivered ?? 0).toFixed(2)), '');
+    L.push(this.tLine('='), '');
+    L.push('FIRMA RECEPCIONISTA', '', '____________________', '');
+    L.push('RECIBI CONFORME (ADMINISTRACION)', '', '____________________');
+    return this.ticketPage('Entrega de efectivo', L.join('\n'));
   }
 }

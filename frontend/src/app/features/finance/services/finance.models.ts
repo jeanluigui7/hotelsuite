@@ -91,6 +91,18 @@ export interface CashDetail {
   };
   methodBar: { byMethod: Record<string, number>; ingresos: number; egresos: number; anulaciones: number; total: number };
   movements: CashDetailMovement[];
+  /** Detalle de pagos virtuales para el ticket físico (MEDIO/HORA/MONTO/CLI/CONC/COD + pago mixto). */
+  virtualPayments?: CashVirtualPayment[];
+}
+
+export interface CashVirtualPayment {
+  method: string;
+  time: string;
+  amount: number;
+  client: string;
+  concept: string;
+  code: string;
+  mixed: boolean;
 }
 
 export interface CloseResult {

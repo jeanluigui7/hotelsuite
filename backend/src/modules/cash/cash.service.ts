@@ -262,6 +262,34 @@ export const cashService = {
     cards.ajustes = round(movIn - movOut);
     feed.sort((a, b) => b.time.getTime() - a.time.getTime());
 
+    // Detalle de pagos virtuales (para el ticket físico: MEDIO/HORA/MONTO/CLI/CONC/COD y marca de pago mixto).
+    const VIRTUAL = new Set(['CARD', 'TRANSFER', 'YAPE', 'PLIN', 'WALLET']);
+    const virtualPayments: {
+      method: string; time: Date; amount: number; client: string; concept: string; code: string; mixed: boolean;
+    }[] = [];
+    for (const sale of sales) {
+      if (sale.status === 'CANCELLED') continue;
+      const types = new Set(sale.items.map((it) => itemType(it.description, it.productId)));
+      const hasLodging = types.has('HOSPEDAJE') || types.has('RENOVACION') || types.has('SERVICIO');
+      const hasProduct = types.has('PRODUCTO');
+      const concept = types.has('HOSPEDAJE') ? 'HSP' : types.has('RENOVACION') ? 'REN' : types.has('PRODUCTO') ? 'PDT' : 'SVC';
+      const info = sale.stayId ? stayInfo.get(sale.stayId) : undefined;
+      const client = (info?.guest || sale.customerName || 'Venta').trim();
+      for (const p of sale.payments) {
+        if (!VIRTUAL.has(p.method)) continue;
+        virtualPayments.push({
+          method: p.method,
+          time: p.createdAt,
+          amount: Number(p.amount),
+          client,
+          concept,
+          code: p.reference ?? '',
+          mixed: hasLodging && hasProduct,
+        });
+      }
+    }
+    virtualPayments.sort((a, b) => b.time.getTime() - a.time.getTime());
+
     const byMethod: Record<string, number> = {};
     for (const m of PAYMENT_METHODS) byMethod[m] = await cashRepository.paymentsTotal(id, m);
     cards.efectivo = byMethod['CASH'] ?? 0;
@@ -282,6 +310,7 @@ export const cashService = {
       cards,
       methodBar: { byMethod, ingresos: movIn, egresos: movOut, anulaciones, total },
       movements: feed,
+      virtualPayments,
     };
   },
 };
