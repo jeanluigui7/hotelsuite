@@ -79,6 +79,7 @@ export class FinanceApiService {
     type: 'BOLETA' | 'FACTURA';
     customerName: string;
     customerDoc?: string;
+    customerAddress?: string;
     total?: number;
   }): Observable<ApiResponse<Invoice>> {
     return this.http.post<ApiResponse<Invoice>>(`${this.api}/invoices`, dto);

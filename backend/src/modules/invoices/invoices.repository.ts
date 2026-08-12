@@ -28,6 +28,7 @@ export const invoicesRepository = {
     type: string;
     customerName: string;
     customerDoc: string | null;
+    customerAddress: string | null;
     subtotal: number;
     taxAmount: number;
     total: number;
@@ -44,6 +45,7 @@ export const invoicesRepository = {
           number: folio.number,
           customerName: data.customerName,
           customerDoc: data.customerDoc,
+          customerAddress: data.customerAddress,
           subtotal: data.subtotal,
           taxAmount: data.taxAmount,
           total: data.total,

@@ -927,6 +927,7 @@ model Invoice {
   number         Int
   customerDoc    String?
   customerName   String
+  customerAddress String? // dirección del cliente (opcional)
   subtotal       Decimal  @db.Decimal(10, 2) // base imponible
   taxAmount      Decimal  @db.Decimal(10, 2) // IGV
   total          Decimal  @db.Decimal(10, 2)

@@ -45,8 +45,8 @@ const DOC_TYPES = [
         <!-- Izquierda: cliente + pago -->
         <div class="client">
           <h4>Tipo de Cliente</h4>
-          <label class="radio"><input type="radio" name="ct" value="ROOM" [(ngModel)]="clientType" /> Asociar a habitación ocupada</label>
-          <label class="radio"><input type="radio" name="ct" value="EXTERNAL" [(ngModel)]="clientType" /> Cliente Externo</label>
+          <label class="radio"><input type="radio" name="ct" value="ROOM" [(ngModel)]="clientType" (ngModelChange)="onClientTypeChange()" /> Asociar a habitación ocupada</label>
+          <label class="radio"><input type="radio" name="ct" value="EXTERNAL" [(ngModel)]="clientType" (ngModelChange)="onClientTypeChange()" /> Cliente Externo</label>
 
           @if (clientType === 'ROOM') {
             <div class="field">
@@ -78,27 +78,69 @@ const DOC_TYPES = [
           }
 
           <div class="total">Total a cobrar <strong>{{ total() | number: '1.2-2' }}</strong></div>
-          <div class="pays">
-            <div class="pays-head"><span>Método de pago</span><button class="addpay" (click)="addPay()"><i class="pi pi-plus"></i> Añadir</button></div>
-            @for (p of pays(); track $index; let i = $index) {
-              <div class="payrow">
-                <p-select [options]="methods" [(ngModel)]="p.method" (onChange)="onMethodChange(p)" optionLabel="label" optionValue="value" styleClass="w sm" />
-                <p-inputNumber [(ngModel)]="p.amount" mode="decimal" [minFractionDigits]="2" [min]="0" placeholder="Monto" inputStyleClass="amt" [class.err]="!(p.amount > 0)" />
-                <button class="del" (click)="removePay(i)"><i class="pi pi-times"></i></button>
-              </div>
-              @if (needsRef(p.method)) {
-                <div class="payref">
-                  <i class="pi pi-hashtag"></i>
-                  <input pInputText [(ngModel)]="p.reference" placeholder="Código de confirmación / N° de operación (opcional)" />
-                </div>
-              }
-            }
-            @if (!pays().length) { <p class="pay-hint"><i class="pi pi-info-circle"></i> Agrega un método de pago para poder cobrar.</p> }
-            <div class="paid">
-              <span>Pagado: <b>S/ {{ paid() | number: '1.2-2' }}</b></span>
-              <span class="vuelto" [class.on]="change() > 0">Vuelto: <b>S/ {{ change() | number: '1.2-2' }}</b></span>
+
+          <!-- Tipo de Cobro (parcial/adeudo solo para habitación: el saldo va a la deuda del folio). -->
+          @if (clientType === 'ROOM') {
+            <div class="cobro-lbl">Tipo de Cobro</div>
+            <div class="cobro-seg">
+              <button [class.on]="cobro === 'TOTAL'" (click)="setCobro('TOTAL')"><i class="pi pi-check-circle"></i> Pago Total</button>
+              <button [class.on]="cobro === 'PARCIAL'" (click)="setCobro('PARCIAL')"><i class="pi pi-hourglass"></i> Parcial</button>
+              <button [class.on]="cobro === 'ADEUDO'" (click)="setCobro('ADEUDO')"><i class="pi pi-ban"></i> Adeudo</button>
             </div>
-            @if (payError()) { <p class="pay-err"><i class="pi pi-exclamation-triangle"></i> {{ payError() }}</p> }
+          }
+
+          @if (cobro !== 'ADEUDO') {
+            <div class="pays">
+              <div class="pays-head"><span>{{ cobro === 'PARCIAL' ? 'Pago inicial' : 'Método de pago' }}</span><button class="addpay" (click)="addPay()"><i class="pi pi-plus"></i> Añadir</button></div>
+              @for (p of pays(); track $index; let i = $index) {
+                <div class="payrow">
+                  <p-select [options]="methods" [(ngModel)]="p.method" (onChange)="onMethodChange(p)" optionLabel="label" optionValue="value" styleClass="w sm" />
+                  <p-inputNumber [(ngModel)]="p.amount" mode="decimal" [minFractionDigits]="2" [min]="0" placeholder="Monto" inputStyleClass="amt" [class.err]="!(p.amount > 0)" />
+                  <button class="del" (click)="removePay(i)"><i class="pi pi-times"></i></button>
+                </div>
+                @if (needsRef(p.method)) {
+                  <div class="payref">
+                    <i class="pi pi-hashtag"></i>
+                    <input pInputText [(ngModel)]="p.reference" placeholder="Código de confirmación / N° de operación (opcional)" />
+                  </div>
+                }
+              }
+              @if (!pays().length) { <p class="pay-hint"><i class="pi pi-info-circle"></i> Agrega un método de pago para poder cobrar.</p> }
+              <div class="paid">
+                <span>Pagado: <b>S/ {{ paid() | number: '1.2-2' }}</b></span>
+                <span class="vuelto" [class.on]="change() > 0">Vuelto: <b>S/ {{ change() | number: '1.2-2' }}</b></span>
+              </div>
+              @if (cobro === 'PARCIAL' && saldo() > 0) { <div class="saldo"><i class="pi pi-wallet"></i> Saldo a deuda del folio: <b>S/ {{ saldo() | number: '1.2-2' }}</b></div> }
+              @if (payError()) { <p class="pay-err"><i class="pi pi-exclamation-triangle"></i> {{ payError() }}</p> }
+            </div>
+          } @else {
+            <div class="adeudo-note"><i class="pi pi-info-circle"></i> Todo el monto (<b>S/ {{ total() | number: '1.2-2' }}</b>) quedará como <b>deuda</b> en el folio de la habitación. Se cobra al hacer el check-out.</div>
+          }
+
+          <!-- Generar Comprobante electrónico -->
+          <div class="comp">
+            <div class="comp-head">
+              <p-toggleswitch [(ngModel)]="genComp" (onChange)="onGenComp()" />
+              <span>Generar Comprobante</span>
+            </div>
+            @if (genComp) {
+              <div class="comp-body">
+                <div class="comp-t">Datos para comprobante electrónico</div>
+                @if (clientType === 'ROOM' && stayId) { <label class="chk"><input type="checkbox" [(ngModel)]="compUseGuest" (change)="applyGuestData()" /> Usar los mismos datos del huésped</label> }
+                <label>Tipo de Documento</label>
+                <div class="seg2">
+                  <button [class.on]="compDocType === 'DNI'" (click)="compDocType = 'DNI'"><i class="pi pi-id-card"></i> DNI (Boleta)</button>
+                  <button [class.on]="compDocType === 'RUC'" (click)="compDocType = 'RUC'"><i class="pi pi-briefcase"></i> RUC (Factura)</button>
+                </div>
+                <label>Número de Documento</label>
+                <input pInputText [(ngModel)]="compDocNumber" [readonly]="compUseGuest && clientType === 'ROOM' && !!stayId" placeholder="76418493" />
+                <label>Nombre / Razón Social</label>
+                <input pInputText [(ngModel)]="compName" [readonly]="compUseGuest && clientType === 'ROOM' && !!stayId" placeholder="Nombre o razón social" />
+                <label>Dirección (Opcional)</label>
+                <input pInputText [(ngModel)]="compAddress" placeholder="Dirección fiscal" />
+                @if (compError()) { <p class="pay-err"><i class="pi pi-exclamation-triangle"></i> {{ compError() }}</p> }
+              </div>
+            }
           </div>
         </div>
 
@@ -173,6 +215,22 @@ const DOC_TYPES = [
       .paid b { color: #e6edf5; } .paid .vuelto.on b { color: #34d399; }
       .pay-hint { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: #8aa0bd; margin: 0.4rem 0 0; }
       .pay-err { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: #fca5a5; background: rgba(180,35,35,0.1); border: 1px solid rgba(180,35,35,0.35); border-radius: 8px; padding: 0.45rem 0.6rem; margin: 0.5rem 0 0; }
+      .cobro-lbl { font-size: 0.8rem; color: #9fb0c3; margin: 0.7rem 0 0.3rem; font-weight: 600; }
+      .cobro-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; }
+      .cobro-seg button { background: #0f1a2b; border: 1px solid #243245; color: #cdd8e6; border-radius: 9px; padding: 0.55rem 0.3rem; cursor: pointer; font-size: 0.8rem; font-weight: 700; display: inline-flex; flex-direction: column; align-items: center; gap: 0.2rem; }
+      .cobro-seg button .pi { font-size: 0.95rem; }
+      .cobro-seg button.on { background: rgba(16,185,129,0.14); border-color: #10b981; color: #34d399; }
+      .saldo { margin-top: 0.5rem; font-size: 0.82rem; color: #fbbf24; display: flex; align-items: center; gap: 0.4rem; } .saldo b { color: #fff; }
+      .adeudo-note { margin-top: 0.6rem; font-size: 0.82rem; color: #cdd8e6; background: rgba(180,35,35,0.1); border: 1px solid rgba(180,35,35,0.3); border-radius: 10px; padding: 0.7rem 0.8rem; display: flex; align-items: flex-start; gap: 0.45rem; } .adeudo-note .pi { color: #f87171; margin-top: 0.1rem; } .adeudo-note b { color: #fff; }
+      .comp { margin-top: 0.9rem; border-top: 1px solid #1c2a3a; padding-top: 0.7rem; }
+      .comp-head { display: flex; align-items: center; gap: 0.6rem; font-weight: 700; color: #e6edf5; }
+      .comp-body { margin-top: 0.7rem; display: flex; flex-direction: column; gap: 0.3rem; }
+      .comp-t { color: #34d399; font-weight: 700; font-size: 0.85rem; margin-bottom: 0.2rem; }
+      .comp-body label { font-size: 0.8rem; color: #9fb0c3; margin-top: 0.35rem; }
+      .comp-body input[pInputText] { background: #0f1a2b; border: 1px solid #1c2c44; color: #e6edf5; border-radius: 8px; padding: 0.55rem 0.7rem; font: inherit; }
+      .comp-body input[readonly] { opacity: 0.7; }
+      .chk { display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.85rem; color: #cdd8e6; cursor: pointer; margin-bottom: 0.2rem; }
+      .comp .seg2 { display: flex; gap: 0.4rem; } .comp .seg2 button { flex: 1; background: #0f1a2b; border: 1px solid #243245; color: #cdd8e6; border-radius: 8px; padding: 0.5rem; cursor: pointer; font-size: 0.82rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; } .comp .seg2 button.on { background: rgba(16,185,129,0.14); border-color: #10b981; color: #34d399; }
 
       .catalog { display: flex; flex-direction: column; gap: 0.6rem; }
       .cat-filters { display: flex; gap: 0.5rem; }
@@ -222,6 +280,15 @@ export class VentaProductosComponent {
   plate = '';
   stayId: string | null = null;
   customerName = '';
+  // Tipo de cobro: pago total, parcial (queda saldo) o adeudo (todo a deuda de la habitación).
+  cobro: 'TOTAL' | 'PARCIAL' | 'ADEUDO' = 'TOTAL';
+  // Comprobante electrónico (al activar "Generar Comprobante").
+  genComp = false;
+  compUseGuest = true;
+  compDocType: 'DNI' | 'RUC' = 'DNI';
+  compDocNumber = '';
+  compName = '';
+  compAddress = '';
   search = '';
   categoryFilter: string | null = null;
   lowStockOnly = false;
@@ -255,6 +322,7 @@ export class VentaProductosComponent {
   load(): void {
     this.pays.set([]); this.customerName = ''; this.stayId = null; this.clientType = 'ROOM';
     this.idMode = 'DOC'; this.docType = 'DNI'; this.docNumber = ''; this.plate = '';
+    this.cobro = 'TOTAL'; this.genComp = false; this.compUseGuest = true; this.compDocType = 'DNI'; this.compDocNumber = ''; this.compName = ''; this.compAddress = '';
     this.search = ''; this.categoryFilter = null; this.lowStockOnly = false; this.qty = {};
     // Muestra el stock del almacén de RECEPCIÓN (lo que se puede vender aquí), no el general.
     this.inventory.products.list({ pageSize: 300, status: 'active', area: 'RECEPTION' }).subscribe((r) => this.products.set(r.data ?? []));
@@ -277,22 +345,64 @@ export class VentaProductosComponent {
   /** Al pasar a Efectivo se limpia la referencia (no aplica). */
   onMethodChange(p: Pay): void { if (p.method === 'CASH') p.reference = ''; this.pays.set([...this.pays()]); }
 
+  /** Saldo que quedaría como deuda (parcial). */
+  saldo(): number { return Math.max(0, Math.round((this.total() - this.paid()) * 100) / 100); }
+
+  /** Cliente Externo no admite parcial/adeudo (no hay folio donde dejar la deuda). */
+  onClientTypeChange(): void {
+    if (this.clientType === 'EXTERNAL') { this.setCobro('TOTAL'); this.compUseGuest = false; }
+    else this.compUseGuest = true;
+  }
+
+  setCobro(c: 'TOTAL' | 'PARCIAL' | 'ADEUDO'): void {
+    this.cobro = c;
+    if (c === 'ADEUDO') { this.pays.set([]); }
+    else if (!this.pays().length) { this.pays.set([{ method: 'CASH', amount: c === 'TOTAL' ? this.total() : 0 }]); }
+  }
+
+  /** Al activar "Generar Comprobante", precarga los datos del huésped si aplica. */
+  onGenComp(): void { if (this.genComp) this.applyGuestData(); }
+  applyGuestData(): void {
+    if (!(this.genComp && this.compUseGuest && this.clientType === 'ROOM' && this.stayId)) return;
+    const s = this.stays().find((x) => x.id === this.stayId);
+    if (!s) return;
+    this.compName = `${s.guest.firstName} ${s.guest.lastName ?? ''}`.trim();
+    this.compDocNumber = s.guest.documentNumber ?? '';
+    this.compDocType = (s.guest.documentNumber ?? '').trim().length === 11 ? 'RUC' : 'DNI';
+  }
+
+  /** Validación del comprobante (vacío = ok o desactivado). */
+  compError(): string {
+    if (!this.genComp) return '';
+    if (!this.compName.trim()) return 'Ingresa el nombre / razón social del comprobante.';
+    if (!this.compDocNumber.trim()) return 'Ingresa el número de documento del comprobante.';
+    if (this.compDocType === 'RUC' && this.compDocNumber.trim().length !== 11) return 'El RUC debe tener 11 dígitos.';
+    return '';
+  }
+
   /** Mensaje del primer problema con los pagos (vacío = todo correcto). */
   payError(): string {
     if (this.total() <= 0) return '';
+    if (this.cobro === 'ADEUDO') return ''; // sin pago: todo a deuda del folio
     const ps = this.pays();
     if (!ps.length) return 'Agrega un método de pago para cobrar.';
     for (const p of ps) {
       if (!(p.amount > 0)) return 'Ingresa el monto de cada método de pago.';
     }
-    if (this.paid() + 0.001 < this.total()) return `El pago no cubre el total (faltan S/ ${(this.total() - this.paid()).toFixed(2)}).`;
+    const paid = this.paid();
+    const total = this.total();
+    if (this.cobro === 'TOTAL' && paid + 0.001 < total) return `El pago no cubre el total (faltan S/ ${(total - paid).toFixed(2)}).`;
+    if (this.cobro === 'PARCIAL') {
+      if (paid <= 0) return 'Ingresa el pago inicial.';
+      if (paid > total + 0.001) return 'El pago parcial no puede superar el total (usa Pago Total).';
+    }
     return '';
   }
 
   canSubmit(): boolean {
     if (this.saving() || this.lines().length === 0) return false;
     if (this.clientType === 'ROOM' && !this.stayId) return false;
-    if (this.payError() !== '') return false;
+    if (this.payError() !== '' || this.compError() !== '') return false;
     return true;
   }
 
@@ -306,19 +416,51 @@ export class VentaProductosComponent {
   submit(): void {
     if (!this.canSubmit()) return;
     this.saving.set(true);
+    // Pagos registrados: topados al total (el efectivo de más es VUELTO, no se registra).
+    // ADEUDO → sin pagos; PARCIAL → lo ingresado (< total, el saldo queda como deuda del folio).
+    const recorded: { method: Pay['method']; amount: number; reference?: string }[] = [];
+    if (this.cobro !== 'ADEUDO') {
+      let remaining = this.total();
+      for (const p of this.pays()) {
+        if (!(p.amount > 0) || remaining <= 0) continue;
+        const amt = Math.min(p.amount, remaining);
+        recorded.push({ method: p.method, amount: Math.round(amt * 100) / 100, reference: p.reference?.trim() || undefined });
+        remaining = Math.round((remaining - amt) * 100) / 100;
+      }
+    }
     this.finance.createSale({
       stayId: this.clientType === 'ROOM' ? this.stayId : null,
       customerName: this.clientType === 'EXTERNAL' ? this.externalName() : undefined,
       items: this.lines(),
-      payments: this.pays().filter((p) => p.amount > 0).map((p) => ({ method: p.method, amount: p.amount, reference: p.reference?.trim() || undefined })),
+      payments: recorded,
       sourceArea: 'RECEPTION',
     }).subscribe({
       next: (res) => {
-        this.saving.set(false);
-        this.toast.add({ severity: 'success', summary: 'Venta registrada', detail: 'Total ' + this.total().toFixed(2) });
-        if (res.data) this.printing.printViaBrowser(buildSaleReceipt(res.data, this.auth.activeBranch()?.name ?? 'RIZZOS'));
-        this.done.emit();
-        this.close();
+        const sale = res.data;
+        const finishOk = () => {
+          this.saving.set(false);
+          this.toast.add({ severity: 'success', summary: 'Venta registrada', detail: this.cobro === 'ADEUDO' ? 'Adeudo a la habitación · S/ ' + this.total().toFixed(2) : (this.cobro === 'PARCIAL' ? 'Pago parcial · saldo S/ ' + this.saldo().toFixed(2) : 'Total S/ ' + this.total().toFixed(2)) });
+          if (sale) this.printing.printViaBrowser(buildSaleReceipt(sale, this.auth.activeBranch()?.name ?? 'RIZZOS'));
+          this.done.emit();
+          this.close();
+        };
+        if (this.genComp && sale) {
+          this.finance.issueInvoice({
+            saleId: sale.id,
+            type: this.compDocType === 'DNI' ? 'BOLETA' : 'FACTURA',
+            customerName: this.compName.trim(),
+            customerDoc: this.compDocNumber.trim(),
+            customerAddress: this.compAddress.trim() || undefined,
+          }).subscribe({
+            next: () => finishOk(),
+            error: (e: HttpErrorResponse) => {
+              this.saving.set(false);
+              this.toast.add({ severity: 'warn', summary: 'Venta registrada, comprobante NO emitido', detail: e.error?.error?.message ?? 'Revisa las series de folios o los permisos de facturación.' });
+              this.done.emit();
+              this.close();
+            },
+          });
+        } else finishOk();
       },
       error: (err: HttpErrorResponse) => {
         this.saving.set(false);

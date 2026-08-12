@@ -6,6 +6,7 @@ export const issueInvoiceSchema = z
     type: z.enum(['BOLETA', 'FACTURA']),
     customerName: z.string().min(1).max(160),
     customerDoc: z.string().max(20).optional().or(z.literal('')),
+    customerAddress: z.string().max(300).optional().or(z.literal('')),
     total: z.coerce.number().positive().optional(),
   })
   .refine((v) => v.saleId || v.total !== undefined, {
