@@ -75,9 +75,11 @@ const METHODS = [
 
           <div class="total">Total a cobrar <strong>{{ total() | number: '1.2-2' }}</strong></div>
 
-          <div class="field">
-            <label>Tipo de cobro</label>
-            <p-select [options]="cobroTypes" [(ngModel)]="cobro" optionLabel="label" optionValue="value" styleClass="w" (onChange)="onCobro()" />
+          <div class="cobro-lbl">Tipo de Cobro</div>
+          <div class="cobro-seg">
+            <button [class.on]="cobro === 'TOTAL'" (click)="setCobro('TOTAL')"><i class="pi pi-check-circle"></i> Pago Total</button>
+            <button [class.on]="cobro === 'PARCIAL'" (click)="setCobro('PARCIAL')"><i class="pi pi-hourglass"></i> Parcial</button>
+            <button [class.on]="cobro === 'ADEUDO'" (click)="setCobro('ADEUDO')"><i class="pi pi-ban"></i> Adeudo</button>
           </div>
 
           @if (cobro !== 'ADEUDO') {
@@ -168,6 +170,11 @@ const METHODS = [
       .saldo { margin-top: 0.4rem; font-size: 0.82rem; color: #fbbf24; display: flex; align-items: center; gap: 0.4rem; } .saldo b { color: #fff; }
       .pay-hint { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: #8aa0bd; margin: 0.4rem 0 0; }
       .pay-err { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: #fca5a5; background: rgba(180,35,35,0.1); border: 1px solid rgba(180,35,35,0.35); border-radius: 8px; padding: 0.45rem 0.6rem; margin: 0.5rem 0 0; }
+      .cobro-lbl { font-size: 0.8rem; color: #9fb0c3; margin: 0.7rem 0 0.3rem; font-weight: 600; }
+      .cobro-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; }
+      .cobro-seg button { background: #0f1a2b; border: 1px solid #243245; color: #cdd8e6; border-radius: 9px; padding: 0.55rem 0.3rem; cursor: pointer; font-size: 0.8rem; font-weight: 700; display: inline-flex; flex-direction: column; align-items: center; gap: 0.2rem; }
+      .cobro-seg button .pi { font-size: 0.95rem; }
+      .cobro-seg button.on { background: rgba(16,185,129,0.14); border-color: #10b981; color: #34d399; }
       .adeudo-note { background: #2a1d12; border: 1px solid #6b4f2a; color: #fbbf24; padding: 0.5rem 0.7rem; border-radius: 8px; font-size: 0.82rem; } .adeudo-note b { color: #fff; }
       .switch { display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: #cdd8e6; margin-top: 0.5rem; }
       .comp { margin-top: 0.8rem; border-top: 1px solid #1c2a3a; padding-top: 0.7rem; }
@@ -287,6 +294,7 @@ export class ServiciosPenalidadesComponent {
   addPay(): void { this.pays.set([...this.pays(), { method: 'CASH', amount: this.owed() }]); }
   rmPay(i: number): void { const n = [...this.pays()]; n.splice(i, 1); this.pays.set(n); }
 
+  setCobro(c: 'TOTAL' | 'PARCIAL' | 'ADEUDO'): void { this.cobro = c; this.onCobro(); }
   onCobro(): void {
     if (this.cobro === 'ADEUDO') this.pays.set([]);
     else if (this.cobro === 'TOTAL') this.pays.set([{ method: 'CASH', amount: this.total() }]);
