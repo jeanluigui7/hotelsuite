@@ -12,6 +12,10 @@ const routes: Routes = [
     loadComponent: () => import('./hotel/hotel.component').then((m) => m.HotelComponent),
   },
   {
+    path: 'configuracion-operativa',
+    loadComponent: () => import('./configuracion-operativa/operations-config.component').then((m) => m.OperationsConfigComponent),
+  },
+  {
     path: 'pernoctacion',
     loadComponent: () => import('./pernoctacion/pernocta.component').then((m) => m.PernoctaConfigComponent),
   },

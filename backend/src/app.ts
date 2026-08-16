@@ -68,6 +68,7 @@ import { dashboardRouter } from './modules/dashboard/dashboard.routes';
 import { inventoryConfigRouter } from './modules/inventory-config/inventory-config.routes';
 import { wifiRouter } from './modules/wifi/wifi.routes';
 import { pernoctaRouter } from './modules/pernocta/pernocta.routes';
+import { operationsConfigRouter } from './modules/operations-config/operations-config.routes';
 import { servicesRouter } from './modules/services/services.routes';
 import { receptionInventoryRouter } from './modules/reception-inventory/reception-inventory.routes';
 import { cleaningRouter } from './modules/cleaning/cleaning.routes';
@@ -157,6 +158,7 @@ export function createApp(): Application {
   app.use('/api', remindersRouter);
   app.use('/api', wifiRouter);
   app.use('/api', pernoctaRouter);
+  app.use('/api', operationsConfigRouter);
   app.use('/api', servicesRouter);
   app.use('/api', receptionInventoryRouter);
   app.use('/api', cleaningRouter);

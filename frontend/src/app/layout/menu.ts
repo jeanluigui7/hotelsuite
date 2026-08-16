@@ -219,8 +219,8 @@ export const ADMIN_MENU: MenuItem[] = [
     children: [
       { label: 'Sucursales', route: '/settings/sucursales' },
       { label: 'Hotel', route: '/settings/hotel' },
+      { label: 'Configuración Operativa', route: '/settings/configuracion-operativa' },
       { label: 'Pernoctación (Día Hotelero)', route: '/settings/pernoctacion' },
-      { label: 'Permisos de Recepción', route: '/settings/permisos-recepcion' },
       { label: 'Pool WiFi', route: '/settings/wifi' },
       { label: 'Clientes', route: '/settings/clientes' },
       { label: 'Tiers de Clientes', route: '/settings/tiers' },
