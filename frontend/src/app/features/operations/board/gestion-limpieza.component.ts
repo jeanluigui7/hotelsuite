@@ -105,6 +105,9 @@ const ACCIONES_PERIODICAS = [
       }
 
       <h3 class="ges"><i class="pi pi-th-large"></i> Gestionar Habitaciones</h3>
+      @if (overTimeCount() > 0) {
+        <div class="overalert"><i class="pi pi-exclamation-triangle"></i> {{ overTimeCount() }} limpieza(s) exceden el límite de {{ cleaningLimitMin() }} min.</div>
+      }
       <div class="grid">
         @for (r of normalRooms(); track r.id) {
           <article class="card" [class.curso]="r.enCurso" [class.renewal]="r.renewal" [class.checkout]="!r.renewal">
@@ -115,9 +118,9 @@ const ACCIONES_PERIODICAS = [
             </div>
             <div class="ty">{{ r.typeName }}</div><div class="pi-flo">Piso {{ r.floor || '-' }}</div>
             @if (r.enCurso) {
-              <div class="timer">
-                <i class="pi pi-clock"></i>
-                <div><span class="t">{{ elapsed(r.startedAt) }}</span><small>Límite: 12 min</small></div>
+              <div class="timer" [class.over]="overTime(r.startedAt)">
+                <i class="pi" [class.pi-clock]="!overTime(r.startedAt)" [class.pi-exclamation-triangle]="overTime(r.startedAt)"></i>
+                <div><span class="t">{{ elapsed(r.startedAt) }}</span><small>{{ overTime(r.startedAt) ? 'Excedió el límite de ' + cleaningLimitMin() + ' min' : 'Límite: ' + cleaningLimitMin() + ' min' }}</small></div>
               </div>
               <button class="cta done" (click)="openFinalizar(r)"><i class="pi pi-check"></i> Finalizar Limpieza</button>
             } @else {
@@ -393,10 +396,14 @@ const ACCIONES_PERIODICAS = [
       .dot-amber { width: 12px; height: 12px; border-radius: 50%; background: #fbbf24; box-shadow: 0 0 0 4px rgba(251,191,36,0.2); }
       .num { font-size: 1.3rem; font-weight: 800; color: #fff; } .ty { font-size: 0.78rem; text-transform: uppercase; opacity: 0.9; } .pi-flo { font-size: 0.78rem; opacity: 0.7; }
       .st { font-size: 0.85rem; opacity: 0.9; margin: 0.2rem 0; }
-      .timer { display: flex; align-items: center; gap: 0.6rem; margin: 0.6rem 0; padding: 0.7rem 0.9rem; background: rgba(127,29,29,0.45); border: 1px solid #b91c1c; border-radius: 12px; color: #fecaca; }
+      .timer { display: flex; align-items: center; gap: 0.6rem; margin: 0.6rem 0; padding: 0.7rem 0.9rem; background: rgba(16,185,129,0.14); border: 1px solid #14633f; border-radius: 12px; color: #a7f3d0; }
       .timer .pi { font-size: 1.1rem; }
-      .timer .t { display: block; font-size: 1.35rem; font-weight: 800; color: #fca5a5; letter-spacing: 0.04em; }
-      .timer small { color: #f87171; font-size: 0.72rem; }
+      .timer .t { display: block; font-size: 1.35rem; font-weight: 800; color: #6ee7b7; letter-spacing: 0.04em; }
+      .timer small { color: #6b9b86; font-size: 0.72rem; }
+      .timer.over { background: rgba(127,29,29,0.5); border-color: #b91c1c; color: #fecaca; animation: pulseOver 1.4s ease-in-out infinite; }
+      .timer.over .pi { color: #fca5a5; } .timer.over .t { color: #fca5a5; } .timer.over small { color: #f87171; }
+      @keyframes pulseOver { 0%,100% { box-shadow: 0 0 0 0 rgba(185,28,28,0.5); } 50% { box-shadow: 0 0 0 5px rgba(185,28,28,0); } }
+      .overalert { display: flex; align-items: center; gap: 0.5rem; margin: 0.4rem 0 0.9rem; padding: 0.6rem 0.9rem; background: rgba(245,158,11,0.14); border: 1px solid #b45309; border-radius: 10px; color: #fbbf24; font-weight: 700; font-size: 0.9rem; }
       .cta { margin-top: 0.6rem; width: 100%; background: #ec4899; color: #fff; border: 0; border-radius: 10px; padding: 0.6rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; justify-content: center; }
       .cta.done { background: #10b981; }
       .hint { background: #0e241c; border: 1px solid #1f3a2c; color: #9fe7c4; padding: 0.55rem 0.8rem; border-radius: 8px; font-size: 0.82rem; }
@@ -543,6 +550,24 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   ];
   private readonly tick = signal(0);
   private timer?: ReturnType<typeof setInterval>;
+  // Tiempo límite de limpieza (Configuración Operativa); genera alerta al excederlo.
+  readonly cleaningLimitMin = signal(12);
+  /** Minutos transcurridos desde el inicio (reactivo al tick). */
+  private elapsedMin(startedAt?: string | null): number {
+    void this.tick();
+    if (!startedAt) return 0;
+    return (Date.now() - new Date(startedAt).getTime()) / 60000;
+  }
+  /** ¿La limpieza excedió el tiempo límite configurado? */
+  overTime(startedAt?: string | null): boolean {
+    const lim = this.cleaningLimitMin();
+    return lim > 0 && !!startedAt && this.elapsedMin(startedAt) > lim;
+  }
+  /** Cantidad de limpiezas en curso que exceden el límite (para la alerta de cabecera). */
+  readonly overTimeCount = computed(() => {
+    void this.tick();
+    return this.rooms().filter((r) => r.enCurso && this.overTime(r.startedAt)).length;
+  });
 
   readonly repasoRooms = computed(() => this.rooms().filter((r) => r.repaso));
   readonly revisionRooms = computed(() => this.rooms().filter((r) => r.revision));
@@ -574,6 +599,8 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   reload(): void {
     this.http.get<ApiResponse<CleanRoom[]>>(`${this.api}/cleaning/rooms`).subscribe((r) => this.rooms.set(r.data ?? []));
     this.http.get<ApiResponse<Supply[]>>(`${this.api}/services/supplies?status=PENDING`).subscribe((r) => this.supplies.set(r.data ?? []));
+    this.http.get<ApiResponse<{ cleaningTimeLimitMin?: number }>>(`${this.api}/operations-config`)
+      .subscribe((r) => { if (r.data?.cleaningTimeLimitMin != null) this.cleaningLimitMin.set(r.data.cleaningTimeLimitMin); });
   }
 
   groupQty(g: SupplyGroup): number { return g.items.reduce((n, it) => n + (it.quantity || 0), 0); }
