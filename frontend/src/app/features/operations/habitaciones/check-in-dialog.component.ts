@@ -477,7 +477,8 @@ export class CheckInDialogComponent {
   @Input() reservationId: string | null = null;
 
   readonly docTypes = DOC_TYPES;
-  readonly payTypes = PAY_TYPES;
+  // Copia mutable: las comisiones POS se cargan desde Configuración Operativa (init).
+  payTypes = PAY_TYPES.map((t) => ({ ...t }));
 
   readonly tab = signal<Tab>('huesped');
   readonly rates = signal<Rate[]>([]);
@@ -544,6 +545,7 @@ export class CheckInDialogComponent {
     this.nights = 1; this.manualNights = false; this.finalPrice = null;
     this.lines.set([]); this.addGuests.set([]); this.pays.set([]); this.debts.set({ items: [], total: 0 }); this.foundGuestId = null;
 
+    this.loadCommissions();
     this.catalog.rates.list({ roomTypeId: room.roomType.id }).subscribe((res) => this.rates.set(res.data ?? []));
     this.catalog.clientTiers.list({ pageSize: 100, sortBy: 'name' }).subscribe((res) => this.tiers.set(res.data ?? []));
     this.inventory.products.list({ pageSize: 300, status: 'active', area: 'RECEPTION' }).subscribe((res) => this.products.set(res.data ?? []));
@@ -798,7 +800,26 @@ export class CheckInDialogComponent {
   // El "monto" de cada método es BRUTO: lo que el cliente paga en ese medio, ya incluida
   // la comisión. La parte que cubre la cuenta (neto) = monto / (1 + comisión%). Así el total
   // pagado cubre la cuenta + la comisión POS y no queda un pendiente fantasma.
-  payMeta(type: string): (typeof PAY_TYPES)[number] { return PAY_TYPES.find((t) => t.value === type) ?? PAY_TYPES[0]; }
+  payMeta(type: string): (typeof PAY_TYPES)[number] { return this.payTypes.find((t) => t.value === type) ?? this.payTypes[0]; }
+
+  /** Carga las comisiones POS desde Configuración Operativa (fuente única por sucursal). */
+  private loadCommissions(): void {
+    this.http.get<ApiResponse<{ commissionsEnabled: boolean; pos: Record<string, { enabled: boolean; pct: number }> }>>(`${this.apiUrl}/operations-config`).subscribe((res) => {
+      const c = res.data;
+      const on = !!c?.commissionsEnabled;
+      const pos = c?.pos ?? {};
+      const pct = (k: string) => (on && pos[k]?.enabled ? pos[k].pct : 0);
+      const map: Record<string, number> = {
+        CASH: 0,
+        CARD_CREDIT: pct('credit'),
+        CARD_DEBIT: pct('debit'),
+        TRANSFER: pct('transfer'),
+        YAPE: pct('yape'),
+        PLIN: pct('plin'),
+      };
+      this.payTypes = PAY_TYPES.map((t) => ({ ...t, commission: map[t.value] ?? 0 }));
+    });
+  }
   private payNet(p: PayRow): number { const c = this.payMeta(p.type).commission; return (p.amount || 0) / (1 + c / 100); }
   private sumNetExcept(idx: number): number { return this.pays().reduce((a, p, i) => (i === idx ? a : a + this.payNet(p)), 0); }
   private grossFor(remainingNet: number, comm: number): number { return Math.max(0, Math.round(remainingNet * (1 + comm / 100) * 100) / 100); }

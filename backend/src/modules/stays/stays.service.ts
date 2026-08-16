@@ -8,7 +8,7 @@ import {
   type PaginationParams,
 } from '../../shared/pagination';
 import { requireActiveBranch } from '../../shared/scope';
-import { operationsConfigService, requireReceptionFlag } from '../operations-config/operations-config.service';
+import { operationsConfigService, posRateOf, requireReceptionFlag } from '../operations-config/operations-config.service';
 import { prisma } from '../../config/prisma';
 import { guestsRepository } from '../guests/guests.repository';
 import { pernoctaService } from '../pernocta/pernocta.service';
@@ -392,6 +392,22 @@ export const staysService = {
     }
     const ref = dto.mode === 'HOURS' ? 'Tiempo extra (horas)' : 'Renovación de estadía';
 
+    // Comisión POS (Configuración Operativa): recargo al cliente por el método de pago.
+    // El monto de cada pago es la base; la comisión se agrega como línea y se cobra sobre el pago.
+    const opsCfg = await operationsConfigService.get(scope);
+    let commission = 0;
+    const adjPayments = payments.map((p) => {
+      const c = round2(p.amount * posRateOf(opsCfg, p.method) / 100);
+      commission = round2(commission + c);
+      return { ...p, amount: round2(p.amount + c) };
+    });
+    const saleTotal = round2(price + commission);
+    const paidWithComm = round2(adjPayments.reduce((a, p) => a + p.amount, 0));
+    const saleItems: { description: string; quantity: number; unitPrice: number; subtotal: number }[] = [
+      { description: `${ref}${dto.notes ? ' — ' + dto.notes : ''}`, quantity: 1, unitPrice: price, subtotal: price },
+    ];
+    if (commission > 0) saleItems.push({ description: 'Comisión POS', quantity: 1, unitPrice: commission, subtotal: commission });
+
     await prisma.$transaction([
       prisma.stay.update({
         where: { id },
@@ -399,11 +415,11 @@ export const staysService = {
       }),
       prisma.sale.create({
         data: {
-          branchId, stayId: id, guestId: stay.guestId, total: price,
+          branchId, stayId: id, guestId: stay.guestId, total: saleTotal,
           // PAID solo si se cubrió todo; parcial o diferido quedan OPEN (el saldo es deuda).
-          status: price > 0 && paidNow >= price ? 'PAID' : 'OPEN', cashSessionId: sessionId, createdByUserId: scope.userId,
-          items: { create: [{ description: `${ref}${dto.notes ? ' — ' + dto.notes : ''}`, quantity: 1, unitPrice: price, subtotal: price }] },
-          ...(payments.length ? { payments: { create: payments.map((p) => ({ branchId, method: p.method, amount: round2(p.amount), reference: p.reference || null, cashSessionId: sessionId, createdByUserId: scope.userId })) } } : {}),
+          status: saleTotal > 0 && paidWithComm >= saleTotal ? 'PAID' : 'OPEN', cashSessionId: sessionId, createdByUserId: scope.userId,
+          items: { create: saleItems },
+          ...(adjPayments.length ? { payments: { create: adjPayments.map((p) => ({ branchId, method: p.method, amount: round2(p.amount), reference: p.reference || null, cashSessionId: sessionId, createdByUserId: scope.userId })) } } : {}),
         },
       }),
     ]);

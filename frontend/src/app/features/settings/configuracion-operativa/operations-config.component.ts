@@ -236,10 +236,11 @@ export class OperationsConfigComponent {
 
   constructor() {
     // Recarga automática al cambiar de sucursal (selector global).
+    // allowSignalWrites: load() escribe señales (loading/cfg) de forma síncrona.
     effect(() => {
       const id = this.auth.activeBranchId();
       if (id) this.load();
-    });
+    }, { allowSignalWrites: true });
   }
 
   private load(): void {

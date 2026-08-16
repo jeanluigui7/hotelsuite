@@ -155,6 +155,24 @@ export const operationsConfigService = {
   },
 };
 
+type OperationsConfig = Awaited<ReturnType<typeof operationsConfigService.get>>;
+
+/**
+ * Tasa de comisión POS (%) para un método de pago, según la Configuración Operativa.
+ * CARD usa la tasa de crédito (o débito si crédito está deshabilitado). 0 si las comisiones
+ * están desactivadas o el método no tiene comisión activa.
+ */
+export function posRateOf(cfg: OperationsConfig, method: string): number {
+  if (!cfg.commissionsEnabled) return 0;
+  const m =
+    method === 'TRANSFER' ? cfg.pos.transfer :
+    method === 'YAPE' ? cfg.pos.yape :
+    method === 'PLIN' ? cfg.pos.plin :
+    method === 'CARD' ? (cfg.pos.credit.enabled ? cfg.pos.credit : cfg.pos.debit) :
+    null;
+  return m && m.enabled ? m.pct : 0;
+}
+
 /** Administración (CEO/Gerente/Admin) conserva acceso independientemente de los switches. */
 function isAdminScope(scope: RequestScope): boolean {
   return scope.isSuperAdmin || scope.permissions.includes('settings:edit');

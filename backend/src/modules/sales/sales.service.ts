@@ -11,7 +11,7 @@ import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { cashRepository } from '../cash/cash.repository';
 import { productsRepository } from '../products/products.repository';
-import { operationsConfigService } from '../operations-config/operations-config.service';
+import { operationsConfigService, posRateOf } from '../operations-config/operations-config.service';
 import {
   salesRepository,
   type SaleLineInput,
@@ -125,31 +125,24 @@ export const salesService = {
 
     // Comisiones POS: recargo al cliente según el método de pago (Configuración Operativa por sucursal).
     // El monto de cada pago entrante es la base (bienes); la comisión se suma como línea aparte y al total.
+    // Guard: si la venta YA trae una línea "Comisión POS" (p. ej. el check-in la calcula), no se re-aplica.
     const cfg = await operationsConfigService.get(scope);
-    const posRate = (method: string): number => {
-      if (!cfg.commissionsEnabled) return 0;
-      const m =
-        method === 'TRANSFER' ? cfg.pos.transfer :
-        method === 'YAPE' ? cfg.pos.yape :
-        method === 'PLIN' ? cfg.pos.plin :
-        method === 'CARD' ? (cfg.pos.credit.enabled ? cfg.pos.credit : cfg.pos.debit) :
-        null;
-      return m && m.enabled ? m.pct : 0;
-    };
+    const alreadyHasCommission = lines.some((l) => /comisi[oó]n pos/i.test(l.description ?? ''));
     const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera' };
 
     let commission = 0;
     const payments: SalePaymentInput[] = dto.payments.map((p) => {
-      const c = round(p.amount * posRate(p.method) / 100);
+      const rate = alreadyHasCommission ? 0 : posRateOf(cfg, p.method);
+      const c = round(p.amount * rate / 100);
       commission = round(commission + c);
       return { method: p.method, amount: round(p.amount + c), reference: p.reference || null };
     });
 
     if (commission > 0) {
-      const commMethods = [...new Set(dto.payments.filter((p) => posRate(p.method) > 0).map((p) => p.method))];
+      const commMethods = [...new Set(dto.payments.filter((p) => posRateOf(cfg, p.method) > 0).map((p) => p.method))];
       const label =
         commMethods.length === 1
-          ? `Comisión POS (${METHOD_LABEL[commMethods[0]] ?? commMethods[0]} ${posRate(commMethods[0])}%)`
+          ? `Comisión POS (${METHOD_LABEL[commMethods[0]] ?? commMethods[0]} ${posRateOf(cfg, commMethods[0])}%)`
           : 'Comisión POS';
       lines.push({ productId: null, itemId: null, description: label, quantity: 1, unitPrice: commission, unitCost: null, subtotal: commission });
     }
