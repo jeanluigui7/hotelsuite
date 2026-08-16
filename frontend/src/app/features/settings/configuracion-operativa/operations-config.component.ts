@@ -112,14 +112,17 @@ const DEFAULTS: OperationsConfig = {
           <article class="card wide">
             <h3>Comisiones POS / Tarjeta</h3>
             <p class="desc">Habilita individualmente los medios de pago que generan comisión. Controla solo el recargo; los métodos de pago se administran en su fuente maestra.</p>
-            <div class="pos-tbl">
+            @if (!cfg.commissionsEnabled) {
+              <p class="pos-lock"><i class="pi pi-info-circle"></i> Activa el switch <strong>Comisiones</strong> (arriba) para que estos recargos se apliquen. Con Comisiones desactivado no se cobra ninguna comisión, aunque un método esté marcado.</p>
+            }
+            <div class="pos-tbl" [class.dimmed]="!cfg.commissionsEnabled">
               <div class="pos-row pos-h"><span>Medio</span><span class="c">Activo</span><span class="c">% comisión</span><span class="r">Ejemplo S/100</span></div>
               @for (m of posRows; track m.key) {
                 <div class="pos-row">
                   <span>{{ m.label }}</span>
-                  <span class="c"><p-toggleswitch [(ngModel)]="cfg.pos[m.key].enabled" [disabled]="!canEdit" /></span>
-                  <span class="c"><p-inputNumber [(ngModel)]="cfg.pos[m.key].pct" [min]="0" [max]="100" suffix=" %" [disabled]="!canEdit || !cfg.pos[m.key].enabled" styleClass="pct" /></span>
-                  <span class="r">S/ {{ (100 * (1 + cfg.pos[m.key].pct / 100)) | number: '1.2-2' }}</span>
+                  <span class="c"><p-toggleswitch [(ngModel)]="cfg.pos[m.key].enabled" [disabled]="!canEdit || !cfg.commissionsEnabled" /></span>
+                  <span class="c"><p-inputNumber [(ngModel)]="cfg.pos[m.key].pct" [min]="0" [max]="100" suffix=" %" [disabled]="!canEdit || !cfg.commissionsEnabled || !cfg.pos[m.key].enabled" styleClass="pct" /></span>
+                  <span class="r">S/ {{ (100 * (1 + (cfg.commissionsEnabled && cfg.pos[m.key].enabled ? cfg.pos[m.key].pct : 0) / 100)) | number: '1.2-2' }}</span>
                 </div>
               }
             </div>
@@ -207,6 +210,8 @@ const DEFAULTS: OperationsConfig = {
       .pos-row { display: grid; grid-template-columns: 1.5fr 0.8fr 1fr 1fr; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid var(--p-content-border-color, #f1f5f9); font-size: 0.86rem; }
       .pos-row .c { text-align: center; } .pos-row .r { text-align: right; font-variant-numeric: tabular-nums; }
       .pos-h { font-weight: 700; color: var(--p-text-muted-color, #64748b); font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.4px; }
+      .pos-tbl.dimmed { opacity: 0.55; }
+      .pos-lock { display: flex; align-items: flex-start; gap: 0.45rem; margin: 0 0 0.6rem; padding: 0.55rem 0.75rem; border-radius: 8px; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); color: var(--p-primary-color, #2563eb); font-size: 0.82rem; }
       .foot { margin-top: 1.25rem; display: flex; justify-content: flex-end; }
       :host ::ng-deep .w { width: 10rem; }
       :host ::ng-deep .pct { width: 7rem; }

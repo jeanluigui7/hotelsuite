@@ -91,8 +91,8 @@ export class OperationsApiService {
     return this.http.post<ApiResponse<Stay>>(`${this.api}/stays/${stayId}/details`, dto);
   }
 
-  receptionPermissions(): Observable<ApiResponse<{ allowChangeRoom: boolean; allowWriteOff: boolean; allowViewCash: boolean }>> {
-    return this.http.get<ApiResponse<{ allowChangeRoom: boolean; allowWriteOff: boolean; allowViewCash: boolean }>>(`${this.api}/reception/permissions`);
+  receptionPermissions(): Observable<ApiResponse<{ allowChangeRoom: boolean; allowWriteOff: boolean; allowViewCash: boolean; declareStay: boolean }>> {
+    return this.http.get<ApiResponse<{ allowChangeRoom: boolean; allowWriteOff: boolean; allowViewCash: boolean; declareStay: boolean }>>(`${this.api}/reception/permissions`);
   }
 
   stays(params: ListParams = {}): Observable<ApiResponse<Stay[]>> {

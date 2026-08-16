@@ -8,6 +8,7 @@ const KEYS = {
   allowChangeRoom: 'reception.allowChangeRoom',
   allowWriteOff: 'reception.allowWriteOff',
   allowViewCash: 'reception.allowViewCash',
+  declareStay: 'reception.declareStay',
 } as const;
 
 export const updateReceptionPermsSchema = z.object({
@@ -32,15 +33,17 @@ async function write(branchId: string, key: string, value: boolean): Promise<voi
 export const receptionPermsService = {
   async get(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);
-    const [cr, wo, vc] = await Promise.all([
+    const [cr, wo, vc, ds] = await Promise.all([
       read(branchId, KEYS.allowChangeRoom),
       read(branchId, KEYS.allowWriteOff),
       read(branchId, KEYS.allowViewCash),
+      read(branchId, KEYS.declareStay),
     ]);
     return {
       allowChangeRoom: cr === 'true',
       allowWriteOff: wo === 'true',
       allowViewCash: vc == null ? true : vc === 'true', // ver caja: habilitado por defecto
+      declareStay: ds === 'true',
     };
   },
   async update(scope: RequestScope, dto: UpdateReceptionPermsDto) {

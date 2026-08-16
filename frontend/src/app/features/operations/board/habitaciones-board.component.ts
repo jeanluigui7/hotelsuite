@@ -70,6 +70,7 @@ const MANT_CATS = [
             @if (canCreateRoom()) { <button class="act new" (click)="openNewRoom()"><i class="pi pi-plus"></i> Nueva Habitación</button> }
             <button class="act" (click)="vehiculosVisible = true"><i class="pi pi-car"></i> Vehículos</button>
             <button class="act" (click)="checkInHint()"><i class="pi pi-sign-in"></i> Check-in</button>
+            @if (canDeclareStay()) { <button class="act" (click)="declararEstancia()"><i class="pi pi-file-edit"></i> Declarar Estancia</button> }
             <button class="act" (click)="ventaVisible = true"><i class="pi pi-shopping-cart"></i> Venta Productos</button>
             <button class="act primary" (click)="serviciosVisible = true"><i class="pi pi-tags"></i> Servicios y Penalidades</button>
           </div>
@@ -861,7 +862,12 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   /** Subalmacenes de ropa (pisos/torres) del almacén ROPA - LIMPIEZA, para el combo Torre/Bloque. */
   readonly subwarehouses = signal<{ id: string; name: string }[]>([]);
   readonly busyStay = signal<string | null>(null);
-  readonly receptionPerms = signal<{ allowChangeRoom: boolean; allowWriteOff: boolean; allowViewCash: boolean }>({ allowChangeRoom: false, allowWriteOff: false, allowViewCash: true });
+  readonly receptionPerms = signal<{ allowChangeRoom: boolean; allowWriteOff: boolean; allowViewCash: boolean; declareStay: boolean }>({ allowChangeRoom: false, allowWriteOff: false, allowViewCash: true, declareStay: false });
+  /** El switch "Declarar Estancias" (Configuración Operativa) controla la visibilidad del botón. */
+  canDeclareStay(): boolean { return this.isAdminProfile() || this.receptionPerms().declareStay; }
+  declararEstancia(): void {
+    this.toast.add({ severity: 'info', summary: 'Declarar Estancia', detail: 'Función en desarrollo. Próximamente podrás registrar estancias de contingencia.' });
+  }
   private clock?: ReturnType<typeof setInterval>;
 
   /** Perfil del usuario (admin pasa todas las restricciones de recepción). */

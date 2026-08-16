@@ -449,6 +449,13 @@ export const staysService = {
     if (pending <= 0) throw new ValidationError('Esta estancia no tiene pendiente por cobrar.');
     if (amount > pending + 0.001) throw new ValidationError(`El cobro (S/ ${amount.toFixed(2)}) excede el pendiente (S/ ${pending.toFixed(2)}).`);
 
+    // Comisión POS al pagar con tarjeta/virtual: se cobra APARTE (no altera la deuda original).
+    // Ej.: deuda 100 + tarjeta 5% → 100 cancela la deuda, 5 se registran como "Comisión POS".
+    const opsCfg = await operationsConfigService.get(scope);
+    const rate = posRateOf(opsCfg, dto.method);
+    const commission = round2(amount * rate / 100);
+    const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera' };
+
     let remaining = amount;
     await prisma.$transaction(async (tx) => {
       for (const s of openSales) {
@@ -464,6 +471,17 @@ export const staysService = {
       // Sobrante: cubre el adeudo legacy (early/late) guardado en balanceDue.
       if (remaining > 0.001 && bd > 0) {
         await tx.stay.update({ where: { id }, data: { balanceDue: round2(Math.max(0, bd - remaining)) } });
+      }
+      // Recargo por comisión POS: venta separada "Comisión POS", pagada con el mismo método.
+      if (commission > 0) {
+        await tx.sale.create({
+          data: {
+            branchId, stayId: id, guestId: stay.guestId, total: commission, status: 'PAID',
+            cashSessionId: session.id, createdByUserId: scope.userId,
+            items: { create: [{ description: `Comisión POS (${METHOD_LABEL[dto.method] ?? dto.method} ${rate}%)`, quantity: 1, unitPrice: commission, subtotal: commission }] },
+            payments: { create: [{ branchId, method: dto.method, amount: commission, reference: dto.reference || null, cashSessionId: session.id, createdByUserId: scope.userId }] },
+          },
+        });
       }
     });
     const updated = await staysRepository.findById(id);
