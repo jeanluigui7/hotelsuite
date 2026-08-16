@@ -209,6 +209,8 @@ export class InventarioRecepcionComponent implements OnInit {
   woReason = '';
   reqNotes = '';
   woMotivo: 'VENCIDO' | 'PERDIDO' | 'SOBRANTE' = 'VENCIDO';
+  // Frecuencia del aviso de stock mínimo (Configuración Operativa); recuerda cada N horas.
+  private stockAlertEveryHours = 24;
   readonly motivoOpts = [
     { label: 'Vencido', value: 'VENCIDO' }, { label: 'Perdido', value: 'PERDIDO' }, { label: 'Sobrante', value: 'SOBRANTE' },
   ];
@@ -290,13 +292,31 @@ export class InventarioRecepcionComponent implements OnInit {
     this.toast.add({ severity: 'info', summary: it.name, detail: 'Seleccionado. Usa Solicitar o Dar de Baja arriba.' });
   }
 
-  ngOnInit(): void { this.reload(); }
+  ngOnInit(): void {
+    this.http.get<ApiResponse<{ stockAlertEveryHours?: number }>>(`${this.api}/operations-config`)
+      .subscribe((r) => { if (r.data?.stockAlertEveryHours != null) this.stockAlertEveryHours = r.data.stockAlertEveryHours; });
+    this.reload();
+  }
+
+  /** Recuerda con un aviso cuando hay productos bajo el mínimo, re-emitiendo cada N horas. */
+  private maybeAlertLowStock(items: InvItem[]): void {
+    const low = items.filter((it) => it.belowMin);
+    if (!low.length) return;
+    const hours = this.stockAlertEveryHours;
+    if (hours <= 0) return; // 0 = sin recordatorios recurrentes
+    const key = `lowStockAlert:${this.auth.activeBranchId() ?? 'default'}`;
+    const last = Number(localStorage.getItem(key) ?? 0);
+    if (Date.now() - last < hours * 3_600_000) return;
+    localStorage.setItem(key, String(Date.now()));
+    this.toast.add({ severity: 'warn', summary: 'Stock bajo mínimo', detail: `${low.length} producto(s) por debajo del mínimo. Solicita reposición.`, life: 6000 });
+  }
 
   reload(): void {
     const params: Record<string, string> = {};
     if (this.fDay && this.curShift) { params['date'] = this.fDay; params['shift'] = this.curShift; }
     this.http.get<ApiResponse<{ items: InvItem[]; turn: TurnInfo }>>(`${this.api}/reception-inventory`, { params }).subscribe((r) => {
       this.items.set(r.data?.items ?? []);
+      this.maybeAlertLowStock(r.data?.items ?? []);
       if (r.data?.turn) { this.turn.set(r.data.turn); this.fDay = r.data.turn.businessDate; this.curShift = r.data.turn.shift; }
     });
     this.http.get<ApiResponse<Req[]>>(`${this.api}/reception-inventory/requests`).subscribe((r) => this.requests.set(r.data ?? []));
