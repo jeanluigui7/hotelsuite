@@ -21,6 +21,8 @@ export interface RequestScope {
   userId: string;
   roleId: string;
   isSuperAdmin: boolean;
+  /** Permission keys "module:action" del rol (para gates de negocio, no solo RBAC de ruta). */
+  permissions: string[];
   branchIds: string[];
   activeBranchId: string | null;
 }

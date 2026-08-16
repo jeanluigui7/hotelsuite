@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import type { RequestScope } from '../../shared/context';
-import { ValidationError } from '../../shared/errors';
+import { ForbiddenError, ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
+import { operationsConfigService } from '../operations-config/operations-config.service';
 
 /** Lado administrador del inventario de ropa: transferir ropa a un piso (suministrar) y
  *  atender las solicitudes de ropa que envía limpieza (LinenMovement type REQUEST). */
@@ -255,6 +256,23 @@ export const linenAdminService = {
    */
   async writeoff(scope: RequestScope, dto: WriteoffDto) {
     const branchId = requireActiveBranch(scope);
+
+    // Permiso "Dar de Baja Inventario de Limpieza" (Configuración Operativa): la baja DEFINITIVA
+    // (dañado/robado) solo la ejecuta administración, o el rol operativo si está habilitado.
+    // RETORNO devuelve stock al almacén central (no es pérdida) → no se restringe.
+    const definitive = dto.motivo === 'DANADO' || dto.motivo === 'ROBADO';
+    if (definitive) {
+      const isAdmin = scope.isSuperAdmin || scope.permissions.includes('settings:edit');
+      if (!isAdmin) {
+        const cfg = await operationsConfigService.get(scope);
+        if (!cfg.cleaning.linenWriteoff) {
+          throw new ForbiddenError(
+            'La baja definitiva de inventario de limpieza requiere autorización de administración. Registra el reporte de ropa dañada; un administrador ejecutará la baja.',
+          );
+        }
+      }
+    }
+
     const notes = dto.notes && dto.notes.trim() ? dto.notes.trim() : null;
     const movType = dto.motivo === 'RETORNO' ? 'RETURN' : dto.motivo === 'DANADO' ? 'DAMAGE' : 'THEFT';
     const done = await prisma.$transaction(async (tx) => {

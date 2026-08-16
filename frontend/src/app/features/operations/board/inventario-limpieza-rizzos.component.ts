@@ -196,6 +196,9 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
             @case ('ROBADO') { <i class="pi pi-ban"></i> <span>Prenda perdida o sustraída. Sale <b>definitivamente</b> del piso y <b>reduce el Stock Base.</b></span> }
           }
         </p>
+        @if (isDefinitive(bajaMotivo) && !canDefinitiveBaja()) {
+          <p class="baja-lock"><i class="pi pi-lock"></i> La baja definitiva requiere autorización de administración. Puedes usar <b>Retorno</b> o reportar la ropa dañada para que un administrador ejecute la baja.</p>
+        }
 
         <div class="baja-list">
           @for (r of bajaRows; track r.source + r.linenItemId; let i = $index) {
@@ -215,7 +218,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="bajaVisible = false" />
-        <p-button label="Dar de Baja Productos" icon="pi pi-check" severity="danger" [loading]="busy()" [disabled]="bajaRows.length === 0" (onClick)="confirmBaja()" />
+        <p-button label="Dar de Baja Productos" icon="pi pi-check" severity="danger" [loading]="busy()" [disabled]="bajaRows.length === 0 || (isDefinitive(bajaMotivo) && !canDefinitiveBaja())" (onClick)="confirmBaja()" />
       </ng-template>
     </p-dialog>
 
@@ -287,6 +290,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
       .baja-head { display: flex; align-items: center; gap: 0.5rem; font-size: 1.2rem; font-weight: 800; color: #fff; } .baja-head .pi { color: #f87171; }
       .baja-sub { margin: 0 0 0.6rem; color: #8aa499; font-size: 0.84rem; }
       .baja-hint { display: flex; align-items: flex-start; gap: 0.45rem; background: rgba(180,35,35,0.1); border: 1px solid rgba(180,35,35,0.35); border-radius: 10px; padding: 0.6rem 0.8rem; color: #f0c9c9; font-size: 0.8rem; margin: 0.3rem 0 0.3rem; } .baja-hint .pi { margin-top: 0.1rem; color: #f87171; } .baja-hint b { color: #fff; }
+      .baja-lock { display: flex; align-items: flex-start; gap: 0.45rem; background: rgba(234,179,8,0.12); border: 1px solid rgba(234,179,8,0.4); border-radius: 10px; padding: 0.6rem 0.8rem; color: #f5e0a3; font-size: 0.8rem; margin: 0 0 0.3rem; } .baja-lock .pi { margin-top: 0.1rem; color: #eab308; } .baja-lock b { color: #fff; }
       .baja-list { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.3rem; }
       .baja-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 0.7rem; background: #0e241c; border: 1px solid #1f3a2c; border-radius: 10px; padding: 0.55rem 0.7rem; }
       .baja-row .bi strong { display: flex; align-items: center; gap: 0.35rem; font-size: 0.9rem; color: #e6efe9; } .baja-row .bi small { color: #8aa499; font-size: 0.74rem; }
@@ -368,6 +372,11 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
   readonly selected = signal<Set<string>>(new Set());
   readonly busy = signal(false);
   readonly mode = signal<'real' | 'turno'>('real');
+  // Permiso "Dar de Baja Inventario de Limpieza" (Configuración Operativa). Admin siempre puede.
+  private readonly isAdmin = this.auth.can('settings', 'edit');
+  readonly linenWriteoffAllowed = signal(false);
+  canDefinitiveBaja(): boolean { return this.isAdmin || this.linenWriteoffAllowed(); }
+  isDefinitive(motivo: string): boolean { return motivo === 'DANADO' || motivo === 'ROBADO'; }
   qty: Record<string, number> = {};
   lndQty: Record<string, number> = {};
   lndReason = '';
@@ -403,7 +412,11 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
     return [...map.values()];
   });
 
-  ngOnInit(): void { this.reload(); }
+  ngOnInit(): void {
+    this.reload();
+    this.http.get<ApiResponse<{ cleaning?: { linenWriteoff?: boolean } }>>(`${this.api}/operations-config`)
+      .subscribe((r) => this.linenWriteoffAllowed.set(!!r.data?.cleaning?.linenWriteoff));
+  }
 
   reload(): void {
     this.http.get<ApiResponse<{ floors: Floor[] }>>(`${this.api}/cleaning/linen-inventory`).subscribe((r) => this.floors.set(r.data?.floors ?? []));
@@ -567,6 +580,10 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
   }
 
   confirmBaja(): void {
+    if (this.isDefinitive(this.bajaMotivo) && !this.canDefinitiveBaja()) {
+      this.toast.add({ severity: 'warn', summary: 'Sin autorización', detail: 'La baja definitiva (dañado/robado) requiere autorización de administración.' });
+      return;
+    }
     const rows = this.bajaRows
       .filter((r) => (Number(r.qty) || 0) > 0)
       .map((r) => ({ linenItemId: r.linenItemId, floor: r.floor, source: r.source.toUpperCase(), quantity: Math.min(Number(r.qty) || 1, r.avail) }));

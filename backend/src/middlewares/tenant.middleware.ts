@@ -30,6 +30,7 @@ export function tenant() {
         userId: user.userId,
         roleId: user.roleId,
         isSuperAdmin: user.isSuperAdmin,
+        permissions: user.permissions,
         branchIds: user.branchIds,
         activeBranchId,
       };
