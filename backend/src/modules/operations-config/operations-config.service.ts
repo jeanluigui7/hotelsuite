@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { RequestScope } from '../../shared/context';
 import { requireActiveBranch } from '../../shared/scope';
+import { ForbiddenError } from '../../shared/errors';
 import { prisma } from '../../config/prisma';
 
 /**
@@ -153,3 +154,22 @@ export const operationsConfigService = {
     return this.get(scope);
   },
 };
+
+/** Administración (CEO/Gerente/Admin) conserva acceso independientemente de los switches. */
+function isAdminScope(scope: RequestScope): boolean {
+  return scope.isSuperAdmin || scope.permissions.includes('settings:edit');
+}
+
+/**
+ * Exige que un permiso operativo de Recepción esté habilitado en la sucursal activa.
+ * Administración siempre pasa. Lanza ForbiddenError si el rol no-admin no lo tiene habilitado.
+ */
+export async function requireReceptionFlag(
+  scope: RequestScope,
+  flag: 'declareStay' | 'roomChange' | 'productWriteoff' | 'creditNote',
+  message: string,
+): Promise<void> {
+  if (isAdminScope(scope)) return;
+  const cfg = await operationsConfigService.get(scope);
+  if (!cfg.reception[flag]) throw new ForbiddenError(message);
+}

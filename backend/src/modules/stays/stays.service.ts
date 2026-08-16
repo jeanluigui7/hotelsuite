@@ -8,6 +8,7 @@ import {
   type PaginationParams,
 } from '../../shared/pagination';
 import { requireActiveBranch } from '../../shared/scope';
+import { requireReceptionFlag } from '../operations-config/operations-config.service';
 import { prisma } from '../../config/prisma';
 import { guestsRepository } from '../guests/guests.repository';
 import { pernoctaService } from '../pernocta/pernocta.service';
@@ -481,6 +482,7 @@ export const staysService = {
 
   /** Cambia de habitación a una estancia activa y deja la de origen sucia o libre. */
   async changeRoom(scope: RequestScope, id: string, dto: ChangeRoomDto) {
+    await requireReceptionFlag(scope, 'roomChange', 'El cambio de habitación requiere autorización de administración.');
     const branchId = requireActiveBranch(scope);
     const stay = await staysRepository.findById(id);
     if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');

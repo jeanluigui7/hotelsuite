@@ -8,6 +8,7 @@ import {
   type PaginationParams,
 } from '../../shared/pagination';
 import { requireActiveBranch } from '../../shared/scope';
+import { requireReceptionFlag } from '../operations-config/operations-config.service';
 import { prisma } from '../../config/prisma';
 import { notesRepository, type NoteWithRelations } from './notes.repository';
 import type { CreateNoteDto } from './notes.schema';
@@ -41,6 +42,9 @@ export const notesService = {
   },
 
   async create(scope: RequestScope, dto: CreateNoteDto) {
+    if (dto.type === 'CREDIT') {
+      await requireReceptionFlag(scope, 'creditNote', 'La emisión de notas de crédito requiere autorización de administración.');
+    }
     const branchId = requireActiveBranch(scope);
     const invoice = await prisma.invoice.findUnique({ where: { id: dto.invoiceId } });
     if (!invoice || invoice.branchId !== branchId) throw new ValidationError('Comprobante inválido');

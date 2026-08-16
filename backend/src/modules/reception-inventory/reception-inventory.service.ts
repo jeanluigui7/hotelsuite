@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { RequestScope } from '../../shared/context';
 import { ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
+import { requireReceptionFlag } from '../operations-config/operations-config.service';
 import { prisma } from '../../config/prisma';
 import { notifyAdmin } from '../../shared/notify';
 import { applyStockTx, createMovementTx } from '../movements/movements.repository';
@@ -329,6 +330,7 @@ export const receptionInventoryService = {
 
   /** Dar de baja stock de recepción (requiere permiso de eliminar). */
   async writeOff(scope: RequestScope, dto: WriteOffDto) {
+    await requireReceptionFlag(scope, 'productWriteoff', 'La baja de productos requiere autorización de administración. Genera una solicitud de baja para que administración la ejecute.');
     const branchId = requireActiveBranch(scope);
     const whId = await receptionWarehouseId(branchId);
     const stock = await prisma.stock.findUnique({ where: { productId_warehouseId: { productId: dto.productId, warehouseId: whId } } });
