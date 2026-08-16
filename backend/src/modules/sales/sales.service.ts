@@ -127,7 +127,10 @@ export const salesService = {
     // El monto de cada pago entrante es la base (bienes); la comisión se suma como línea aparte y al total.
     // Guard: si la venta YA trae una línea "Comisión POS" (p. ej. el check-in la calcula), no se re-aplica.
     const cfg = await operationsConfigService.get(scope);
-    const alreadyHasCommission = lines.some((l) => /comisi[oó]n pos/i.test(l.description ?? ''));
+    const alreadyHasCommission = lines.some((l) => {
+      const d = (l.description ?? '').toLowerCase();
+      return d.includes('comisi') && d.includes('pos');
+    });
     const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera' };
 
     let commission = 0;
