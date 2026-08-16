@@ -33,6 +33,8 @@ export const checkInSchema = z
     earlyCheckin: z.coerce.boolean().optional().default(false),
     // Tarifa personalizada: fecha/hora de salida elegida por el usuario.
     customCheckoutAt: z.coerce.date().optional(),
+    // Si el check-in cumple una reserva, su id (exime el bloqueo por margen de esa reserva).
+    reservationId: z.string().min(1).optional(),
   })
   .refine((v) => v.guestId || v.newGuest, {
     message: 'Debe indicar un huésped existente (guestId) o los datos de uno nuevo (newGuest)',

@@ -184,7 +184,7 @@ function emptyForm(): Form {
       </ng-template>
     </p-dialog>
 
-    <app-check-in-dialog [(visible)]="checkInVisible" [room]="checkInRoom" [prefillGuestId]="checkInGuestId" (done)="onCheckInDone()" />
+    <app-check-in-dialog [(visible)]="checkInVisible" [room]="checkInRoom" [prefillGuestId]="checkInGuestId" [reservationId]="pendingReservationId" (done)="onCheckInDone()" />
   `,
   styles: [
     `
@@ -234,7 +234,7 @@ export class ReservationsComponent implements OnInit {
   checkInVisible = false;
   checkInRoom: RoomMapItem | null = null;
   checkInGuestId: string | null = null;
-  private pendingReservationId: string | null = null;
+  pendingReservationId: string | null = null;
 
   readonly canCreate = this.auth.can('operations', 'create');
   readonly canEdit = this.auth.can('operations', 'edit');

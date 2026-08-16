@@ -8,7 +8,7 @@ import {
   type PaginationParams,
 } from '../../shared/pagination';
 import { requireActiveBranch } from '../../shared/scope';
-import { requireReceptionFlag } from '../operations-config/operations-config.service';
+import { operationsConfigService, requireReceptionFlag } from '../operations-config/operations-config.service';
 import { prisma } from '../../config/prisma';
 import { guestsRepository } from '../guests/guests.repository';
 import { pernoctaService } from '../pernocta/pernocta.service';
@@ -141,6 +141,33 @@ export const staysService = {
     });
     if (activeStay) {
       throw new ConflictError(`Este huésped ya tiene una estadía activa (Hab. ${activeStay.room?.number ?? '—'}). No se puede registrar en otra habitación hasta que haga su check-out.`);
+    }
+
+    // Bloqueo por margen de reserva (Configuración Operativa): no entregar una habitación
+    // con una reserva inminente de OTRO huésped. Se exime la reserva que se está cumpliendo
+    // (reservationId) y las reservas del mismo huésped.
+    const opsCfg = await operationsConfigService.get(scope);
+    const marginMin = opsCfg.reservaMarginMin ?? 60;
+    if (marginMin > 0) {
+      const now = new Date();
+      const upperBound = new Date(now.getTime() + marginMin * 60_000); // reserva dentro del margen
+      const graceLower = new Date(now.getTime() - 6 * 60 * 60_000); // ignora no-shows de más de 6 h
+      const clashing = await prisma.reservation.findFirst({
+        where: {
+          branchId,
+          roomId: dto.roomId,
+          status: { in: ['PENDING', 'CONFIRMED'] },
+          expectedCheckInAt: { lte: upperBound, gte: graceLower },
+          ...(dto.reservationId ? { id: { not: dto.reservationId } } : {}),
+          ...(guestId ? { NOT: { guestId } } : {}),
+        },
+        orderBy: { expectedCheckInAt: 'asc' },
+        include: { guest: { select: { firstName: true, lastName: true } } },
+      });
+      if (clashing) {
+        const who = clashing.guestName || (clashing.guest ? `${clashing.guest.firstName} ${clashing.guest.lastName ?? ''}`.trim() : 'otro huésped');
+        throw new ConflictError(`La habitación tiene una reserva inminente (${who}). Convierte esa reserva a check-in o elige otra habitación.`);
+      }
     }
 
     const checkInAt = new Date();

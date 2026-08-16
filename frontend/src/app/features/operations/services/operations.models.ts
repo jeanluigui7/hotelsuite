@@ -99,6 +99,8 @@ export interface CheckInInput {
   priceOverride?: number;
   earlyCheckin?: boolean;
   customCheckoutAt?: string;
+  /** Reserva que se cumple (exime el bloqueo por margen de esa reserva). */
+  reservationId?: string;
 }
 
 export type ReservationStatus = 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'FULFILLED';

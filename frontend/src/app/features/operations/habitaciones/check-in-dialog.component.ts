@@ -473,6 +473,8 @@ export class CheckInDialogComponent {
   }
   get room(): RoomMapItem | null { return this._room; }
   @Input() prefillGuestId: string | null = null;
+  /** Si el check-in cumple una reserva, su id: exime el bloqueo por margen de esa reserva. */
+  @Input() reservationId: string | null = null;
 
   readonly docTypes = DOC_TYPES;
   readonly payTypes = PAY_TYPES;
@@ -903,6 +905,7 @@ export class CheckInDialogComponent {
       priceOverride: custom ? (this.customPrice ?? 0) : (this.isPernoctaRate() && this.finalPrice != null ? this.finalPrice : undefined),
       earlyCheckin: this.isPernoctaRate() && this.applyEarly ? true : undefined,
       customCheckoutAt: custom && this.checkoutAt ? new Date(this.checkoutAt).toISOString() : undefined,
+      reservationId: this.reservationId ?? undefined,
     };
     // Si el documento ya existe en la BD, usamos su id; si no, creamos huésped nuevo.
     if (this.foundGuestId) {
