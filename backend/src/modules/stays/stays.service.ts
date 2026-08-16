@@ -159,7 +159,8 @@ export const staysService = {
           status: { in: ['PENDING', 'CONFIRMED'] },
           expectedCheckInAt: { lte: upperBound, gte: graceLower },
           ...(dto.reservationId ? { id: { not: dto.reservationId } } : {}),
-          ...(guestId ? { NOT: { guestId } } : {}),
+          // Exime solo las reservas del MISMO huésped; las sin huésped (guestId null) sí bloquean.
+          ...(guestId ? { OR: [{ guestId: null }, { guestId: { not: guestId } }] } : {}),
         },
         orderBy: { expectedCheckInAt: 'asc' },
         include: { guest: { select: { firstName: true, lastName: true } } },
