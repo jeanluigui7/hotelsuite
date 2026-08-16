@@ -96,6 +96,10 @@ const METHODS = [
                 }
               }
               @if (!pays().length) { <p class="pay-hint"><i class="pi pi-info-circle"></i> Agrega un método de pago para poder cobrar.</p> }
+              @if (commission() > 0) {
+                <div class="comm"><span><i class="pi pi-percentage"></i> Comisión POS</span><b>+S/ {{ commission() | number: '1.2-2' }}</b></div>
+                <div class="comm total-comm"><span>Total a cobrar (con comisión)</span><b>S/ {{ grandTotal() | number: '1.2-2' }}</b></div>
+              }
               <div class="paid">
                 <span>Pagado: <b>S/ {{ paid() | number: '1.2-2' }}</b></span>
                 <span class="vuelto" [class.on]="change() > 0">Vuelto: <b>S/ {{ change() | number: '1.2-2' }}</b></span>
@@ -167,6 +171,7 @@ const METHODS = [
       .payref .pi { color: #8aa0bd; font-size: 0.8rem; }
       .payref input { flex: 1; background: #0f1a2b; border: 1px solid #1c2c44; color: #e6edf5; border-radius: 8px; padding: 0.5rem 0.7rem; font: inherit; font-size: 0.85rem; }
       .paid { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: #cdd8e6; margin-top: 0.5rem; border-top: 1px dashed #1c2a3a; padding-top: 0.5rem; } .paid b { color: #e6edf5; } .paid .vuelto.on b { color: #34d399; }
+      .comm { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: #f0b866; margin-top: 0.4rem; } .comm b { color: #f0b866; } .comm.total-comm { color: #e6edf5; font-weight: 700; border-top: 1px dashed #1c2a3a; padding-top: 0.4rem; } .comm.total-comm b { color: #34d399; font-size: 1.05rem; }
       .saldo { margin-top: 0.4rem; font-size: 0.82rem; color: #fbbf24; display: flex; align-items: center; gap: 0.4rem; } .saldo b { color: #fff; }
       .pay-hint { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: #8aa0bd; margin: 0.4rem 0 0; }
       .pay-err { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: #fca5a5; background: rgba(180,35,35,0.1); border: 1px solid rgba(180,35,35,0.35); border-radius: 8px; padding: 0.45rem 0.6rem; margin: 0.5rem 0 0; }
@@ -231,6 +236,27 @@ export class ServiciosPenalidadesComponent {
   owed = () => Math.max(0, Math.round((this.total() - this.paid()) * 100) / 100);
   change = (): number => Math.max(0, Math.round((this.paid() - this.total()) * 100) / 100);
 
+  // Comisiones POS (Configuración Operativa): recargo por método de pago; el backend recalcula el valor final.
+  readonly commEnabled = signal(false);
+  readonly posRates = signal<Record<string, number>>({});
+  rateFor(method: string): number { return this.commEnabled() ? (this.posRates()[method] ?? 0) : 0; }
+  commission(): number { return Math.round(this.pays().reduce((a, p) => a + (p.amount || 0) * this.rateFor(p.method) / 100, 0) * 100) / 100; }
+  grandTotal(): number { return Math.round((this.total() + this.commission()) * 100) / 100; }
+  private loadCommissions(): void {
+    this.http.get<ApiResponse<{ commissionsEnabled: boolean; pos: Record<string, { enabled: boolean; pct: number }> }>>(`${this.api}/operations-config`).subscribe((res) => {
+      const c = res.data;
+      this.commEnabled.set(!!c?.commissionsEnabled);
+      const pos = c?.pos ?? {};
+      const card = pos['credit']?.enabled ? pos['credit'] : pos['debit'];
+      this.posRates.set({
+        TRANSFER: pos['transfer']?.enabled ? pos['transfer'].pct : 0,
+        YAPE: pos['yape']?.enabled ? pos['yape'].pct : 0,
+        PLIN: pos['plin']?.enabled ? pos['plin'].pct : 0,
+        CARD: card?.enabled ? card.pct : 0,
+      });
+    });
+  }
+
   needsRef(method: string): boolean { return method !== 'CASH'; }
   onMethodChange(p: Pay): void { if (p.method === 'CASH') p.reference = ''; this.pays.set([...this.pays()]); }
 
@@ -269,6 +295,7 @@ export class ServiciosPenalidadesComponent {
   load(): void {
     this.lines.set([]); this.pays.set([]); this.stayId = null; this.cobro = 'TOTAL'; this.createSupply = true;
     this.genComp = false; this.compUseGuest = true; this.compDocType = 'DNI'; this.compDocNumber = ''; this.compName = ''; this.compAddress = '';
+    this.loadCommissions();
     this.ops.stays({ status: 'OPEN', pageSize: 200 }).subscribe((r) => this.stays.set(r.data ?? []));
     // Catálogo de servicios + productos como artículos cobrables
     this.http.get<ApiResponse<CatalogGroup[]>>(`${this.api}/services/catalog`).subscribe((res) => {

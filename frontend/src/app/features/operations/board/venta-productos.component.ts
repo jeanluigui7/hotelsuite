@@ -1,7 +1,9 @@
 import { Component, EventEmitter, Input, Output, computed, inject, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { environment } from '../../../../environments/environment';
+import type { ApiResponse } from '../../../core/models/api-response.model';
 import { DialogModule } from 'primeng/dialog';
 import { SelectModule } from 'primeng/select';
 import { InputNumberModule } from 'primeng/inputnumber';
@@ -106,6 +108,10 @@ const DOC_TYPES = [
                 }
               }
               @if (!pays().length) { <p class="pay-hint"><i class="pi pi-info-circle"></i> Agrega un método de pago para poder cobrar.</p> }
+              @if (commission() > 0) {
+                <div class="comm"><span><i class="pi pi-percentage"></i> Comisión POS</span><b>+S/ {{ commission() | number: '1.2-2' }}</b></div>
+                <div class="comm total-comm"><span>Total a cobrar (con comisión)</span><b>S/ {{ grandTotal() | number: '1.2-2' }}</b></div>
+              }
               <div class="paid">
                 <span>Pagado: <b>S/ {{ paid() | number: '1.2-2' }}</b></span>
                 <span class="vuelto" [class.on]="change() > 0">Vuelto: <b>S/ {{ change() | number: '1.2-2' }}</b></span>
@@ -213,6 +219,8 @@ const DOC_TYPES = [
       :host ::ng-deep .payrow .err .p-inputnumber-input, :host ::ng-deep .payrow .err input { border-color: #ef4444 !important; }
       .paid { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: #cdd8e6; margin-top: 0.6rem; border-top: 1px dashed #1c2a3a; padding-top: 0.5rem; }
       .paid b { color: #e6edf5; } .paid .vuelto.on b { color: #34d399; }
+      .comm { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: #f0b866; margin-top: 0.4rem; }
+      .comm b { color: #f0b866; } .comm.total-comm { color: #e6edf5; font-weight: 700; border-top: 1px dashed #1c2a3a; padding-top: 0.4rem; } .comm.total-comm b { color: #34d399; font-size: 1.05rem; }
       .pay-hint { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: #8aa0bd; margin: 0.4rem 0 0; }
       .pay-err { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: #fca5a5; background: rgba(180,35,35,0.1); border: 1px solid rgba(180,35,35,0.35); border-radius: 8px; padding: 0.45rem 0.6rem; margin: 0.5rem 0 0; }
       .cobro-lbl { font-size: 0.8rem; color: #9fb0c3; margin: 0.7rem 0 0.3rem; font-weight: 600; }
@@ -259,9 +267,14 @@ export class VentaProductosComponent {
   @Output() visibleChange = new EventEmitter<boolean>();
   @Output() done = new EventEmitter<void>();
 
+  private readonly http = inject(HttpClient);
+  private readonly api = environment.apiUrl;
   private readonly inventory = inject(InventoryApiService);
   private readonly ops = inject(OperationsApiService);
   private readonly finance = inject(FinanceApiService);
+  // Comisiones POS (Configuración Operativa): recargo por método de pago.
+  readonly commEnabled = signal(false);
+  readonly posRates = signal<Record<string, number>>({});
   private readonly auth = inject(AuthService);
   private readonly printing = inject(PrintingService);
   private readonly toast = inject(MessageService);
@@ -315,6 +328,11 @@ export class VentaProductosComponent {
   readonly paid = computed(() => this.pays().reduce((a, p) => a + (p.amount || 0), 0));
   change = (): number => Math.max(0, this.paid() - this.total());
 
+  /** Comisión POS estimada (recargo al cliente) según método(s) de pago. El backend recalcula el valor final. */
+  rateFor(method: string): number { return this.commEnabled() ? (this.posRates()[method] ?? 0) : 0; }
+  commission(): number { return Math.round(this.pays().reduce((a, p) => a + (p.amount || 0) * this.rateFor(p.method) / 100, 0) * 100) / 100; }
+  grandTotal(): number { return Math.round((this.total() + this.commission()) * 100) / 100; }
+
   isLow(p: Product): boolean {
     return p.stock <= (p.reorderPoint ?? 0);
   }
@@ -327,6 +345,22 @@ export class VentaProductosComponent {
     // Muestra el stock del almacén de RECEPCIÓN (lo que se puede vender aquí), no el general.
     this.inventory.products.list({ pageSize: 300, status: 'active', area: 'RECEPTION' }).subscribe((r) => this.products.set(r.data ?? []));
     this.ops.stays({ status: 'OPEN', pageSize: 200 }).subscribe((r) => this.stays.set(r.data ?? []));
+    this.loadCommissions();
+  }
+
+  private loadCommissions(): void {
+    this.http.get<ApiResponse<{ commissionsEnabled: boolean; pos: Record<string, { enabled: boolean; pct: number }> }>>(`${this.api}/operations-config`).subscribe((res) => {
+      const c = res.data;
+      this.commEnabled.set(!!c?.commissionsEnabled);
+      const pos = c?.pos ?? {};
+      const card = pos['credit']?.enabled ? pos['credit'] : pos['debit'];
+      this.posRates.set({
+        TRANSFER: pos['transfer']?.enabled ? pos['transfer'].pct : 0,
+        YAPE: pos['yape']?.enabled ? pos['yape'].pct : 0,
+        PLIN: pos['plin']?.enabled ? pos['plin'].pct : 0,
+        CARD: card?.enabled ? card.pct : 0,
+      });
+    });
   }
 
   inc(p: Product): void { if ((this.qty[p.id] || 0) < p.stock) { this.qty[p.id] = (this.qty[p.id] || 0) + 1; this.qtyTick.update((v) => v + 1); } }
