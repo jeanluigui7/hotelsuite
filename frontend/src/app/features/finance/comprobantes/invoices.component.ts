@@ -1,7 +1,9 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { environment } from '../../../../environments/environment';
+import type { ApiResponse } from '../../../core/models/api-response.model';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
@@ -120,14 +122,17 @@ const TYPE_OPTIONS = [
         <p-inputNumber [(ngModel)]="noteForm.total" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w-full" />
         <label>Motivo</label>
         <input pInputText [(ngModel)]="noteForm.reason" />
+        @if (noteForm.type === 'CREDIT' && !canCreditNote()) {
+          <p class="note-lock"><i class="pi pi-lock"></i> Las notas de crédito requieren autorización de administración.</p>
+        }
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="noteVisible = false" />
-        <p-button label="Emitir nota" icon="pi pi-check" [loading]="saving()" (onClick)="createNote()" />
+        <p-button label="Emitir nota" icon="pi pi-check" [loading]="saving()" [disabled]="noteForm.type === 'CREDIT' && !canCreditNote()" (onClick)="createNote()" />
       </ng-template>
     </p-dialog>
   `,
-  styles: [`.small { font-size: 0.75rem; }`],
+  styles: [`.small { font-size: 0.75rem; } .note-lock { display: flex; align-items: center; gap: 0.4rem; margin: 0.6rem 0 0; padding: 0.5rem 0.7rem; border-radius: 8px; background: rgba(234,179,8,0.12); border: 1px solid rgba(234,179,8,0.4); color: #a16207; font-size: 0.82rem; }`],
   styleUrls: ['../../settings/catalogs/catalog.styles.scss'],
 })
 export class InvoicesComponent implements OnInit {
@@ -135,6 +140,12 @@ export class InvoicesComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly messages = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
+  private readonly http = inject(HttpClient);
+  private readonly api = environment.apiUrl;
+  // Permiso "Nota de Crédito" (Configuración Operativa). Administración siempre puede.
+  private readonly isAdmin = (this.auth.user()?.isSuperAdmin ?? false) || this.auth.can('settings', 'edit');
+  readonly creditNoteAllowed = signal(false);
+  canCreditNote(): boolean { return this.isAdmin || this.creditNoteAllowed(); }
 
   readonly items = signal<Invoice[]>([]);
   readonly sales = signal<Sale[]>([]);
@@ -164,6 +175,8 @@ export class InvoicesComponent implements OnInit {
 
   ngOnInit(): void {
     this.reload();
+    this.http.get<ApiResponse<{ reception?: { creditNote?: boolean } }>>(`${this.api}/operations-config`)
+      .subscribe((r) => this.creditNoteAllowed.set(!!r.data?.reception?.creditNote));
   }
 
   reload(): void {
@@ -233,6 +246,10 @@ export class InvoicesComponent implements OnInit {
   }
 
   createNote(): void {
+    if (this.noteForm.type === 'CREDIT' && !this.canCreditNote()) {
+      this.messages.add({ severity: 'warn', summary: 'Sin autorización', detail: 'Las notas de crédito requieren autorización de administración.' });
+      return;
+    }
     if (!this.noteInvoice || !this.noteForm.total || !this.noteForm.reason) {
       this.messages.add({ severity: 'warn', summary: 'Datos incompletos', detail: 'Monto y motivo requeridos.' });
       return;
