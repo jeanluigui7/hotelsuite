@@ -99,9 +99,11 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
               <button class="manch" [disabled]="floorSel(f.floor).length === 0" (click)="openLaundry(f.floor)">
                 <i class="pi pi-exclamation-triangle"></i> Manchada / Deteriorada
               </button>
-              <button class="baja" [disabled]="floorSel(f.floor).length === 0" (click)="openBaja(f.floor)">
-                <i class="pi pi-trash"></i> Dar de baja ({{ floorSel(f.floor).length }})
-              </button>
+              @if (canWriteoffLinen()) {
+                <button class="baja" [disabled]="floorSel(f.floor).length === 0" (click)="openBaja(f.floor)">
+                  <i class="pi pi-trash"></i> Dar de baja ({{ floorSel(f.floor).length }})
+                </button>
+              }
             </div>
           </div>
         } @empty { <p class="muted">Sin inventario de ropa configurado.</p> }
@@ -196,9 +198,6 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
             @case ('ROBADO') { <i class="pi pi-ban"></i> <span>Prenda perdida o sustraída. Sale <b>definitivamente</b> del piso y <b>reduce el Stock Base.</b></span> }
           }
         </p>
-        @if (isDefinitive(bajaMotivo) && !canDefinitiveBaja()) {
-          <p class="baja-lock"><i class="pi pi-lock"></i> La baja definitiva requiere autorización de administración. Puedes usar <b>Retorno</b> o reportar la ropa dañada para que un administrador ejecute la baja.</p>
-        }
 
         <div class="baja-list">
           @for (r of bajaRows; track r.source + r.linenItemId; let i = $index) {
@@ -218,7 +217,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="bajaVisible = false" />
-        <p-button label="Dar de Baja Productos" icon="pi pi-check" severity="danger" [loading]="busy()" [disabled]="bajaRows.length === 0 || (isDefinitive(bajaMotivo) && !canDefinitiveBaja())" (onClick)="confirmBaja()" />
+        <p-button label="Dar de Baja Productos" icon="pi pi-check" severity="danger" [loading]="busy()" [disabled]="bajaRows.length === 0" (onClick)="confirmBaja()" />
       </ng-template>
     </p-dialog>
 
@@ -373,10 +372,10 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
   readonly busy = signal(false);
   readonly mode = signal<'real' | 'turno'>('real');
   // Permiso "Dar de Baja Inventario de Limpieza" (Configuración Operativa). Admin siempre puede.
-  private readonly isAdmin = this.auth.can('settings', 'edit');
+  // Con el permiso INACTIVO, limpieza NO puede dar de baja (ningún motivo); solo enviar a lavandería.
+  private readonly isAdmin = (this.auth.user()?.isSuperAdmin ?? false) || this.auth.can('settings', 'edit');
   readonly linenWriteoffAllowed = signal(false);
-  canDefinitiveBaja(): boolean { return this.isAdmin || this.linenWriteoffAllowed(); }
-  isDefinitive(motivo: string): boolean { return motivo === 'DANADO' || motivo === 'ROBADO'; }
+  canWriteoffLinen(): boolean { return this.isAdmin || this.linenWriteoffAllowed(); }
   qty: Record<string, number> = {};
   lndQty: Record<string, number> = {};
   lndReason = '';
@@ -558,6 +557,10 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
 
   // ── Dar de baja masiva ──
   openBaja(floor: string): void {
+    if (!this.canWriteoffLinen()) {
+      this.toast.add({ severity: 'warn', summary: 'Sin autorización', detail: 'Dar de baja el inventario de limpieza requiere autorización de administración. Solo puedes enviar a lavandería la ropa dañada.' });
+      return;
+    }
     this.bajaFloor = floor;
     this.bajaMotivo = 'RETORNO';
     this.bajaNotes = '';
@@ -580,8 +583,8 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
   }
 
   confirmBaja(): void {
-    if (this.isDefinitive(this.bajaMotivo) && !this.canDefinitiveBaja()) {
-      this.toast.add({ severity: 'warn', summary: 'Sin autorización', detail: 'La baja definitiva (dañado/robado) requiere autorización de administración.' });
+    if (!this.canWriteoffLinen()) {
+      this.toast.add({ severity: 'warn', summary: 'Sin autorización', detail: 'Dar de baja el inventario de limpieza requiere autorización de administración.' });
       return;
     }
     const rows = this.bajaRows

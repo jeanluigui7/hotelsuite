@@ -257,19 +257,16 @@ export const linenAdminService = {
   async writeoff(scope: RequestScope, dto: WriteoffDto) {
     const branchId = requireActiveBranch(scope);
 
-    // Permiso "Dar de Baja Inventario de Limpieza" (Configuración Operativa): la baja DEFINITIVA
-    // (dañado/robado) solo la ejecuta administración, o el rol operativo si está habilitado.
-    // RETORNO devuelve stock al almacén central (no es pérdida) → no se restringe.
-    const definitive = dto.motivo === 'DANADO' || dto.motivo === 'ROBADO';
-    if (definitive) {
-      const isAdmin = scope.isSuperAdmin || scope.permissions.includes('settings:edit');
-      if (!isAdmin) {
-        const cfg = await operationsConfigService.get(scope);
-        if (!cfg.cleaning.linenWriteoff) {
-          throw new ForbiddenError(
-            'La baja definitiva de inventario de limpieza requiere autorización de administración. Registra el reporte de ropa dañada; un administrador ejecutará la baja.',
-          );
-        }
+    // Permiso "Dar de Baja Inventario de Limpieza" (Configuración Operativa): con el permiso
+    // INACTIVO, el rol operativo (limpieza/recepción) NO puede ejecutar NINGÚN "Dar de Baja"
+    // (ni RETORNO ni dañado/robado); solo administración. Limpieza únicamente envía a lavandería.
+    const isAdmin = scope.isSuperAdmin || scope.permissions.includes('settings:edit');
+    if (!isAdmin) {
+      const cfg = await operationsConfigService.get(scope);
+      if (!cfg.cleaning.linenWriteoff) {
+        throw new ForbiddenError(
+          'Dar de baja el inventario de limpieza requiere autorización de administración. El personal de limpieza solo puede reportar/enviar a lavandería la ropa dañada o deteriorada.',
+        );
       }
     }
 
