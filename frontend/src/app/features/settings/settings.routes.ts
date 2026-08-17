@@ -88,8 +88,8 @@ const routes: Routes = [
     loadComponent: () => import('./roles/roles.component').then((m) => m.RolesComponent),
   },
   {
-    path: 'wifi',
-    loadComponent: () => import('./wifi/wifi.component').then((m) => m.WifiPoolComponent),
+    path: 'tickets',
+    loadComponent: () => import('./tickets/tickets-config.component').then((m) => m.TicketsConfigComponent),
   },
   {
     path: 'permisos',

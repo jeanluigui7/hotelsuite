@@ -228,7 +228,7 @@ export class SidebarComponent {
     if (profile !== 'admin') return menu;
     // Administrador / fallback: oculta los módulos sin permiso de vista.
     return ADMIN_MENU.filter((item) => {
-      const module = item.route.replace('/', '');
+      const module = item.module ?? item.route.replace('/', '');
       return module === 'dashboard' || this.auth.can(module, 'view');
     });
   });

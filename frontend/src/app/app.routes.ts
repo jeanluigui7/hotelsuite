@@ -82,6 +82,14 @@ export const routes: Routes = [
         loadChildren: () => import('./features/whatsapp/whatsapp.routes'),
       },
       {
+        // WiFi como módulo propio. Se gatea con 'settings' (config de nivel administración)
+        // hasta promoverlo a su propio módulo RBAC cuando se implemente la lógica.
+        path: 'wifi',
+        canActivate: [permissionGuard],
+        data: { permission: { module: 'settings', action: 'view' } },
+        loadChildren: () => import('./features/wifi/wifi.routes'),
+      },
+      {
         path: 'settings',
         canActivate: [permissionGuard],
         data: { permission: { module: 'settings', action: 'view' } },

@@ -18,6 +18,8 @@ export interface MenuItem {
   label: string;
   icon: string;
   route: string;
+  /** Módulo RBAC para gatear visibilidad (override). Por defecto = primer segmento de `route`. */
+  module?: string;
   children?: MenuChild[];
 }
 
@@ -213,6 +215,18 @@ export const ADMIN_MENU: MenuItem[] = [
     ],
   },
   {
+    // WiFi = fuente de la credencial del huésped (WhatsApp y Ticket la consumen).
+    // Gateado con permiso 'settings' hasta tener su propio módulo RBAC.
+    label: 'WiFi',
+    icon: 'pi pi-wifi',
+    route: '/wifi',
+    module: 'settings',
+    children: [
+      { label: 'Configuración WiFi', route: '/wifi/configuracion' },
+      { label: 'Pool WiFi', route: '/wifi/pool' },
+    ],
+  },
+  {
     label: 'Configuraciones',
     icon: 'pi pi-cog',
     route: '/settings',
@@ -221,7 +235,7 @@ export const ADMIN_MENU: MenuItem[] = [
       { label: 'Hotel', route: '/settings/hotel' },
       { label: 'Configuración Operativa', route: '/settings/configuracion-operativa' },
       { label: 'Pernoctación (Día Hotelero)', route: '/settings/pernoctacion' },
-      { label: 'Pool WiFi', route: '/settings/wifi' },
+      { label: 'Tickets', route: '/settings/tickets' },
       { label: 'Clientes', route: '/settings/clientes' },
       { label: 'Tiers de Clientes', route: '/settings/tiers' },
       { label: 'Tarifas', route: '/settings/tarifas-base' },
