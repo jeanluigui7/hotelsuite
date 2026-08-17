@@ -53,6 +53,29 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+const RENEWAL_DAY_MS = 24 * 60 * 60 * 1000;
+/**
+ * Limpiezas de renovación por NOCHES acumuladas de la estadía (NO por eventos/pagos de renovación):
+ *  - Noches totales = span real check-in → checkout programado, en días (el desfase por la hora
+ *    de corte es < 1 día, así que redondea a la noche correcta).
+ *  - possible = noches totales − 1  (la primera noche no genera limpieza).
+ *  - enabled  = limpiezas habilitadas HASTA HOY: una por cada checkout de noche ya alcanzado
+ *    mientras el huésped sigue alojado (no se entregan todas por adelantado).
+ * Independiente de la cantidad de pagos/renovaciones, montos o si fue deuda o pago inmediato.
+ */
+function renewalCleaningCounts(stay: { checkInAt: Date; plannedCheckoutAt: Date }): { possible: number; enabled: number } {
+  const ci = new Date(stay.checkInAt).getTime();
+  const pco = new Date(stay.plannedCheckoutAt).getTime();
+  const totalNights = Math.max(1, Math.round((pco - ci) / RENEWAL_DAY_MS));
+  const possible = Math.max(0, totalNights - 1);
+  if (possible === 0) return { possible: 0, enabled: 0 };
+  // Checkout de la noche 1 = checkout final − (noches−1) días. Cada limpieza k habilita en el checkout de la noche k.
+  const firstNightCheckout = pco - (totalNights - 1) * RENEWAL_DAY_MS;
+  const now = Date.now();
+  const enabled = now < firstNightCheckout ? 0 : Math.min(possible, Math.floor((now - firstNightCheckout) / RENEWAL_DAY_MS) + 1);
+  return { possible, enabled };
+}
+
 /** Pendiente = recargos (balanceDue: early/late) + saldo no pagado de ventas OPEN de la estancia. */
 async function computePending(stayId: string, balanceDue: Prisma.Decimal | number | null) {
   const sales = await prisma.sale.findMany({
@@ -316,9 +339,9 @@ export const staysService = {
     let bal = 0;
     const movements = movs.map((m) => { bal = Math.round((bal + m.charge - m.payment) * 100) / 100; return { ...m, balance: bal }; });
 
-    // Limpiezas de RENOVACIÓN: se programa una por cada renovación (allowed = renovaciones),
-    // hechas = contador de renovaciones completadas. Un ingreso nuevo (sin renovar) → 0/0.
-    const cleaningAllowed = stay.renewalCount;
+    // Limpiezas de RENOVACIÓN por NOCHES acumuladas + avance real de la estadía (no por eventos):
+    // allowed = limpiezas habilitadas hasta hoy; possible = total según noches; done = completadas.
+    const { possible: cleaningPossible, enabled: cleaningAllowed } = renewalCleaningCounts(stay);
     const cleaningDone = stay.renewalCleaningDone ?? 0;
     const cleaningLog = tasks.map((t) => ({ at: t.completedAt ?? t.createdAt, action: t.status === 'PENDING' ? 'Solicitó' : t.status === 'IN_PROGRESS' ? 'Inició' : 'Finalizó', by: uname(t.assignedToUserId) }));
 
@@ -341,7 +364,7 @@ export const staysService = {
       durationMinutes: stay.durationMinutes,
       renewals: renewalCount > 0 ? renewalCount : (renovaciones > 0 ? Math.max(1, Math.round(renovaciones / (habitacion || 1))) : 0),
       amounts: { habitacion, renovaciones, consumos: round2(consumos), total, paid },
-      cleaning: { done: cleaningDone, allowed: cleaningAllowed, status: stay.renewalCleaningStatus, pernocta: stay.durationMinutes >= 1440 },
+      cleaning: { done: cleaningDone, allowed: cleaningAllowed, possible: cleaningPossible, status: stay.renewalCleaningStatus, pernocta: stay.durationMinutes >= 1440 },
       cleaningLog,
       movements,
       products,
@@ -408,10 +431,18 @@ export const staysService = {
     ];
     if (commission > 0) saleItems.push({ description: 'Comisión POS', quantity: 1, unitPrice: commission, subtotal: commission });
 
+    // Solicitud inmediata de limpieza al renovar: solo si YA hay una limpieza habilitada
+    // (se alcanzó el checkout de una noche). Si aún no, la renovación procede sin solicitarla;
+    // se podrá solicitar después desde el folio cuando la estadía avance a ese checkout.
+    const canRequestNow =
+      dto.requestCleaning &&
+      stay.renewalCleaningStatus === 'NONE' &&
+      renewalCleaningCounts({ checkInAt: stay.checkInAt, plannedCheckoutAt: newCheckout }).enabled > (stay.renewalCleaningDone ?? 0);
+
     await prisma.$transaction([
       prisma.stay.update({
         where: { id },
-        data: { plannedCheckoutAt: newCheckout, renewedAt: new Date(), renewalCount: { increment: 1 }, ...(dto.requestCleaning ? { cleaningRequested: true, renewalCleaningStatus: 'SOLICITADA' } : {}) },
+        data: { plannedCheckoutAt: newCheckout, renewedAt: new Date(), renewalCount: { increment: 1 }, ...(canRequestNow ? { cleaningRequested: true, renewalCleaningStatus: 'SOLICITADA' } : {}) },
       }),
       prisma.sale.create({
         data: {
@@ -513,7 +544,8 @@ export const staysService = {
       // finish: requiere completar los pasos
       if (st !== 'EN_CURSO') throw new ConflictError('La limpieza no está en curso.');
       if (stay.renewalCleaningStep < total) throw new ConflictError(`Completa los pasos de la limpieza (${stay.renewalCleaningStep}/${total}).`);
-      await prisma.stay.update({ where: { id }, data: { renewalCleaningStatus: 'NONE', renewalCleaningStep: 0, cleaningRequested: false } });
+      // Al finalizar, cuenta una limpieza de renovación como completada (avanza done/allowed).
+      await prisma.stay.update({ where: { id }, data: { renewalCleaningStatus: 'NONE', renewalCleaningStep: 0, cleaningRequested: false, renewalCleaningDone: { increment: 1 } } });
     }
     const updated = await staysRepository.findById(id);
     return serialize(updated as StayWithRelations);
@@ -530,9 +562,9 @@ export const staysService = {
     if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
     if (stay.status !== 'OPEN') throw new ConflictError('La estancia no está activa.');
     if (stay.renewalCleaningStatus !== 'NONE') throw new ConflictError('Ya hay una limpieza de renovación solicitada o en curso.');
-    const allowed = stay.renewalCount;
+    const { enabled: allowed } = renewalCleaningCounts(stay);
     const done = stay.renewalCleaningDone ?? 0;
-    if (allowed <= done) throw new ConflictError('No hay una limpieza de renovación pendiente. Renueva la estadía primero.');
+    if (allowed <= done) throw new ConflictError('No hay una limpieza de renovación habilitada aún. Se habilita al llegar al checkout programado de cada noche mientras el huésped siga alojado.');
     const room = await prisma.room.findUnique({ where: { id: stay.roomId } });
     if (!room) throw new NotFoundError('Habitación no encontrada');
     if (room.status !== 'OCCUPIED') throw new ConflictError('La habitación debe estar Ocupada para solicitar una limpieza de renovación.');
