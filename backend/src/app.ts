@@ -61,6 +61,8 @@ import { performanceRouter } from './modules/performance/performance.routes';
 import { biometricsRouter } from './modules/biometrics/biometrics.routes';
 import { reportsRouter } from './modules/reports/reports.routes';
 import { whatsappRouter } from './modules/whatsapp/whatsapp.routes';
+import { whatsappConfigRouter } from './modules/whatsapp-config/whatsapp-config.routes';
+import { wifiConfigRouter } from './modules/wifi-config/wifi-config.routes';
 import { remindersRouter } from './modules/reminders/reminders.routes';
 import { publicRouter } from './modules/public/public.routes';
 import { landingRouter } from './modules/landing/landing.routes';
@@ -155,6 +157,8 @@ export function createApp(): Application {
   app.use('/api', reportsRouter);
   app.use('/api', dashboardRouter);
   app.use('/api', whatsappRouter);
+  app.use('/api', whatsappConfigRouter);
+  app.use('/api', wifiConfigRouter);
   app.use('/api', remindersRouter);
   app.use('/api', wifiRouter);
   app.use('/api', pernoctaRouter);

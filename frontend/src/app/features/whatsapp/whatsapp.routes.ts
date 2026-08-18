@@ -9,7 +9,7 @@ const routes: Routes = [
   },
   {
     path: 'mensajes',
-    loadComponent: () => import('./mensajes/templates.component').then((m) => m.WaTemplatesComponent),
+    loadComponent: () => import('./mensajes/message-config.component').then((m) => m.MessageConfigComponent),
   },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
