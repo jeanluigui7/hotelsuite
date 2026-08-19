@@ -90,8 +90,14 @@ export const cleaningService = {
   /** Habitaciones que requieren limpieza/repaso, con su tarea en curso si existe. */
   async roomsToClean(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);
+    // Renovación: habitaciones con estancia activa y limpieza de renovación solicitada/en curso
+    // (el huésped sigue dentro, la habitación puede seguir OCUPADA). Deben aparecer en el módulo
+    // aunque su estado no esté en CLEANABLE (p. ej. renovación pedida desde el diálogo de Renovar).
+    const renewalStays = await prisma.stay.findMany({ where: { branchId, status: 'OPEN', renewalCleaningStatus: { in: ['SOLICITADA', 'EN_CURSO'] } }, select: { roomId: true } });
+    const renewalRoomIds = renewalStays.map((s) => s.roomId);
+    const renewalRooms = new Set(renewalRoomIds);
     const rooms = await prisma.room.findMany({
-      where: { branchId, status: { in: [...CLEANABLE, 'REVISION'] } },
+      where: { branchId, OR: [{ status: { in: [...CLEANABLE, 'REVISION'] } }, { id: { in: renewalRoomIds } }] },
       include: { roomType: { select: { name: true } } },
       orderBy: [{ floor: 'asc' }, { number: 'asc' }],
     });
@@ -102,10 +108,6 @@ export const cleaningService = {
     const pendingRevs = await prisma.revision.findMany({ where: { branchId, status: 'PENDING' }, orderBy: { createdAt: 'desc' } });
     const revStartByRoom = new Map<string, Date>();
     for (const rv of pendingRevs) if (!revStartByRoom.has(rv.roomId)) revStartByRoom.set(rv.roomId, rv.createdAt);
-    // Renovación: habitaciones con estancia activa y limpieza de renovación solicitada/en curso
-    // (el huésped sigue dentro) → se colorean distinto que un check-out.
-    const renewalStays = await prisma.stay.findMany({ where: { branchId, status: 'OPEN', renewalCleaningStatus: { in: ['SOLICITADA', 'EN_CURSO'] } }, select: { roomId: true } });
-    const renewalRooms = new Set(renewalStays.map((s) => s.roomId));
     return rooms.map((r) => ({
       id: r.id,
       number: r.number,
@@ -127,13 +129,16 @@ export const cleaningService = {
     const branchId = requireActiveBranch(scope);
     const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room || room.branchId !== branchId) throw new ValidationError('Habitación no encontrada');
-    if (!CLEANABLE.includes(room.status)) throw new ValidationError('La habitación no está pendiente de limpieza');
 
     // RENOVACIÓN solo si el huésped SOLICITÓ una limpieza de renovación (renewalCleaningStatus
     // SOLICITADA/EN_CURSO). En un CHECK OUT la estancia sigue OPEN hasta cerrar la limpieza,
     // así que NO basta con "hay estancia abierta" (eso marcaba mal los check-out como renovación).
     const renewalStay = await prisma.stay.findFirst({ where: { branchId, roomId, status: 'OPEN', renewalCleaningStatus: { in: ['SOLICITADA', 'EN_CURSO'] } } });
     const type = renewalStay ? 'RENOVACION' : 'CHECKOUT';
+
+    // La habitación debe estar pendiente de limpieza, O tener una limpieza de renovación pedida
+    // (el huésped sigue dentro, la habitación puede seguir OCUPADA).
+    if (!CLEANABLE.includes(room.status) && !renewalStay) throw new ValidationError('La habitación no está pendiente de limpieza');
 
     const task = await prisma.housekeepingTask.create({
       data: {
