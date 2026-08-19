@@ -13,7 +13,7 @@ interface Folio {
   room: { number: string; typeName: string };
   checkInAt: string; plannedCheckoutAt: string; durationMinutes: number; renewals: number;
   amounts: { habitacion: number; renovaciones: number; consumos: number; total: number; paid: number };
-  cleaning: { done: number; allowed: number; status: string; pernocta: boolean };
+  cleaning: { done: number; allowed: number; possible: number; status: string; pernocta: boolean };
   cleaningLog: { at: string; action: string; by: string }[];
   movements: { at: string; type: string; description: string; method?: string; charge: number; payment: number; balance: number; by: string }[];
   products: { name: string; quantity: number; amount: number; at: string; paid: boolean }[];
@@ -65,7 +65,7 @@ type Tab = 'resumen' | 'folio' | 'historial' | 'operacion';
                   </div>
                   @if (showCleaning(f)) {
                     <div class="clean-box">
-                      <div><i class="pi pi-bolt"></i> LIMPIEZA PROGRAMADA<br><small>Progreso: {{ f.cleaning.done }}/{{ f.cleaning.allowed }}</small></div>
+                      <div><i class="pi pi-bolt"></i> LIMPIEZA PROGRAMADA<br><small>Progreso: {{ f.cleaning.done }}/{{ f.cleaning.possible }}<span class="cl-av" [class.on]="f.cleaning.allowed > f.cleaning.done"> · {{ f.cleaning.allowed > f.cleaning.done ? (f.cleaning.allowed - f.cleaning.done) + ' disponible(s) hoy' : 'ninguna disponible aún' }}</span></small></div>
                       @if (f.cleaning.status === 'SOLICITADA') {
                         <span class="cl-badge sol"><i class="pi pi-clock"></i> Limpieza solicitada</span>
                       } @else if (f.cleaning.status === 'EN_CURSO') {
@@ -104,8 +104,8 @@ type Tab = 'resumen' | 'folio' | 'historial' | 'operacion';
                 }
               </div>
               <div class="alerts"><span class="al-t">ALERTAS</span>
-                <div>Limpiezas: <strong>{{ f.cleaning.done }} / {{ f.cleaning.allowed }}</strong></div>
-                <div class="al-y">• {{ f.cleaning.done < f.cleaning.allowed ? 'Limpieza disponible hoy' : 'Sin limpiezas disponibles' }}</div>
+                <div>Limpiezas: <strong>{{ f.cleaning.done }} / {{ f.cleaning.possible }}</strong> <small class="muted2">(programadas por noches)</small></div>
+                <div class="al-y">• {{ f.cleaning.allowed > f.cleaning.done ? (f.cleaning.allowed - f.cleaning.done) + ' disponible(s) hoy' : (f.cleaning.done < f.cleaning.possible ? 'Se habilitan al llegar al checkout de cada noche' : 'Sin limpiezas pendientes') }}</div>
               </div>
             }
 
@@ -144,7 +144,7 @@ type Tab = 'resumen' | 'folio' | 'historial' | 'operacion';
                 } @empty { <p class="muted">Sin productos.</p> }
               </div>
               <div class="panel">
-                <h4><i class="pi pi-sparkles"></i> LIMPIEZAS — {{ f.cleaning.done }} / {{ f.cleaning.allowed }} disponibles</h4>
+                <h4><i class="pi pi-sparkles"></i> LIMPIEZAS — {{ f.cleaning.done }} / {{ f.cleaning.possible }} programadas ({{ f.cleaning.allowed - f.cleaning.done > 0 ? (f.cleaning.allowed - f.cleaning.done) + ' disponible(s) hoy' : 'ninguna disponible aún' }})</h4>
                 @for (c of f.cleaningLog; track $index) {
                   <div class="crow"><span>{{ c.at | date: 'dd/MM/yyyy, hh:mm a' }} · <strong>{{ c.action }}</strong></span><span class="muted">{{ c.by }}</span></div>
                 } @empty { <p class="muted">Sin registros de limpieza.</p> }
@@ -203,6 +203,8 @@ type Tab = 'resumen' | 'folio' | 'historial' | 'operacion';
       .rchip { background: rgba(45,212,191,0.15); color: #5eead4; border: 1px solid #155e63; border-radius: 999px; padding: 0.2rem 0.6rem; font-size: 0.72rem; }
       .clean-box { background: rgba(96,165,250,0.1); border: 1px solid #1e3a8a; border-radius: 10px; padding: 0.7rem 0.9rem; margin-bottom: 0.7rem; color: #93c5fd; font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; }
       .clean-box small { color: #8aa0bd; font-weight: 400; }
+      .cl-av { color: #64748b; } .cl-av.on { color: #34d399; font-weight: 600; }
+      .muted2 { color: #8aa0bd; font-weight: 400; font-size: 0.9em; }
       .cl-btn { background: linear-gradient(135deg,#2563eb,#3b82f6); color: #fff; border: 0; border-radius: 9px; padding: 0.5rem 0.85rem; font-weight: 700; font-size: 0.8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; }
       .cl-btn:hover { filter: brightness(1.1); } .cl-btn:disabled { opacity: 0.5; cursor: not-allowed; }
       .cl-badge { border-radius: 999px; padding: 0.3rem 0.7rem; font-size: 0.74rem; font-weight: 800; display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
