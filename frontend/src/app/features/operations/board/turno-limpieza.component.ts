@@ -257,8 +257,18 @@ export class TurnoLimpiezaComponent implements OnInit {
   ngOnInit(): void { this.reload(); }
 
   reload(): void {
-    this.http.get<ApiResponse<ShiftReport[]>>(`${this.api}/cleaning/shift-report`).subscribe((r) => { this.reports.set(r.data ?? []); this.idx.set(0); });
-    this.http.get<ApiResponse<ShiftInfo>>(`${this.api}/cleaning/shift`).subscribe((r) => this.info.set(r.data));
+    this.http.get<ApiResponse<ShiftReport[]>>(`${this.api}/cleaning/shift-report`).subscribe((res) => {
+      const reports = res.data ?? [];
+      this.reports.set(reports);
+      // Arranca en el turno ABIERTO del propio usuario (no en el más reciente de la sucursal),
+      // para que "A Lavandería" y "Finalizar turno" queden habilitados.
+      this.http.get<ApiResponse<ShiftInfo>>(`${this.api}/cleaning/shift`).subscribe((r2) => {
+        this.info.set(r2.data);
+        const openId = r2.data?.shift?.id;
+        const i = openId ? reports.findIndex((x) => x.id === openId) : -1;
+        this.idx.set(i >= 0 ? i : 0);
+      });
+    });
   }
 
   cat(r: ShiftReport, key: string): Category {

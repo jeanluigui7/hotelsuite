@@ -62,8 +62,8 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sabanas'
       <!-- KPIs de limpieza -->
       @if (data(); as d) {
         <div class="stat-grid">
-          <div class="stat clk" style="background:linear-gradient(135deg,#115e59,#14b8a6)" (click)="go('FREE')" title="Ver habitaciones disponibles">
-            <span class="num">{{ done(d) }}</span><span class="lbl">Limpiezas realizadas <i class="pi pi-arrow-right"></i></span>
+          <div class="stat clk" style="background:linear-gradient(135deg,#115e59,#14b8a6)" (click)="goHistorial()" title="Ver historial de limpiezas del turno">
+            <span class="num">{{ d.realizadasTurno }}</span><span class="lbl">Limpiezas realizadas <i class="pi pi-arrow-right"></i></span>
           </div>
           <div class="stat clk" style="background:linear-gradient(135deg,#1e40af,#3b82f6)" (click)="go('CLEANING')" title="Ver habitaciones en limpieza">
             <span class="num">{{ d.roomsCleaning }}</span><span class="lbl">Limpiezas en curso <i class="pi pi-arrow-right"></i></span>
@@ -173,6 +173,10 @@ export class LimpiezaSummaryComponent implements OnInit, OnDestroy {
   go(estado: string): void {
     this.router.navigate(['/operations/habitaciones'], { queryParams: { estado } });
   }
+  /** "Limpiezas realizadas" → Historial de Limpiezas (NO al panel de habitaciones / check-in). */
+  goHistorial(): void {
+    this.router.navigate(['/operations/limpiezas']);
+  }
   private readonly apiUrl = environment.apiUrl;
 
   readonly data = signal<LimpiezaSummary | null>(null);
@@ -231,10 +235,6 @@ export class LimpiezaSummaryComponent implements OnInit, OnDestroy {
 
   name(): string {
     return this.auth.user()?.email?.split('@')[0] ?? 'Usuario de Limpieza';
-  }
-
-  done(d: LimpiezaSummary): number {
-    return d.byStatus.find((x) => x.status === 'DONE')?.count ?? 0;
   }
 
   elapsed(openedAt: string): string {

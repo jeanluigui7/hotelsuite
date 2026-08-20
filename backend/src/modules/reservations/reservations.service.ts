@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import type { RequestScope } from '../../shared/context';
-import { NotFoundError, ValidationError } from '../../shared/errors';
+import { ConflictError, NotFoundError, ValidationError } from '../../shared/errors';
 import {
   buildOrderBy,
   pageMeta,
@@ -9,6 +9,7 @@ import {
 } from '../../shared/pagination';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
+import { cashRepository } from '../cash/cash.repository';
 import { reservationsRepository, type ReservationWithRelations } from './reservations.repository';
 import type { CreateReservationDto, UpdateReservationDto } from './reservations.schema';
 
@@ -86,6 +87,9 @@ export const reservationsService = {
 
   async create(scope: RequestScope, dto: CreateReservationDto) {
     const branchId = requireActiveBranch(scope);
+    // Operación de recepción → requiere caja abierta (sin caja solo verifica/visualiza).
+    const cashOpen = await cashRepository.findOpen(branchId);
+    if (!cashOpen) throw new ConflictError('Debes abrir caja para registrar reservas. Sin caja abierta solo puedes verificar y visualizar.');
     await assertRefsInBranch(branchId, dto.roomTypeId, dto.roomId);
     const r = await reservationsRepository.create({
       branchId,

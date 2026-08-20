@@ -59,12 +59,10 @@ export const salesService = {
   async create(scope: RequestScope, dto: CreateSaleDto) {
     const branchId = requireActiveBranch(scope);
 
-    // Solo se exige turno de caja abierto cuando hay pagos que registrar. Una venta a
-    // crédito (cargo sin pago, p. ej. el cargo de habitación al hacer check-in) puede
-    // registrarse sin caja para no perder el rastro del cargo en el folio.
-    const hasPayments = (dto.payments ?? []).some((p) => (p.amount ?? 0) > 0);
+    // Toda venta (con o sin pago, incluido el cargo a crédito) requiere un turno de caja abierto.
+    // Sin caja, recepción solo puede verificar/visualizar; para operar con dinero debe abrir caja.
     const session = await cashRepository.findOpen(branchId);
-    if (hasPayments && !session) throw new ConflictError('Debe abrir un turno de caja antes de registrar cobros');
+    if (!session) throw new ConflictError('Debes abrir caja para registrar ventas o cargos. Sin caja abierta solo puedes verificar y visualizar.');
 
     if (dto.stayId) {
       const stay = await prisma.stay.findUnique({ where: { id: dto.stayId } });

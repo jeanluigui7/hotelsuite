@@ -96,6 +96,9 @@ async function computePending(stayId: string, balanceDue: Prisma.Decimal | numbe
 export const staysService = {
   async checkIn(scope: RequestScope, dto: CheckInDto) {
     const branchId = requireActiveBranch(scope);
+    // Operación con dinero: requiere caja abierta (sin caja solo se verifica/visualiza).
+    const cashOpen = await cashRepository.findOpen(branchId);
+    if (!cashOpen) throw new ConflictError('Debes abrir caja para hacer check-in. Sin caja abierta solo puedes verificar y visualizar.');
 
     const room = await prisma.room.findUnique({ where: { id: dto.roomId } });
     if (!room || room.branchId !== branchId) throw new NotFoundError('Habitación no encontrada');
@@ -407,12 +410,10 @@ export const staysService = {
     if (paidNow > price) throw new ValidationError('Lo cobrado excede el monto de la renovación.');
 
     // Si hay cobro ahora, el pago se registra atado a un turno de caja abierto.
-    let sessionId: string | null = null;
-    if (paidNow > 0) {
-      const session = await cashRepository.findOpen(branchId);
-      if (!session) throw new ConflictError('Para cobrar la renovación debe haber un turno de caja abierto.');
-      sessionId = session.id;
-    }
+    // La renovación es una operación con dinero → requiere caja abierta (con o sin cobro inmediato).
+    const session = await cashRepository.findOpen(branchId);
+    if (!session) throw new ConflictError('Debes abrir caja para renovar. Sin caja abierta solo puedes verificar y visualizar.');
+    const sessionId: string | null = session.id;
     const ref = dto.mode === 'HOURS' ? 'Tiempo extra (horas)' : 'Renovación de estadía';
 
     // Comisión POS (Configuración Operativa): recargo al cliente por el método de pago.
