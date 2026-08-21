@@ -36,6 +36,7 @@ model Branch {
   rates          Rate[]
   customRates    CustomRate[]
   settings       Setting[]
+  cashReconciliations CashReconciliation[]
   areas          Area[]
   inventoryCategories InventoryCategory[]
   items          Item[]
@@ -1002,6 +1003,29 @@ model InventoryMovement {
   @@index([productId])
   @@index([warehouseId])
   @@index([type])
+}
+
+// Regularización posterior a un cierre de caja CONFIRMADO (no lo edita ni lo reabre).
+// Conserva la diferencia original del turno y registra cómo se concilia.
+model CashReconciliation {
+  id               String   @id @default(uuid())
+  branchId         String
+  cashSessionId    String // turno original al que concilia
+  type             String // VENTA_NO_REGISTRADA | PERDIDA_COLABORADOR
+  amount           Decimal  @db.Decimal(10, 2)
+  affectsCash      Boolean  @default(false) // true = concilia la diferencia de caja (sobrante)
+  productId        String?
+  quantity         Int?
+  movementId       String? // InventoryMovement generado/relacionado
+  note             String?
+  createdByUserId  String?
+  approvedByUserId String?
+  createdAt        DateTime @default(now())
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+  @@index([cashSessionId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
