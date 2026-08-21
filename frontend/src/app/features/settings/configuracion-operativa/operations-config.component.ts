@@ -99,9 +99,9 @@ const DEFAULTS: OperationsConfig = {
           <div class="block-title">B · Caja, pagos y comisiones</div>
 
           <article class="card">
-            <div class="sw-head"><h3>Caja Ciega</h3><p-toggleswitch [(ngModel)]="cfg.blindCash" [disabled]="!canEdit" /></div>
-            <p class="desc">Caja ciega para Recepción. <strong>Activa:</strong> recepción no ve el efectivo esperado ni diferencias/faltantes/sobrantes; al cerrar solo declara cuánto entrega, y administración audita después. <strong>Inactiva:</strong> cierre detallado según permisos.</p>
-            <p class="hint">Reemplaza a la antigua opción “Administrador presente” (misma configuración, una sola fuente de verdad).</p>
+            <div class="sw-head"><h3>Modo Administrador</h3><p-toggleswitch [(ngModel)]="adminMode" [disabled]="!canEdit" /></div>
+            <p class="desc">Define si el cierre de caja tiene <strong>supervisión administrativa</strong>. <strong>Activado (caja normal / supervisada):</strong> recepción ve apertura, total cobrado, efectivo esperado, arqueo y diferencias. <strong>Desactivado (Caja Ciega):</strong> recepción no ve el efectivo esperado ni diferencias/faltantes/sobrantes; solo cuenta y declara el efectivo que entrega, y administración audita después.</p>
+            <p class="hint">Es una sola configuración con dos comportamientos (no hay un switch separado de “Caja Ciega”). Se guarda por sucursal.</p>
           </article>
 
           <article class="card">
@@ -230,6 +230,12 @@ export class OperationsConfigComponent {
   readonly canEdit = this.auth.can('settings', 'edit');
 
   cfg: OperationsConfig = structuredClone(DEFAULTS);
+
+  // "Modo Administrador" es la cara visible de la config; internamente se guarda como blindCash (= !adminMode).
+  // Modo Administrador ON  → caja normal / supervisada (blindCash = false).
+  // Modo Administrador OFF → caja ciega               (blindCash = true).
+  get adminMode(): boolean { return !this.cfg.blindCash; }
+  set adminMode(v: boolean) { this.cfg.blindCash = !v; }
 
   readonly posRows: { key: keyof OperationsConfig['pos']; label: string }[] = [
     { key: 'transfer', label: 'Transferencia bancaria' },

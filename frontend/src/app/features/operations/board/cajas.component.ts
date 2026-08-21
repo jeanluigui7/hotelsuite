@@ -11,7 +11,11 @@ import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
 import { PrintingService } from '../../../core/printing/printing.service';
 import { FinanceApiService } from '../../finance/services/finance-api.service';
-import type { CashCurrent, CloseResult } from '../../finance/services/finance.models';
+import type { CashCurrent } from '../../finance/services/finance.models';
+import { buildCuadreTicket, buildBlindTicket, shiftOf } from '../../finance/services/cuadre-ticket';
+
+/** Denominaciones de soles (billetes y monedas) para el conteo de cierre. */
+const DENOMS = [200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1, 0.05];
 
 const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', WALLET: 'Yape/Plin' };
 
@@ -72,23 +76,43 @@ const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta'
       </ng-template>
     </p-dialog>
 
-    <!-- Cerrar caja -->
-    <p-dialog [(visible)]="closeVisible" [modal]="true" [header]="blindClose() ? 'Cerrar caja — entrega de efectivo' : 'Cerrar caja (arqueo)'" [style]="{ width: '28rem' }" styleClass="dk-dialog">
-      <div class="form">
-        @if (blindClose()) {
-          <p class="blind-note"><i class="pi pi-info-circle"></i> Cuenta físicamente el efectivo del cajón y registra el monto que estás entregando. Administración audita la diferencia después.</p>
-          <label>Monto que estoy entregando (S/)</label>
-          <p-inputNumber [(ngModel)]="countedAmount" mode="decimal" [minFractionDigits]="2" [min]="0" />
-        } @else {
-          <div class="kv"><span>Efectivo esperado</span><strong>{{ expectedCash() | number: '1.2-2' }}</strong></div>
-          <label>Efectivo contado</label>
-          <p-inputNumber [(ngModel)]="countedAmount" mode="decimal" [minFractionDigits]="2" [min]="0" />
-          <div class="kv diff" [class.neg]="diff() < 0"><span>Diferencia</span><strong>{{ diff() | number: '1.2-2' }}</strong></div>
+    <!-- Cerrar caja: conteo por denominaciones (ambos modos) -->
+    <p-dialog [(visible)]="closeVisible" [modal]="true" header="Cerrar caja — conteo de efectivo" [style]="{ width: '34rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      @if (blindClose()) {
+        <p class="blind-note"><i class="pi pi-info-circle"></i> Cuenta físicamente el efectivo del cajón por denominación. En caja ciega no verás el esperado ni la diferencia; administración audita después.</p>
+      } @else {
+        <p class="blind-note supervised"><i class="pi pi-shield"></i> Modo supervisado: cuenta por denominación; el sistema calculará el cuadre contra el efectivo esperado.</p>
+      }
+
+      <div class="denoms">
+        <div class="dh"><span>Denominación</span><span class="c">Cantidad</span><span class="r">Subtotal</span></div>
+        @for (d of denoms; track d.value) {
+          <div class="drow">
+            <span class="dv">{{ d.value >= 1 ? 'S/ ' : 'MON. S/ ' }}{{ d.value | number: '1.2-2' }}</span>
+            <p-inputNumber [(ngModel)]="d.qty" [min]="0" [showButtons]="true" buttonLayout="horizontal" [step]="1" decrementButtonClass="qbtn" incrementButtonClass="qbtn" inputStyleClass="qin" (onInput)="onQty()" (onBlur)="onQty()" />
+            <span class="ds">{{ d.value * (d.qty || 0) | number: '1.2-2' }}</span>
+          </div>
+        }
+        <div class="dtot"><span>Total efectivo contado</span><strong>S/ {{ countedTotal() | number: '1.2-2' }}</strong></div>
+      </div>
+
+      <div class="summary">
+        <div class="kv"><span>Caja base que debe quedar</span><strong>S/ {{ baseAmount() | number: '1.2-2' }}</strong></div>
+        <div class="kv strong"><span>Efectivo que va a la bolsa</span><strong>S/ {{ toBag() | number: '1.2-2' }}</strong></div>
+        @if (canSeeCuadre()) {
+          <div class="kv"><span>Efectivo esperado</span><strong>S/ {{ expectedCash() | number: '1.2-2' }}</strong></div>
+          <div class="kv diff" [class.neg]="diff() < 0"><span>Diferencia</span><strong>{{ diff() > 0 ? '+' : '' }}{{ diff() | number: '1.2-2' }}</strong></div>
         }
       </div>
+
+      <div class="form">
+        <label>N° de bolsa / referencia</label>
+        <input pInputText [(ngModel)]="bagRef" placeholder="Ej. Bolsa 01 - Turno Mañana" />
+      </div>
+
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="closeVisible = false" />
-        <p-button [label]="blindClose() ? 'Registrar entrega e imprimir' : 'Cerrar e imprimir'" icon="pi pi-print" [loading]="busy()" (onClick)="doClose()" />
+        <p-button label="Imprimir y finalizar" icon="pi pi-print" [loading]="busy()" (onClick)="doClose()" />
       </ng-template>
     </p-dialog>
   `,
@@ -109,7 +133,17 @@ const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta'
       .kv { display: flex; justify-content: space-between; padding: 0.3rem 0; }
       .kv.diff { border-top: 1px solid #243245; margin-top: 0.4rem; padding-top: 0.5rem; } .kv.diff.neg strong { color: #f87171; }
       .actions { display: flex; gap: 0.6rem; }
-      .blind-note { display: flex; align-items: flex-start; gap: 0.4rem; margin: 0 0 0.4rem; padding: 0.55rem 0.7rem; border-radius: 8px; background: rgba(59,130,246,0.12); color: #93c5fd; font-size: 0.82rem; }
+      .blind-note { display: flex; align-items: flex-start; gap: 0.4rem; margin: 0 0 0.6rem; padding: 0.55rem 0.7rem; border-radius: 8px; background: rgba(59,130,246,0.12); color: #93c5fd; font-size: 0.82rem; }
+      .blind-note.supervised { background: rgba(16,185,129,0.12); color: #6ee7b7; }
+      .denoms { border: 1px solid #243245; border-radius: 10px; padding: 0.5rem 0.7rem; margin-bottom: 0.7rem; }
+      .dh { display: grid; grid-template-columns: 1fr 9rem 5.5rem; gap: 0.5rem; font-size: 0.72rem; color: #8b97a8; text-transform: uppercase; letter-spacing: 0.03em; padding-bottom: 0.3rem; border-bottom: 1px solid #243245; }
+      .dh .c { text-align: center; } .dh .r { text-align: right; }
+      .drow { display: grid; grid-template-columns: 1fr 9rem 5.5rem; gap: 0.5rem; align-items: center; padding: 0.2rem 0; }
+      .drow .dv { font-size: 0.85rem; color: #cbd5e1; } .drow .ds { text-align: right; font-weight: 700; color: #34d399; }
+      .dtot { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #243245; margin-top: 0.4rem; padding-top: 0.5rem; font-size: 0.95rem; } .dtot strong { color: #34d399; font-size: 1.1rem; }
+      .summary { display: flex; flex-direction: column; gap: 0.1rem; margin-bottom: 0.7rem; }
+      .summary .kv.strong { border-top: 1px dashed #243245; margin-top: 0.2rem; padding-top: 0.4rem; } .summary .kv.strong strong { color: #fbbf24; font-size: 1.05rem; }
+      :host ::ng-deep .drow .p-inputnumber { width: 9rem; } :host ::ng-deep .drow .qin { text-align: center; width: 100%; }
       .form { display: flex; flex-direction: column; gap: 0.4rem; }
       .form label { font-size: 0.85rem; color: #9fb0c3; margin-top: 0.4rem; }
       :host ::ng-deep .w .p-select, :host ::ng-deep .form input, :host ::ng-deep .form .p-inputnumber input { width: 100%; }
@@ -134,11 +168,15 @@ export class CajasComponent implements OnInit {
   // ¿Puede ver el cuadre (esperado/diferencia)? Siempre con admin presente; en modo ciego, solo administración.
   readonly canSeeCuadre = computed(() => this.adminPresent() || this.isAdmin);
   openingAmount = 100;
-  countedAmount: number | null = 0;
   movVisible = false;
   closeVisible = false;
   mov: { type: 'IN' | 'OUT'; amount: number; concept: string } = { type: 'IN', amount: 0, concept: '' };
   readonly movTypes = [{ label: 'Ingreso', value: 'IN' }, { label: 'Egreso', value: 'OUT' }];
+
+  // Conteo de cierre por denominaciones (ambos modos).
+  denoms: { value: number; qty: number }[] = DENOMS.map((value) => ({ value, qty: 0 }));
+  bagRef = '';
+  readonly countedTotal = signal(0);
 
   ngOnInit(): void { this.reload(); }
 
@@ -146,7 +184,10 @@ export class CajasComponent implements OnInit {
   label(k: string): string { return METHOD_LABEL[k] ?? k; }
   methodEntries(by: Record<string, number>): { k: string; v: number }[] { return Object.keys(by).map((k) => ({ k, v: by[k] })); }
   expectedCash(): number { return this.current()?.summary?.expectedCash ?? 0; }
-  diff(): number { return Math.round(((this.countedAmount ?? 0) - this.expectedCash()) * 100) / 100; }
+  baseAmount(): number { return Number(this.current()?.session?.openingAmount ?? 0); }
+  toBag(): number { return Math.round((this.countedTotal() - this.baseAmount()) * 100) / 100; }
+  diff(): number { return Math.round((this.countedTotal() - this.expectedCash()) * 100) / 100; }
+  onQty(): void { this.countedTotal.set(Math.round(this.denoms.reduce((a, d) => a + d.value * (d.qty || 0), 0) * 100) / 100); }
 
   openTurn(): void {
     this.busy.set(true);
@@ -165,82 +206,54 @@ export class CajasComponent implements OnInit {
   }
 
   openClose(c: CashCurrent): void {
-    // En modo ciego no se prellena con el esperado (no debe revelarse a recepción).
-    this.countedAmount = this.blindClose() ? null : (c.summary?.expectedCash ?? 0);
+    this.denoms = DENOMS.map((value) => ({ value, qty: 0 }));
+    this.countedTotal.set(0);
+    // N° de bolsa correlacionado con el número de caja/turno (solo se imprime).
+    const n = c.session?.number ?? null;
+    const turno = c.session ? shiftOf(c.session.openedAt) : '';
+    this.bagRef = n != null ? `Bolsa ${String(n).padStart(2, '0')} - Turno ${turno}` : `Turno ${turno}`;
     this.closeVisible = true;
   }
 
   doClose(): void {
-    if (this.countedAmount === null) {
-      const msg = this.blindClose() ? 'Ingresa el monto que estás entregando.' : 'Ingresa el efectivo contado.';
-      this.toast.add({ severity: 'warn', summary: 'Falta el monto', detail: msg }); return;
-    }
+    const total = this.countedTotal();
+    if (total <= 0) { this.toast.add({ severity: 'warn', summary: 'Conteo vacío', detail: 'Registra la cantidad de billetes y monedas contados.' }); return; }
     const blind = this.blindClose();
-    const delivered = this.countedAmount;
+    const c = this.current();
+    const session = c?.session;
+    const summary = c?.summary;
+    if (!session) return;
+    // Datos del ticket ciego se arman con el estado actual (aún no recargado).
+    const denomsSnapshot = this.denoms.map((d) => ({ value: d.value, qty: d.qty || 0 }));
+    const base = this.baseAmount();
+    const ingresos = summary?.movementsIn ?? 0;
+    const egresos = summary?.movementsOut ?? 0;
+    const bagRef = this.bagRef;
+    const brand = this.auth.activeBranch()?.name ?? 'HotelSuite';
+    const closedByName = this.auth.user()?.name ?? 'Recepción';
+
     this.busy.set(true);
-    this.finance.closeCash({ closingAmount: this.countedAmount }).subscribe({
+    this.finance.closeCash({ closingAmount: total, notes: bagRef || undefined }).subscribe({
       next: (res) => {
         this.busy.set(false); this.closeVisible = false;
+        const closedAt = res.data?.session?.closedAt ?? new Date().toISOString();
         if (blind) {
-          // Cierre ciego: no se revela la diferencia; solo se confirma la entrega.
-          this.toast.add({ severity: 'success', summary: 'Entrega registrada', detail: `Monto entregado: S/ ${delivered.toFixed(2)}` });
-          if (res.data) this.printing.printViaBrowser(this.blindReceipt(res.data, delivered));
+          this.toast.add({ severity: 'success', summary: 'Caja cerrada (ciega)', detail: `Efectivo a la bolsa: S/ ${(total - base).toFixed(2)}` });
+          this.printing.printViaBrowser(buildBlindTicket({
+            brand, sessionNumber: session.number ?? null, openedAt: session.openedAt, closedAt,
+            closedByName, base, denominations: denomsSnapshot, ingresos, egresos, bagRef,
+          }));
         } else {
           this.toast.add({ severity: 'success', summary: 'Caja cerrada', detail: 'Diferencia ' + (res.data?.difference ?? 0).toFixed(2) });
-          if (res.data) this.printing.printViaBrowser(this.closeReceipt(res.data));
+          // Modo supervisado: imprime el cuadre detallado (igual que Finanzas › Cajas).
+          this.finance.sessionDetail(session.id).subscribe({
+            next: (d) => this.printing.printViaBrowser(buildCuadreTicket(d.data, brand)),
+            error: () => { /* el cierre ya se guardó; el cuadre puede reimprimirse desde Finanzas */ },
+          });
         }
         this.reload();
       },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo cerrar.' }); },
     });
-  }
-
-  // Recibo de entrega a ciegas: solo confirma el monto entregado, sin esperado ni diferencia.
-  private blindReceipt(r: CloseResult, delivered: number): string {
-    const money = (n: number | string) => Number(n).toFixed(2);
-    return `
-      <style>*{font-family:'Courier New',monospace;font-size:12px;color:#000}.w{width:280px}h2{text-align:center;font-size:14px;margin:0 0 6px}.r{text-align:right}.line{border-top:1px dashed #000;margin:6px 0}table{width:100%}.b{font-weight:bold}</style>
-      <div class="w">
-        <h2>${this.auth.activeBranch()?.name ?? 'HotelSuite'}</h2>
-        <div style="text-align:center">ENTREGA DE EFECTIVO</div>
-        <div>Apertura: ${money(r.session.openingAmount)}</div>
-        <div>Abierto: ${new Date(r.session.openedAt).toLocaleString()}</div>
-        <div>Cerrado: ${r.session.closedAt ? new Date(r.session.closedAt).toLocaleString() : ''}</div>
-        <div class="line"></div>
-        <table>
-          <tr class="b"><td>Efectivo entregado</td><td class="r">${money(delivered)}</td></tr>
-        </table>
-        <div class="line"></div>
-        <div style="text-align:center">______________________</div>
-        <div style="text-align:center">Responsable</div>
-      </div>`;
-  }
-
-  private closeReceipt(r: CloseResult): string {
-    const money = (n: number | string) => Number(n).toFixed(2);
-    const rows = Object.keys(r.summary.byMethod).map((k) => `<tr><td>${this.label(k)}</td><td class="r">${money(r.summary.byMethod[k])}</td></tr>`).join('');
-    return `
-      <style>*{font-family:'Courier New',monospace;font-size:12px;color:#000}.w{width:280px}h2{text-align:center;font-size:14px;margin:0 0 6px}.r{text-align:right}.line{border-top:1px dashed #000;margin:6px 0}table{width:100%}.b{font-weight:bold}</style>
-      <div class="w">
-        <h2>${this.auth.activeBranch()?.name ?? 'HotelSuite'}</h2>
-        <div style="text-align:center">CIERRE DE CAJA</div>
-        <div>Apertura: ${money(r.session.openingAmount)}</div>
-        <div>Abierto: ${new Date(r.session.openedAt).toLocaleString()}</div>
-        <div>Cerrado: ${r.session.closedAt ? new Date(r.session.closedAt).toLocaleString() : ''}</div>
-        <div class="line"></div>
-        <table>${rows}</table>
-        <div class="line"></div>
-        <table>
-          <tr><td>Total cobrado</td><td class="r">${money(r.summary.totalCollected)}</td></tr>
-          <tr><td>Ingresos</td><td class="r">${money(r.summary.movementsIn || 0)}</td></tr>
-          <tr><td>Egresos</td><td class="r">${money(r.summary.movementsOut || 0)}</td></tr>
-          <tr class="b"><td>Efectivo esperado</td><td class="r">${money(r.summary.expectedCash)}</td></tr>
-          <tr><td>Contado</td><td class="r">${money(r.session.closingAmount ?? 0)}</td></tr>
-          <tr class="b"><td>Diferencia</td><td class="r">${money(r.difference)}</td></tr>
-        </table>
-        <div class="line"></div>
-        <div style="text-align:center">______________________</div>
-        <div style="text-align:center">Responsable</div>
-      </div>`;
   }
 }

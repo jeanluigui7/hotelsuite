@@ -2,6 +2,7 @@ export type PaymentMethod = 'CASH' | 'CARD' | 'TRANSFER' | 'YAPE' | 'PLIN' | 'WA
 
 export interface CashSession {
   id: string;
+  number?: number | null;
   status: 'OPEN' | 'CLOSED';
   openingAmount: string | number;
   closingAmount?: string | number | null;
