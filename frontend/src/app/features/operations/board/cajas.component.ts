@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -28,7 +28,9 @@ const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta'
           <div class="cards">
             <div class="card"><span class="l">Apertura</span><span class="v">{{ +c.session.openingAmount | number: '1.2-2' }}</span><span class="m">{{ c.session.openedAt | date: 'dd/MM HH:mm' }}</span></div>
             <div class="card"><span class="l">Total cobrado</span><span class="v">{{ c.summary.totalCollected | number: '1.2-2' }}</span><span class="m">{{ c.summary.salesCount }} ventas</span></div>
-            <div class="card hl"><span class="l">Efectivo esperado</span><span class="v">{{ c.summary.expectedCash | number: '1.2-2' }}</span></div>
+            @if (canSeeCuadre()) {
+              <div class="card hl"><span class="l">Efectivo esperado</span><span class="v">{{ c.summary.expectedCash | number: '1.2-2' }}</span></div>
+            }
             <div class="card"><span class="l">Movimientos</span><span class="v">+{{ c.summary.movementsIn || 0 | number: '1.2-2' }}</span><span class="m">-{{ c.summary.movementsOut || 0 | number: '1.2-2' }}</span></div>
           </div>
 
@@ -71,16 +73,22 @@ const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta'
     </p-dialog>
 
     <!-- Cerrar caja -->
-    <p-dialog [(visible)]="closeVisible" [modal]="true" header="Cerrar caja (arqueo)" [style]="{ width: '28rem' }" styleClass="dk-dialog">
+    <p-dialog [(visible)]="closeVisible" [modal]="true" [header]="blindClose() ? 'Cerrar caja — entrega de efectivo' : 'Cerrar caja (arqueo)'" [style]="{ width: '28rem' }" styleClass="dk-dialog">
       <div class="form">
-        <div class="kv"><span>Efectivo esperado</span><strong>{{ expectedCash() | number: '1.2-2' }}</strong></div>
-        <label>Efectivo contado</label>
-        <p-inputNumber [(ngModel)]="countedAmount" mode="decimal" [minFractionDigits]="2" [min]="0" />
-        <div class="kv diff" [class.neg]="diff() < 0"><span>Diferencia</span><strong>{{ diff() | number: '1.2-2' }}</strong></div>
+        @if (blindClose()) {
+          <p class="blind-note"><i class="pi pi-info-circle"></i> Cuenta físicamente el efectivo del cajón y registra el monto que estás entregando. Administración audita la diferencia después.</p>
+          <label>Monto que estoy entregando (S/)</label>
+          <p-inputNumber [(ngModel)]="countedAmount" mode="decimal" [minFractionDigits]="2" [min]="0" />
+        } @else {
+          <div class="kv"><span>Efectivo esperado</span><strong>{{ expectedCash() | number: '1.2-2' }}</strong></div>
+          <label>Efectivo contado</label>
+          <p-inputNumber [(ngModel)]="countedAmount" mode="decimal" [minFractionDigits]="2" [min]="0" />
+          <div class="kv diff" [class.neg]="diff() < 0"><span>Diferencia</span><strong>{{ diff() | number: '1.2-2' }}</strong></div>
+        }
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="closeVisible = false" />
-        <p-button label="Cerrar e imprimir" icon="pi pi-print" [loading]="busy()" (onClick)="doClose()" />
+        <p-button [label]="blindClose() ? 'Registrar entrega e imprimir' : 'Cerrar e imprimir'" icon="pi pi-print" [loading]="busy()" (onClick)="doClose()" />
       </ng-template>
     </p-dialog>
   `,
@@ -101,6 +109,7 @@ const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta'
       .kv { display: flex; justify-content: space-between; padding: 0.3rem 0; }
       .kv.diff { border-top: 1px solid #243245; margin-top: 0.4rem; padding-top: 0.5rem; } .kv.diff.neg strong { color: #f87171; }
       .actions { display: flex; gap: 0.6rem; }
+      .blind-note { display: flex; align-items: flex-start; gap: 0.4rem; margin: 0 0 0.4rem; padding: 0.55rem 0.7rem; border-radius: 8px; background: rgba(59,130,246,0.12); color: #93c5fd; font-size: 0.82rem; }
       .form { display: flex; flex-direction: column; gap: 0.4rem; }
       .form label { font-size: 0.85rem; color: #9fb0c3; margin-top: 0.4rem; }
       :host ::ng-deep .w .p-select, :host ::ng-deep .form input, :host ::ng-deep .form .p-inputnumber input { width: 100%; }
@@ -116,8 +125,16 @@ export class CajasComponent implements OnInit {
 
   readonly current = signal<CashCurrent | null>(null);
   readonly busy = signal(false);
+  // Administración = quien puede editar la configuración del hotel (switch "Administrador presente").
+  readonly isAdmin = this.auth.can('settings', 'edit');
+  // Modo de trabajo de la sucursal activa (Configuración Operativa › Caja Ciega escribe adminPresent = !blindCash).
+  readonly adminPresent = computed(() => this.auth.activeBranch()?.adminPresent ?? true);
+  // Cierre ciego: recepción no ve el efectivo esperado ni diferencias; al cerrar solo declara cuánto entrega.
+  readonly blindClose = computed(() => !this.adminPresent());
+  // ¿Puede ver el cuadre (esperado/diferencia)? Siempre con admin presente; en modo ciego, solo administración.
+  readonly canSeeCuadre = computed(() => this.adminPresent() || this.isAdmin);
   openingAmount = 100;
-  countedAmount = 0;
+  countedAmount: number | null = 0;
   movVisible = false;
   closeVisible = false;
   mov: { type: 'IN' | 'OUT'; amount: number; concept: string } = { type: 'IN', amount: 0, concept: '' };
@@ -129,7 +146,7 @@ export class CajasComponent implements OnInit {
   label(k: string): string { return METHOD_LABEL[k] ?? k; }
   methodEntries(by: Record<string, number>): { k: string; v: number }[] { return Object.keys(by).map((k) => ({ k, v: by[k] })); }
   expectedCash(): number { return this.current()?.summary?.expectedCash ?? 0; }
-  diff(): number { return Math.round((this.countedAmount - this.expectedCash()) * 100) / 100; }
+  diff(): number { return Math.round(((this.countedAmount ?? 0) - this.expectedCash()) * 100) / 100; }
 
   openTurn(): void {
     this.busy.set(true);
@@ -148,21 +165,55 @@ export class CajasComponent implements OnInit {
   }
 
   openClose(c: CashCurrent): void {
-    this.countedAmount = c.summary?.expectedCash ?? 0;
+    // En modo ciego no se prellena con el esperado (no debe revelarse a recepción).
+    this.countedAmount = this.blindClose() ? null : (c.summary?.expectedCash ?? 0);
     this.closeVisible = true;
   }
 
   doClose(): void {
+    if (this.countedAmount === null) {
+      const msg = this.blindClose() ? 'Ingresa el monto que estás entregando.' : 'Ingresa el efectivo contado.';
+      this.toast.add({ severity: 'warn', summary: 'Falta el monto', detail: msg }); return;
+    }
+    const blind = this.blindClose();
+    const delivered = this.countedAmount;
     this.busy.set(true);
     this.finance.closeCash({ closingAmount: this.countedAmount }).subscribe({
       next: (res) => {
         this.busy.set(false); this.closeVisible = false;
-        this.toast.add({ severity: 'success', summary: 'Caja cerrada', detail: 'Diferencia ' + (res.data?.difference ?? 0).toFixed(2) });
-        if (res.data) this.printing.printViaBrowser(this.closeReceipt(res.data));
+        if (blind) {
+          // Cierre ciego: no se revela la diferencia; solo se confirma la entrega.
+          this.toast.add({ severity: 'success', summary: 'Entrega registrada', detail: `Monto entregado: S/ ${delivered.toFixed(2)}` });
+          if (res.data) this.printing.printViaBrowser(this.blindReceipt(res.data, delivered));
+        } else {
+          this.toast.add({ severity: 'success', summary: 'Caja cerrada', detail: 'Diferencia ' + (res.data?.difference ?? 0).toFixed(2) });
+          if (res.data) this.printing.printViaBrowser(this.closeReceipt(res.data));
+        }
         this.reload();
       },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo cerrar.' }); },
     });
+  }
+
+  // Recibo de entrega a ciegas: solo confirma el monto entregado, sin esperado ni diferencia.
+  private blindReceipt(r: CloseResult, delivered: number): string {
+    const money = (n: number | string) => Number(n).toFixed(2);
+    return `
+      <style>*{font-family:'Courier New',monospace;font-size:12px;color:#000}.w{width:280px}h2{text-align:center;font-size:14px;margin:0 0 6px}.r{text-align:right}.line{border-top:1px dashed #000;margin:6px 0}table{width:100%}.b{font-weight:bold}</style>
+      <div class="w">
+        <h2>${this.auth.activeBranch()?.name ?? 'HotelSuite'}</h2>
+        <div style="text-align:center">ENTREGA DE EFECTIVO</div>
+        <div>Apertura: ${money(r.session.openingAmount)}</div>
+        <div>Abierto: ${new Date(r.session.openedAt).toLocaleString()}</div>
+        <div>Cerrado: ${r.session.closedAt ? new Date(r.session.closedAt).toLocaleString() : ''}</div>
+        <div class="line"></div>
+        <table>
+          <tr class="b"><td>Efectivo entregado</td><td class="r">${money(delivered)}</td></tr>
+        </table>
+        <div class="line"></div>
+        <div style="text-align:center">______________________</div>
+        <div style="text-align:center">Responsable</div>
+      </div>`;
   }
 
   private closeReceipt(r: CloseResult): string {
