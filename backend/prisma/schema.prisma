@@ -987,6 +987,12 @@ model InventoryMovement {
   unitCost          Decimal? @db.Decimal(10, 2)
   reference         String?
   relatedWarehouseId String?
+  // Ajustes trazables (kardex de productos). adjustType clasifica el tipo de ajuste.
+  roomId            String? // habitación (reposición frigobar / ajuste por habitación)
+  cashSessionId     String? // turno de caja relacionado
+  approvedByUserId  String? // usuario que aprueba (regularizaciones)
+  adjustType        String? // TRANSFER | SOBRANTE | VENCIDO | MERMA | FALTANTE | VENTA_NO_REGISTRADA | PERDIDA_COLABORADOR
+  refMovementId     String? // movimiento original al que regulariza
   createdByUserId   String?
   createdAt         DateTime @default(now())
 

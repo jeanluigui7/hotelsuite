@@ -15,8 +15,10 @@ import { PrintingService } from '../../../core/printing/printing.service';
 import { AuthService } from '../../../core/auth/auth.service';
 import { printPdf } from '../../../core/utils/export';
 
-interface InvItem { productId: string; name: string; sku?: string | null; categoryId?: string | null; categoryName?: string | null; stockInicial: number; stock: number; min: number; ingresos: number; salidas: number; belowMin: boolean; }
-interface TurnInfo { shift: string; businessDate: string; startTime: string; endTime: string; isCurrent: boolean; }
+interface InvItem { productId: string; name: string; sku?: string | null; categoryId?: string | null; categoryName?: string | null; stockInicial: number; stock: number; min: number; ingresos: number; salidas: number; ajustes: number; belowMin: boolean; }
+interface AdjDetail { id: string; at: string; kind: string; productName: string; quantity: number; counterpart: string | null; room: string | null; reason: string | null; user: string | null; approvedBy: string | null; }
+interface TurnInfo { shift: string; businessDate: string; startTime: string; endTime: string; isCurrent: boolean; from?: string; to?: string; }
+interface WhOpt { id: string; name: string; type: string; }
 interface Req { id: string; status: string; createdAt: string; items: { productId: string; name: string; quantity: number }[]; }
 interface PrintJob { id: string; type: string; title: string; status: string; createdAt: string; payload?: string | null; }
 
@@ -58,7 +60,7 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       <table class="tbl">
         <thead><tr>
           <th class="ck"><input type="checkbox" [checked]="allSelected()" (change)="toggleAll()" /></th>
-          <th>NOMBRE</th><th class="n">STOCK INICIAL</th><th class="n">INGRESOS</th><th class="n">SALIDAS</th><th class="n">STOCK ACT./MÍN.</th><th class="g"><i class="pi pi-cog"></i></th>
+          <th>NOMBRE</th><th class="n">STOCK INICIAL</th><th class="n">INGRESOS</th><th class="n">SALIDAS</th><th class="n">AJUSTES</th><th class="n">STOCK ACT./MÍN.</th><th class="g"><i class="pi pi-cog"></i></th>
         </tr></thead>
         <tbody>
           @for (it of filtered(); track it.productId) {
@@ -68,10 +70,11 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
               <td class="n init">{{ it.stockInicial }}</td>
               <td class="n pos">{{ it.ingresos }}</td>
               <td class="n neg">{{ it.salidas }}</td>
+              <td class="n adj" [class.clk]="it.ajustes !== 0" (click)="it.ajustes !== 0 && openAjustes(it)"><span [class.pos]="it.ajustes > 0" [class.neg]="it.ajustes < 0">{{ it.ajustes > 0 ? '+' : '' }}{{ it.ajustes }}</span>@if (it.ajustes !== 0) { <i class="pi pi-search-plus av"></i> }</td>
               <td class="n">@if (it.belowMin) { <span class="warn"><i class="pi pi-exclamation-triangle"></i> {{ it.stock }} u.</span> } @else { <span>{{ it.stock }} u.</span> }</td>
-              <td class="g"><button class="gear" (click)="openRowMenu(it)"><i class="pi pi-cog"></i></button></td>
+              <td class="g"><button class="gear" (click)="openAdjust(it)" title="Registrar ajuste"><i class="pi pi-sliders-h"></i></button></td>
             </tr>
-          } @empty { <tr><td colspan="7" class="muted center">Sin productos.</td></tr> }
+          } @empty { <tr><td colspan="8" class="muted center">Sin productos.</td></tr> }
         </tbody>
       </table>
 
@@ -124,6 +127,55 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       </ng-template>
     </p-dialog>
 
+    <!-- Registrar ajuste -->
+    <p-dialog [(visible)]="adjVisible" [modal]="true" [header]="'Registrar ajuste' + (adjItem ? ' · ' + adjItem.name : '')" [style]="{ width: '32rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      <div class="form">
+        <label>Tipo de ajuste</label>
+        <p-select [options]="adjKinds" optionLabel="label" optionValue="value" [(ngModel)]="adjForm.kind" appendTo="body" styleClass="w" />
+        <label>Cantidad</label>
+        <p-inputNumber [(ngModel)]="adjForm.quantity" [min]="1" [showButtons]="true" styleClass="w" />
+        @if (adjForm.kind === 'TRANSFER') {
+          <label>Almacén destino</label>
+          <p-select [options]="warehouses()" optionLabel="name" optionValue="id" [(ngModel)]="adjForm.toWarehouseId" placeholder="Elegir almacén" appendTo="body" styleClass="w" />
+        }
+        <label>Motivo / observación</label>
+        <input pInputText [(ngModel)]="adjForm.reference" placeholder="Opcional" />
+        <p class="adj-hint">
+          @switch (adjForm.kind) {
+            @case ('SOBRANTE') { <i class="pi pi-info-circle"></i> Retira el excedente del área y lo regresa al Almacén General. }
+            @case ('VENCIDO') { <i class="pi pi-info-circle"></i> Baja definitiva por vencimiento (no mueve caja, no regresa a stock). }
+            @case ('MERMA') { <i class="pi pi-info-circle"></i> Producto perdido/dañado (baja definitiva, no mueve caja). }
+            @case ('FALTANTE') { <i class="pi pi-info-circle"></i> Diferencia (sistema > físico) pendiente de revisión. No genera venta ni descuento. }
+            @case ('TRANSFER') { <i class="pi pi-info-circle"></i> Transferencia interna entre almacenes (p. ej. Recepción ↔ Productos-Limpieza). }
+          }
+        </p>
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="adjVisible = false" />
+        <p-button label="Registrar" icon="pi pi-check" [loading]="busy()" (onClick)="saveAdjust()" />
+      </ng-template>
+    </p-dialog>
+
+    <!-- Detalle de ajustes -->
+    <p-dialog [(visible)]="adjDetailVisible" [modal]="true" [header]="'Ajustes' + (adjDetailItem ? ' · ' + adjDetailItem.name : '')" [style]="{ width: '48rem', maxWidth: '97vw' }" styleClass="dk-dialog">
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th>Fecha/Hora</th><th>Tipo</th><th class="n">Cant.</th><th>Origen/Destino o Motivo</th><th>Usuario</th></tr></thead>
+          <tbody>
+            @for (a of adjDetail(); track a.id) {
+              <tr>
+                <td>{{ a.at | date: 'dd/MM HH:mm' }}</td>
+                <td><span class="adj-tag">{{ adjKindLabel(a.kind) }}</span></td>
+                <td class="n"><span [class.pos]="a.quantity > 0" [class.neg]="a.quantity < 0">{{ a.quantity > 0 ? '+' : '' }}{{ a.quantity }}</span></td>
+                <td>{{ a.counterpart || a.room || a.reason || '—' }}</td>
+                <td>{{ a.user || '—' }}@if (a.approvedBy) { <small class="muted"> · aprobó {{ a.approvedBy }}</small> }</td>
+              </tr>
+            } @empty { <tr><td colspan="5" class="muted center">Sin ajustes en el turno.</td></tr> }
+          </tbody>
+        </table>
+      </div>
+    </p-dialog>
+
     <!-- Recepcionar -->
     <p-dialog [(visible)]="recVisible" [modal]="true" header="Recepcionar productos" [style]="{ width: '34rem' }" styleClass="dk-dialog">
       <div class="form">
@@ -164,6 +216,11 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       .warn { color: #fbbf24; font-weight: 700; display: inline-flex; align-items: center; gap: 0.3rem; }
       .g { text-align: center; width: 3rem; } .gear { background: transparent; border: 0; color: #8b97a8; cursor: pointer; } .gear:hover { color: #fff; }
       .muted { color: #8b97a8; } .center { text-align: center; } .n { text-align: right; } .pos { color: #34d399; } .neg { color: #f87171; }
+      .adj.clk { cursor: pointer; } .adj.clk:hover { background: rgba(96,165,250,0.08); } .adj .av { font-size: 0.72rem; color: #93c5fd; margin-left: 0.3rem; }
+      .adj-hint { display: flex; align-items: flex-start; gap: 0.4rem; margin: 0.6rem 0 0; font-size: 0.8rem; color: #8b97a8; }
+      .adj-tag { font-size: 0.72rem; font-weight: 700; padding: 0.12rem 0.5rem; border-radius: 6px; background: rgba(148,163,184,0.18); color: #cbd5e1; }
+      :host ::ng-deep .form .w { width: 100%; }
+      .tbl-wrap { overflow-x: auto; }
       .tbl { width: 100%; border-collapse: collapse; background: #131d2b; border: 1px solid #243245; border-radius: 10px; overflow: hidden; }
       .tbl th { text-align: left; padding: 0.6rem 0.8rem; background: #0e1622; color: #9fb0c3; font-size: 0.8rem; }
       .tbl td { padding: 0.6rem 0.8rem; border-top: 1px solid #1c2a3a; font-size: 0.9rem; }
@@ -225,6 +282,24 @@ export class InventarioRecepcionComponent implements OnInit {
   categoryFilter: string | null = null;
   // Turno seleccionado (día + turno). El backend calcula el actual en la 1ª carga.
   readonly turn = signal<TurnInfo | null>(null);
+  readonly whId = signal<string>('');
+  // Registrar ajuste
+  readonly warehouses = signal<WhOpt[]>([]);
+  adjVisible = false;
+  adjItem: InvItem | null = null;
+  adjForm: { kind: 'SOBRANTE' | 'VENCIDO' | 'MERMA' | 'FALTANTE' | 'TRANSFER'; quantity: number; reference: string; toWarehouseId: string | null } = { kind: 'SOBRANTE', quantity: 1, reference: '', toWarehouseId: null };
+  readonly adjKinds = [
+    { label: 'Sobrante (regresa a Almacén General)', value: 'SOBRANTE' },
+    { label: 'Vencido', value: 'VENCIDO' },
+    { label: 'Perdido / Merma', value: 'MERMA' },
+    { label: 'Faltante de inventario', value: 'FALTANTE' },
+    { label: 'Transferencia interna', value: 'TRANSFER' },
+  ];
+  // Detalle interactivo de ajustes
+  adjDetailVisible = false;
+  adjDetailItem: InvItem | null = null;
+  readonly adjDetail = signal<AdjDetail[]>([]);
+  readonly ADJ_LABEL: Record<string, string> = { TRANSFER: 'Transferencia interna', SOBRANTE: 'Sobrante', VENCIDO: 'Vencido', MERMA: 'Perdido/Merma', FALTANTE: 'Faltante', VENTA_NO_REGISTRADA: 'Venta no registrada', PERDIDA_COLABORADOR: 'Pérdida atribuida', ADJUST: 'Ajuste' };
   private fDay: string | null = null;
   private curShift: string | null = null;
   private readonly SHIFTS = ['MANANA', 'TARDE', 'NOCHE'];
@@ -286,10 +361,40 @@ export class InventarioRecepcionComponent implements OnInit {
     printPdf('Inventario de Recepción · RIZZOS', body);
   }
 
-  openRowMenu(it: InvItem): void {
-    this.selected.set(new Set([it.productId]));
-    this.qty[it.productId] = this.qty[it.productId] || 1;
-    this.toast.add({ severity: 'info', summary: it.name, detail: 'Seleccionado. Usa Solicitar o Dar de Baja arriba.' });
+  adjKindLabel(k: string): string { return this.ADJ_LABEL[k] ?? k; }
+
+  openAdjust(it: InvItem): void {
+    this.adjItem = it;
+    this.adjForm = { kind: 'SOBRANTE', quantity: 1, reference: '', toWarehouseId: null };
+    if (!this.warehouses().length) {
+      this.http.get<ApiResponse<WhOpt[]>>(`${this.api}/warehouses`, { params: { pageSize: '100' } }).subscribe((r) => this.warehouses.set(r.data ?? []));
+    }
+    this.adjVisible = true;
+  }
+
+  saveAdjust(): void {
+    const it = this.adjItem;
+    if (!it || !this.whId()) return;
+    if (!this.adjForm.quantity || this.adjForm.quantity < 1) { this.toast.add({ severity: 'warn', summary: 'Cantidad', detail: 'Indica una cantidad válida.' }); return; }
+    if (this.adjForm.kind === 'TRANSFER' && !this.adjForm.toWarehouseId) { this.toast.add({ severity: 'warn', summary: 'Destino', detail: 'Elige el almacén destino.' }); return; }
+    this.busy.set(true);
+    const body: Record<string, unknown> = { kind: this.adjForm.kind, productId: it.productId, warehouseId: this.whId(), quantity: this.adjForm.quantity, reference: this.adjForm.reference || undefined };
+    if (this.adjForm.kind === 'TRANSFER') body['toWarehouseId'] = this.adjForm.toWarehouseId;
+    this.http.post<ApiResponse<unknown>>(`${this.api}/adjustments`, body).subscribe({
+      next: () => { this.busy.set(false); this.adjVisible = false; this.toast.add({ severity: 'success', summary: 'Ajuste registrado', detail: `${this.adjKindLabel(this.adjForm.kind)} · ${it.name}` }); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo registrar el ajuste.' }); },
+    });
+  }
+
+  openAjustes(it: InvItem): void {
+    this.adjDetailItem = it;
+    this.adjDetail.set([]);
+    this.adjDetailVisible = true;
+    const t = this.turn();
+    const params: Record<string, string> = { warehouseId: this.whId(), productId: it.productId };
+    if (t?.from) params['from'] = t.from;
+    if (t?.to) params['to'] = t.to;
+    this.http.get<ApiResponse<AdjDetail[]>>(`${this.api}/adjustments/detail`, { params }).subscribe((r) => this.adjDetail.set(r.data ?? []));
   }
 
   ngOnInit(): void {
@@ -314,7 +419,8 @@ export class InventarioRecepcionComponent implements OnInit {
   reload(): void {
     const params: Record<string, string> = {};
     if (this.fDay && this.curShift) { params['date'] = this.fDay; params['shift'] = this.curShift; }
-    this.http.get<ApiResponse<{ items: InvItem[]; turn: TurnInfo }>>(`${this.api}/reception-inventory`, { params }).subscribe((r) => {
+    this.http.get<ApiResponse<{ items: InvItem[]; turn: TurnInfo; warehouseId: string }>>(`${this.api}/reception-inventory`, { params }).subscribe((r) => {
+      if (r.data?.warehouseId) this.whId.set(r.data.warehouseId);
       this.items.set(r.data?.items ?? []);
       this.maybeAlertLowStock(r.data?.items ?? []);
       if (r.data?.turn) { this.turn.set(r.data.turn); this.fDay = r.data.turn.businessDate; this.curShift = r.data.turn.shift; }

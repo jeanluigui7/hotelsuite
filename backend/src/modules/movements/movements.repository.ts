@@ -11,6 +11,12 @@ export interface MovementData {
   reference?: string | null;
   relatedWarehouseId?: string | null;
   createdByUserId?: string | null;
+  // Ajustes trazables (kardex de productos).
+  roomId?: string | null;
+  cashSessionId?: string | null;
+  approvedByUserId?: string | null;
+  adjustType?: string | null;
+  refMovementId?: string | null;
 }
 
 /** Applies a signed delta to a product's stock in a warehouse. Throws if it would go negative. */

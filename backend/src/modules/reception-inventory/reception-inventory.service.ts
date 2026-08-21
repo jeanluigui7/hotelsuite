@@ -92,32 +92,42 @@ export const receptionInventoryService = {
     const shifts = await prisma.roleShift.findMany({ where: { branchId, role: 'RECEPCION' } });
     const win = this.turnWindow(shifts, opts?.date, opts?.shift);
 
-    const [products, stocks, movs] = await Promise.all([
+    const [products, stocks, movs, generalWhs] = await Promise.all([
       // Recepción = SOLO productos (excluye amenities: productType o categoría AMENITY).
       prisma.product.findMany({ where: { branchId, status: 'active', NOT: { OR: [{ productType: 'AMENITY' }, { category: { type: 'AMENITY' } }] } }, include: { category: { select: { name: true } } }, orderBy: { sku: 'asc' } }),
       prisma.stock.findMany({ where: { warehouseId: whId } }),
       // Solo se necesitan los movimientos desde el inicio del turno en adelante.
       prisma.inventoryMovement.findMany({
         where: { branchId, warehouseId: whId, createdAt: { gte: win.from } },
-        select: { productId: true, quantity: true, createdAt: true },
+        select: { productId: true, quantity: true, createdAt: true, type: true, relatedWarehouseId: true, adjustType: true },
       }),
+      prisma.warehouse.findMany({ where: { branchId, type: 'PRODUCTS' }, select: { id: true } }),
     ]);
     const stockMap = new Map(stocks.map((s) => [s.productId, s.quantity]));
+    const generalSet = new Set(generalWhs.map((w) => w.id));
+    // Ajuste = ADJUST, cualquier adjustType, o TRANSFER interno (contra un almacén que NO es el general).
+    // Abastecimiento (TRANSFER desde el Almacén General) e IN/PURCHASE = Ingreso; SALE/OUT = Salida.
+    const isAdjust = (m: { type: string; adjustType: string | null; relatedWarehouseId: string | null }) =>
+      m.type === 'ADJUST' || !!m.adjustType || (m.type === 'TRANSFER' && !(m.relatedWarehouseId != null && generalSet.has(m.relatedWarehouseId)));
 
     // Sumas por producto: desde el inicio del turno, desde el fin, y dentro del turno.
     const sinceFrom = new Map<string, number>();
     const sinceTo = new Map<string, number>();
     const ingresos = new Map<string, number>();
     const salidas = new Map<string, number>();
+    const ajustes = new Map<string, number>();
     for (const m of movs) {
       if (!m.productId) continue;
       sinceFrom.set(m.productId, (sinceFrom.get(m.productId) ?? 0) + m.quantity);
       if (m.createdAt >= win.to) {
         sinceTo.set(m.productId, (sinceTo.get(m.productId) ?? 0) + m.quantity);
+      } else if (isAdjust(m)) {
+        // Ajustes: cantidad con signo (positivo o negativo).
+        ajustes.set(m.productId, (ajustes.get(m.productId) ?? 0) + m.quantity);
+      } else if (m.quantity > 0) {
+        ingresos.set(m.productId, (ingresos.get(m.productId) ?? 0) + m.quantity);
       } else {
-        // dentro del turno [from, to)
-        if (m.quantity > 0) ingresos.set(m.productId, (ingresos.get(m.productId) ?? 0) + m.quantity);
-        else salidas.set(m.productId, (salidas.get(m.productId) ?? 0) + Math.abs(m.quantity));
+        salidas.set(m.productId, (salidas.get(m.productId) ?? 0) + Math.abs(m.quantity));
       }
     }
 
@@ -129,6 +139,8 @@ export const receptionInventoryService = {
         startTime: win.startTime,
         endTime: win.endTime,
         isCurrent: win.isCurrent,
+        from: win.from,
+        to: win.to,
       },
       items: products.map((p) => {
         const current = stockMap.get(p.id) ?? 0;
@@ -143,6 +155,7 @@ export const receptionInventoryService = {
           stockInicial,
           ingresos: ingresos.get(p.id) ?? 0,
           salidas: salidas.get(p.id) ?? 0,
+          ajustes: ajustes.get(p.id) ?? 0,
           stock: stockFinal,
           min: p.receptionReorderPoint,
           belowMin: stockFinal <= p.receptionReorderPoint,
