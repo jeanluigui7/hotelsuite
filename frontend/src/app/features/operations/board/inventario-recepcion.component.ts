@@ -160,7 +160,7 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
     <p-dialog [(visible)]="adjDetailVisible" [modal]="true" [header]="'Ajustes' + (adjDetailItem ? ' · ' + adjDetailItem.name : '')" [style]="{ width: '48rem', maxWidth: '97vw' }" styleClass="dk-dialog">
       <div class="tbl-wrap">
         <table class="tbl">
-          <thead><tr><th>Fecha/Hora</th><th>Tipo</th><th class="n">Cant.</th><th>Origen/Destino o Motivo</th><th>Usuario</th></tr></thead>
+          <thead><tr><th>Fecha/Hora</th><th>Tipo</th><th class="n">Cant.</th><th>Origen/Destino o Motivo</th><th>Usuario</th>@if (canAttributeLoss()) { <th class="c">Acción</th> }</tr></thead>
           <tbody>
             @for (a of adjDetail(); track a.id) {
               <tr>
@@ -169,11 +169,34 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
                 <td class="n"><span [class.pos]="a.quantity > 0" [class.neg]="a.quantity < 0">{{ a.quantity > 0 ? '+' : '' }}{{ a.quantity }}</span></td>
                 <td>{{ a.counterpart || a.room || a.reason || '—' }}</td>
                 <td>{{ a.user || '—' }}@if (a.approvedBy) { <small class="muted"> · aprobó {{ a.approvedBy }}</small> }</td>
+                @if (canAttributeLoss()) {
+                  <td class="c">
+                    @if (a.kind === 'FALTANTE') { <button class="mini warn" (click)="openAttribute(a)"><i class="pi pi-user"></i> Atribuir</button> }
+                    @else if (a.kind === 'PERDIDA_COLABORADOR') { <span class="adj-tag ok">Atribuido</span> }
+                  </td>
+                }
               </tr>
-            } @empty { <tr><td colspan="5" class="muted center">Sin ajustes en el turno.</td></tr> }
+            } @empty { <tr><td [attr.colspan]="canAttributeLoss() ? 6 : 5" class="muted center">Sin ajustes en el turno.</td></tr> }
           </tbody>
         </table>
       </div>
+    </p-dialog>
+
+    <!-- Atribuir pérdida al colaborador -->
+    <p-dialog [(visible)]="attrVisible" [modal]="true" header="Atribuir pérdida al colaborador" [style]="{ width: '30rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      <div class="form">
+        <p class="muted">Reclasifica un faltante de inventario como pérdida atribuida a un colaborador. No mueve caja ni stock; queda registrado con tu aprobación.</p>
+        <label>Colaborador</label>
+        <input pInputText [(ngModel)]="attrForm.collaborator" placeholder="Nombre del responsable" />
+        <label>Importe estimado (S/) — opcional</label>
+        <p-inputNumber [(ngModel)]="attrForm.amount" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
+        <label>Observación</label>
+        <input pInputText [(ngModel)]="attrForm.note" />
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="attrVisible = false" />
+        <p-button label="Atribuir" icon="pi pi-check" [loading]="busy()" (onClick)="saveAttribute()" />
+      </ng-template>
     </p-dialog>
 
     <!-- Recepcionar -->
@@ -215,7 +238,10 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       .init { color: #60a5fa; font-weight: 700; }
       .warn { color: #fbbf24; font-weight: 700; display: inline-flex; align-items: center; gap: 0.3rem; }
       .g { text-align: center; width: 3rem; } .gear { background: transparent; border: 0; color: #8b97a8; cursor: pointer; } .gear:hover { color: #fff; }
-      .muted { color: #8b97a8; } .center { text-align: center; } .n { text-align: right; } .pos { color: #34d399; } .neg { color: #f87171; }
+      .muted { color: #8b97a8; } .center { text-align: center; } .c { text-align: center; } .n { text-align: right; } .pos { color: #34d399; } .neg { color: #f87171; }
+      .mini { background: #13243a; border: 1px solid #274468; color: #cbd5e1; border-radius: 7px; padding: 0.3rem 0.6rem; font-size: 0.74rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; }
+      .mini.warn { background: #78350f; color: #fcd34d; border-color: #b45309; }
+      .adj-tag.ok { background: rgba(52,211,153,0.18); color: #34d399; }
       .adj.clk { cursor: pointer; } .adj.clk:hover { background: rgba(96,165,250,0.08); } .adj .av { font-size: 0.72rem; color: #93c5fd; margin-left: 0.3rem; }
       .adj-hint { display: flex; align-items: flex-start; gap: 0.4rem; margin: 0.6rem 0 0; font-size: 0.8rem; color: #8b97a8; }
       .adj-tag { font-size: 0.72rem; font-weight: 700; padding: 0.12rem 0.5rem; border-radius: 6px; background: rgba(148,163,184,0.18); color: #cbd5e1; }
@@ -370,6 +396,33 @@ export class InventarioRecepcionComponent implements OnInit {
       this.http.get<ApiResponse<WhOpt[]>>(`${this.api}/warehouses`, { params: { pageSize: '100' } }).subscribe((r) => this.warehouses.set(r.data ?? []));
     }
     this.adjVisible = true;
+  }
+
+  // ── Pérdida atribuida al colaborador (reclasifica un FALTANTE; solo administración) ──
+  attrVisible = false;
+  attrTarget: AdjDetail | null = null;
+  attrForm: { collaborator: string; amount: number | null; note: string } = { collaborator: '', amount: null, note: '' };
+  canAttributeLoss(): boolean { return this.auth.can('settings', 'edit'); }
+
+  openAttribute(a: AdjDetail): void {
+    this.attrTarget = a;
+    this.attrForm = { collaborator: '', amount: null, note: '' };
+    this.attrVisible = true;
+  }
+
+  saveAttribute(): void {
+    const a = this.attrTarget;
+    if (!a) return;
+    this.busy.set(true);
+    const body: Record<string, unknown> = { movementId: a.id, collaborator: this.attrForm.collaborator || undefined, amount: this.attrForm.amount ?? undefined, note: this.attrForm.note || undefined };
+    this.http.post<ApiResponse<unknown>>(`${this.api}/reconciliation/attribute-loss`, body).subscribe({
+      next: () => {
+        this.busy.set(false); this.attrVisible = false;
+        this.toast.add({ severity: 'success', summary: 'Pérdida atribuida', detail: 'El faltante quedó atribuido al colaborador.' });
+        if (this.adjDetailItem) this.openAjustes(this.adjDetailItem);
+      },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo atribuir la pérdida.' }); },
+    });
   }
 
   saveAdjust(): void {

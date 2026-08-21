@@ -10,6 +10,7 @@ import { ButtonModule } from 'primeng/button';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
+import { AuthService } from '../../../core/auth/auth.service';
 
 interface KItem { productId: string; name: string; sku?: string | null; stockInicial: number; ingresos: number; salidas: number; ajustes: number; stock: number; min: number; belowMin: boolean; }
 interface Turn { shift: string; businessDate: string; startTime: string; endTime: string; isCurrent: boolean; from?: string; to?: string; }
@@ -81,15 +82,38 @@ const ADJ_LABEL: Record<string, string> = { TRANSFER: 'Transferencia interna', S
     <!-- Detalle de ajustes -->
     <p-dialog [(visible)]="adjDetailVisible" [modal]="true" [header]="'Ajustes' + (detailItem ? ' · ' + detailItem.name : '')" [style]="{ width: '48rem', maxWidth: '97vw' }">
       <div class="tbl-wrap">
-        <table class="tbl"><thead><tr><th>Fecha/Hora</th><th>Tipo</th><th class="n">Cant.</th><th>Origen/Destino o Motivo</th><th>Usuario</th></tr></thead>
+        <table class="tbl"><thead><tr><th>Fecha/Hora</th><th>Tipo</th><th class="n">Cant.</th><th>Origen/Destino o Motivo</th><th>Usuario</th>@if (canAttributeLoss()) { <th class="c">Acción</th> }</tr></thead>
           <tbody>
             @for (a of adjDetail(); track a.id) {
               <tr><td>{{ a.at | date: 'dd/MM HH:mm' }}</td><td><span class="tag">{{ label(a.kind) }}</span></td>
                 <td class="n"><span [class.pos]="a.quantity > 0" [class.neg]="a.quantity < 0">{{ a.quantity > 0 ? '+' : '' }}{{ a.quantity }}</span></td>
-                <td>{{ a.counterpart || a.room || a.reason || '—' }}</td><td>{{ a.user || '—' }}</td></tr>
-            } @empty { <tr><td colspan="5" class="muted center">Sin ajustes en el turno.</td></tr> }
+                <td>{{ a.counterpart || a.room || a.reason || '—' }}</td><td>{{ a.user || '—' }}@if (a.approvedBy) { <small class="muted"> · aprobó {{ a.approvedBy }}</small> }</td>
+                @if (canAttributeLoss()) {
+                  <td class="c">
+                    @if (a.kind === 'FALTANTE') { <button class="mini warn" (click)="openAttribute(a)"><i class="pi pi-user"></i> Atribuir</button> }
+                    @else if (a.kind === 'PERDIDA_COLABORADOR') { <span class="tag ok">Atribuido</span> }
+                  </td>
+                }</tr>
+            } @empty { <tr><td [attr.colspan]="canAttributeLoss() ? 6 : 5" class="muted center">Sin ajustes en el turno.</td></tr> }
           </tbody></table>
       </div>
+    </p-dialog>
+
+    <!-- Atribuir pérdida al colaborador -->
+    <p-dialog [(visible)]="attrVisible" [modal]="true" header="Atribuir pérdida al colaborador" [style]="{ width: '30rem', maxWidth: '96vw' }">
+      <div class="form">
+        <p class="muted">Reclasifica un faltante de inventario como pérdida atribuida a un colaborador. No mueve caja ni stock; queda registrado con tu aprobación.</p>
+        <label>Colaborador</label>
+        <input pInputText [(ngModel)]="attrForm.collaborator" placeholder="Nombre del responsable" />
+        <label>Importe estimado (S/) — opcional</label>
+        <p-inputNumber [(ngModel)]="attrForm.amount" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
+        <label>Observación</label>
+        <input pInputText [(ngModel)]="attrForm.note" />
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="attrVisible = false" />
+        <p-button label="Atribuir" icon="pi pi-check" [loading]="busy()" (onClick)="saveAttribute()" />
+      </ng-template>
     </p-dialog>
 
     <!-- Detalle de salidas (reposiciones a frigobar) -->
@@ -125,6 +149,10 @@ const ADJ_LABEL: Record<string, string> = { TRANSFER: 'Transferencia interna', S
       .form { display: flex; flex-direction: column; gap: 0.35rem; } .form label { font-size: 0.82rem; color: #8aa0bd; margin-top: 0.5rem; }
       :host ::ng-deep .form .w, :host ::ng-deep .form input[pInputText] { width: 100%; }
       .tag { font-size: 0.72rem; font-weight: 700; padding: 0.12rem 0.5rem; border-radius: 6px; background: rgba(148,163,184,0.18); color: #cbd5e1; }
+      .tag.ok { background: rgba(52,211,153,0.18); color: #34d399; }
+      .tbl .c { text-align: center; }
+      .mini { background: #13243a; border: 1px solid #274468; color: #cbd5e1; border-radius: 7px; padding: 0.3rem 0.6rem; font-size: 0.74rem; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; }
+      .mini.warn { background: #78350f; color: #fcd34d; border-color: #b45309; }
       .tbl-wrap { overflow-x: auto; }
     `,
   ],
@@ -133,6 +161,7 @@ export class ProductosLimpiezaComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly api = environment.apiUrl;
   private readonly toast = inject(MessageService);
+  private readonly auth = inject(AuthService);
 
   readonly items = signal<KItem[]>([]);
   readonly turn = signal<Turn | null>(null);
@@ -201,6 +230,33 @@ export class ProductosLimpiezaComponent implements OnInit {
     if (t?.from) params['from'] = t.from;
     if (t?.to) params['to'] = t.to;
     this.http.get<ApiResponse<AdjDetail[]>>(`${this.api}/adjustments/detail`, { params }).subscribe((r) => this.adjDetail.set(r.data ?? []));
+  }
+
+  // ── Pérdida atribuida al colaborador (reclasifica un FALTANTE; solo administración) ──
+  attrVisible = false;
+  attrTarget: AdjDetail | null = null;
+  attrForm: { collaborator: string; amount: number | null; note: string } = { collaborator: '', amount: null, note: '' };
+  canAttributeLoss(): boolean { return this.auth.can('settings', 'edit'); }
+
+  openAttribute(a: AdjDetail): void {
+    this.attrTarget = a;
+    this.attrForm = { collaborator: '', amount: null, note: '' };
+    this.attrVisible = true;
+  }
+
+  saveAttribute(): void {
+    const a = this.attrTarget;
+    if (!a) return;
+    this.busy.set(true);
+    const body: Record<string, unknown> = { movementId: a.id, collaborator: this.attrForm.collaborator || undefined, amount: this.attrForm.amount ?? undefined, note: this.attrForm.note || undefined };
+    this.http.post<ApiResponse<unknown>>(`${this.api}/reconciliation/attribute-loss`, body).subscribe({
+      next: () => {
+        this.busy.set(false); this.attrVisible = false;
+        this.toast.add({ severity: 'success', summary: 'Pérdida atribuida', detail: 'El faltante quedó atribuido al colaborador.' });
+        if (this.detailItem) this.openAjustes(this.detailItem);
+      },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo atribuir la pérdida.' }); },
+    });
   }
 
   openSalidas(it: KItem): void {
