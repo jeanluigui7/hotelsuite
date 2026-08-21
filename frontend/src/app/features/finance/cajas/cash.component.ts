@@ -1,7 +1,9 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { environment } from '../../../../environments/environment';
+import type { ApiResponse } from '../../../core/models/api-response.model';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { InputNumberModule } from 'primeng/inputnumber';
@@ -12,6 +14,9 @@ import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
 import { FinanceApiService } from '../services/finance-api.service';
 import type { CashCurrent, CashDetail, CashDetailMovement, CashSession, CashSessionRow } from '../services/finance.models';
+
+interface ReconItem { id: string; at: string; type: string; amount: number; affectsCash: boolean; quantity: number | null; note: string | null; by: string | null; approvedBy: string | null; }
+interface ReconSummary { expected: number | null; declared: number | null; originalDifference: number; pendingDifference: number; reconciliations: ReconItem[]; }
 
 const METHOD_LABEL: Record<string, string> = {
   CASH: 'Efectivo',
@@ -192,6 +197,28 @@ const TYPE_COLOR: Record<string, [string, string]> = {
           <div class="mc purple"><span>Ajustes (+/-)</span><strong>{{ d.cards.ajustes >= 0 ? '+' : '' }}S/ {{ d.cards.ajustes | number: '1.2-2' }}</strong></div>
         </div>
 
+        @if (recon(); as rc) {
+          <div class="recon">
+            <div class="recon-h"><span><i class="pi pi-balance-scale"></i> Conciliación de caja</span>
+              @if (canEdit && rc.pendingDifference > 0) { <button class="mini" (click)="openVnr()"><i class="pi pi-plus"></i> Regularizar venta no registrada</button> }
+            </div>
+            <div class="recon-grid">
+              <div><span>Esperado original</span><strong>S/ {{ rc.expected ?? 0 | number: '1.2-2' }}</strong></div>
+              <div><span>Declarado / Entregado</span><strong>S/ {{ rc.declared ?? 0 | number: '1.2-2' }}</strong></div>
+              <div><span>Diferencia original</span><strong [class.pos]="rc.originalDifference > 0" [class.neg]="rc.originalDifference < 0">{{ rc.originalDifference > 0 ? '+' : '' }}S/ {{ rc.originalDifference | number: '1.2-2' }}</strong></div>
+              <div><span>Diferencia pendiente</span><strong [class.pos]="rc.pendingDifference > 0" [class.neg]="rc.pendingDifference < 0" [class.ok]="rc.pendingDifference === 0">{{ rc.pendingDifference > 0 ? '+' : '' }}S/ {{ rc.pendingDifference | number: '1.2-2' }}</strong></div>
+            </div>
+            @if (rc.reconciliations.length) {
+              <div class="recon-list">
+                <div class="rl-t">Regularizaciones posteriores</div>
+                @for (r of rc.reconciliations; track r.id) {
+                  <div class="rl"><span>{{ r.at | date: 'dd/MM HH:mm' }}</span><span class="rt">{{ reconType(r.type) }}</span><span>{{ r.note || '—' }}</span><span class="ra">−S/ {{ r.amount | number: '1.2-2' }}</span><span class="rb">{{ r.approvedBy || r.by || '' }}</span></div>
+                }
+              </div>
+            }
+          </div>
+        }
+
         <div class="bar">
           <span>Total Turno Parcial: <b>S/ {{ d.methodBar.total | number: '1.2-2' }}</b></span>
           <span>Efectivo: <b class="pos">S/ {{ (d.methodBar.byMethod['CASH'] || 0) | number: '1.2-2' }}</b></span>
@@ -263,6 +290,25 @@ const TYPE_COLOR: Record<string, [string, string]> = {
         <p-button label="Guardar" icon="pi pi-check" [loading]="busy()" (onClick)="doCorrect()" />
       </ng-template>
     </p-dialog>
+
+    <!-- Regularizar venta no registrada -->
+    <p-dialog [(visible)]="vnrVisible" [modal]="true" header="Regularizar venta no registrada" [style]="{ width: '30rem', maxWidth: '96vw' }">
+      <div class="form">
+        <p class="muted">Reclasifica parte del sobrante del turno como una venta que no se registró. No duplica efectivo ni modifica el cierre.</p>
+        <label>Producto</label>
+        <p-select [options]="vnrProducts()" optionLabel="name" optionValue="id" [(ngModel)]="vnrForm.productId" [filter]="true" filterBy="name" placeholder="Elegir producto" appendTo="body" styleClass="w" />
+        <label>Cantidad</label>
+        <p-inputNumber [(ngModel)]="vnrForm.quantity" [min]="1" [showButtons]="true" styleClass="w" />
+        <label>Importe (S/) — parte del sobrante</label>
+        <p-inputNumber [(ngModel)]="vnrForm.amount" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
+        <label>Observación</label>
+        <input pInputText [(ngModel)]="vnrForm.note" />
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="vnrVisible = false" />
+        <p-button label="Regularizar" icon="pi pi-check" [loading]="busy()" (onClick)="saveVnr()" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -306,6 +352,14 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .mc span { font-size: 0.72rem; color: #8aa0bd; } .mc strong { font-size: 1.05rem; }
       .mc.blue { background: rgba(37,99,235,0.12); } .mc.green { background: rgba(16,185,129,0.12); } .mc.amber { background: rgba(245,158,11,0.12); } .mc.purple { background: rgba(139,92,246,0.12); }
       .mc.brown { background: rgba(120,53,15,0.22); } .mc.teal { background: rgba(20,184,166,0.12); }
+      .recon { border: 1px solid #1c2c44; border-radius: 10px; padding: 0.7rem 0.9rem; margin-bottom: 0.7rem; background: rgba(139,92,246,0.06); }
+      .recon-h { display: flex; align-items: center; justify-content: space-between; gap: 1rem; font-weight: 700; color: #c4b5fd; margin-bottom: 0.5rem; }
+      .recon-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.6rem; }
+      .recon-grid > div { display: flex; flex-direction: column; gap: 0.15rem; } .recon-grid span { font-size: 0.72rem; color: #8aa0bd; } .recon-grid strong { font-size: 1.02rem; } .recon-grid .ok { color: #34d399; }
+      .recon-list { margin-top: 0.6rem; border-top: 1px dashed #1c2c44; padding-top: 0.5rem; } .rl-t { font-size: 0.74rem; color: #8aa0bd; margin-bottom: 0.3rem; text-transform: uppercase; letter-spacing: 0.4px; }
+      .rl { display: grid; grid-template-columns: 5rem 9rem 1fr auto auto; gap: 0.6rem; align-items: center; font-size: 0.8rem; padding: 0.2rem 0; }
+      .rl .rt { font-weight: 700; color: #c4b5fd; } .rl .ra { color: #f59e0b; font-weight: 700; } .rl .rb { color: #8aa0bd; font-size: 0.74rem; }
+      @media (max-width: 720px) { .recon-grid { grid-template-columns: repeat(2, 1fr); } .rl { grid-template-columns: 1fr 1fr; } }
       .bar { display: flex; flex-wrap: wrap; gap: 0.9rem; padding: 0.6rem 0.8rem; border: 1px solid #1c2c44; border-radius: 10px; font-size: 0.8rem; color: #8aa0bd; margin-bottom: 0.6rem; }
       .bar b { color: #e2e8f0; }
       .turno { color: #8aa0bd; font-size: 0.82rem; margin: 0; }
@@ -332,6 +386,15 @@ export class CashComponent implements OnInit {
   private readonly finance = inject(FinanceApiService);
   private readonly auth = inject(AuthService);
   private readonly messages = inject(MessageService);
+  private readonly http = inject(HttpClient);
+  private readonly api = environment.apiUrl;
+  // Conciliación posterior al cierre (Fase 2).
+  readonly recon = signal<ReconSummary | null>(null);
+  vnrVisible = false;
+  vnrForm: { productId: string | null; quantity: number; amount: number | null; note: string } = { productId: null, quantity: 1, amount: null, note: '' };
+  readonly vnrProducts = signal<{ id: string; name: string }[]>([]);
+  private reconWhId = '';
+  reconType(t: string): string { return ({ VENTA_NO_REGISTRADA: 'Venta no registrada', PERDIDA_COLABORADOR: 'Pérdida atribuida' } as Record<string, string>)[t] ?? t; }
 
   readonly rows = signal<CashSessionRow[]>([]);
   readonly total = signal(0);
@@ -497,11 +560,36 @@ export class CashComponent implements OnInit {
 
   // ── Detalle ──
   openDetail(row: CashSessionRow): void {
-    this.detailRow = row; this.detail.set(null); this.typeFilter = ''; this.methodFilter = '';
+    this.detailRow = row; this.detail.set(null); this.typeFilter = ''; this.methodFilter = ''; this.recon.set(null);
     this.detailVisible = true; this.detailLoading.set(true);
     this.finance.sessionDetail(row.id).subscribe({
       next: (res) => { this.detail.set(res.data); this.detailLoading.set(false); },
       error: () => { this.detailLoading.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el detalle.' }); },
+    });
+    if (row.status === 'CLOSED') this.loadRecon(row.id);
+  }
+
+  private loadRecon(sessionId: string): void {
+    this.http.get<ApiResponse<ReconSummary>>(`${this.api}/cash/${sessionId}/reconciliation`).subscribe({ next: (r) => this.recon.set(r.data), error: () => {} });
+  }
+
+  openVnr(): void {
+    this.vnrForm = { productId: null, quantity: 1, amount: null, note: '' };
+    if (!this.vnrProducts().length) this.http.get<ApiResponse<{ id: string; name: string }[]>>(`${this.api}/products`, { params: { pageSize: '300', status: 'active' } }).subscribe((r) => this.vnrProducts.set(r.data ?? []));
+    // Almacén de recepción (de donde salió el producto vendido no registrado).
+    this.http.get<ApiResponse<{ id: string; type: string }[]>>(`${this.api}/warehouses`, { params: { pageSize: '100' } }).subscribe((r) => { this.reconWhId = (r.data ?? []).find((w) => w.type === 'RECEPTION')?.id ?? ''; });
+    this.vnrVisible = true;
+  }
+
+  saveVnr(): void {
+    const d = this.detail(); if (!d) return;
+    if (!this.vnrForm.productId || !this.vnrForm.amount || this.vnrForm.amount <= 0) { this.messages.add({ severity: 'warn', summary: 'Datos', detail: 'Elige producto e importe.' }); return; }
+    if (!this.reconWhId) { this.messages.add({ severity: 'warn', summary: 'Almacén', detail: 'No se encontró el almacén de recepción.' }); return; }
+    this.busy.set(true);
+    const body = { productId: this.vnrForm.productId, warehouseId: this.reconWhId, quantity: this.vnrForm.quantity, amount: this.vnrForm.amount, note: this.vnrForm.note || undefined };
+    this.http.post<ApiResponse<unknown>>(`${this.api}/cash/${d.session.id}/reconciliation/unregistered-sale`, body).subscribe({
+      next: () => { this.busy.set(false); this.vnrVisible = false; this.messages.add({ severity: 'success', summary: 'Regularizado', detail: 'Venta no registrada conciliada.' }); this.loadRecon(d.session.id); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo regularizar.' }); },
     });
   }
 
