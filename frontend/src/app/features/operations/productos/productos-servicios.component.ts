@@ -6,6 +6,7 @@ import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
+import { AuthService } from '../../../core/auth/auth.service';
 
 interface Mov {
   id: string;
@@ -67,7 +68,6 @@ function currentShiftIdx(): number {
       </div>
 
       <div class="qbar">
-        <button class="q h" [class.on]="fConcept === 'HOSPEDAJE'" (click)="fConcept = 'HOSPEDAJE'"><i class="pi pi-home"></i> Hospedaje</button>
         <button class="q p" [class.on]="fConcept === 'PRODUCTOS'" (click)="fConcept = 'PRODUCTOS'"><i class="pi pi-shopping-cart"></i> Productos</button>
         <button class="q s" [class.on]="fConcept === 'SERVICIOS'" (click)="fConcept = 'SERVICIOS'"><i class="pi pi-gift"></i> Servicios</button>
         <button class="q pe" [class.on]="fConcept === 'PENALIDADES'" (click)="fConcept = 'PENALIDADES'"><i class="pi pi-exclamation-triangle"></i> Penalidades</button>
@@ -95,7 +95,7 @@ function currentShiftIdx(): number {
         <div class="grp">
           <div class="grp-h">
             <div><strong>{{ turnDate() | date: 'EEEE, dd \\'De\\' MMMM \\'De\\' y' }}</strong><span class="muted"> · {{ turnLabel() }}</span></div>
-            <div class="grp-tot">Total del turno<br /><strong>S/ {{ turnTotal() | number: '1.2-2' }}</strong><br /><small>{{ rows.length }} movimientos</small></div>
+            <div class="grp-tot">Total del turno<br />@if (canSeeAmounts()) { <strong>S/ {{ turnTotal() | number: '1.2-2' }}</strong> } @else { <strong class="hidden"><i class="pi pi-lock"></i> No visible</strong> }<br /><small>{{ rows.length }} movimientos</small></div>
           </div>
           <div class="tbl-wrap">
             <table class="tbl">
@@ -108,7 +108,7 @@ function currentShiftIdx(): number {
                     <td class="c">@if (m.roomNumber) { <span class="room">{{ m.roomNumber }}</span> } @else { <span class="muted">—</span> }</td>
                     <td class="c"><span class="tipo">{{ m.type }}</span></td>
                     <td class="c">{{ m.quantity }}</td>
-                    <td class="r money">S/ {{ m.amount | number: '1.2-2' }}</td>
+                    <td class="r money">@if (canSeeAmounts()) { S/ {{ m.amount | number: '1.2-2' }} } @else { <span class="hidden"><i class="pi pi-lock"></i></span> }</td>
                     <td>{{ methodLabel(m.method) }}</td>
                     <td><span class="concept" [style.background]="conceptBg(m.concept)" [style.color]="conceptFg(m.concept)">{{ conceptLabel(m.concept) }}</span></td>
                     <td>{{ m.collaborator }}</td>
@@ -154,6 +154,7 @@ function currentShiftIdx(): number {
       .room { background: #13243a; color: #93c5fd; border-radius: 6px; padding: 0.1rem 0.5rem; font-size: 0.78rem; font-weight: 700; }
       .tipo { background: rgba(217,70,239,0.2); color: #e879f9; border-radius: 999px; padding: 0.12rem 0.6rem; font-size: 0.7rem; font-weight: 700; }
       .money { color: #34d399; font-weight: 700; }
+      .hidden { color: #64748b; font-weight: 600; }
       .concept { border-radius: 6px; padding: 0.12rem 0.6rem; font-size: 0.7rem; font-weight: 700; }
       @media (max-width: 900px) { .filters { grid-template-columns: repeat(2, 1fr); } }
     `,
@@ -163,6 +164,11 @@ export class ProductosServiciosComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly toast = inject(MessageService);
   private readonly api = environment.apiUrl;
+  private readonly auth = inject(AuthService);
+
+  // Caja ciega: en modo ciego (sucursal sin "Modo Administrador") recepción NO ve los montos ni la
+  // sumatoria del turno; solo administración (settings:edit). Evita que pre-calcule cuánto entregará.
+  readonly canSeeAmounts = computed(() => (this.auth.activeBranch()?.adminPresent ?? true) || this.auth.can('settings', 'edit'));
 
   /** Movimientos del día cargado (los 3 turnos); se filtra por turno en pantalla. */
   private readonly dayItems = signal<Mov[]>([]);
@@ -170,7 +176,7 @@ export class ProductosServiciosComponent implements OnInit {
   readonly serverCollabs = signal<{ id: string; name: string }[]>([]);
   readonly serverRooms = signal<{ id: string; number: string }[]>([]);
 
-  fConcept = 'ALL';
+  fConcept = 'PRODUCTOS';
   fMethod = 'ALL';
   fRoom: string | null = null;
   fCollab: string | null = null;
@@ -179,7 +185,7 @@ export class ProductosServiciosComponent implements OnInit {
   curShift = signal(currentShiftIdx());
 
   readonly conceptOpts = [
-    { label: 'Todos', value: 'ALL' }, { label: 'Hospedaje', value: 'HOSPEDAJE' }, { label: 'Productos', value: 'PRODUCTOS' }, { label: 'Servicios', value: 'SERVICIOS' }, { label: 'Penalidades', value: 'PENALIDADES' },
+    { label: 'Todos', value: 'ALL' }, { label: 'Productos', value: 'PRODUCTOS' }, { label: 'Servicios', value: 'SERVICIOS' }, { label: 'Penalidades', value: 'PENALIDADES' },
   ];
   readonly methodOpts = [
     { label: 'Todos', value: 'ALL' }, { label: 'Efectivo', value: 'CASH' }, { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Pendiente', value: 'PENDIENTE' },
@@ -210,6 +216,8 @@ export class ProductosServiciosComponent implements OnInit {
     const q = this.fSearch.trim().toLowerCase();
     return this.dayItems()
       .filter((m) => m.businessDate === this.fDay && m.shift === key)
+      // Esta pantalla es solo Productos / Servicios / Penalidades: el hospedaje nunca se muestra aquí.
+      .filter((m) => m.concept !== 'HOSPEDAJE')
       .filter((m) => this.fConcept === 'ALL' || m.concept === this.fConcept)
       .filter((m) => this.fMethod === 'ALL' || m.method === this.fMethod)
       .filter((m) => !this.fRoom || m.roomId === this.fRoom)
@@ -233,7 +241,7 @@ export class ProductosServiciosComponent implements OnInit {
   onDayChange(): void { this.load(); }
 
   clear(): void {
-    this.fConcept = 'ALL'; this.fMethod = 'ALL'; this.fRoom = null; this.fCollab = null; this.fSearch = '';
+    this.fConcept = 'PRODUCTOS'; this.fMethod = 'ALL'; this.fRoom = null; this.fCollab = null; this.fSearch = '';
     this.fDay = ymd(new Date()); this.curShift.set(currentShiftIdx()); this.load();
   }
 
@@ -260,7 +268,8 @@ export class ProductosServiciosComponent implements OnInit {
     for (const m of this.turnRows()) {
       const d = new Date(m.date);
       const f = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-      lines.push([f, m.description, m.roomNumber ?? '', m.type, m.quantity, m.amount.toFixed(2), this.methodLabel(m.method), this.conceptLabel(m.concept), m.collaborator, SHIFT_LABEL[m.shift] ?? m.shift].map(esc).join(','));
+      const amount = this.canSeeAmounts() ? m.amount.toFixed(2) : '';
+      lines.push([f, m.description, m.roomNumber ?? '', m.type, m.quantity, amount, this.methodLabel(m.method), this.conceptLabel(m.concept), m.collaborator, SHIFT_LABEL[m.shift] ?? m.shift].map(esc).join(','));
     }
     const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
