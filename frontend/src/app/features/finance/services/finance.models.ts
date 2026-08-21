@@ -53,9 +53,19 @@ export interface SessionReport {
   difference: number | null;
 }
 
+export interface CashMovementRow {
+  id: string;
+  type: 'IN' | 'OUT';
+  concept: string;
+  amount: number;
+  createdAt: string;
+  user: string | null;
+}
+
 export interface CashCurrent {
   session: CashSession | null;
   summary?: CashSummary;
+  movements?: CashMovementRow[];
 }
 
 /** Detalle de un turno para el modal de caja (Finanzas › Cajas › Ver). */

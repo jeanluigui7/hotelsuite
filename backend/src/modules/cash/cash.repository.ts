@@ -83,6 +83,22 @@ export const cashRepository = {
     return prisma.cashMovement.findMany({ where: { cashSessionId }, orderBy: { createdAt: 'asc' } });
   },
 
+  /** Movimientos del turno con el nombre del usuario que los registró (para la vista de caja). */
+  async listMovementsDetailed(cashSessionId: string) {
+    const movs = await prisma.cashMovement.findMany({ where: { cashSessionId }, orderBy: { createdAt: 'asc' } });
+    const userIds = [...new Set(movs.map((m) => m.createdByUserId).filter((x): x is string => !!x))];
+    const users = userIds.length ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : [];
+    const uMap = new Map(users.map((u) => [u.id, u.name]));
+    return movs.map((m) => ({
+      id: m.id,
+      type: m.type as 'IN' | 'OUT',
+      concept: m.concept,
+      amount: Number(m.amount),
+      createdAt: m.createdAt,
+      user: m.createdByUserId ? (uMap.get(m.createdByUserId) ?? null) : null,
+    }));
+  },
+
   async movementsTotal(cashSessionId: string, type: string) {
     const result = await prisma.cashMovement.aggregate({
       where: { cashSessionId, type },

@@ -26,7 +26,8 @@ export const cashService = {
     const session = await cashRepository.findOpen(branchId);
     if (!session) return { session: null };
     const summary = await sessionSummary(session.id, Number(session.openingAmount));
-    return { session, summary };
+    const movements = await cashRepository.listMovementsDetailed(session.id);
+    return { session, summary, movements };
   },
 
   async open(scope: RequestScope, dto: OpenCashDto) {
