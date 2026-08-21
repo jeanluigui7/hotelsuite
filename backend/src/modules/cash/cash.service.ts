@@ -6,6 +6,8 @@ import { cashRepository } from './cash.repository';
 import { PAYMENT_METHODS } from '../../shared/payments';
 import type { CloseCashDto, MovementDto, OpenCashDto } from './cash.schema';
 
+const FREQUENT_CONCEPTS_KEY = 'cashFrequentConcepts';
+
 async function sessionSummary(id: string, opening: number) {
   const byMethod: Record<string, number> = {};
   for (const m of PAYMENT_METHODS) {
@@ -15,7 +17,9 @@ async function sessionSummary(id: string, opening: number) {
   const cash = byMethod['CASH'] ?? 0;
   const movementsIn = await cashRepository.movementsTotal(id, 'IN');
   const movementsOut = await cashRepository.movementsTotal(id, 'OUT');
-  const expectedCash = Math.round((opening + cash + movementsIn - movementsOut) * 100) / 100;
+  // Solo el efectivo (ingresos CASH y todos los egresos) afecta el conteo físico del cajón.
+  const movementsCashIn = await cashRepository.movementsCashInTotal(id);
+  const expectedCash = Math.round((opening + cash + movementsCashIn - movementsOut) * 100) / 100;
   const salesCount = await cashRepository.salesCount(id);
   return { byMethod, totalCollected, movementsIn, movementsOut, expectedCash, salesCount };
 }
@@ -64,14 +68,39 @@ export const cashService = {
     const branchId = requireActiveBranch(scope);
     const session = await cashRepository.findOpen(branchId);
     if (!session) throw new ConflictError('Debe abrir un turno para registrar movimientos');
+    // Los egresos siempre salen del efectivo del cajón; el método solo aplica a ingresos.
+    const method = dto.type === 'OUT' ? 'CASH' : (dto.method ?? 'CASH');
     return cashRepository.addMovement({
       cashSessionId: session.id,
       branchId,
       type: dto.type,
       amount: dto.amount,
       concept: dto.concept,
+      method,
+      reference: dto.reference?.trim() || null,
+      note: dto.note?.trim() || null,
+      category: dto.category ?? 'MOVEMENT',
       createdByUserId: scope.userId,
     });
+  },
+
+  /** Conceptos frecuentes de movimientos de caja (por sucursal). */
+  async frequentConcepts(scope: RequestScope): Promise<string[]> {
+    const branchId = requireActiveBranch(scope);
+    const raw = await cashRepository.getSetting(branchId, FREQUENT_CONCEPTS_KEY);
+    if (!raw) return [];
+    try {
+      const arr = JSON.parse(raw) as unknown;
+      return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  },
+  async saveFrequentConcepts(scope: RequestScope, concepts: string[]): Promise<string[]> {
+    const branchId = requireActiveBranch(scope);
+    const clean = [...new Set(concepts.map((c) => c.trim()).filter(Boolean))].slice(0, 50);
+    await cashRepository.upsertSetting(branchId, FREQUENT_CONCEPTS_KEY, JSON.stringify(clean));
+    return clean;
   },
 
   async listSessions(scope: RequestScope, params: PaginationParams, status?: string) {
@@ -147,12 +176,20 @@ export const cashService = {
     return cashRepository.reopen(id);
   },
 
-  /** Edita un movimiento de caja (corrección: monto/concepto/tipo). */
-  async updateMovement(scope: RequestScope, id: string, dto: { type?: string; amount?: number; concept?: string }) {
+  /** Edita un movimiento de caja (corrección: monto/concepto/tipo/método/comprobante/observación). */
+  async updateMovement(scope: RequestScope, id: string, dto: { type?: string; amount?: number; concept?: string; method?: string; reference?: string; note?: string; category?: string }) {
     const branchId = requireActiveBranch(scope);
     const mov = await cashRepository.findMovement(id);
     if (!mov || mov.branchId !== branchId) throw new NotFoundError('Movimiento no encontrado');
-    return cashRepository.updateMovement(id, dto);
+    const data: { type?: string; amount?: number; concept?: string; method?: string; reference?: string | null; note?: string | null; category?: string } = {
+      type: dto.type, amount: dto.amount, concept: dto.concept, category: dto.category,
+    };
+    // Si pasa a egreso, el método vuelve a efectivo (el método solo aplica a ingresos).
+    if (dto.type === 'OUT') data.method = 'CASH';
+    else if (dto.method !== undefined) data.method = dto.method;
+    if (dto.reference !== undefined) data.reference = dto.reference.trim() || null;
+    if (dto.note !== undefined) data.note = dto.note.trim() || null;
+    return cashRepository.updateMovement(id, data);
   },
 
   /** Anula (elimina) un movimiento de caja. */

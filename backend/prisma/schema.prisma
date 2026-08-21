@@ -892,6 +892,10 @@ model CashMovement {
   type            String // IN | OUT
   amount          Decimal  @db.Decimal(10, 2)
   concept         String
+  method          String? // CASH | CARD | TRANSFER | YAPE | PLIN | WALLET (null = efectivo)
+  reference       String? // N° de comprobante / referencia
+  note            String? // observación
+  category        String? // MOVEMENT | EXTRAORDINARY (null = MOVEMENT)
   createdByUserId String?
   createdAt       DateTime @default(now())
 

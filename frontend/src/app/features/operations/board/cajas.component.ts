@@ -4,7 +4,6 @@ import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
-import { SelectModule } from 'primeng/select';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { InputTextModule } from 'primeng/inputtext';
 import { MessageService } from 'primeng/api';
@@ -13,6 +12,7 @@ import { PrintingService } from '../../../core/printing/printing.service';
 import { FinanceApiService } from '../../finance/services/finance-api.service';
 import type { CashCurrent, CashMovementRow } from '../../finance/services/finance.models';
 import { buildCuadreTicket, buildBlindTicket, shiftOf } from '../../finance/services/cuadre-ticket';
+import { MovementDialogComponent } from '../../finance/cajas/movement-dialog.component';
 
 /** Denominaciones de soles (billetes y monedas) para el conteo de cierre. */
 const DENOMS = [200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1, 0.05];
@@ -22,7 +22,7 @@ const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta'
 @Component({
   selector: 'app-cajas',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, DialogModule, SelectModule, InputNumberModule, InputTextModule],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, MovementDialogComponent],
   template: `
     <section class="caja" (click)="menuFor.set(null)">
       <header class="top">
@@ -139,20 +139,7 @@ const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta'
     </section>
 
     <!-- Movimiento (alta / edición) -->
-    <p-dialog [(visible)]="movVisible" [modal]="true" [header]="editingMovId ? 'Editar movimiento' : 'Movimiento de caja'" [style]="{ width: '26rem' }" styleClass="dk-dialog">
-      <div class="form">
-        <label>Tipo</label>
-        <p-select [options]="movTypes" [(ngModel)]="mov.type" optionLabel="label" optionValue="value" styleClass="w" />
-        <label>Monto</label>
-        <p-inputNumber [(ngModel)]="mov.amount" mode="decimal" [minFractionDigits]="2" [min]="0" />
-        <label>Concepto</label>
-        <input pInputText [(ngModel)]="mov.concept" placeholder="Ej. compra de útiles" />
-      </div>
-      <ng-template pTemplate="footer">
-        <p-button label="Cancelar" [text]="true" (onClick)="movVisible = false" />
-        <p-button [label]="editingMovId ? 'Guardar' : 'Registrar'" icon="pi pi-check" [disabled]="!mov.amount || !mov.concept" [loading]="busy()" (onClick)="saveMov()" />
-      </ng-template>
-    </p-dialog>
+    <app-movement-dialog [(visible)]="movVisible" [openedAt]="current()?.session?.openedAt ?? null" [editing]="movEditing" (saved)="reload()" />
 
     <!-- Cerrar caja: conteo por denominaciones (ambos modos) -->
     <p-dialog [(visible)]="closeVisible" [modal]="true" header="Cerrar caja — conteo de efectivo" [style]="{ width: '34rem', maxWidth: '96vw' }" styleClass="dk-dialog">
@@ -276,10 +263,8 @@ export class CajasComponent implements OnInit {
   readonly canSeeCuadre = computed(() => this.adminPresent() || this.isAdmin);
   openingAmount = 100;
   movVisible = false;
+  movEditing: CashMovementRow | null = null;
   closeVisible = false;
-  mov: { type: 'IN' | 'OUT'; amount: number; concept: string } = { type: 'IN', amount: 0, concept: '' };
-  editingMovId: string | null = null;
-  readonly movTypes = [{ label: 'Ingreso', value: 'IN' }, { label: 'Egreso', value: 'OUT' }];
   readonly canEditMov = computed(() => this.auth.can('finance', 'edit'));
   // Fila cuyo menú de acciones (⋮) está abierto.
   readonly menuFor = signal<string | null>(null);
@@ -310,25 +295,9 @@ export class CajasComponent implements OnInit {
     });
   }
 
-  openNewMov(): void { this.menuFor.set(null); this.editingMovId = null; this.mov = { type: 'IN', amount: 0, concept: '' }; this.movVisible = true; }
+  openNewMov(): void { this.menuFor.set(null); this.movEditing = null; this.movVisible = true; }
 
-  openEditMov(mv: CashMovementRow): void {
-    this.menuFor.set(null);
-    this.editingMovId = mv.id;
-    this.mov = { type: mv.type, amount: mv.amount, concept: mv.concept };
-    this.movVisible = true;
-  }
-
-  saveMov(): void {
-    this.busy.set(true);
-    const done = (msg: string) => { this.busy.set(false); this.movVisible = false; this.editingMovId = null; this.mov = { type: 'IN', amount: 0, concept: '' }; this.toast.add({ severity: 'success', summary: msg, detail: '' }); this.reload(); };
-    const fail = (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); };
-    if (this.editingMovId) {
-      this.finance.editMovement(this.editingMovId, { type: this.mov.type, amount: this.mov.amount, concept: this.mov.concept }).subscribe({ next: () => done('Movimiento actualizado'), error: fail });
-    } else {
-      this.finance.addMovement({ type: this.mov.type, amount: this.mov.amount, concept: this.mov.concept }).subscribe({ next: () => done('Movimiento registrado'), error: fail });
-    }
-  }
+  openEditMov(mv: CashMovementRow): void { this.menuFor.set(null); this.movEditing = mv; this.movVisible = true; }
 
   removeMov(mv: CashMovementRow): void {
     this.menuFor.set(null);

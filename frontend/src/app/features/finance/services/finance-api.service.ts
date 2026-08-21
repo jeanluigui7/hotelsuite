@@ -14,6 +14,7 @@ import type {
   FiscalPanel,
   FolioSeries,
   Invoice,
+  MovementInput,
   Sale,
   SessionReport,
 } from './finance.models';
@@ -35,11 +36,17 @@ export class FinanceApiService {
   closeCash(dto: { closingAmount: number; notes?: string }): Observable<ApiResponse<CloseResult>> {
     return this.http.post<ApiResponse<CloseResult>>(`${this.api}/cash/close`, dto);
   }
-  addMovement(dto: { type: 'IN' | 'OUT'; amount: number; concept: string }): Observable<ApiResponse<unknown>> {
+  addMovement(dto: MovementInput): Observable<ApiResponse<unknown>> {
     return this.http.post<ApiResponse<unknown>>(`${this.api}/cash/movements`, dto);
   }
-  editMovement(id: string, dto: { type?: 'IN' | 'OUT'; amount?: number; concept?: string }): Observable<ApiResponse<unknown>> {
+  editMovement(id: string, dto: MovementInput): Observable<ApiResponse<unknown>> {
     return this.http.put<ApiResponse<unknown>>(`${this.api}/cash/movements/${id}`, dto);
+  }
+  frequentConcepts(): Observable<ApiResponse<string[]>> {
+    return this.http.get<ApiResponse<string[]>>(`${this.api}/cash/frequent-concepts`);
+  }
+  saveFrequentConcepts(concepts: string[]): Observable<ApiResponse<string[]>> {
+    return this.http.put<ApiResponse<string[]>>(`${this.api}/cash/frequent-concepts`, { concepts });
   }
   deleteMovement(id: string): Observable<ApiResponse<{ success: boolean }>> {
     return this.http.delete<ApiResponse<{ success: boolean }>>(`${this.api}/cash/movements/${id}`);

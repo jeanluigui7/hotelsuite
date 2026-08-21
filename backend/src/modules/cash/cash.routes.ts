@@ -13,6 +13,8 @@ cashRouter.get('/cash/current', requirePermission('finance', 'view'), asyncHandl
 cashRouter.get('/cash/sessions', requirePermission('finance', 'view'), asyncHandler(cashController.sessions));
 cashRouter.post('/cash/open', requirePermission('finance', 'create'), asyncHandler(cashController.open));
 cashRouter.post('/cash/close', requirePermission('finance', 'edit'), asyncHandler(cashController.close));
+cashRouter.get('/cash/frequent-concepts', requirePermission('finance', 'view'), asyncHandler(cashController.frequentConcepts));
+cashRouter.put('/cash/frequent-concepts', requirePermission('finance', 'create'), asyncHandler(cashController.saveFrequentConcepts));
 cashRouter.post('/cash/movements', requirePermission('finance', 'create'), asyncHandler(cashController.addMovement));
 cashRouter.put('/cash/movements/:id', requirePermission('finance', 'edit'), asyncHandler(cashController.updateMovement));
 cashRouter.delete('/cash/movements/:id', requirePermission('finance', 'edit'), asyncHandler(cashController.deleteMovement));

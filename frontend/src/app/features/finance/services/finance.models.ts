@@ -53,11 +53,25 @@ export interface SessionReport {
   difference: number | null;
 }
 
+export interface MovementInput {
+  type: 'IN' | 'OUT';
+  amount: number;
+  concept: string;
+  method?: 'CASH' | 'CARD' | 'TRANSFER' | 'YAPE' | 'PLIN' | 'WALLET';
+  reference?: string;
+  note?: string;
+  category?: 'MOVEMENT' | 'EXTRAORDINARY';
+}
+
 export interface CashMovementRow {
   id: string;
   type: 'IN' | 'OUT';
   concept: string;
   amount: number;
+  method: string;
+  reference: string | null;
+  note: string | null;
+  category: string;
   createdAt: string;
   user: string | null;
 }

@@ -56,6 +56,10 @@ export const cashRepository = {
     type: string;
     amount: number;
     concept: string;
+    method?: string | null;
+    reference?: string | null;
+    note?: string | null;
+    category?: string | null;
     createdByUserId: string;
   }) {
     return prisma.cashMovement.create({ data });
@@ -64,7 +68,7 @@ export const cashRepository = {
   findMovement(id: string) {
     return prisma.cashMovement.findUnique({ where: { id } });
   },
-  updateMovement(id: string, data: { type?: string; amount?: number; concept?: string }) {
+  updateMovement(id: string, data: { type?: string; amount?: number; concept?: string; method?: string | null; reference?: string | null; note?: string | null; category?: string | null }) {
     return prisma.cashMovement.update({ where: { id }, data });
   },
   deleteMovement(id: string) {
@@ -94,6 +98,10 @@ export const cashRepository = {
       type: m.type as 'IN' | 'OUT',
       concept: m.concept,
       amount: Number(m.amount),
+      method: m.method ?? 'CASH',
+      reference: m.reference ?? null,
+      note: m.note ?? null,
+      category: m.category ?? 'MOVEMENT',
       createdAt: m.createdAt,
       user: m.createdByUserId ? (uMap.get(m.createdByUserId) ?? null) : null,
     }));
@@ -105,6 +113,27 @@ export const cashRepository = {
       _sum: { amount: true },
     });
     return Number(result._sum.amount ?? 0);
+  },
+
+  /** Total de INGRESOS que entran físicamente al cajón (solo efectivo; null = efectivo legado). */
+  async movementsCashInTotal(cashSessionId: string) {
+    const result = await prisma.cashMovement.aggregate({
+      where: { cashSessionId, type: 'IN', OR: [{ method: 'CASH' }, { method: null }] },
+      _sum: { amount: true },
+    });
+    return Number(result._sum.amount ?? 0);
+  },
+
+  async getSetting(branchId: string, key: string) {
+    const s = await prisma.setting.findUnique({ where: { branchId_key: { branchId, key } } });
+    return s?.value ?? null;
+  },
+  async upsertSetting(branchId: string, key: string, value: string) {
+    await prisma.setting.upsert({
+      where: { branchId_key: { branchId, key } },
+      create: { branchId, key, value },
+      update: { value },
+    });
   },
 
   listSessions(args: { branchId: string; status?: string; skip: number; take: number }) {

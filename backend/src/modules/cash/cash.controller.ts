@@ -3,7 +3,7 @@ import { ok } from '../../shared/response';
 import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { cashService } from './cash.service';
-import { closeCashSchema, movementSchema, openCashSchema, updateMovementSchema } from './cash.schema';
+import { closeCashSchema, frequentConceptsSchema, movementSchema, openCashSchema, updateMovementSchema } from './cash.schema';
 
 export const cashController = {
   async current(req: Request, res: Response): Promise<void> {
@@ -52,5 +52,14 @@ export const cashController = {
   async deleteMovement(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await cashService.deleteMovement(req.scope, req.params.id)));
+  },
+  async frequentConcepts(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await cashService.frequentConcepts(req.scope)));
+  },
+  async saveFrequentConcepts(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = frequentConceptsSchema.parse(req.body);
+    res.status(200).json(ok(await cashService.saveFrequentConcepts(req.scope, dto.concepts)));
   },
 };

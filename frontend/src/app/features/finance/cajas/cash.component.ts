@@ -15,6 +15,7 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { FinanceApiService } from '../services/finance-api.service';
 import type { CashCurrent, CashDetail, CashDetailMovement, CashSessionRow } from '../services/finance.models';
 import { buildCuadreTicket, buildBlindTicket, shiftOf } from '../services/cuadre-ticket';
+import { MovementDialogComponent } from './movement-dialog.component';
 
 /** Denominaciones de soles (billetes y monedas) para el conteo de cierre. */
 const DENOMS = [200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1, 0.05];
@@ -53,7 +54,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
 @Component({
   selector: 'app-cash',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule, TagModule],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule, TagModule, MovementDialogComponent],
   template: `
     <section class="wrap">
       <header class="head">
@@ -143,18 +144,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
     </p-dialog>
 
     <!-- Ingreso/Egreso -->
-    <p-dialog [(visible)]="movVisible" [modal]="true" [header]="movType === 'IN' ? 'Registrar ingreso' : 'Registrar egreso'" [style]="{ width: '26rem' }">
-      <div class="form">
-        <label>Monto</label>
-        <p-inputNumber [(ngModel)]="movAmount" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
-        <label>Concepto</label>
-        <input pInputText [(ngModel)]="movConcept" />
-      </div>
-      <ng-template pTemplate="footer">
-        <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="movVisible = false" />
-        <p-button label="Registrar" icon="pi pi-check" [loading]="busy()" (onClick)="doMovement()" />
-      </ng-template>
-    </p-dialog>
+    <app-movement-dialog [(visible)]="movVisible" [openedAt]="openSession()?.openedAt ?? null" [presetType]="movType" (saved)="reloadCurrent()" />
 
     <!-- Cerrar caja: conteo por denominaciones (ambos modos) -->
     <p-dialog [(visible)]="closeVisible" [modal]="true" header="Cerrar caja — conteo de efectivo" [style]="{ width: '34rem', maxWidth: '96vw' }">
@@ -465,8 +455,6 @@ export class CashComponent implements OnInit {
 
   movVisible = false;
   movType: 'IN' | 'OUT' = 'IN';
-  movAmount: number | null = null;
-  movConcept = '';
 
   closeVisible = false;
   closeTarget: CashSessionRow | null = null;
@@ -552,18 +540,8 @@ export class CashComponent implements OnInit {
     });
   }
 
-  // ── Ingreso/Egreso ──
-  openMovement(type: 'IN' | 'OUT'): void { this.movType = type; this.movAmount = null; this.movConcept = ''; this.movVisible = true; }
-  doMovement(): void {
-    if (this.movAmount == null || this.movAmount <= 0 || !this.movConcept.trim()) {
-      this.messages.add({ severity: 'warn', summary: 'Datos incompletos', detail: 'Monto y concepto requeridos.' }); return;
-    }
-    this.busy.set(true);
-    this.finance.addMovement({ type: this.movType, amount: this.movAmount, concept: this.movConcept.trim() }).subscribe({
-      next: () => { this.busy.set(false); this.movVisible = false; this.messages.add({ severity: 'success', summary: 'Registrado', detail: 'Movimiento agregado.' }); this.reloadCurrent(); },
-      error: (e: HttpErrorResponse) => { this.busy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo registrar.' }); },
-    });
-  }
+  // ── Ingreso/Egreso (diálogo compartido) ──
+  openMovement(type: 'IN' | 'OUT'): void { this.movType = type; this.movVisible = true; }
 
   // ── Cerrar ──
   openCloseDialog(row: CashSessionRow): void {
