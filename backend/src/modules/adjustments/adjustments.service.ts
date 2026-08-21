@@ -5,6 +5,7 @@ import { ValidationError } from '../../shared/errors';
 import { prisma } from '../../config/prisma';
 import { applyStockTx, createMovementTx } from '../movements/movements.repository';
 import { cashRepository } from '../cash/cash.repository';
+import { productWarehouses } from '../../shared/product-kardex';
 
 /**
  * Ajustes trazables del kardex de productos (Fase 1, solo inventario — no mueve caja):
@@ -66,9 +67,10 @@ export const adjustmentsService = {
         if (toWh.id === wh.id) throw new ValidationError('El origen y el destino deben ser distintos');
         toWhId = toWh.id;
       } else {
-        const gen = await prisma.warehouse.findFirst({ where: { branchId, type: 'PRODUCTS' }, orderBy: { createdAt: 'asc' } });
-        if (!gen) throw new ValidationError('No hay Almacén General de Productos');
-        toWhId = gen.id;
+        // SOBRANTE regresa al Almacén General real (PRODUCTS que NO es "PRODUCTOS LIMPIEZA").
+        const { general } = await productWarehouses(branchId);
+        if (!general) throw new ValidationError('No hay Almacén General de Productos');
+        toWhId = general.id;
       }
       return prisma
         .$transaction(async (tx) => {

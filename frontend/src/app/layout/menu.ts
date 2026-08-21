@@ -134,7 +134,7 @@ export const ADMIN_MENU: MenuItem[] = [
         children: [
           { label: 'Almacén de Productos', route: '/operations/almacen-productos' },
           { label: 'Recepción', route: '/operations/inventario-recepcion' },
-          { label: 'Productos - Limpieza', route: '/inventory/almacen', queryParams: { name: 'PRODUCTOS LIMPIEZA' } },
+          { label: 'Productos - Limpieza', route: '/operations/productos-limpieza' },
           { label: 'Almacén de Ropa', route: '/operations/almacen-ropa' },
           { label: 'Ropa - Limpieza', route: '/inventory/almacen', queryParams: { name: 'ROPA - LIMPIEZA' } },
           { label: 'Amenities', route: '/inventory/almacen', queryParams: { type: 'AMENITIES' } },

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { RequestScope } from '../../shared/context';
 import { ValidationError } from '../../shared/errors';
+import { buildProductKardex, productWarehouses } from '../../shared/product-kardex';
 import { requireActiveBranch } from '../../shared/scope';
 import { requireReceptionFlag } from '../operations-config/operations-config.service';
 import { prisma } from '../../config/prisma';
@@ -91,76 +92,12 @@ export const receptionInventoryService = {
     const whId = await receptionWarehouseId(branchId);
     const shifts = await prisma.roleShift.findMany({ where: { branchId, role: 'RECEPCION' } });
     const win = this.turnWindow(shifts, opts?.date, opts?.shift);
-
-    const [products, stocks, movs, generalWhs] = await Promise.all([
-      // Recepción = SOLO productos (excluye amenities: productType o categoría AMENITY).
-      prisma.product.findMany({ where: { branchId, status: 'active', NOT: { OR: [{ productType: 'AMENITY' }, { category: { type: 'AMENITY' } }] } }, include: { category: { select: { name: true } } }, orderBy: { sku: 'asc' } }),
-      prisma.stock.findMany({ where: { warehouseId: whId } }),
-      // Solo se necesitan los movimientos desde el inicio del turno en adelante.
-      prisma.inventoryMovement.findMany({
-        where: { branchId, warehouseId: whId, createdAt: { gte: win.from } },
-        select: { productId: true, quantity: true, createdAt: true, type: true, relatedWarehouseId: true, adjustType: true },
-      }),
-      prisma.warehouse.findMany({ where: { branchId, type: 'PRODUCTS' }, select: { id: true } }),
-    ]);
-    const stockMap = new Map(stocks.map((s) => [s.productId, s.quantity]));
-    const generalSet = new Set(generalWhs.map((w) => w.id));
-    // Ajuste = ADJUST, cualquier adjustType, o TRANSFER interno (contra un almacén que NO es el general).
-    // Abastecimiento (TRANSFER desde el Almacén General) e IN/PURCHASE = Ingreso; SALE/OUT = Salida.
-    const isAdjust = (m: { type: string; adjustType: string | null; relatedWarehouseId: string | null }) =>
-      m.type === 'ADJUST' || !!m.adjustType || (m.type === 'TRANSFER' && !(m.relatedWarehouseId != null && generalSet.has(m.relatedWarehouseId)));
-
-    // Sumas por producto: desde el inicio del turno, desde el fin, y dentro del turno.
-    const sinceFrom = new Map<string, number>();
-    const sinceTo = new Map<string, number>();
-    const ingresos = new Map<string, number>();
-    const salidas = new Map<string, number>();
-    const ajustes = new Map<string, number>();
-    for (const m of movs) {
-      if (!m.productId) continue;
-      sinceFrom.set(m.productId, (sinceFrom.get(m.productId) ?? 0) + m.quantity);
-      if (m.createdAt >= win.to) {
-        sinceTo.set(m.productId, (sinceTo.get(m.productId) ?? 0) + m.quantity);
-      } else if (isAdjust(m)) {
-        // Ajustes: cantidad con signo (positivo o negativo).
-        ajustes.set(m.productId, (ajustes.get(m.productId) ?? 0) + m.quantity);
-      } else if (m.quantity > 0) {
-        ingresos.set(m.productId, (ingresos.get(m.productId) ?? 0) + m.quantity);
-      } else {
-        salidas.set(m.productId, (salidas.get(m.productId) ?? 0) + Math.abs(m.quantity));
-      }
-    }
-
+    const { generalIds } = await productWarehouses(branchId);
+    const items = await buildProductKardex({ branchId, whId, win, generalIds, minField: 'receptionReorderPoint' });
     return {
       warehouseId: whId,
-      turn: {
-        shift: win.shift,
-        businessDate: win.businessDate,
-        startTime: win.startTime,
-        endTime: win.endTime,
-        isCurrent: win.isCurrent,
-        from: win.from,
-        to: win.to,
-      },
-      items: products.map((p) => {
-        const current = stockMap.get(p.id) ?? 0;
-        const stockFinal = current - (sinceTo.get(p.id) ?? 0);
-        const stockInicial = current - (sinceFrom.get(p.id) ?? 0);
-        return {
-          productId: p.id,
-          name: p.name,
-          sku: p.sku,
-          categoryId: p.categoryId,
-          categoryName: p.category?.name ?? null,
-          stockInicial,
-          ingresos: ingresos.get(p.id) ?? 0,
-          salidas: salidas.get(p.id) ?? 0,
-          ajustes: ajustes.get(p.id) ?? 0,
-          stock: stockFinal,
-          min: p.receptionReorderPoint,
-          belowMin: stockFinal <= p.receptionReorderPoint,
-        };
-      }),
+      turn: { shift: win.shift, businessDate: win.businessDate, startTime: win.startTime, endTime: win.endTime, isCurrent: win.isCurrent, from: win.from, to: win.to },
+      items,
     };
   },
 

@@ -92,6 +92,10 @@ const routes: Routes = [
     loadComponent: () => import('./board/inventario-recepcion.component').then((m) => m.InventarioRecepcionComponent),
   },
   {
+    path: 'productos-limpieza',
+    loadComponent: () => import('./board/productos-limpieza.component').then((m) => m.ProductosLimpiezaComponent),
+  },
+  {
     path: 'checkouts',
     loadComponent: () => import('./checkouts/checkouts.component').then((m) => m.CheckoutsComponent),
   },

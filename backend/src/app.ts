@@ -47,6 +47,7 @@ import { printingRouter } from './modules/printing/printing.routes';
 import { warehousesRouter } from './modules/warehouses/warehouses.routes';
 import { movementsRouter } from './modules/movements/movements.routes';
 import { adjustmentsRouter } from './modules/adjustments/adjustments.routes';
+import { productsCleaningRouter } from './modules/products-cleaning/products-cleaning.routes';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 import { purchasesRouter } from './modules/purchases/purchases.routes';
 import { logisticsRouter } from './modules/logistics/logistics.routes';
@@ -143,6 +144,7 @@ export function createApp(): Application {
   app.use('/api', inventoryConfigRouter);
   app.use('/api', movementsRouter);
   app.use('/api', adjustmentsRouter);
+  app.use('/api', productsCleaningRouter);
   app.use('/api', suppliersRouter);
   app.use('/api', purchasesRouter);
   app.use('/api', logisticsRouter);
