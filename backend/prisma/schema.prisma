@@ -673,6 +673,8 @@ model Stay {
   guestId           String
   rateId            String?
   tierId            String?
+  folioCode         String? // correlativo legible del folio de estancia (FE-00042); NULL en estancias previas
+  reservationId     String? // reserva que originó la estancia (trazabilidad reserva → folio)
   status            String    @default("OPEN") // OPEN | CLOSED | CANCELLED
   checkInAt         DateTime  @default(now())
   plannedCheckoutAt DateTime
@@ -704,6 +706,8 @@ model Stay {
   @@index([roomId])
   @@index([guestId])
   @@index([status])
+  @@index([folioCode])
+  @@index([reservationId])
 }
 
 /// Huéspedes adicionales de una estancia.

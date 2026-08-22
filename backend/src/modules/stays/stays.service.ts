@@ -21,6 +21,8 @@ const SORTABLE = ['checkInAt', 'plannedCheckoutAt', 'status'] as const;
 function serialize(stay: StayWithRelations) {
   return {
     id: stay.id,
+    folioCode: stay.folioCode ?? null,
+    reservationId: stay.reservationId ?? null,
     status: stay.status,
     room: stay.room,
     guest: stay.guest,
@@ -247,6 +249,7 @@ export const staysService = {
       children: dto.children,
       vehiclePlate: (dto.vehiclePlate || '').trim().toUpperCase() || null,
       notes: ((dto.notes || '') + earlyNote).trim() || null,
+      reservationId: dto.reservationId ?? null,
       additionalGuestIds: dto.additionalGuestIds.filter((id) => id !== guestId),
     });
     return serialize(stay as StayWithRelations);
@@ -359,7 +362,7 @@ export const staysService = {
     const exceeded = ratio > limit;
 
     return {
-      folio: { code: `FP-${stay.id.slice(0, 6).toUpperCase()}`, status: stay.status === 'OPEN' ? 'Activa' : 'Cerrada' },
+      folio: { code: stay.folioCode ?? `FP-${stay.id.slice(0, 6).toUpperCase()}`, status: stay.status === 'OPEN' ? 'Activa' : 'Cerrada' },
       guest: { name: `${stay.guest.firstName} ${stay.guest.lastName ?? ''}`.trim(), documentNumber: stay.guest.documentNumber, phone: stay.guest.phone },
       room: { number: room?.number ?? '—', typeName: room?.roomType.name ?? '—' },
       checkInAt: stay.checkInAt,

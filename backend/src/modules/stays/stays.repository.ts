@@ -11,6 +11,20 @@ const stayInclude = {
 
 export type StayWithRelations = Prisma.StayGetPayload<{ include: typeof stayInclude }>;
 
+/**
+ * Reserva el siguiente correlativo del FOLIO DE ESTANCIA para la sucursal, de forma atómica
+ * dentro de la transacción de check-in. Auto-aprovisiona la serie (documentType STAY / serie FE)
+ * si aún no existe, para que el check-in nunca falle por falta de configuración.
+ * Formato: FE-00042.
+ */
+async function nextStayFolioCode(tx: Prisma.TransactionClient, branchId: string): Promise<string> {
+  const existing = await tx.folioSeries.findFirst({ where: { branchId, documentType: 'STAY' }, orderBy: { series: 'asc' } });
+  const serie = existing
+    ? await tx.folioSeries.update({ where: { id: existing.id }, data: { currentNumber: { increment: 1 } } })
+    : await tx.folioSeries.create({ data: { branchId, documentType: 'STAY', series: 'FE', currentNumber: 1 } });
+  return `${serie.series}-${String(serie.currentNumber).padStart(5, '0')}`;
+}
+
 export const staysRepository = {
   list(args: {
     where: Prisma.StayWhereInput;
@@ -46,9 +60,11 @@ export const staysRepository = {
     children: number;
     vehiclePlate: string | null;
     notes: string | null;
+    reservationId: string | null;
     additionalGuestIds: string[];
   }) {
     return prisma.$transaction(async (tx) => {
+      const folioCode = await nextStayFolioCode(tx, data.branchId);
       const stay = await tx.stay.create({
         data: {
           branchId: data.branchId,
@@ -56,6 +72,8 @@ export const staysRepository = {
           guestId: data.guestId,
           rateId: data.rateId,
           tierId: data.tierId,
+          folioCode,
+          reservationId: data.reservationId,
           durationMinutes: data.durationMinutes,
           priceAgreed: data.priceAgreed,
           balanceDue: data.balanceDue,
