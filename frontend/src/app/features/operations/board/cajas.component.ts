@@ -351,7 +351,7 @@ export class CajasComponent implements OnInit {
           this.toast.add({ severity: 'success', summary: 'Caja cerrada', detail: 'Diferencia ' + (res.data?.difference ?? 0).toFixed(2) });
           // Modo supervisado: imprime el cuadre detallado (igual que Finanzas › Cajas).
           this.finance.sessionDetail(session.id).subscribe({
-            next: (d) => this.printing.printViaBrowser(buildCuadreTicket(d.data, brand)),
+            next: (d) => this.printing.printViaBrowser(buildCuadreTicket(d.data)),
             error: () => { /* el cierre ya se guardó; el cuadre puede reimprimirse desde Finanzas */ },
           });
         }

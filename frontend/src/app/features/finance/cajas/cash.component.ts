@@ -579,7 +579,7 @@ export class CashComponent implements OnInit {
           }));
         } else {
           this.messages.add({ severity: res.data.difference === 0 ? 'success' : 'warn', summary: 'Turno cerrado', detail: `Diferencia: ${res.data.difference.toFixed(2)}` });
-          this.finance.sessionDetail(res.data.session.id).subscribe({ next: (d) => this.openTicketWindow(buildCuadreTicket(d.data, brand)), error: () => {} });
+          this.finance.sessionDetail(res.data.session.id).subscribe({ next: (d) => this.openTicketWindow(buildCuadreTicket(d.data)), error: () => {} });
         }
         this.refreshAll();
       },
@@ -718,9 +718,8 @@ export class CashComponent implements OnInit {
   // ── Vista imprimible del cierre (pestaña aparte) ──
   /** Abre el cuadre detallado del turno en una pestaña nueva (administración). */
   viewCuadre(row: CashSessionRow): void {
-    const brand = this.auth.activeBranch()?.name ?? 'HotelSuite';
     this.finance.sessionDetail(row.id).subscribe({
-      next: (res) => this.openTicketWindow(buildCuadreTicket(res.data, brand)),
+      next: (res) => this.openTicketWindow(buildCuadreTicket(res.data)),
       error: () => this.messages.add({ severity: 'error', summary: 'Error', detail: 'No se pudo abrir el resumen.' }),
     });
   }

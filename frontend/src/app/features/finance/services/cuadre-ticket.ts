@@ -24,11 +24,6 @@ const ticketMethod = (m: string): string =>
   ({ CASH: 'EFECTIVO', CARD: 'TARJETA DE C', TRANSFER: 'TRANSFERENC.', YAPE: 'YAPE', PLIN: 'PLIN', WALLET: 'BILLETERA' } as Record<string, string>)[m] ?? m;
 const ticketMedio = (m: string): string =>
   ({ CASH: 'EFEC', CARD: 'TARJ', TRANSFER: 'TRAN', YAPE: 'YAPE', PLIN: 'PLIN', WALLET: 'BILL' } as Record<string, string>)[m] ?? m.slice(0, 4);
-const renCode = (desc: string): string => {
-  if (/upgrade|mejora|\bupg\b/i.test(desc)) return 'UPG';
-  if (/extra|extensi/i.test(desc)) return 'EXT';
-  return 'REN';
-};
 
 /**
  * Turno según el horario operativo. NOCHE: 22:30 → 06:30 del día siguiente; MAÑANA: 06:30 → 14:00;
@@ -45,19 +40,20 @@ export function dayOf(openedAt: string | Date): string { return DAYS[new Date(op
 
 interface HeaderSession { number: number | null; openedAt: string; closedAt: string | null; openedByName: string; closedByName: string | null }
 
-function ticketHeader(titlePrefix: string, s: HeaderSession, brand: string): string[] {
+function ticketHeader(s: HeaderSession): string[] {
   const open = new Date(s.openedAt);
   const close = s.closedAt ? new Date(s.closedAt) : null;
-  const dm = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const dmy = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
   const user = (s.closedByName ?? s.openedByName ?? 'USUARIO').toUpperCase();
-  // Día y turno se derivan de la APERTURA (regla de turno noche 22:30–06:30).
+  // Título con el ID de la caja (sin marca). Día/turno/colaborador y horarios compactos.
   return [
     line('='),
-    center(`${titlePrefix} - ${brand.toUpperCase()}`),
+    center(`CIERRE DE CAJA - CAJA #${s.number ?? ''}`),
     line('='),
-    `${dm(open)} ${hhmm(open)} - CAJA #${s.number ?? '—'} - ${close ? hhmm(close) : '--:--'}`,
-    line('-'),
-    `${dm(open)}/${open.getFullYear()} - ${dayOf(open)} - ${shiftOf(open)} - ${user}`,
+    `${dayOf(open)} - ${shiftOf(open)} - ${user}`,
+    '',
+    'INICIO:'.padEnd(8) + `${dmy(open)} ${hhmm(open)}`,
+    'FIN:'.padEnd(8) + (close ? `${dmy(close)} ${hhmm(close)}` : '--'),
     line('-'),
     '',
   ];
@@ -86,8 +82,8 @@ function ticketPage(title: string, text: string): string {
 </body></html>`;
 }
 
-/** Cuadre detallado del turno (modo administrador / supervisado). Idéntico al de Finanzas › Cajas. */
-export function buildCuadreTicket(d: CashDetail, brand: string): string {
+/** Cuadre detallado del turno (modo administrador / auditoría). Idéntico al de Finanzas › Cajas. */
+export function buildCuadreTicket(d: CashDetail): string {
   const s = d.session;
   const METHODS = ['CASH', 'CARD', 'TRANSFER', 'YAPE', 'PLIN', 'WALLET'];
   const normal = d.movements.filter((m) => m.status === 'NORMAL');
@@ -97,35 +93,35 @@ export function buildCuadreTicket(d: CashDetail, brand: string): string {
   const base = s.openingAmount;
   const efTurno = d.methodBar.byMethod['CASH'] || 0;
   const ing = d.methodBar.ingresos, egr = d.methodBar.egresos;
+  // Efectivo esperado EN EL CAJÓN (incluye la caja base). Los ajustes (ing/egr) ya se cuentan aquí una sola vez.
   const esperado = Math.round((base + efTurno + ing - egr) * 100) / 100;
+  // Esperado A ENTREGAR = efectivo del cajón − caja base (la base se queda para el siguiente turno).
+  const esperadoEntregar = Math.round((esperado - base) * 100) / 100;
+  // El contado proviene del MISMO conteo por denominaciones del ticket de caja ciega (closingAmount, ya sin la base).
   const contado = s.closingAmount;
-  const diff = contado != null ? Math.round((contado - esperado) * 100) / 100 : null;
+  // Cuadre = contado − esperado a entregar (NO contra el esperado del cajón, que incluye la base).
+  const diff = contado != null ? Math.round((contado - esperadoEntregar) * 100) / 100 : null;
 
   const L: string[] = [];
-  L.push(...ticketHeader('CIERRE DE CAJA', s, brand));
+  L.push(...ticketHeader(s));
 
   L.push(kv('CAJA BASE CONFIGURADA', 'S/ ' + base.toFixed(2)));
-  L.push(kv('EFECTIVO ESPERADO EN CAJON', 'S/ ' + esperado.toFixed(2)));
-  L.push(kv('EFECTIVO CONTADO EN CAJON', 'S/ ' + (contado != null ? contado.toFixed(2) : '--')));
+  L.push(kv('EFECTIVO ESPERADO SISTEMA', 'S/ ' + esperado.toFixed(2)));
+  L.push(kv('EFECTIVO CONTADO DENOMIN.', 'S/ ' + (contado != null ? contado.toFixed(2) : '--')));
   L.push(line('='), '');
 
   const agg = (title: string, types: string[]) => {
     const tot = sumT(types);
     if (tot <= 0) return;
     L.push(sec(title));
+    // Solo se imprimen los métodos con movimientos (dinámico, sin líneas en cero).
     for (const mth of METHODS) { const v = sumBy(types, mth); if (v > 0) L.push(moneyRow(ticketMethod(mth), v)); }
     L.push(line('-'), moneyRow('TOTAL', tot), '');
   };
-  agg('HOSPEDAJE / SERVICIOS', ['HOSPEDAJE', 'SERVICIO']);
+  // Categorías reales: HOSPEDAJE agrupa hospedaje + renovaciones/upgrades/extras de la estancia.
+  agg('HOSPEDAJE', ['HOSPEDAJE', 'RENOVACION']);
   agg('PRODUCTOS', ['PRODUCTO']);
-
-  const renov = normal.filter((m) => m.type === 'RENOVACION');
-  if (renov.length) {
-    const rtot = renov.reduce((a, m) => a + m.amount, 0);
-    L.push(sec('RENOV / UPG / EXTRA'));
-    for (const m of renov) L.push(ticketMethod(m.method).slice(0, 9).padEnd(9) + renCode(m.description).padEnd(6) + 'S/ ' + m.amount.toFixed(2).padStart(6));
-    L.push(line('-'), 'TOTAL'.padEnd(15) + 'S/ ' + rtot.toFixed(2).padStart(6), '');
-  }
+  agg('SERVICIOS / PENALIDADES', ['SERVICIO']);
 
   L.push(sec('RESUMEN POR METODO'));
   for (const mth of METHODS) { const v = d.methodBar.byMethod[mth] || 0; if (v > 0) L.push(ticketMethod(mth).slice(0, 14).padEnd(14) + 'TOTAL TURNO : S/ ' + v.toFixed(2).padStart(6)); }
@@ -136,12 +132,12 @@ export function buildCuadreTicket(d: CashDetail, brand: string): string {
   else { if (ing > 0) L.push(kv('Ingresos', '+S/ ' + ing.toFixed(2))); if (egr > 0) L.push(kv('Egresos', '-S/ ' + egr.toFixed(2))); }
   L.push(line('-'), kv('TOTAL AJUSTES', 'S/ ' + (ing - egr).toFixed(2)), line('='), '');
 
-  const cuadreTxt = diff == null ? '--' : diff === 0 ? 'OK' : diff > 0 ? 'SOBRA S/ ' + diff.toFixed(2) : 'FALTA S/ ' + (-diff).toFixed(2);
+  const cuadreTxt = diff == null ? '--' : diff === 0 ? 'CUADRADO' : diff > 0 ? 'SOBRA S/ ' + diff.toFixed(2) : 'FALTA S/ ' + (-diff).toFixed(2);
   L.push(sec('CUADRE DE EFECTIVO'));
-  L.push(kv('EFECTIVO (SEGUN SISTEMA)', 'S/ ' + esperado.toFixed(2)));
+  L.push(kv('EFECTIVO SEGUN SISTEMA', 'S/ ' + esperado.toFixed(2)));
   L.push(kv('CAJA BASE', '-S/ ' + base.toFixed(2)));
-  L.push(line('-'), kv('TOTAL A ENTREGAR', 'S/ ' + (esperado - base).toFixed(2)), line('-'));
-  L.push(kv('EFECTIVO REAL EN BOLSA', 'S/ ' + (contado != null ? contado.toFixed(2) : '--')));
+  L.push(line('-'), kv('ESPERADO A ENTREGAR', 'S/ ' + esperadoEntregar.toFixed(2)), line('-'));
+  L.push(kv('EFECTIVO CONTADO', 'S/ ' + (contado != null ? contado.toFixed(2) : '--')));
   L.push(kv('CUADRE', cuadreTxt));
   L.push(line('='), '', 'FIRMA COLABORADOR', '', '____________________', '');
 
@@ -152,7 +148,8 @@ export function buildCuadreTicket(d: CashDetail, brand: string): string {
     L.push(sec('PAGOS VIRTUALES'));
     L.push(vrow('MEDIO', 'HORA', 'MONTO', 'CLI', 'CONC', 'COD'));
     L.push(line('-'));
-    for (const p of vps) L.push(vrow(ticketMedio(p.method), hhmm(p.time), p.amount.toFixed(2) + (p.mixed ? '*' : ''), (p.client || '').slice(0, 4).toUpperCase(), p.concept, p.code));
+    // Código real desde la venta; si la venta no lo registró, se indica explícitamente (no un campo vacío).
+    for (const p of vps) L.push(vrow(ticketMedio(p.method), hhmm(p.time), p.amount.toFixed(2) + (p.mixed ? '*' : ''), (p.client || '').slice(0, 4).toUpperCase(), p.concept, p.code?.trim() || 'NO REGISTRADO'));
     L.push(line('-'));
     if (vps.some((p) => p.mixed)) L.push('* = Pago mixto (Hospedaje + Productos)');
     L.push(line('='));
