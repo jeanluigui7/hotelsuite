@@ -3,7 +3,7 @@ import { ok } from '../../shared/response';
 import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { masterFoliosService } from './master-folios.service';
-import { addStaySchema, createMasterFolioSchema, updateMasterFolioSchema } from './master-folios.schema';
+import { addStaySchema, createMasterFolioSchema, invoiceMasterSchema, updateMasterFolioSchema } from './master-folios.schema';
 
 export const masterFoliosController = {
   async list(req: Request, res: Response): Promise<void> {
@@ -34,5 +34,14 @@ export const masterFoliosController = {
   async removeStay(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await masterFoliosService.removeStay(req.scope, req.params.id, req.params.stayId)));
+  },
+  async billable(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await masterFoliosService.billable(req.scope, req.params.id)));
+  },
+  async invoice(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = invoiceMasterSchema.parse(req.body);
+    res.status(201).json(ok(await masterFoliosService.invoice(req.scope, req.params.id, dto)));
   },
 };

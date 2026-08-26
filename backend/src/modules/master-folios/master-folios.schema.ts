@@ -19,6 +19,15 @@ export const updateMasterFolioSchema = z.object({
 
 export const addStaySchema = z.object({ stayId: z.string().min(1) });
 
+export const invoiceMasterSchema = z.object({
+  type: z.enum(['BOLETA', 'FACTURA']),
+  lineKeys: z.array(z.string().min(1)).min(1),
+  customerName: z.string().max(160).optional().or(z.literal('')),
+  customerDoc: z.string().max(20).optional().or(z.literal('')),
+  customerAddress: z.string().max(300).optional().or(z.literal('')),
+});
+export type InvoiceMasterDto = z.infer<typeof invoiceMasterSchema>;
+
 export type CreateMasterFolioDto = z.infer<typeof createMasterFolioSchema>;
 export type UpdateMasterFolioDto = z.infer<typeof updateMasterFolioSchema>;
 export type AddStayDto = z.infer<typeof addStaySchema>;

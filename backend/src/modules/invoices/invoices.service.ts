@@ -110,6 +110,60 @@ export const invoicesService = {
     return serialize(updated as InvoiceWithRelations);
   },
 
+  /**
+   * Emisión selectiva (facturación por concepto / multi-estancia): recibe líneas ya valoradas
+   * (de uno o varios folios) y emite un comprobante al pagador, registrando cada InvoiceLine.
+   */
+  async issueSelective(scope: RequestScope, dto: {
+    type: 'BOLETA' | 'FACTURA';
+    customerName: string;
+    customerDoc: string | null;
+    customerAddress: string | null;
+    masterFolioId: string | null;
+    stayId: string | null;
+    lines: { saleItemId: string | null; stayId: string | null; concept: string | null; description: string; quantity: number; amount: number }[];
+  }) {
+    const branchId = requireActiveBranch(scope);
+    if (!dto.lines.length) throw new ValidationError('Selecciona al menos un concepto a facturar');
+    const total = Math.round(dto.lines.reduce((a, l) => a + l.amount, 0) * 100) / 100;
+    if (total <= 0) throw new ValidationError('El total a facturar debe ser mayor a cero');
+    const { subtotal, taxAmount } = computeTax(total);
+
+    let invoice: InvoiceWithRelations;
+    try {
+      invoice = await invoicesRepository.issue({
+        branchId,
+        saleId: null,
+        stayId: dto.stayId,
+        masterFolioId: dto.masterFolioId,
+        type: dto.type,
+        customerName: dto.customerName,
+        customerDoc: dto.customerDoc,
+        customerAddress: dto.customerAddress,
+        subtotal,
+        taxAmount,
+        total,
+        createdByUserId: scope.userId,
+        lines: dto.lines,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('NO_FOLIO_SERIES')) {
+        throw new ValidationError('No hay una serie de folios activa para ese tipo de comprobante');
+      }
+      throw err;
+    }
+    const result = await invoicingProvider.issue({
+      type: invoice.type,
+      series: invoice.series,
+      number: invoice.number,
+      customerDoc: invoice.customerDoc,
+      customerName: invoice.customerName,
+      total: Number(invoice.total),
+    });
+    const updated = await invoicesRepository.update(invoice.id, { providerStatus: result.providerStatus, providerRef: result.providerRef });
+    return serialize(updated as InvoiceWithRelations);
+  },
+
   async getById(scope: RequestScope, id: string) {
     const inv = await invoicesRepository.findById(id);
     if (!inv || inv.branchId !== requireActiveBranch(scope)) throw new NotFoundError('Comprobante no encontrado');

@@ -14,9 +14,12 @@ interface MasterRow { id: string; code: string; payerName: string; payerRuc: str
 interface StaySummary { id: string; folioCode: string | null; status: string; checkInAt: string; checkOutAt: string | null; room: string | null; guest: string; documentNumber: string; total: number; paid: number; pending: number; billingStatus: string; invoiced: number }
 interface MasterDetail { id: string; code: string; status: string; notes: string | null; payer: { name: string; doc: string | null; ruc: string | null; address: string | null }; stays: StaySummary[]; totals: { total: number; paid: number; pending: number; invoiced: number } }
 interface FolioPick { id: string; folioCode: string | null; status: string; checkInAt: string; room: { number: string | null } | null; guest: { firstName: string; lastName: string | null; documentNumber: string } | null }
+interface BillLine { key: string; stayId: string; folioCode: string | null; concept: string; description: string; quantity: number; amount: number; invoiced: number; pending: number }
+interface BillableResp { payer: { name: string; doc: string | null; ruc: string | null; address: string | null }; lines: BillLine[]; pendingTotal: number }
 
 const STATUS: Record<string, string> = { OPEN: 'Abierto', CLOSED: 'Cerrado', BILLED: 'Facturado' };
 const BILL: Record<string, string> = { PENDIENTE: 'Pendiente', PARCIAL: 'Parcial', FACTURADO: 'Facturado' };
+const CONCEPT: Record<string, string> = { HOSPEDAJE: 'Hospedaje', RENOVACION: 'Renovación', PRODUCTO: 'Producto', SERVICIO: 'Servicio', PENALIDAD: 'Penalidad' };
 
 @Component({
   selector: 'app-folios-maestros',
@@ -92,6 +95,7 @@ const BILL: Record<string, string> = { PENDIENTE: 'Pendiente', PARCIAL: 'Parcial
 
         <div class="d-actions">
           @if (canEdit) { <button class="btn p sm" (click)="openAdd()"><i class="pi pi-plus"></i> Añadir folio</button> }
+          @if (canBill && d.stays.length) { <button class="btn b sm" (click)="openBill()"><i class="pi pi-file"></i> Facturar selección</button> }
         </div>
 
         <div class="tbl-wrap">
@@ -143,6 +147,44 @@ const BILL: Record<string, string> = { PENDIENTE: 'Pendiente', PARCIAL: 'Parcial
         </table>
       </div>
     </p-dialog>
+
+    <!-- Facturación selectiva -->
+    <p-dialog [(visible)]="billVisible" [modal]="true" header="Facturar selección" [style]="{ width: '54rem', maxWidth: '97vw' }" styleClass="fm-dialog">
+      @if (billLoading()) { <p class="muted">Cargando conceptos…</p> }
+      @else {
+        <div class="bill-cfg">
+          <div class="seg">
+            <button type="button" [class.on]="billForm.type === 'BOLETA'" (click)="billForm.type = 'BOLETA'">Boleta</button>
+            <button type="button" [class.on]="billForm.type === 'FACTURA'" (click)="billForm.type = 'FACTURA'">Factura</button>
+          </div>
+          <div class="cf"><label>Cliente / Pagador</label><input pInputText [(ngModel)]="billForm.customerName" /></div>
+          <div class="cf"><label>RUC / Doc</label><input pInputText [(ngModel)]="billForm.customerDoc" /></div>
+        </div>
+        <div class="tbl-wrap">
+          <table class="tbl inner">
+            <thead><tr><th class="c"><input type="checkbox" [checked]="allPendingSelected()" (change)="toggleAll($event)" /></th><th>Folio</th><th>Concepto</th><th>Descripción</th><th class="r">Monto</th><th class="r">Facturado</th><th class="r">Pendiente</th></tr></thead>
+            <tbody>
+              @for (l of billLines(); track l.key) {
+                <tr [class.done]="l.pending <= 0">
+                  <td class="c"><input type="checkbox" [disabled]="l.pending <= 0" [checked]="selected().has(l.key)" (change)="toggle(l.key)" /></td>
+                  <td><span class="code">{{ l.folioCode || '—' }}</span></td>
+                  <td><span class="bs">{{ conceptLabel(l.concept) }}</span></td>
+                  <td>{{ l.description }}</td>
+                  <td class="r">S/ {{ l.amount | number: '1.2-2' }}</td>
+                  <td class="r">{{ l.invoiced > 0 ? ('S/ ' + (l.invoiced | number: '1.2-2')) : '—' }}</td>
+                  <td class="r money">S/ {{ l.pending | number: '1.2-2' }}</td>
+                </tr>
+              } @empty { <tr><td colspan="7" class="empty">No hay conceptos facturables.</td></tr> }
+            </tbody>
+          </table>
+        </div>
+        <div class="bill-tot"><span>Total a facturar (IGV incluido):</span><strong>S/ {{ selectedTotal() | number: '1.2-2' }}</strong></div>
+      }
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="billVisible = false" />
+        <p-button label="Emitir comprobante" icon="pi pi-check" [disabled]="selectedTotal() <= 0" [loading]="busy()" (onClick)="doBill()" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -153,7 +195,12 @@ const BILL: Record<string, string> = { PENDIENTE: 'Pendiente', PARCIAL: 'Parcial
       .search { display: flex; align-items: center; gap: 0.5rem; background: #0e1626; border: 1px solid #26364f; border-radius: 10px; padding: 0.5rem 0.8rem; color: #8aa0bd; flex: 1; max-width: 26rem; }
       .search.inline { max-width: none; margin-bottom: 0.8rem; } .search input { flex: 1; background: transparent; border: 0; color: #e2e8f0; outline: none; }
       .btn { display: inline-flex; align-items: center; gap: 0.4rem; border: 0; border-radius: 8px; padding: 0.55rem 1rem; font-weight: 700; font-size: 0.82rem; cursor: pointer; color: #fff; }
-      .btn.p { background: #22c55e; color: #04130d; } .btn.s { background: #334155; } .btn.sm { padding: 0.4rem 0.8rem; font-size: 0.78rem; }
+      .btn.p { background: #22c55e; color: #04130d; } .btn.s { background: #334155; } .btn.b { background: #8b5cf6; } .btn.sm { padding: 0.4rem 0.8rem; font-size: 0.78rem; }
+      .bill-cfg { display: flex; align-items: flex-end; gap: 0.8rem; margin-bottom: 0.8rem; flex-wrap: wrap; }
+      .seg { display: inline-flex; border: 1px solid #26364f; border-radius: 8px; overflow: hidden; } .seg button { background: #0e1626; border: 0; color: #cbd5e1; padding: 0.5rem 1rem; cursor: pointer; font-weight: 700; font-size: 0.8rem; } .seg button.on { background: #8b5cf6; color: #fff; }
+      .cf { display: flex; flex-direction: column; gap: 0.25rem; } .cf label { font-size: 0.72rem; color: #8aa0bd; } :host ::ng-deep .cf input { min-width: 12rem; }
+      .tbl tr.done { opacity: 0.55; }
+      .bill-tot { display: flex; justify-content: flex-end; align-items: center; gap: 0.8rem; margin-top: 0.8rem; font-size: 0.95rem; } .bill-tot strong { color: #34d399; font-size: 1.2rem; }
       .count { color: #8aa0bd; font-size: 0.82rem; margin-left: auto; }
       .tbl-wrap { overflow-x: auto; } .tbl { width: 100%; border-collapse: collapse; }
       .tbl th, .tbl td { padding: 0.55rem 0.8rem; border-bottom: 1px solid #16233a; text-align: left; font-size: 0.84rem; white-space: nowrap; }
@@ -181,6 +228,7 @@ export class FoliosMaestrosComponent implements OnInit {
   private readonly auth = inject(AuthService);
 
   readonly canEdit = this.auth.can('operations', 'edit');
+  readonly canBill = this.auth.can('finance', 'create');
   readonly canSeeAmounts = computed(() => (this.auth.activeBranch()?.adminPresent ?? true) || this.auth.can('settings', 'edit'));
 
   readonly rows = signal<MasterRow[]>([]);
@@ -200,10 +248,19 @@ export class FoliosMaestrosComponent implements OnInit {
   addQ = '';
   readonly pickRows = signal<FolioPick[]>([]);
 
+  billVisible = false;
+  readonly billLoading = signal(false);
+  readonly billLines = signal<BillLine[]>([]);
+  readonly selected = signal<Set<string>>(new Set());
+  billForm = { type: 'FACTURA' as 'BOLETA' | 'FACTURA', customerName: '', customerDoc: '' };
+
   ngOnInit(): void { this.reload(); }
 
   statusLabel(s: string): string { return STATUS[s] ?? s; }
   billLabel(s: string): string { return BILL[s] ?? s; }
+  conceptLabel(c: string): string { return CONCEPT[c] ?? c; }
+  selectedTotal(): number { const sel = this.selected(); return Math.round(this.billLines().filter((l) => sel.has(l.key)).reduce((a, l) => a + l.pending, 0) * 100) / 100; }
+  allPendingSelected(): boolean { const p = this.billLines().filter((l) => l.pending > 0); return p.length > 0 && p.every((l) => this.selected().has(l.key)); }
   pickName(p: FolioPick): string { return p.guest ? `${p.guest.firstName} ${p.guest.lastName ?? ''}`.trim() : '—'; }
   colspan(): number { return 5 + (this.canSeeAmounts() ? 2 : 0) + 1 + (this.canEdit ? 1 : 0); }
 
@@ -259,6 +316,43 @@ export class FoliosMaestrosComponent implements OnInit {
     this.http.delete<ApiResponse<MasterDetail>>(`${this.api}/master-folios/${d.id}/stays/${s.id}`).subscribe({
       next: (r) => { this.busy.set(false); this.detail.set(r.data); this.toast.add({ severity: 'success', summary: 'Quitado', detail: '' }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo quitar.' }); },
+    });
+  }
+
+  // ── Facturación selectiva ──
+  openBill(): void {
+    const d = this.detail(); if (!d) return;
+    this.selected.set(new Set()); this.billLines.set([]); this.billVisible = true; this.billLoading.set(true);
+    this.billForm = { type: 'FACTURA', customerName: d.payer.name, customerDoc: d.payer.ruc || d.payer.doc || '' };
+    this.http.get<ApiResponse<BillableResp>>(`${this.api}/master-folios/${d.id}/billable`).subscribe({
+      next: (r) => {
+        this.billLines.set(r.data?.lines ?? []);
+        // Preselecciona todo lo pendiente por defecto.
+        this.selected.set(new Set((r.data?.lines ?? []).filter((l) => l.pending > 0).map((l) => l.key)));
+        this.billLoading.set(false);
+      },
+      error: () => { this.billLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar los conceptos.' }); },
+    });
+  }
+  toggle(key: string): void { const s = new Set(this.selected()); if (s.has(key)) s.delete(key); else s.add(key); this.selected.set(s); }
+  toggleAll(ev: Event): void {
+    const on = (ev.target as HTMLInputElement).checked;
+    this.selected.set(on ? new Set(this.billLines().filter((l) => l.pending > 0).map((l) => l.key)) : new Set());
+  }
+  doBill(): void {
+    const d = this.detail(); if (!d) return;
+    const keys = [...this.selected()];
+    if (!keys.length) { this.toast.add({ severity: 'warn', summary: 'Selección', detail: 'Elige al menos un concepto.' }); return; }
+    this.busy.set(true);
+    const body = { type: this.billForm.type, lineKeys: keys, customerName: this.billForm.customerName || undefined, customerDoc: this.billForm.customerDoc || undefined };
+    this.http.post<ApiResponse<{ invoice: { folio: string; total: number | string }; detail: MasterDetail }>>(`${this.api}/master-folios/${d.id}/invoice`, body).subscribe({
+      next: (r) => {
+        this.busy.set(false); this.billVisible = false;
+        this.toast.add({ severity: 'success', summary: 'Comprobante emitido', detail: r.data?.invoice?.folio ?? '' });
+        if (r.data?.detail) this.detail.set(r.data.detail);
+        this.reload();
+      },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo emitir.' }); },
     });
   }
 }

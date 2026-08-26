@@ -26,6 +26,7 @@ export const invoicesRepository = {
     branchId: string;
     saleId: string | null;
     stayId: string | null;
+    masterFolioId?: string | null;
     type: string;
     customerName: string;
     customerDoc: string | null;
@@ -34,7 +35,7 @@ export const invoicesRepository = {
     taxAmount: number;
     total: number;
     createdByUserId: string;
-    lines: { saleItemId: string | null; concept: string | null; description: string; quantity: number; amount: number }[];
+    lines: { saleItemId: string | null; stayId?: string | null; concept: string | null; description: string; quantity: number; amount: number }[];
   }) {
     return prisma.$transaction(async (tx) => {
       const folio = await consumeFolio(tx, data.branchId, data.type);
@@ -43,6 +44,7 @@ export const invoicesRepository = {
           branchId: data.branchId,
           saleId: data.saleId,
           stayId: data.stayId,
+          masterFolioId: data.masterFolioId ?? null,
           type: data.type,
           series: folio.series,
           number: folio.number,
@@ -64,7 +66,7 @@ export const invoicesRepository = {
             branchId: data.branchId,
             invoiceId: invoice.id,
             saleItemId: l.saleItemId,
-            stayId: data.stayId,
+            stayId: l.stayId ?? data.stayId,
             concept: l.concept,
             description: l.description,
             quantity: l.quantity,

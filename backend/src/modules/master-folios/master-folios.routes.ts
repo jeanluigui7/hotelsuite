@@ -15,3 +15,5 @@ masterFoliosRouter.post('/master-folios', requirePermission('operations', 'creat
 masterFoliosRouter.patch('/master-folios/:id', requirePermission('operations', 'edit'), asyncHandler(masterFoliosController.update));
 masterFoliosRouter.post('/master-folios/:id/stays', requirePermission('operations', 'edit'), asyncHandler(masterFoliosController.addStay));
 masterFoliosRouter.delete('/master-folios/:id/stays/:stayId', requirePermission('operations', 'edit'), asyncHandler(masterFoliosController.removeStay));
+masterFoliosRouter.get('/master-folios/:id/billable', requirePermission('finance', 'view'), asyncHandler(masterFoliosController.billable));
+masterFoliosRouter.post('/master-folios/:id/invoice', requirePermission('finance', 'create'), asyncHandler(masterFoliosController.invoice));
