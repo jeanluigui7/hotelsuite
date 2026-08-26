@@ -669,6 +669,71 @@ export const staysService = {
   },
 
   /**
+   * FOLIOS (Etapa 2): búsqueda histórica de estancias como folios económicos. Solo lectura,
+   * reutiliza el listado de estancias. Añade a cada fila el total pagado y un indicador de
+   * facturación (FACTURADO si la estancia tiene algún comprobante emitido; PENDIENTE si no).
+   */
+  async searchFolios(
+    scope: RequestScope,
+    params: PaginationParams,
+    filters: { status?: string; folioCode?: string; doc?: string; reservationId?: string; roomId?: string; checkInFrom?: Date; checkInTo?: Date; q?: string },
+  ) {
+    const branchId = requireActiveBranch(scope);
+    const where: Prisma.StayWhereInput = { branchId };
+    if (filters.status) where.status = filters.status;
+    if (filters.folioCode) where.folioCode = { contains: filters.folioCode };
+    if (filters.reservationId) where.reservationId = filters.reservationId;
+    if (filters.roomId) where.roomId = filters.roomId;
+    if (filters.checkInFrom || filters.checkInTo) {
+      where.checkInAt = {
+        ...(filters.checkInFrom ? { gte: filters.checkInFrom } : {}),
+        ...(filters.checkInTo ? { lte: filters.checkInTo } : {}),
+      };
+    }
+    if (filters.doc) where.guest = { documentNumber: { contains: filters.doc } };
+    if (filters.q) {
+      const q = filters.q;
+      where.OR = [
+        { folioCode: { contains: q } },
+        { guest: { OR: [{ firstName: { contains: q } }, { lastName: { contains: q } }, { documentNumber: { contains: q } }] } },
+      ];
+    }
+    const { skip, take } = toPrismaPaging(params);
+    const [rows, total] = await Promise.all([
+      staysRepository.list({ where, skip, take, orderBy: buildOrderBy(params, SORTABLE, 'checkInAt') }),
+      staysRepository.count(where),
+    ]);
+
+    // Batch (sin N+1): pagos e indicador de facturación por estancia.
+    const stayIds = rows.map((r) => r.id);
+    const sales = stayIds.length
+      ? await prisma.sale.findMany({
+          where: { stayId: { in: stayIds }, status: { not: 'CANCELLED' } },
+          select: { id: true, stayId: true, payments: { select: { amount: true } } },
+        })
+      : [];
+    const invoices = sales.length
+      ? await prisma.invoice.findMany({ where: { saleId: { in: sales.map((s) => s.id) }, status: 'ISSUED' }, select: { saleId: true } })
+      : [];
+    const invoicedSaleIds = new Set(invoices.map((i) => i.saleId));
+    const paidByStay = new Map<string, number>();
+    const invoicedByStay = new Map<string, boolean>();
+    for (const s of sales) {
+      if (!s.stayId) continue;
+      const paid = s.payments.reduce((a, p) => a + Number(p.amount), 0);
+      paidByStay.set(s.stayId, round2((paidByStay.get(s.stayId) ?? 0) + paid));
+      if (invoicedSaleIds.has(s.id)) invoicedByStay.set(s.stayId, true);
+    }
+
+    const items = rows.map((r) => ({
+      ...serialize(r),
+      paid: paidByStay.get(r.id) ?? 0,
+      billingStatus: invoicedByStay.get(r.id) ? 'FACTURADO' : 'PENDIENTE',
+    }));
+    return { items, meta: pageMeta(params, total) };
+  },
+
+  /**
    * Historial de estancias enriquecido (paginado por turno en el frontend): tipo,
    * duración, monto, método/estado de pago, DNI, cliente, placa, observaciones y
    * el turno de recepción por la hora de ingreso.

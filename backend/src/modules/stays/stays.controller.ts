@@ -90,4 +90,22 @@ export const staysController = {
     const { items, meta } = await staysService.list(req.scope, params, { status, roomId });
     res.status(200).json(ok(items, meta));
   },
+
+  async folios(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const params = paginationSchema.parse(req.query);
+    const q = req.query;
+    const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+    const { items, meta } = await staysService.searchFolios(req.scope, params, {
+      status: str(q.status),
+      folioCode: str(q.folioCode),
+      doc: str(q.doc),
+      reservationId: str(q.reservationId),
+      roomId: str(q.roomId),
+      checkInFrom: str(q.checkInFrom) ? new Date(q.checkInFrom as string) : undefined,
+      checkInTo: str(q.checkInTo) ? new Date(q.checkInTo as string) : undefined,
+      q: str(q.q),
+    });
+    res.status(200).json(ok(items, meta));
+  },
 };

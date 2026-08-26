@@ -107,6 +107,10 @@ const routes: Routes = [
     path: 'productos',
     loadComponent: () => import('./productos/productos-servicios.component').then((m) => m.ProductosServiciosComponent),
   },
+  {
+    path: 'folios',
+    loadComponent: () => import('./folios/folios.component').then((m) => m.FoliosComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 
