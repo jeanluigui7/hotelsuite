@@ -105,6 +105,7 @@ export interface CashDetail {
     closedByName: string | null;
     openingAmount: number;
     closingAmount: number | null;
+    denominations?: { value: number; qty: number }[] | null;
   };
   cards: {
     ventasHospedaje: number;

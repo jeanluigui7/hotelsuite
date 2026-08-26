@@ -111,6 +111,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
                 </td>
                 <td class="ac">
                   <button class="mini" (click)="viewCuadre(s)"><i class="pi pi-print"></i> Ver</button>
+                  @if (s.status === 'CLOSED' && canSeeCuadre()) { <button class="mini" (click)="reprintBlind(s)"><i class="pi pi-inbox"></i> Entrega</button> }
                   @if (canSeeCuadre() && canEdit) { <button class="mini" (click)="openMovements(s)">Movimientos</button> }
                   @if (s.status === 'OPEN' && canEdit) { <button class="mini close" (click)="openCloseDialog(s)">Cerrar</button> }
                 </td>
@@ -567,7 +568,7 @@ export class CashComponent implements OnInit {
     const brand = this.auth.activeBranch()?.name ?? 'HotelSuite';
     const closedByName = this.auth.user()?.name ?? row?.openedByName ?? 'Recepción';
     this.busy.set(true);
-    this.finance.closeCash({ closingAmount: total, notes: bagRef || this.closeNotes || undefined }).subscribe({
+    this.finance.closeCash({ closingAmount: total, notes: bagRef || this.closeNotes || undefined, denominations: denomsSnapshot }).subscribe({
       next: (res) => {
         this.busy.set(false); this.closeVisible = false;
         const closedAt = res.data?.session?.closedAt ?? new Date().toISOString();
@@ -589,6 +590,30 @@ export class CashComponent implements OnInit {
 
   /** Abre los MOVIMIENTOS de la caja en una pestaña nueva (el listado queda intacto). */
   openMovements(row: CashSessionRow): void { window.open(`/finance/cajas/${row.id}/movimientos`, '_blank'); }
+
+  /** Reobtiene/reimprime el TICKET DE ENTREGA (caja ciega) desde el conteo guardado al cerrar. */
+  reprintBlind(row: CashSessionRow): void {
+    this.finance.sessionDetail(row.id).subscribe({
+      next: (res) => {
+        const d = res.data;
+        const denoms = d.session.denominations ?? [];
+        if (!denoms.length) { this.messages.add({ severity: 'warn', summary: 'Sin conteo', detail: 'Esta caja no tiene un conteo por denominaciones guardado.' }); return; }
+        this.openTicketWindow(buildBlindTicket({
+          brand: this.auth.activeBranch()?.name ?? 'HotelSuite',
+          sessionNumber: d.session.number ?? null,
+          openedAt: d.session.openedAt,
+          closedAt: d.session.closedAt ?? new Date().toISOString(),
+          closedByName: d.session.closedByName ?? d.session.openedByName,
+          base: d.session.openingAmount,
+          denominations: denoms,
+          ingresos: d.methodBar.ingresos,
+          egresos: d.methodBar.egresos,
+          bagRef: '',
+        }));
+      },
+      error: () => this.messages.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar la caja.' }),
+    });
+  }
 
   // ── Detalle (modal antiguo; conservado por compatibilidad) ──
   openDetail(row: CashSessionRow): void {

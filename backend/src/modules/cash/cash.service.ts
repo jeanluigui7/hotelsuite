@@ -8,6 +8,20 @@ import type { CloseCashDto, MovementDto, OpenCashDto } from './cash.schema';
 
 const FREQUENT_CONCEPTS_KEY = 'cashFrequentConcepts';
 
+/** Parsea el JSON de denominaciones del cierre; null si no hay o es inválido. */
+function parseDenoms(raw: string | null): { value: number; qty: number }[] | null {
+  if (!raw) return null;
+  try {
+    const arr = JSON.parse(raw) as unknown;
+    if (!Array.isArray(arr)) return null;
+    return arr
+      .map((d) => ({ value: Number((d as { value: unknown }).value), qty: Number((d as { qty: unknown }).qty) }))
+      .filter((d) => Number.isFinite(d.value) && Number.isFinite(d.qty));
+  } catch {
+    return null;
+  }
+}
+
 async function sessionSummary(id: string, opening: number) {
   const byMethod: Record<string, number> = {};
   for (const m of PAYMENT_METHODS) {
@@ -56,6 +70,7 @@ export const cashService = {
       expectedAmount: summary.expectedCash,
       notes: dto.notes || null,
       closedByUserId: scope.userId,
+      closingDenominations: dto.denominations && dto.denominations.length ? JSON.stringify(dto.denominations) : null,
     });
     return {
       session: closed,
@@ -344,6 +359,7 @@ export const cashService = {
         closedByName: session.closedByUserId ? (names.get(session.closedByUserId) ?? '—') : null,
         openingAmount: Number(session.openingAmount),
         closingAmount: session.closingAmount != null ? Number(session.closingAmount) : null,
+        denominations: parseDenoms(session.closingDenominations),
       },
       cards,
       methodBar: { byMethod, ingresos: movIn, egresos: movOut, anulaciones, total },

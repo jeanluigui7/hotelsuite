@@ -337,7 +337,7 @@ export class CajasComponent implements OnInit {
     const closedByName = this.auth.user()?.name ?? 'Recepción';
 
     this.busy.set(true);
-    this.finance.closeCash({ closingAmount: total, notes: bagRef || undefined }).subscribe({
+    this.finance.closeCash({ closingAmount: total, notes: bagRef || undefined, denominations: denomsSnapshot }).subscribe({
       next: (res) => {
         this.busy.set(false); this.closeVisible = false;
         const closedAt = res.data?.session?.closedAt ?? new Date().toISOString();

@@ -880,6 +880,7 @@ model CashSession {
   closingAmount  Decimal?  @db.Decimal(10, 2)
   expectedAmount Decimal?  @db.Decimal(10, 2)
   roomsAvailableAtOpen Int? // fotografía: habitaciones disponibles al abrir el turno (histórico)
+  closingDenominations String? @db.NVarChar(Max) // JSON del conteo por denominaciones al cerrar (reimpresión del ticket ciego)
   notes          String?
   openedAt       DateTime  @default(now())
   closedAt       DateTime?

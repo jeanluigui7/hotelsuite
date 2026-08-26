@@ -33,7 +33,7 @@ export class FinanceApiService {
   openCash(dto: { openingAmount: number; notes?: string }): Observable<ApiResponse<unknown>> {
     return this.http.post<ApiResponse<unknown>>(`${this.api}/cash/open`, dto);
   }
-  closeCash(dto: { closingAmount: number; notes?: string }): Observable<ApiResponse<CloseResult>> {
+  closeCash(dto: { closingAmount: number; notes?: string; denominations?: { value: number; qty: number }[] }): Observable<ApiResponse<CloseResult>> {
     return this.http.post<ApiResponse<CloseResult>>(`${this.api}/cash/close`, dto);
   }
   addMovement(dto: MovementInput): Observable<ApiResponse<unknown>> {
