@@ -49,6 +49,7 @@ import { movementsRouter } from './modules/movements/movements.routes';
 import { adjustmentsRouter } from './modules/adjustments/adjustments.routes';
 import { productsCleaningRouter } from './modules/products-cleaning/products-cleaning.routes';
 import { reconciliationsRouter } from './modules/reconciliations/reconciliations.routes';
+import { masterFoliosRouter } from './modules/master-folios/master-folios.routes';
 import { suppliersRouter } from './modules/suppliers/suppliers.routes';
 import { purchasesRouter } from './modules/purchases/purchases.routes';
 import { logisticsRouter } from './modules/logistics/logistics.routes';
@@ -147,6 +148,7 @@ export function createApp(): Application {
   app.use('/api', adjustmentsRouter);
   app.use('/api', productsCleaningRouter);
   app.use('/api', reconciliationsRouter);
+  app.use('/api', masterFoliosRouter);
   app.use('/api', suppliersRouter);
   app.use('/api', purchasesRouter);
   app.use('/api', logisticsRouter);

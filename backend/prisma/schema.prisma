@@ -54,6 +54,7 @@ model Branch {
   sales          Sale[]
   folioSeries    FolioSeries[]
   invoices       Invoice[]
+  masterFolios   MasterFolio[]
   creditDebitNotes CreditDebitNote[]
   inventoryMovements InventoryMovement[]
   suppliers        Supplier[]
@@ -962,6 +963,41 @@ model Invoice {
   @@index([type])
   @@index([stayId])
   @@index([masterFolioId])
+}
+
+/// Folio Maestro: agrupa varios Folios de Estancia para facturación corporativa (pagador = empresa).
+model MasterFolio {
+  id              String   @id @default(uuid())
+  branchId        String
+  code            String // FM-00003
+  payerName       String // razón social / pagador
+  payerDoc        String?
+  payerRuc        String?
+  payerAddress    String?
+  status          String   @default("OPEN") // OPEN | CLOSED | BILLED
+  notes           String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  branch Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  stays  MasterFolioStay[]
+
+  @@index([branchId])
+  @@index([code])
+}
+
+/// Vínculo N:M folio maestro ↔ estancia (agrupa FOLIOS/estancias, no habitaciones).
+model MasterFolioStay {
+  id            String   @id @default(uuid())
+  masterFolioId String
+  stayId        String
+  addedAt       DateTime @default(now())
+
+  masterFolio MasterFolio @relation(fields: [masterFolioId], references: [id], onDelete: Cascade)
+
+  @@unique([masterFolioId, stayId])
+  @@index([stayId])
 }
 
 /// Línea facturada: puente comprobante ↔ línea de origen (SaleItem) para facturación parcial/selectiva.

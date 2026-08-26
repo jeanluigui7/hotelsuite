@@ -752,6 +752,75 @@ export const staysService = {
   },
 
   /**
+   * Resumen económico por estancia para un conjunto de folios (usado por el Folio Maestro).
+   * total = hospedaje (priceAgreed) + renovaciones + consumos, con la misma regla que folio().
+   */
+  async folioSummaries(scope: RequestScope, stayIds: string[]) {
+    const branchId = requireActiveBranch(scope);
+    const ids = [...new Set(stayIds)];
+    if (!ids.length) return [] as ReturnType<typeof buildSummary>[];
+    const [stays, sales] = await Promise.all([
+      prisma.stay.findMany({
+        where: { id: { in: ids }, branchId },
+        include: { room: { select: { number: true } }, guest: { select: { firstName: true, lastName: true, documentNumber: true } } },
+      }),
+      prisma.sale.findMany({ where: { stayId: { in: ids }, status: { not: 'CANCELLED' } }, include: { items: true, payments: { select: { amount: true } } } }),
+    ]);
+    const invoices = await prisma.invoice.findMany({
+      where: { branchId, status: 'ISSUED', OR: [{ stayId: { in: ids } }, ...(sales.length ? [{ saleId: { in: sales.map((s) => s.id) } }] : [])] },
+      select: { stayId: true, saleId: true, total: true },
+    });
+    const saleStay = new Map(sales.map((s) => [s.id, s.stayId]));
+    const isRoomLine = (d: string) => /^tarifa[:\s]/i.test(d) || /pernocta|renovaci|tiempo extra|extensi/i.test(d);
+    const isRenewal = (d: string) => /renovaci|tiempo extra|extensi/i.test(d);
+
+    const extraByStay = new Map<string, number>(); // renovaciones + consumos (líneas no-tarifa)
+    const paidByStay = new Map<string, number>();
+    for (const s of sales) {
+      if (!s.stayId) continue;
+      let extra = 0;
+      for (const it of s.items) {
+        if (isRenewal(it.description) || !isRoomLine(it.description)) extra += Number(it.subtotal);
+      }
+      extraByStay.set(s.stayId, round2((extraByStay.get(s.stayId) ?? 0) + extra));
+      const paid = s.payments.reduce((a, p) => a + Number(p.amount), 0);
+      paidByStay.set(s.stayId, round2((paidByStay.get(s.stayId) ?? 0) + paid));
+    }
+    const invoicedByStay = new Map<string, number>();
+    for (const inv of invoices) {
+      const sid = inv.stayId ?? (inv.saleId ? saleStay.get(inv.saleId) ?? null : null);
+      if (!sid) continue;
+      invoicedByStay.set(sid, round2((invoicedByStay.get(sid) ?? 0) + Number(inv.total)));
+    }
+
+    function buildSummary(st: (typeof stays)[number]) {
+      const habitacion = round2(Number(st.priceAgreed));
+      const extra = extraByStay.get(st.id) ?? round2(st.balanceDue ? Number(st.balanceDue) : 0);
+      const total = round2(habitacion + extra);
+      const paid = paidByStay.get(st.id) ?? 0;
+      const invoiced = invoicedByStay.get(st.id) ?? 0;
+      const billingStatus = invoiced <= 0 ? 'PENDIENTE' : invoiced + 0.01 >= total ? 'FACTURADO' : 'PARCIAL';
+      return {
+        id: st.id,
+        folioCode: st.folioCode ?? null,
+        status: st.status,
+        checkInAt: st.checkInAt,
+        checkOutAt: st.checkOutAt,
+        room: st.room?.number ?? null,
+        guest: `${st.guest.firstName} ${st.guest.lastName ?? ''}`.trim(),
+        documentNumber: st.guest.documentNumber,
+        total,
+        paid,
+        pending: round2(Math.max(0, total - paid)),
+        billingStatus,
+        invoiced,
+      };
+    }
+    // Orden estable por fecha de ingreso.
+    return stays.sort((a, b) => a.checkInAt.getTime() - b.checkInAt.getTime()).map(buildSummary);
+  },
+
+  /**
    * Historial de estancias enriquecido (paginado por turno en el frontend): tipo,
    * duración, monto, método/estado de pago, DNI, cliente, placa, observaciones y
    * el turno de recepción por la hora de ingreso.

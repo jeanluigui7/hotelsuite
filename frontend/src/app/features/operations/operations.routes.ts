@@ -111,6 +111,10 @@ const routes: Routes = [
     path: 'folios',
     loadComponent: () => import('./folios/folios.component').then((m) => m.FoliosComponent),
   },
+  {
+    path: 'folios-maestros',
+    loadComponent: () => import('./folios/folios-maestros.component').then((m) => m.FoliosMaestrosComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 
