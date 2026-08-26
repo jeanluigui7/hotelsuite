@@ -176,106 +176,48 @@ export interface BlindTicketData {
   bagRef: string;               // N° de bolsa / referencia (solo se imprime)
 }
 
-const denomLabel = (v: number): string => (v >= 1 ? `S/ ${v.toFixed(2)}` : `MON. S/ ${v.toFixed(2)}`);
-
-/** Recibo de cierre en modo caja ciega: no muestra esperado ni diferencias. */
+/**
+ * Recibo de cierre en modo caja ciega (formato térmico monoespaciado, 1 columna). Es el comprobante
+ * FÍSICO de lo que el recepcionista entrega en la bolsa: el conteo por denominaciones ES el efectivo
+ * entregado (NO incluye la caja base, que se queda en el cajón). No se resta la base ni se compara
+ * contra el sistema; sin bloques de auditoría, pagos virtuales ni resumen por método.
+ */
 export function buildBlindTicket(t: BlindTicketData): string {
   const total = Math.round(t.denominations.reduce((a, d) => a + d.value * d.qty, 0) * 100) / 100;
-  const toBag = Math.round((total - t.base) * 100) / 100;
+  const ajusteNeto = Math.round((t.ingresos - t.egresos) * 100) / 100;
   const open = new Date(t.openedAt);
   const close = new Date(t.closedAt);
   const dm = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
   const money = (n: number) => 'S/ ' + n.toFixed(2);
+  const titleId = t.sessionNumber != null ? ` - ${t.sessionNumber}` : '';
+  // Etiqueta/valor a lo ancho del ticket (valor alineado a la derecha).
+  const lr = (l: string, r: string) => l + ' '.repeat(Math.max(1, TW - l.length - r.length)) + r;
+  const kv2 = (label: string, value: string) => (label + ':').padEnd(17) + value;
+  const denomLbl = (v: number) => (v < 5 ? 'MON. S/ ' : 'S/ ') + v.toFixed(2);
 
-  // Dos columnas de denominaciones como en el ticket físico.
-  const half = Math.ceil(t.denominations.length / 2);
-  const colA = t.denominations.slice(0, half);
-  const colB = t.denominations.slice(half);
-  const denomCell = (d: DenominationCount) => `
-    <td class="dn">${esc(denomLabel(d.value))}</td>
-    <td class="dq">x ${d.qty}</td>
-    <td class="ds">${esc(money(d.value * d.qty))}</td>`;
-  const rows: string[] = [];
-  for (let i = 0; i < half; i++) {
-    rows.push(`<tr>${denomCell(colA[i])}<td class="gap"></td>${colB[i] ? denomCell(colB[i]) : '<td></td><td></td><td></td>'}</tr>`);
+  const L: string[] = [];
+  L.push(center(`CIERRE DE CAJA${titleId}`), '');
+  L.push(lr('DÍA:', 'TURNO:'));
+  L.push(lr(dayOf(open), shiftOf(open)));
+  L.push(line('='));
+  L.push(kv2('INICIO DE TURNO', `${dm(open)} ${hhmm(open)}`));
+  L.push(kv2('FIN DE TURNO', `${dm(close)} ${hhmm(close)}`));
+  L.push(kv2('CERRADO POR', t.closedByName));
+  L.push(line('='), '');
+  L.push('RESUMEN DEL CONTEO', '-'.repeat(20), '');
+  L.push(lr('Caja base que debe quedar', money(t.base)));
+  L.push(lr('Ingresos registrados', money(t.ingresos)));
+  L.push(lr('Egresos registrados', money(t.egresos)));
+  L.push(lr('Ajuste neto', money(ajusteNeto)));
+  L.push(lr('Efectivo contado para entregar', money(total)));
+  L.push(line('='), '');
+  L.push('CONTEO POR DENOMINACIONES', '-'.repeat(26), '');
+  for (const d of t.denominations) {
+    const left = denomLbl(d.value).padEnd(13) + 'x ' + String(d.qty).padStart(2);
+    L.push(left + '   = ' + ('S/ ' + (d.value * d.qty).toFixed(2)).padStart(9));
   }
-
-  const leader = (label: string, value: string, strong = false) =>
-    `<div class="lead${strong ? ' strong' : ''}"><span>${esc(label)}</span><b class="dots"></b><span class="val">${esc(value)}</span></div>`;
-
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Cierre de Caja — Caja Ciega</title>
-<style>
-  :root { color-scheme: light; }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: #e5e7eb; color: #111; font-family: 'Segoe UI', Roboto, Arial, sans-serif; }
-  .toolbar { position: sticky; top: 0; display: flex; gap: .5rem; justify-content: center; padding: .6rem; background: #0f172a; }
-  .toolbar button { border: 0; border-radius: 7px; padding: .5rem 1.1rem; font-weight: 700; font-size: .85rem; cursor: pointer; }
-  .toolbar .print { background: #10b981; color: #04130d; }
-  .toolbar .close { background: #334155; color: #e2e8f0; }
-  .sheet { width: 80mm; max-width: 96vw; margin: 12px auto; background: #fff; padding: 7mm 5mm; box-shadow: 0 2px 14px rgba(0,0,0,.18); }
-  .brand { text-align: center; font-size: 13px; font-weight: 700; letter-spacing: .04em; }
-  .title { text-align: center; font-size: 22px; font-weight: 800; margin: 2px 0 6px; letter-spacing: .02em; }
-  .badge { display: block; width: max-content; margin: 0 auto 8px; background: #111; color: #fff; font-weight: 700; font-size: 12px; padding: 3px 12px; border-radius: 3px; letter-spacing: .05em; }
-  .hr { border-top: 1.5px dashed #9ca3af; margin: 8px 0; }
-  .split { display: grid; grid-template-columns: 1fr 1px 1fr; gap: 8px; text-align: center; margin: 6px 0; }
-  .split .sp { background: #d1d5db; }
-  .split .lb { font-size: 11px; color: #6b7280; font-weight: 700; }
-  .split .vv { font-size: 18px; font-weight: 800; }
-  .kv { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; padding: 2px 0; }
-  .kv .k { font-weight: 700; }
-  .kv .v { text-align: right; }
-  h4 { margin: 10px 0 4px; font-size: 12px; background: #f3f4f6; padding: 3px 6px; border-radius: 3px; letter-spacing: .03em; }
-  .lead { display: flex; align-items: baseline; gap: 4px; font-size: 12px; padding: 2px 0; }
-  .lead .dots { flex: 1; border-bottom: 1.5px dotted #9ca3af; transform: translateY(-3px); }
-  .lead .val { font-weight: 700; white-space: nowrap; }
-  .lead.strong { font-size: 13px; } .lead.strong .val { font-weight: 800; }
-  table.denom { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 2px; }
-  table.denom td { padding: 1px 0; vertical-align: baseline; }
-  table.denom .dn { color: #374151; } table.denom .dq { text-align: center; color: #6b7280; width: 32px; }
-  table.denom .ds { text-align: right; font-weight: 700; } table.denom .gap { width: 10px; }
-  .dtot { display: flex; justify-content: space-between; font-size: 13px; font-weight: 800; border-top: 1.5px solid #111; margin-top: 4px; padding-top: 3px; }
-  .io { display: flex; justify-content: space-between; font-size: 12px; padding: 2px 0; }
-  .io .up { color: #059669; } .io .dn2 { color: #dc2626; }
-  .bag { font-size: 12px; font-weight: 700; padding: 2px 0; }
-  .foot { text-align: center; font-size: 10px; color: #6b7280; margin-top: 10px; line-height: 1.35; }
-  .foot b { display: block; color: #111; font-size: 11px; margin-top: 3px; }
-  @media print { .toolbar { display: none; } body { background: #fff; } .sheet { box-shadow: none; margin: 0; width: auto; padding: 0; } }
-</style></head>
-<body>
-  <div class="toolbar">
-    <button class="print" onclick="window.print()">Imprimir</button>
-    <button class="close" onclick="window.close()">Cerrar</button>
-  </div>
-  <div class="sheet">
-    <div class="brand">${esc(t.brand.toUpperCase())}</div>
-    <div class="title">CIERRE DE CAJA</div>
-    <span class="badge">MODO CAJA CIEGA</span>
-    <div class="hr"></div>
-    <div class="split">
-      <div><div class="lb">DÍA:</div><div class="vv">${esc(dayOf(open))}</div></div>
-      <div class="sp"></div>
-      <div><div class="lb">TURNO:</div><div class="vv">${esc(shiftOf(open))}</div></div>
-    </div>
-    <div class="hr"></div>
-    <div class="kv"><span class="k">FECHA DE CIERRE:</span><span class="v">${esc(dm(close))}</span></div>
-    <div class="kv"><span class="k">HORA DE CIERRE:</span><span class="v">${esc(hhmm(close))}</span></div>
-    <div class="kv"><span class="k">CERRADO POR:</span><span class="v">${esc(t.closedByName)}</span></div>
-    <div class="kv"><span class="k">INICIO DE TURNO:</span><span class="v">${esc(dm(open))} ${esc(hhmm(open))}</span></div>
-    <div class="kv"><span class="k">N° DE TURNO:</span><span class="v">${esc(shiftOf(open))}</span></div>
-    <div class="hr"></div>
-    <h4>RESUMEN DEL CONTEO</h4>
-    ${leader('Total efectivo contado', money(total))}
-    ${leader('Caja base que debe quedar', money(t.base))}
-    ${leader('Efectivo que va a la bolsa', money(toBag), true)}
-    <h4>CONTEO POR DENOMINACIONES</h4>
-    <table class="denom"><tbody>${rows.join('')}</tbody></table>
-    <div class="dtot"><span>TOTAL</span><span>${esc(money(total))}</span></div>
-    <h4>INGRESOS Y EGRESOS REGISTRADOS</h4>
-    <div class="io"><span class="up">⬆ Ingresos de caja</span><span class="up">+ ${esc(money(t.ingresos))}</span></div>
-    <div class="io"><span class="dn2">⬇ Egresos de caja</span><span class="dn2">- ${esc(money(t.egresos))}</span></div>
-    <h4>N° DE BOLSA / REFERENCIA</h4>
-    <div class="bag">${esc(t.bagRef || '—')}</div>
-    <div class="foot">Este ticket se imprime sin mostrar diferencias<br>por modo caja ciega.<b>Documento sin valor tributario</b></div>
-  </div>
-</body></html>`;
+  L.push(line('-'));
+  L.push(lr('TOTAL', money(total)), '');
+  L.push(center('Documento sin valor tributario'));
+  return ticketPage(`Cierre de Caja${titleId}`, L.join('\n'));
 }
