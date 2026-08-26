@@ -680,6 +680,8 @@ model Stay {
   checkInAt         DateTime  @default(now())
   plannedCheckoutAt DateTime
   checkOutAt        DateTime?
+  closedByUserId    String? // colaborador que ejecutó el check-out (auditoría)
+  lateCharge        Decimal?  @db.Decimal(10, 2) // cargo por demora aplicado al cerrar (día hotelero)
   durationMinutes   Int
   priceAgreed       Decimal   @db.Decimal(10, 2)
   adults            Int       @default(1)

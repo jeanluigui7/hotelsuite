@@ -284,14 +284,16 @@ export const staysService = {
     if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
     if (stay.status !== 'OPEN') throw new ConflictError('La estancia ya está cerrada');
     // Late check-out: si es día hotelero y la salida supera la prevista, se cobra como adeudo.
+    let lateCharge = 0;
     if (stay.durationMinutes >= 1440) {
       const q = await pernoctaService.quoteCheckOut(scope, stay.plannedCheckoutAt, new Date());
       if (q.lateCharge > 0) {
+        lateCharge = q.lateCharge;
         const bd = stay.balanceDue ? Number(stay.balanceDue) : 0;
         await prisma.stay.update({ where: { id }, data: { balanceDue: round2(bd + q.lateCharge) } });
       }
     }
-    const result = await staysRepository.checkOut(id, stay.roomId, dto.roomStatus);
+    const result = await staysRepository.checkOut(id, stay.roomId, dto.roomStatus, scope.userId, lateCharge > 0 ? lateCharge : null);
     return serialize(result as StayWithRelations);
   },
 
@@ -818,6 +820,93 @@ export const staysService = {
     }
     // Orden estable por fecha de ingreso.
     return stays.sort((a, b) => a.checkInAt.getTime() - b.checkInAt.getTime()).map(buildSummary);
+  },
+
+  /**
+   * Historial de check-outs realizados (pestaña "Finalizados"), con filtros e indicadores.
+   * Estado "cobro": para salidas con demora, se considera COBRADO cuando la estancia no
+   * conserva adeudo pendiente (balanceDue <= 0); NO COBRADO si aún hay saldo.
+   */
+  async checkoutHistory(
+    scope: RequestScope,
+    params: PaginationParams,
+    filters: { from?: Date; to?: Date; shift?: string; estado?: string; cobro?: string; collaboratorId?: string; roomId?: string },
+  ) {
+    const branchId = requireActiveBranch(scope);
+    const where: Prisma.StayWhereInput = { branchId, status: 'CLOSED' };
+    where.checkOutAt = filters.from || filters.to
+      ? { ...(filters.from ? { gte: filters.from } : {}), ...(filters.to ? { lte: filters.to } : {}) }
+      : { not: null };
+    if (filters.roomId) where.roomId = filters.roomId;
+    if (filters.collaboratorId) where.closedByUserId = filters.collaboratorId;
+
+    const rows = await prisma.stay.findMany({
+      where,
+      include: { room: { select: { id: true, number: true } }, guest: { select: { firstName: true, lastName: true, documentNumber: true } } },
+      orderBy: { checkOutAt: 'desc' },
+    });
+    const userIds = [...new Set(rows.map((r) => r.closedByUserId).filter((x): x is string => !!x))];
+    const users = userIds.length ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : [];
+    const uMap = new Map(users.map((u) => [u.id, u.name]));
+    const shiftOf = (d: Date): string => {
+      const h = d.getHours() + d.getMinutes() / 60;
+      if (h >= 6.5 && h < 14.5) return 'MANANA';
+      if (h >= 14.5 && h < 22.5) return 'TARDE';
+      return 'NOCHE';
+    };
+
+    const mapped = rows.map((r) => {
+      const planned = r.plannedCheckoutAt;
+      const real = r.checkOutAt as Date;
+      const late = real.getTime() > planned.getTime();
+      const lateCharge = r.lateCharge != null ? Number(r.lateCharge) : 0;
+      const hasCharge = lateCharge > 0;
+      const balance = r.balanceDue != null ? Number(r.balanceDue) : 0;
+      const chargePaid = hasCharge ? balance <= 0.001 : null;
+      const lateMinutes = late ? Math.round((real.getTime() - planned.getTime()) / 60000) : 0;
+      return {
+        id: r.id,
+        folioCode: r.folioCode ?? null,
+        room: r.room?.number ?? null,
+        roomId: r.roomId,
+        guest: `${r.guest.firstName} ${r.guest.lastName ?? ''}`.trim(),
+        documentNumber: r.guest.documentNumber,
+        plannedCheckoutAt: planned,
+        checkOutAt: real,
+        late,
+        lateMinutes,
+        lateCharge,
+        hasCharge,
+        chargePaid,
+        closedBy: r.closedByUserId ? (uMap.get(r.closedByUserId) ?? '—') : '—',
+        closedByUserId: r.closedByUserId ?? null,
+        shift: shiftOf(real),
+      };
+    });
+
+    // Opciones de filtro (colaboradores/habitaciones presentes en el rango).
+    const collaborators = [...new Map(mapped.filter((m) => m.closedByUserId).map((m) => [m.closedByUserId!, { id: m.closedByUserId!, name: m.closedBy }])).values()];
+    const rooms = [...new Map(mapped.filter((m) => m.roomId).map((m) => [m.roomId, { id: m.roomId, number: m.room ?? '' }])).values()];
+
+    // Filtros en memoria (turno / estado / cobro) e indicadores sobre el conjunto filtrado.
+    let filtered = mapped;
+    if (filters.shift) filtered = filtered.filter((m) => m.shift === filters.shift);
+    if (filters.estado === 'ONTIME') filtered = filtered.filter((m) => !m.late);
+    if (filters.estado === 'LATE') filtered = filtered.filter((m) => m.late);
+    if (filters.cobro === 'PAID') filtered = filtered.filter((m) => m.hasCharge && m.chargePaid);
+    if (filters.cobro === 'UNPAID') filtered = filtered.filter((m) => m.hasCharge && !m.chargePaid);
+
+    const indicators = {
+      total: filtered.length,
+      onTime: filtered.filter((m) => !m.late).length,
+      late: filtered.filter((m) => m.late).length,
+      charged: filtered.filter((m) => m.hasCharge && m.chargePaid).length,
+      notCharged: filtered.filter((m) => m.hasCharge && !m.chargePaid).length,
+    };
+
+    const { skip, take } = toPrismaPaging(params);
+    const items = filtered.slice(skip, skip + take);
+    return { items, meta: pageMeta(params, filtered.length), indicators, collaborators, rooms };
   },
 
   /**

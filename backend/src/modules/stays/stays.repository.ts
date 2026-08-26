@@ -96,11 +96,11 @@ export const staysRepository = {
   },
 
   /** Atomic check-out: close the stay and set the room status. */
-  checkOut(stayId: string, roomId: string, roomStatus: string) {
+  checkOut(stayId: string, roomId: string, roomStatus: string, closedByUserId: string | null = null, lateCharge: number | null = null) {
     return prisma.$transaction(async (tx) => {
       await tx.stay.update({
         where: { id: stayId },
-        data: { status: 'CLOSED', checkOutAt: new Date() },
+        data: { status: 'CLOSED', checkOutAt: new Date(), closedByUserId, lateCharge },
       });
       await tx.room.update({ where: { id: roomId }, data: { status: roomStatus } });
       return tx.stay.findUnique({ where: { id: stayId }, include: stayInclude });

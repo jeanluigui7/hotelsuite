@@ -91,6 +91,23 @@ export const staysController = {
     res.status(200).json(ok(items, meta));
   },
 
+  async checkoutHistory(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const params = paginationSchema.parse(req.query);
+    const q = req.query;
+    const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v.trim() : undefined);
+    const { items, meta, indicators, collaborators, rooms } = await staysService.checkoutHistory(req.scope, params, {
+      from: str(q.from) ? new Date(q.from as string) : undefined,
+      to: str(q.to) ? new Date(q.to as string) : undefined,
+      shift: str(q.shift),
+      estado: str(q.estado),
+      cobro: str(q.cobro),
+      collaboratorId: str(q.collaboratorId),
+      roomId: str(q.roomId),
+    });
+    res.status(200).json(ok({ items, indicators, collaborators, rooms }, meta));
+  },
+
   async folios(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const params = paginationSchema.parse(req.query);
