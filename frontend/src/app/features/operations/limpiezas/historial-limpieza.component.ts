@@ -2,6 +2,7 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { ActivatedRoute } from '@angular/router';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 
@@ -303,14 +304,40 @@ export class HistorialLimpiezaComponent implements OnInit {
     );
   });
 
-  ngOnInit(): void { this.reload(); }
+  private readonly route = inject(ActivatedRoute);
+  /** Intervalo objetivo (desde el Dashboard → Limpiezas del turno): posiciona el turno inicial. */
+  private targetFrom: Date | null = null;
+
+  ngOnInit(): void {
+    const from = this.route.snapshot.queryParamMap.get('from');
+    this.targetFrom = from ? new Date(from) : null;
+    this.reload();
+  }
 
   reload(): void {
     this.loading.set(true);
     this.http.get<ApiResponse<Shift[]>>(`${this.api}/cleaning/history`).subscribe({
-      next: (res) => { this.shifts.set(res.data ?? []); this.idx.set(0); this.loading.set(false); },
+      next: (res) => { this.shifts.set(res.data ?? []); this.idx.set(this.matchIdx()); this.loading.set(false); this.targetFrom = null; },
       error: () => { this.shifts.set([]); this.loading.set(false); },
     });
+  }
+
+  /** Si venimos con un intervalo (from) del Dashboard, ubica el turno cuyo inicio más se acerca. */
+  private matchIdx(): number {
+    const target = this.targetFrom;
+    const shifts = this.shifts();
+    if (!target || !shifts.length) return 0;
+    const startOf = (s: Shift): number => {
+      const [hm] = (s.hours || '').split('-');
+      const [h, m] = (hm || '00:00').trim().split(':').map(Number);
+      const d = new Date(s.dateISO);
+      d.setHours(h || 0, m || 0, 0, 0);
+      return d.getTime();
+    };
+    let best = 0;
+    let bestDiff = Infinity;
+    shifts.forEach((s, i) => { const diff = Math.abs(startOf(s) - target.getTime()); if (diff < bestDiff) { bestDiff = diff; best = i; } });
+    return best;
   }
 
   tm(t: string) { return TIPO_META[t] ?? { label: t, cls: 'co' }; }
