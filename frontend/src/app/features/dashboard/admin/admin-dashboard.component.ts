@@ -6,9 +6,9 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { profileForRole } from '../../../layout/menu';
 import {
   DashboardApiService,
-  type CajaSummary,
   type LimpiezaSummary,
   type RecepcionSummary,
+  type TurnoView,
 } from '../dashboard-api.service';
 
 interface StatCard {
@@ -25,8 +25,21 @@ interface StatCard {
   template: `
     @if (isAdmin()) {
     <section class="dash">
-      <!-- Los atajos rápidos viven ahora en la barra global (shell), comunes a todos los perfiles. -->
       <h1>Dashboard</h1>
+
+      <!-- Navegación por turno (histórico) -->
+      @if (tv()?.turno; as t) {
+        <div class="turnonav">
+          <button class="tn-btn" [disabled]="!tv()?.nav?.prevSessionId" (click)="prevTurno()"><i class="pi pi-chevron-left"></i> Turno anterior</button>
+          <div class="tn-center">
+            <strong>{{ t.day }} · {{ t.shift }} · {{ t.user }}</strong>
+            <span class="tn-int">{{ t.interval }} · Caja #{{ t.cajaNumber ?? '—' }}
+              @if (tv()?.nav?.isCurrent && t.status === 'OPEN') { <span class="tn-live">EN CURSO</span> }
+            </span>
+          </div>
+          <button class="tn-btn" [disabled]="tv()?.nav?.isCurrent" (click)="nextTurno()">Siguiente turno <i class="pi pi-chevron-right"></i></button>
+        </div>
+      }
 
       <div class="panels">
         <!-- Resumen de Recepción / Estancias -->
@@ -43,8 +56,12 @@ interface StatCard {
 
         <!-- Resumen de Limpieza -->
         <div class="panel">
-          <h2>Resumen de Limpieza @if (turnoLimpiezaLabel()) { <span class="turno-chip"><i class="pi pi-clock"></i> Turno {{ turnoLimpiezaLabel() }}</span> }</h2>
+          <h2>Resumen de Limpieza @if (tv()?.turno; as t) { <span class="turno-chip"><i class="pi pi-clock"></i> {{ t.shift }} {{ t.interval }}</span> }</h2>
           <div class="stat-grid">
+            <!-- Limpiezas realizadas EN EL TURNO (checkout + renovación) → Historial de Limpiezas -->
+            <div class="stat clk" style="background:linear-gradient(135deg,#115e59,#14b8a6)" (click)="goHistorialLimpiezas()" title="Ver historial de limpiezas del turno">
+              <span class="num">{{ tv()?.control?.limpiezasTurno ?? 0 }}</span><span class="lbl">Limpiezas realizadas <i class="pi pi-arrow-right"></i></span>
+            </div>
             @for (s of limpiezaCards(); track s.label) {
               <div class="stat" [class.clk]="s.estado" [style.background]="s.color" (click)="go(s)" [title]="s.estado ? 'Ver habitaciones' : ''">
                 <span class="num">{{ s.value }}</span><span class="lbl">{{ s.label }} @if (s.estado) { <i class="pi pi-arrow-right"></i> }</span>
@@ -53,31 +70,34 @@ interface StatCard {
           </div>
         </div>
 
-        <!-- Resumen de Caja / Dinero -->
-        <div class="panel">
-          <h2>Resumen de Caja / Dinero</h2>
-          @if (caja(); as c) {
-            @if (c.open) {
-              <div class="money">
-                <div class="money-col">
-                  <span class="mc-title efectivo">Efectivo</span>
-                  <span class="mc-big">S/.{{ (c.paymentsByMethod?.['CASH'] ?? 0) | number: '1.2-2' }}</span>
-                  <span class="muted">Total en efectivo</span>
-                </div>
-                <div class="money-col">
-                  <span class="mc-title virtual">Virtuales</span>
-                  <div class="kv"><span>Total:</span><strong>S/.{{ virtuales(c) | number: '1.2-2' }}</strong></div>
-                  <div class="kv"><span>Yape:</span><strong>S/.{{ (c.paymentsByMethod?.['YAPE'] ?? 0) | number: '1.2-2' }}</strong></div>
-                  <div class="kv"><span>Plin:</span><strong>S/.{{ (c.paymentsByMethod?.['PLIN'] ?? 0) | number: '1.2-2' }}</strong></div>
-                  <div class="kv"><span>Tarjetas:</span><strong>S/.{{ (c.paymentsByMethod?.['CARD'] ?? 0) | number: '1.2-2' }}</strong></div>
-                  <div class="kv"><span>Transferencias:</span><strong>S/.{{ (c.paymentsByMethod?.['TRANSFER'] ?? 0) | number: '1.2-2' }}</strong></div>
-                </div>
+        <!-- Resumen de Caja / Dinero (clickeable → Movimientos de esta caja) -->
+        <div class="panel clickable" (click)="openMovements()" [title]="'Ver movimientos de la Caja #' + (tv()?.turno?.cajaNumber ?? '')">
+          <h2>Resumen de Caja / Dinero <i class="pi pi-external-link hint"></i></h2>
+          @if (tv()?.caja; as c) {
+            <div class="money">
+              <div class="money-col">
+                <span class="mc-title efectivo">Efectivo</span>
+                <span class="mc-big">S/.{{ (c.paymentsByMethod['CASH'] ?? 0) | number: '1.2-2' }}</span>
+                <span class="muted">Total en efectivo</span>
               </div>
-              <div class="total-row big">Total: <strong>S/.{{ c.totalIncome | number: '1.2-2' }}</strong></div>
-              <p class="cash-note">Incluye todo lo recaudado por habitaciones, productos y servicios adicionales.</p>
-            } @else {
-              <p class="muted">No hay caja abierta en este momento.</p>
-            }
+              <div class="money-col">
+                <span class="mc-title virtual">Virtuales</span>
+                <div class="kv"><span>Total:</span><strong>S/.{{ virtuales(c.paymentsByMethod) | number: '1.2-2' }}</strong></div>
+                <div class="kv"><span>Yape:</span><strong>S/.{{ (c.paymentsByMethod['YAPE'] ?? 0) | number: '1.2-2' }}</strong></div>
+                <div class="kv"><span>Plin:</span><strong>S/.{{ (c.paymentsByMethod['PLIN'] ?? 0) | number: '1.2-2' }}</strong></div>
+                <div class="kv"><span>Tarjetas:</span><strong>S/.{{ (c.paymentsByMethod['CARD'] ?? 0) | number: '1.2-2' }}</strong></div>
+                <div class="kv"><span>Transferencias:</span><strong>S/.{{ (c.paymentsByMethod['TRANSFER'] ?? 0) | number: '1.2-2' }}</strong></div>
+              </div>
+            </div>
+            <div class="total-row big">Total recaudado: <strong>S/.{{ c.totalIncome | number: '1.2-2' }}</strong></div>
+            <!-- Desglose por concepto (control: Hospedaje + Productos + Servicios/Penalidades = Total) -->
+            <div class="concepto">
+              <div class="cc"><span>Hospedaje</span><strong>S/.{{ c.byConcepto.hospedaje | number: '1.2-2' }}</strong></div>
+              <div class="cc"><span>Productos</span><strong>S/.{{ c.byConcepto.productos | number: '1.2-2' }}</strong></div>
+              <div class="cc"><span>Servicios y penalidades</span><strong>S/.{{ c.byConcepto.serviciosPenalidades | number: '1.2-2' }}</strong></div>
+            </div>
+          } @else {
+            <p class="muted">Sin caja para este turno.</p>
           }
         </div>
 
@@ -91,7 +111,7 @@ interface StatCard {
               </div>
             }
           </div>
-          <p class="turno-note">(Habitaciones limpias al inicio + Limpiezas hechas) - Habitaciones alquiladas</p>
+          <p class="turno-note">Indicadores del turno consultado. El cuadre automático se definirá más adelante.</p>
         </div>
       </div>
 
@@ -136,6 +156,16 @@ interface StatCard {
       .total-row strong { color: #34d399; }
       .cash-note { margin: 0.5rem 0 0; font-size: 0.72rem; color: var(--p-text-muted-color, #8aa0bd); }
       .turno-note { margin: 0.8rem 0 0; font-size: 0.72rem; color: var(--p-text-muted-color, #8aa0bd); }
+      .turnonav { display: flex; align-items: center; justify-content: space-between; gap: 1rem; background: var(--p-content-background, #0f1a2b); border: 1px solid var(--p-content-border-color, #1c2c44); border-radius: 14px; padding: 0.7rem 1rem; margin-bottom: 1.1rem; }
+      .tn-btn { background: var(--p-content-hover-background, #142339); border: 1px solid var(--p-content-border-color, #274468); color: var(--p-text-color, #e6edf5); border-radius: 9px; padding: 0.5rem 0.9rem; font-weight: 700; font-size: 0.82rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; }
+      .tn-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+      .tn-center { text-align: center; } .tn-center strong { display: block; font-size: 1rem; letter-spacing: 0.02em; } .tn-int { font-size: 0.78rem; color: var(--p-text-muted-color, #8aa0bd); }
+      .tn-live { background: rgba(16,185,129,0.2); color: #34d399; border-radius: 999px; padding: 0.05rem 0.5rem; font-size: 0.66rem; font-weight: 800; margin-left: 0.4rem; }
+      .panel.clickable { cursor: pointer; transition: border-color 0.12s, box-shadow 0.12s; } .panel.clickable:hover { border-color: var(--rz-accent, #10b981); box-shadow: 0 8px 22px rgba(0,0,0,0.25); }
+      h2 .hint { font-size: 0.75rem; color: var(--p-text-muted-color, #8aa0bd); margin-left: auto; }
+      .concepto { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-top: 0.7rem; }
+      .cc { background: var(--p-content-hover-background, #142339); border-radius: 9px; padding: 0.5rem 0.6rem; display: flex; flex-direction: column; gap: 0.15rem; } .cc span { font-size: 0.7rem; color: var(--p-text-muted-color, #8aa0bd); } .cc strong { font-size: 0.95rem; }
+      @media (max-width: 640px) { .concepto { grid-template-columns: 1fr; } }
       .ts { margin-top: 1rem; color: var(--p-text-muted-color, #8aa0bd); font-size: 0.78rem; text-transform: capitalize; }
     `,
   ],
@@ -153,7 +183,7 @@ export class AdminDashboardComponent implements OnInit {
   readonly now = new Date();
   readonly recepcion = signal<RecepcionSummary | null>(null);
   readonly limpieza = signal<LimpiezaSummary | null>(null);
-  readonly caja = signal<CajaSummary | null>(null);
+  readonly tv = signal<TurnoView | null>(null);
 
   ngOnInit(): void {
     // Cada perfil ve SU propio dashboard. El resumen general (caja/dinero, todos
@@ -173,12 +203,30 @@ export class AdminDashboardComponent implements OnInit {
     forkJoin({
       recepcion: this.api.recepcion(),
       limpieza: this.api.limpieza(),
-      caja: this.api.caja(),
     }).subscribe((res) => {
       this.recepcion.set(res.recepcion.data);
       this.limpieza.set(res.limpieza.data);
-      this.caja.set(res.caja.data);
     });
+    this.loadTurno();
+  }
+
+  /** Carga la vista del turno (por sessionId o el actual si no se indica). */
+  private loadTurno(sessionId?: string): void {
+    this.api.turnoView(sessionId).subscribe((r) => this.tv.set(r.data));
+  }
+  prevTurno(): void { const id = this.tv()?.nav?.prevSessionId; if (id) this.loadTurno(id); }
+  nextTurno(): void { const id = this.tv()?.nav?.nextSessionId; if (id) this.loadTurno(id); }
+
+  /** Abre los MOVIMIENTOS de la caja del turno consultado (pestaña nueva). */
+  openMovements(): void {
+    const id = this.tv()?.turno?.sessionId;
+    if (id) window.open(`/finance/cajas/${id}/movimientos`, '_blank');
+  }
+
+  /** Historial de Limpiezas filtrado por el intervalo del turno consultado. */
+  goHistorialLimpiezas(): void {
+    const t = this.tv()?.turno;
+    this.router.navigate(['/operations/limpiezas'], t ? { queryParams: { from: t.start, to: t.end } } : undefined);
   }
 
   /** Navega al mapa de habitaciones con el filtro de estado de la tarjeta. */
@@ -201,34 +249,25 @@ export class AdminDashboardComponent implements OnInit {
   limpiezaCards(): StatCard[] {
     const d = this.limpieza();
     return [
-      { value: d?.realizadasTurno ?? 0, label: 'Limpiezas realizadas', color: 'linear-gradient(135deg,#115e59,#14b8a6)', estado: 'FREE' },
       { value: d?.enEspera ?? 0, label: 'Limpiezas en espera', color: 'linear-gradient(135deg,#9a3412,#f97316)', estado: 'CLEANING' },
       { value: d?.enCurso ?? 0, label: 'Limpiezas en curso', color: 'linear-gradient(135deg,#1e40af,#3b82f6)', estado: 'CLEANING' },
       { value: d?.mantenimiento ?? 0, label: 'Mantenimiento preventivo / periódico', color: 'linear-gradient(135deg,#5b21b6,#7c3aed)', estado: 'MAINTENANCE' },
     ];
   }
 
-  /** Etiqueta del turno de limpieza actual (para el encabezado del resumen). */
-  turnoLimpiezaLabel(): string {
-    const t = this.limpieza()?.turno;
-    return t === 'MANANA' ? 'Mañana (07:00–15:00)' : t === 'TARDE' ? 'Tarde (15:00–23:00)' : t === 'NOCHE' ? 'Noche (23:00–07:00)' : '';
-  }
-
+  /** Indicadores individuales del turno consultado (sin fórmula de cuadre). */
   turnoCards(): StatCard[] {
-    const r = this.recepcion();
-    const l = this.limpieza();
-    const s = r?.rooms.byStatus ?? {};
-    const done = l?.byStatus.find((x) => x.status === 'DONE')?.count ?? 0;
+    const c = this.tv()?.control;
+    const disp = c?.disponiblesInicio;
     return [
-      { value: s['FREE'] ?? 0, label: 'Habitaciones limpias al iniciar el turno', color: '' },
-      { value: r?.checkInsToday ?? 0, label: 'Habitaciones alquiladas durante el turno', color: '' },
-      { value: done, label: 'Limpiezas hechas en turno', color: '' },
-      { value: s['FREE'] ?? 0, label: 'Habitaciones disponibles actuales', color: '' },
+      { value: disp == null ? '—' : disp, label: 'Habitaciones disponibles al iniciar el turno', color: '' },
+      { value: c?.alquileresTurno ?? 0, label: 'Habitaciones alquiladas durante el turno', color: '' },
+      { value: c?.limpiezasTurno ?? 0, label: 'Limpiezas realizadas durante el turno', color: '' },
+      { value: c?.disponiblesActual ?? 0, label: 'Habitaciones disponibles actuales', color: '' },
     ];
   }
 
-  virtuales(c: CajaSummary): number {
-    const m = c.paymentsByMethod ?? {};
+  virtuales(m: Record<string, number>): number {
     return Math.round(((m['YAPE'] ?? 0) + (m['PLIN'] ?? 0) + (m['WALLET'] ?? 0) + (m['CARD'] ?? 0) + (m['TRANSFER'] ?? 0)) * 100) / 100;
   }
 }

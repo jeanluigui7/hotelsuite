@@ -45,6 +45,22 @@ export interface TurnoSummary {
   expectedAmount?: number;
 }
 
+export interface TurnoView {
+  hasSession: boolean;
+  turno?: { sessionId: string; cajaNumber: number | null; day: string; shift: string; interval: string; start: string; end: string; user: string; status: string; openedAt: string };
+  nav?: { prevSessionId: string | null; nextSessionId: string | null; isCurrent: boolean };
+  caja?: {
+    paymentsByMethod: Record<string, number>;
+    totalIncome: number;
+    byConcepto: { hospedaje: number; productos: number; serviciosPenalidades: number };
+    conceptoTotal: number;
+    expectedCash: number;
+    movements: { in: number; out: number };
+    openingAmount: number;
+  };
+  control?: { disponiblesInicio: number | null; alquileresTurno: number; limpiezasTurno: number; checkOutsTurno: number; disponiblesActual: number };
+}
+
 @Injectable({ providedIn: 'root' })
 export class DashboardApiService {
   private readonly http = inject(HttpClient);
@@ -61,5 +77,10 @@ export class DashboardApiService {
   }
   turno(): Observable<ApiResponse<TurnoSummary>> {
     return this.http.get<ApiResponse<TurnoSummary>>(`${this.api}/dashboard/turno`);
+  }
+  turnoView(sessionId?: string): Observable<ApiResponse<TurnoView>> {
+    const params: Record<string, string> = {};
+    if (sessionId) params['sessionId'] = sessionId;
+    return this.http.get<ApiResponse<TurnoView>>(`${this.api}/dashboard/turno-view`, { params });
   }
 }

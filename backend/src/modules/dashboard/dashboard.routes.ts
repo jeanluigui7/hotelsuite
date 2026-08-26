@@ -14,3 +14,4 @@ dashboardRouter.get('/dashboard/recepcion', asyncHandler(dashboardController.rec
 dashboardRouter.get('/dashboard/limpieza', asyncHandler(dashboardController.limpieza));
 dashboardRouter.get('/dashboard/caja', asyncHandler(dashboardController.caja));
 dashboardRouter.get('/dashboard/turno', asyncHandler(dashboardController.turno));
+dashboardRouter.get('/dashboard/turno-view', asyncHandler(dashboardController.turnoView));

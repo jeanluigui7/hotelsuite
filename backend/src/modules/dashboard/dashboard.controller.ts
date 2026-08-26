@@ -20,4 +20,9 @@ export const dashboardController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await dashboardService.turno(req.scope)));
   },
+  async turnoView(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const sessionId = typeof req.query.sessionId === 'string' && req.query.sessionId ? req.query.sessionId : undefined;
+    res.status(200).json(ok(await dashboardService.turnoView(req.scope, sessionId)));
+  },
 };

@@ -879,6 +879,7 @@ model CashSession {
   openingAmount  Decimal   @db.Decimal(10, 2)
   closingAmount  Decimal?  @db.Decimal(10, 2)
   expectedAmount Decimal?  @db.Decimal(10, 2)
+  roomsAvailableAtOpen Int? // fotografía: habitaciones disponibles al abrir el turno (histórico)
   notes          String?
   openedAt       DateTime  @default(now())
   closedAt       DateTime?

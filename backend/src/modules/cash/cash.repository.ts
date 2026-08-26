@@ -16,7 +16,9 @@ export const cashRepository = {
       _max: { number: true },
     });
     const number = (last._max.number ?? 0) + 1;
-    return prisma.cashSession.create({ data: { ...data, number } });
+    // Fotografía histórica: habitaciones disponibles (FREE) en el momento de abrir el turno.
+    const roomsAvailableAtOpen = await prisma.room.count({ where: { branchId: data.branchId, status: 'FREE' } });
+    return prisma.cashSession.create({ data: { ...data, number, roomsAvailableAtOpen } });
   },
 
   close(
