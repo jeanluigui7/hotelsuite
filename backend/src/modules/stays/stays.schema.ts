@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PAYMENT_METHODS } from '../../shared/payments';
+import { PAYMENT_METHODS, PAYMENT_REFERENCE_REQUIRED, hasRequiredReference } from '../../shared/payments';
 
 const newGuestSchema = z.object({
   documentType: z.enum(['DNI', 'RUC', 'PASAPORTE', 'CE', 'DNI_EXT']).default('DNI'),
@@ -67,11 +67,13 @@ export const renewSchema = z.object({
   // Pagos registrados ahora (pueden ser varios métodos; vacío = pago diferido / deuda).
   payments: z
     .array(
-      z.object({
-        method: z.enum(PAYMENT_METHODS),
-        amount: z.coerce.number().min(0),
-        reference: z.string().max(120).optional().or(z.literal('')),
-      }),
+      z
+        .object({
+          method: z.enum(PAYMENT_METHODS),
+          amount: z.coerce.number().min(0),
+          reference: z.string().max(120).optional().or(z.literal('')),
+        })
+        .refine(hasRequiredReference, { message: PAYMENT_REFERENCE_REQUIRED, path: ['reference'] }),
     )
     .default([]),
   notes: z.string().max(300).optional().or(z.literal('')),
@@ -79,11 +81,13 @@ export const renewSchema = z.object({
 });
 
 /** Cobro del pendiente de una estancia (abona a sus ventas OPEN / adeudo). */
-export const payStaySchema = z.object({
-  method: z.enum(PAYMENT_METHODS),
-  amount: z.coerce.number().positive(),
-  reference: z.string().max(120).optional().or(z.literal('')),
-});
+export const payStaySchema = z
+  .object({
+    method: z.enum(PAYMENT_METHODS),
+    amount: z.coerce.number().positive(),
+    reference: z.string().max(120).optional().or(z.literal('')),
+  })
+  .refine(hasRequiredReference, { message: PAYMENT_REFERENCE_REQUIRED, path: ['reference'] });
 
 /** Edición rápida de la estancia (recepción): teléfono, placa y acompañantes. */
 export const updateStayDetailsSchema = z.object({

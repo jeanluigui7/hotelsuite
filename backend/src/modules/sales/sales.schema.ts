@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PAYMENT_METHODS } from '../../shared/payments';
+import { PAYMENT_METHODS, PAYMENT_REFERENCE_REQUIRED, hasRequiredReference } from '../../shared/payments';
 
 const saleItemSchema = z
   .object({
@@ -12,11 +12,13 @@ const saleItemSchema = z
     message: 'Cada línea requiere un producto, o descripción y precio',
   });
 
-const paymentSchema = z.object({
-  method: z.enum(PAYMENT_METHODS),
-  amount: z.coerce.number().positive(),
-  reference: z.string().max(120).optional().or(z.literal('')),
-});
+const paymentSchema = z
+  .object({
+    method: z.enum(PAYMENT_METHODS),
+    amount: z.coerce.number().positive(),
+    reference: z.string().max(120).optional().or(z.literal('')),
+  })
+  .refine(hasRequiredReference, { message: PAYMENT_REFERENCE_REQUIRED, path: ['reference'] });
 
 export const createSaleSchema = z
   .object({

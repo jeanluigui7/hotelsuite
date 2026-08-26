@@ -12,10 +12,11 @@ import { logger } from '../config/logger';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
   if (err instanceof ZodError) {
+    // Expone el primer mensaje concreto (ej. "El código de operación es obligatorio…") en vez del genérico.
     res.status(422).json(
       fail({
         code: 'VALIDATION_ERROR',
-        message: 'Datos inválidos',
+        message: err.issues[0]?.message || 'Datos inválidos',
         details: err.flatten(),
       }),
     );
