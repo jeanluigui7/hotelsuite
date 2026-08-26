@@ -830,7 +830,7 @@ export const staysService = {
   async checkoutHistory(
     scope: RequestScope,
     params: PaginationParams,
-    filters: { from?: Date; to?: Date; shift?: string; estado?: string; cobro?: string; collaboratorId?: string; roomId?: string },
+    filters: { from?: Date; to?: Date; shift?: string; estado?: string; cobro?: string; collaboratorId?: string; roomId?: string; guest?: string },
   ) {
     const branchId = requireActiveBranch(scope);
     const where: Prisma.StayWhereInput = { branchId, status: 'CLOSED' };
@@ -839,6 +839,10 @@ export const staysService = {
       : { not: null };
     if (filters.roomId) where.roomId = filters.roomId;
     if (filters.collaboratorId) where.closedByUserId = filters.collaboratorId;
+    if (filters.guest) {
+      const g = filters.guest;
+      where.guest = { OR: [{ firstName: { contains: g } }, { lastName: { contains: g } }, { documentNumber: { contains: g } }] };
+    }
 
     const rows = await prisma.stay.findMany({
       where,

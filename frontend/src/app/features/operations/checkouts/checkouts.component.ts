@@ -36,8 +36,9 @@ function ymd(d: Date): string { return `${d.getFullYear()}-${String(d.getMonth()
       <header class="head">
         <div>
           <h1>Check-outs</h1>
-          <p class="muted">Gestiona las salidas programadas y consulta el historial de check-outs realizados.</p>
+          <p class="muted">{{ tab() === 'DONE' ? 'Consulta el historial de salidas realizadas y si el cobro por demora fue efectuado.' : 'Gestiona las salidas programadas y consulta el historial de check-outs realizados.' }}</p>
         </div>
+        <div class="crumb">Inicio <i class="pi pi-angle-right"></i> <span>Check-outs</span></div>
       </header>
 
       <div class="tabs">
@@ -78,25 +79,25 @@ function ymd(d: Date): string { return `${d.getFullYear()}-${String(d.getMonth()
 
       <!-- ══════════ FINALIZADOS ══════════ -->
       @if (tab() === 'DONE') {
+        <div class="kpis">
+          <div class="kpi"><div class="ico blue"><i class="pi pi-calendar"></i></div><div class="kt"><span>Total Check-outs</span><strong>{{ ind().total }}</strong><small>Período seleccionado</small></div></div>
+          <div class="kpi"><div class="ico green"><i class="pi pi-clock"></i></div><div class="kt"><span>A tiempo</span><strong class="cg">{{ ind().onTime }} <em>({{ pct(ind().onTime, ind().total) }}%)</em></strong><small>Del total</small></div></div>
+          <div class="kpi"><div class="ico amber"><i class="pi pi-hourglass"></i></div><div class="kt"><span>Con demora</span><strong class="ca">{{ ind().late }} <em>({{ pct(ind().late, ind().total) }}%)</em></strong><small>Del total</small></div></div>
+          <div class="kpi"><div class="ico green"><i class="pi pi-dollar"></i></div><div class="kt"><span>Cobrados (con demora)</span><strong class="cg">{{ ind().charged }} <em>({{ pct(ind().charged, chargeBase()) }}%)</em></strong><small>De los con demora</small></div></div>
+          <div class="kpi"><div class="ico red"><i class="pi pi-ban"></i></div><div class="kt"><span>No cobrados (con demora)</span><strong class="cr">{{ ind().notCharged }} <em>({{ pct(ind().notCharged, chargeBase()) }}%)</em></strong><small>De los con demora</small></div></div>
+        </div>
+
         <div class="panel filters">
           <div class="fgrid">
-            <div class="f"><label>Fecha inicio</label><input type="date" [(ngModel)]="fFrom" /></div>
-            <div class="f"><label>Fecha fin</label><input type="date" [(ngModel)]="fTo" /></div>
+            <div class="f range"><label>Rango de fechas</label><div class="rr"><input type="date" [(ngModel)]="fFrom" /><i class="pi pi-arrow-right"></i><input type="date" [(ngModel)]="fTo" /></div></div>
             <div class="f"><label>Turno</label><p-select [options]="shiftOpts" optionLabel="label" optionValue="value" [(ngModel)]="fShift" styleClass="w" /></div>
             <div class="f"><label>Estado</label><p-select [options]="estadoOpts" optionLabel="label" optionValue="value" [(ngModel)]="fEstado" styleClass="w" /></div>
             <div class="f"><label>Estado de cobro</label><p-select [options]="cobroOpts" optionLabel="label" optionValue="value" [(ngModel)]="fCobro" styleClass="w" /></div>
             <div class="f"><label>Colaborador</label><p-select [options]="collabOpts()" optionLabel="label" optionValue="value" [(ngModel)]="fCollab" styleClass="w" /></div>
             <div class="f"><label>Habitación</label><p-select [options]="roomOpts()" optionLabel="label" optionValue="value" [(ngModel)]="fRoom" styleClass="w" /></div>
+            <div class="f"><label>Huésped</label><input [(ngModel)]="fGuest" (keyup.enter)="loadDone(1)" placeholder="Buscar huésped..." /></div>
+            <div class="f fbtns"><button class="btn s" (click)="clearDone()"><i class="pi pi-refresh"></i> Limpiar</button><button class="btn p" (click)="loadDone(1)"><i class="pi pi-filter"></i> Filtrar</button></div>
           </div>
-          <div class="fbtns"><button class="btn p" (click)="loadDone(1)"><i class="pi pi-search"></i> Buscar</button><button class="btn s" (click)="clearDone()"><i class="pi pi-refresh"></i> Limpiar</button></div>
-        </div>
-
-        <div class="kpis">
-          <div class="kpi"><span>Total Check-outs</span><strong>{{ ind().total }}</strong></div>
-          <div class="kpi ok"><span>A tiempo</span><strong>{{ ind().onTime }}</strong></div>
-          <div class="kpi warn"><span>Con demora</span><strong>{{ ind().late }}</strong></div>
-          <div class="kpi green"><span>Cobrados</span><strong>{{ ind().charged }}</strong></div>
-          <div class="kpi red"><span>No cobrados</span><strong>{{ ind().notCharged }}</strong></div>
         </div>
 
         <div class="panel">
@@ -105,8 +106,8 @@ function ymd(d: Date): string { return `${d.getFullYear()}-${String(d.getMonth()
             <div class="tbl-wrap">
               <table class="tbl">
                 <thead><tr>
-                  <th>Salida</th><th>Hab.</th><th>Huésped</th><th>Salida prevista</th><th>Salida real</th>
-                  <th>Estado</th><th class="r">Cobro demora</th><th class="c">Estado cobro</th><th>Colaborador</th><th class="c">Acción</th>
+                  <th>Fecha de salida</th><th>Habitación</th><th>Huésped</th><th>Salida prevista</th><th>Salida real</th>
+                  <th>Estado</th><th class="r">Cobro por demora</th><th class="c">¿Cobrado?</th><th>Colaborador</th><th class="c">Acciones</th>
                 </tr></thead>
                 <tbody>
                   @for (r of doneRows(); track r.id) {
@@ -114,26 +115,30 @@ function ymd(d: Date): string { return `${d.getFullYear()}-${String(d.getMonth()
                       <td>{{ r.checkOutAt | date: 'dd/MM/yyyy' }}<br /><span class="doc">{{ r.checkOutAt | date: 'HH:mm' }}</span></td>
                       <td class="room">{{ r.room || '—' }}</td>
                       <td>{{ r.guest }}<br /><span class="doc">{{ r.documentNumber }}</span></td>
-                      <td>{{ r.plannedCheckoutAt | date: 'dd/MM HH:mm' }}</td>
-                      <td [class.lt]="r.late">{{ r.checkOutAt | date: 'dd/MM HH:mm' }}</td>
-                      <td><span class="chip" [class.ok]="!r.late" [class.warn]="r.late">{{ r.late ? 'Con demora' : 'A tiempo' }}</span>@if (r.late) { <div class="sub lt">{{ human(r.lateMinutes) }}</div> }</td>
+                      <td>{{ r.plannedCheckoutAt | date: 'dd/MM/yyyy' }}<br /><span class="doc">{{ r.plannedCheckoutAt | date: 'HH:mm' }}</span></td>
+                      <td>{{ r.checkOutAt | date: 'dd/MM/yyyy' }}<br /><span class="doc" [class.lt]="r.late">{{ r.checkOutAt | date: 'HH:mm' }}</span></td>
+                      <td><span class="chip" [class.green]="!r.late" [class.warn]="r.late">{{ r.late ? 'Con demora' : 'A tiempo' }}</span></td>
                       <td class="r">{{ r.hasCharge ? ('S/ ' + (r.lateCharge | number: '1.2-2')) : '—' }}</td>
                       <td class="c">
                         @if (r.chargePaid === null) { <span class="dash">—</span> }
-                        @else { <span class="chip" [class.ok]="r.chargePaid" [class.warn]="!r.chargePaid" [class.red]="!r.chargePaid">{{ r.chargePaid ? 'Cobrado' : 'No cobrado' }}</span> }
+                        @else { <span class="chip" [class.green]="r.chargePaid" [class.red]="!r.chargePaid">{{ r.chargePaid ? 'Sí' : 'No' }}</span> }
                       </td>
                       <td>{{ r.closedBy }}</td>
-                      <td class="c"><button class="mini" (click)="openDetail(r.id)"><i class="pi pi-eye"></i> Detalle</button></td>
+                      <td class="c"><button class="eye" (click)="openDetail(r.id)" title="Ver detalle"><i class="pi pi-eye"></i></button></td>
                     </tr>
                   } @empty { <tr><td colspan="10" class="empty">Sin check-outs para los criterios indicados.</td></tr> }
                 </tbody>
               </table>
             </div>
-            @if (doneTotal() > pageSize) {
+            @if (doneTotal() > 0) {
               <div class="pager">
-                <button class="mini" [disabled]="donePage() === 1" (click)="loadDone(donePage() - 1)">Anterior</button>
-                <span>Página {{ donePage() }} de {{ donePages() }}</span>
-                <button class="mini" [disabled]="donePage() >= donePages()" (click)="loadDone(donePage() + 1)">Siguiente</button>
+                <span class="pinfo">Mostrando {{ rangeFrom() }} a {{ rangeTo() }} de {{ doneTotal() }} resultados</span>
+                <div class="pbtns">
+                  <button class="pg" [disabled]="donePage() === 1" (click)="loadDone(donePage() - 1)"><i class="pi pi-angle-left"></i></button>
+                  <span class="pcur">{{ donePage() }}</span>
+                  <span class="muted">/ {{ donePages() }}</span>
+                  <button class="pg" [disabled]="donePage() >= donePages()" (click)="loadDone(donePage() + 1)"><i class="pi pi-angle-right"></i></button>
+                </div>
               </div>
             }
           }
@@ -185,6 +190,8 @@ function ymd(d: Date): string { return `${d.getFullYear()}-${String(d.getMonth()
     `
       .co { background: #0b1220; min-height: 100%; margin: -1.5rem; padding: 1.5rem; color: #e6e9ef; }
       h1 { margin: 0; color: #fff; font-size: 1.5rem; } .muted { color: #8aa0bd; } .head .muted { font-size: 0.85rem; }
+      .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+      .crumb { color: #8aa0bd; font-size: 0.82rem; white-space: nowrap; } .crumb span { color: #34d399; font-weight: 700; } .crumb i { font-size: 0.7rem; margin: 0 0.2rem; }
       .empty { text-align: center; padding: 1.6rem; color: #8aa0bd; } .pad { padding: 1rem; } .doc { font-size: 0.76rem; color: #8aa0bd; } .dash { color: #64748b; }
       .tabs { display: flex; gap: 0.4rem; border-bottom: 1px solid #1c2c44; margin: 1rem 0 1.2rem; }
       .tab { background: transparent; border: 0; border-bottom: 3px solid transparent; color: #8aa0bd; padding: 0.7rem 1.1rem; cursor: pointer; font-weight: 700; font-size: 0.9rem; display: inline-flex; align-items: center; gap: 0.45rem; }
@@ -199,24 +206,32 @@ function ymd(d: Date): string { return `${d.getFullYear()}-${String(d.getMonth()
       .tbl th { color: #8aa0bd; font-weight: 600; font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.03em; } .tbl .r { text-align: right; } .tbl .c { text-align: center; }
       .room { font-weight: 800; font-size: 1.05rem; color: #e6e9ef; } .room.lt, td.lt { color: #fb923c; }
       tr.late td { background: rgba(251,146,60,0.06); }
-      .chip { display: inline-block; border-radius: 999px; padding: 0.12rem 0.6rem; font-size: 0.72rem; font-weight: 800; }
-      .chip.ok { background: rgba(59,130,246,0.2); color: #60a5fa; } .chip.warn { background: rgba(245,158,11,0.2); color: #fbbf24; } .chip.red { background: rgba(239,68,68,0.2); color: #f87171; }
+      .chip { display: inline-block; border-radius: 999px; padding: 0.15rem 0.7rem; font-size: 0.72rem; font-weight: 800; }
+      .chip.ok { background: rgba(59,130,246,0.2); color: #60a5fa; } .chip.green { background: rgba(16,185,129,0.2); color: #34d399; } .chip.warn { background: rgba(245,158,11,0.2); color: #fbbf24; } .chip.red { background: rgba(239,68,68,0.2); color: #f87171; }
+      .eye { background: #16233a; border: 1px solid #274468; color: #93c5fd; border-radius: 8px; width: 2.1rem; height: 2.1rem; cursor: pointer; } .eye:hover { background: #1c2c48; }
       .sub { font-size: 0.74rem; color: #8aa0bd; margin-top: 0.2rem; } .sub.lt { color: #fb923c; font-weight: 700; }
       .co-btn { background: #22c55e; color: #04130d; border: 0; border-radius: 9px; padding: 0.55rem 0.9rem; font-weight: 800; font-size: 0.82rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; }
       .mini { background: #16233a; border: 1px solid #274468; color: #cbd5e1; border-radius: 7px; padding: 0.35rem 0.7rem; font-size: 0.76rem; font-weight: 600; cursor: pointer; }
       .filters { padding: 1rem 1.1rem; }
-      .fgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; }
+      .fgrid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.8rem 0.9rem; align-items: end; }
       .f { display: flex; flex-direction: column; gap: 0.3rem; } .f label { font-size: 0.72rem; color: #8aa0bd; }
-      .f input[type=date] { background: #0e1626; border: 1px solid #26364f; border-radius: 8px; color: #e2e8f0; padding: 0.5rem; }
+      .f.range { grid-column: span 2; } .rr { display: flex; align-items: center; gap: 0.4rem; } .rr i { color: #8aa0bd; }
+      .f input { background: #0e1626; border: 1px solid #26364f; border-radius: 8px; color: #e2e8f0; padding: 0.5rem; width: 100%; }
       :host ::ng-deep .w { width: 100%; }
-      .fbtns { display: flex; gap: 0.6rem; margin-top: 0.9rem; }
-      .btn { display: inline-flex; align-items: center; gap: 0.4rem; border: 0; border-radius: 8px; padding: 0.55rem 1rem; font-weight: 700; font-size: 0.82rem; cursor: pointer; color: #fff; }
-      .btn.p { background: #22c55e; color: #04130d; } .btn.s { background: #334155; }
+      .fbtns { flex-direction: row; align-items: flex-end; gap: 0.5rem; justify-content: flex-end; }
+      .btn { display: inline-flex; align-items: center; gap: 0.4rem; border: 0; border-radius: 8px; padding: 0.55rem 1rem; font-weight: 700; font-size: 0.82rem; cursor: pointer; color: #fff; white-space: nowrap; }
+      .btn.p { background: #22c55e; color: #04130d; } .btn.s { background: #1c2c48; }
       .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.8rem; margin-bottom: 1.1rem; }
-      .kpi { background: #101a2e; border: 1px solid #1c2c44; border-radius: 12px; padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.25rem; }
-      .kpi span { font-size: 0.74rem; color: #8aa0bd; text-transform: uppercase; letter-spacing: 0.03em; } .kpi strong { font-size: 1.7rem; color: #e6e9ef; }
-      .kpi.ok strong { color: #60a5fa; } .kpi.warn strong { color: #fbbf24; } .kpi.green strong { color: #34d399; } .kpi.red strong { color: #f87171; }
-      .pager { display: flex; align-items: center; gap: 1rem; justify-content: center; padding: 0.8rem; color: #8aa0bd; }
+      .kpi { background: #101a2e; border: 1px solid #1c2c44; border-radius: 12px; padding: 1rem; display: flex; align-items: center; gap: 0.8rem; }
+      .kpi .ico { flex: none; width: 2.8rem; height: 2.8rem; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
+      .kpi .ico.blue { background: rgba(59,130,246,0.16); color: #60a5fa; } .kpi .ico.green { background: rgba(16,185,129,0.16); color: #34d399; } .kpi .ico.amber { background: rgba(245,158,11,0.16); color: #fbbf24; } .kpi .ico.red { background: rgba(239,68,68,0.16); color: #f87171; }
+      .kt { display: flex; flex-direction: column; gap: 0.05rem; min-width: 0; }
+      .kt span { font-size: 0.74rem; color: #9fb0c3; } .kt strong { font-size: 1.6rem; color: #e6e9ef; line-height: 1.1; } .kt strong em { font-size: 0.9rem; font-style: normal; font-weight: 700; } .kt small { font-size: 0.68rem; color: #6b7a90; }
+      .kt strong.cg { color: #34d399; } .kt strong.ca { color: #fbbf24; } .kt strong.cr { color: #f87171; }
+      .pager { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.8rem 1rem; color: #8aa0bd; }
+      .pinfo { font-size: 0.82rem; } .pbtns { display: flex; align-items: center; gap: 0.5rem; }
+      .pg { background: #16233a; border: 1px solid #274468; color: #cbd5e1; border-radius: 8px; width: 2rem; height: 2rem; cursor: pointer; } .pg:disabled { opacity: 0.4; cursor: default; }
+      .pcur { background: #22c55e; color: #04130d; border-radius: 7px; padding: 0.15rem 0.6rem; font-weight: 800; }
       .cf { color: #cbd5e1; } .cf strong { color: #fff; }
       .d-head { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; margin-bottom: 1rem; }
       .d-head .l { display: block; font-size: 0.7rem; color: #8aa0bd; text-transform: uppercase; } .d-head strong { display: block; }
@@ -262,6 +277,7 @@ export class CheckoutsComponent implements OnInit {
   fCobro: string | null = null;
   fCollab: string | null = null;
   fRoom: string | null = null;
+  fGuest = '';
   readonly shiftOpts = [{ label: 'Todos', value: null }, { label: 'Mañana', value: 'MANANA' }, { label: 'Tarde', value: 'TARDE' }, { label: 'Noche', value: 'NOCHE' }];
   readonly estadoOpts = [{ label: 'Todos', value: null }, { label: 'A tiempo', value: 'ONTIME' }, { label: 'Con demora', value: 'LATE' }];
   readonly cobroOpts = [{ label: 'Todos', value: null }, { label: 'Cobrado', value: 'PAID' }, { label: 'No cobrado', value: 'UNPAID' }];
@@ -276,6 +292,11 @@ export class CheckoutsComponent implements OnInit {
   ngOnInit(): void { this.load(); }
 
   setDone(): void { this.tab.set('DONE'); if (!this.doneLoaded) { this.doneLoaded = true; this.loadDone(1); } }
+
+  pct(n: number, base: number): number { return base > 0 ? Math.round((n / base) * 100) : 0; }
+  chargeBase(): number { return this.ind().charged + this.ind().notCharged; }
+  rangeFrom(): number { return this.doneTotal() === 0 ? 0 : (this.donePage() - 1) * this.pageSize + 1; }
+  rangeTo(): number { return Math.min(this.donePage() * this.pageSize, this.doneTotal()); }
 
   /** Info de tiempo restante / demora respecto a la salida prevista. */
   ti(planned: string): { late: boolean; text: string } {
@@ -308,6 +329,7 @@ export class CheckoutsComponent implements OnInit {
     if (this.fCobro) params['cobro'] = this.fCobro;
     if (this.fCollab) params['collaboratorId'] = this.fCollab;
     if (this.fRoom) params['roomId'] = this.fRoom;
+    if (this.fGuest.trim()) params['guest'] = this.fGuest.trim();
     this.http.get<ApiResponse<HistoryData>>(`${this.api}/stays/checkout-history`, { params }).subscribe({
       next: (res) => {
         const d = res.data;
@@ -324,7 +346,7 @@ export class CheckoutsComponent implements OnInit {
 
   clearDone(): void {
     this.fFrom = ymd(new Date(Date.now() - 29 * 86400000)); this.fTo = ymd(new Date());
-    this.fShift = null; this.fEstado = null; this.fCobro = null; this.fCollab = null; this.fRoom = null;
+    this.fShift = null; this.fEstado = null; this.fCobro = null; this.fCollab = null; this.fRoom = null; this.fGuest = '';
     this.loadDone(1);
   }
 

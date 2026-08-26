@@ -104,6 +104,7 @@ export const staysController = {
       cobro: str(q.cobro),
       collaboratorId: str(q.collaboratorId),
       roomId: str(q.roomId),
+      guest: str(q.guest),
     });
     res.status(200).json(ok({ items, indicators, collaborators, rooms }, meta));
   },
