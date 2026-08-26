@@ -21,10 +21,11 @@ export const invoicesRepository = {
     return prisma.invoice.findUnique({ where: { id }, include });
   },
 
-  /** Reserves a folio and creates the invoice atomically. */
+  /** Reserves a folio and creates the invoice (+ its lines) atomically. */
   issue(data: {
     branchId: string;
     saleId: string | null;
+    stayId: string | null;
     type: string;
     customerName: string;
     customerDoc: string | null;
@@ -33,13 +34,15 @@ export const invoicesRepository = {
     taxAmount: number;
     total: number;
     createdByUserId: string;
+    lines: { saleItemId: string | null; concept: string | null; description: string; quantity: number; amount: number }[];
   }) {
     return prisma.$transaction(async (tx) => {
       const folio = await consumeFolio(tx, data.branchId, data.type);
-      return tx.invoice.create({
+      const invoice = await tx.invoice.create({
         data: {
           branchId: data.branchId,
           saleId: data.saleId,
+          stayId: data.stayId,
           type: data.type,
           series: folio.series,
           number: folio.number,
@@ -55,6 +58,21 @@ export const invoicesRepository = {
         },
         include,
       });
+      if (data.lines.length > 0) {
+        await tx.invoiceLine.createMany({
+          data: data.lines.map((l) => ({
+            branchId: data.branchId,
+            invoiceId: invoice.id,
+            saleItemId: l.saleItemId,
+            stayId: data.stayId,
+            concept: l.concept,
+            description: l.description,
+            quantity: l.quantity,
+            amount: l.amount,
+          })),
+        });
+      }
+      return invoice;
     });
   },
 

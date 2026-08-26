@@ -945,6 +945,8 @@ model Invoice {
   taxAmount      Decimal  @db.Decimal(10, 2) // IGV
   total          Decimal  @db.Decimal(10, 2)
   status         String   @default("ISSUED") // ISSUED | VOIDED
+  stayId         String? // estancia/folio de origen (trazabilidad comprobante → folio)
+  masterFolioId  String? // folio maestro que agrupó la facturación (cuando aplique)
   providerStatus String? // estado del PSE (mock)
   providerRef    String? // referencia del PSE (mock)
   issuedAt       DateTime @default(now())
@@ -952,11 +954,35 @@ model Invoice {
 
   branch Branch            @relation(fields: [branchId], references: [id], onDelete: Cascade)
   notes  CreditDebitNote[]
+  lines  InvoiceLine[]
 
   @@unique([branchId, series, number])
   @@index([branchId])
   @@index([status])
   @@index([type])
+  @@index([stayId])
+  @@index([masterFolioId])
+}
+
+/// Línea facturada: puente comprobante ↔ línea de origen (SaleItem) para facturación parcial/selectiva.
+model InvoiceLine {
+  id          String   @id @default(uuid())
+  branchId    String
+  invoiceId   String
+  saleItemId  String? // línea de venta de origen (null = concepto sintético, p. ej. hospedaje)
+  stayId      String? // estancia de origen
+  concept     String? // HOSPEDAJE | RENOVACION | PRODUCTO | SERVICIO | PENALIDAD
+  description String
+  quantity    Int      @default(1)
+  amount      Decimal  @db.Decimal(10, 2)
+  createdAt   DateTime @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@index([stayId])
+  @@index([saleItemId])
+  @@index([branchId])
 }
 
 /// Nota de Crédito/Débito sobre un comprobante.

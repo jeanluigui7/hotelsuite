@@ -361,6 +361,23 @@ export const staysService = {
     const limit = 20;
     const exceeded = ratio > limit;
 
+    // Estado de facturación (Etapa 4): comprobantes emitidos ligados a la estancia
+    // (por stayId directo o por saleId de sus ventas). Deriva Pendiente / Parcial / Facturado.
+    const saleIds = sales.map((s) => s.id);
+    const stayInvoices = await prisma.invoice.findMany({
+      where: { branchId, status: 'ISSUED', OR: [{ stayId: id }, ...(saleIds.length ? [{ saleId: { in: saleIds } }] : [])] },
+      select: { series: true, number: true, total: true, type: true, issuedAt: true },
+      orderBy: { issuedAt: 'asc' },
+    });
+    const invoicedAmount = round2(stayInvoices.reduce((a, inv) => a + Number(inv.total), 0));
+    const billingStatus = invoicedAmount <= 0 ? 'PENDIENTE' : invoicedAmount + 0.01 >= total ? 'FACTURADO' : 'PARCIAL';
+    const billing = {
+      status: billingStatus,
+      invoicedAmount,
+      pending: round2(Math.max(0, total - invoicedAmount)),
+      invoices: stayInvoices.map((inv) => ({ folio: `${inv.series}-${inv.number}`, type: inv.type, total: Number(inv.total), at: inv.issuedAt })),
+    };
+
     return {
       folio: { code: stay.folioCode ?? `FP-${stay.id.slice(0, 6).toUpperCase()}`, status: stay.status === 'OPEN' ? 'Activa' : 'Cerrada' },
       guest: { name: `${stay.guest.firstName} ${stay.guest.lastName ?? ''}`.trim(), documentNumber: stay.guest.documentNumber, phone: stay.guest.phone },
@@ -370,6 +387,7 @@ export const staysService = {
       durationMinutes: stay.durationMinutes,
       renewals: renewalCount > 0 ? renewalCount : (renovaciones > 0 ? Math.max(1, Math.round(renovaciones / (habitacion || 1))) : 0),
       amounts: { habitacion, renovaciones, consumos: round2(consumos), total, paid },
+      billing,
       cleaning: { done: cleaningDone, allowed: cleaningAllowed, possible: cleaningPossible, status: stay.renewalCleaningStatus, pernocta: stay.durationMinutes >= 1440 },
       cleaningLog,
       movements,

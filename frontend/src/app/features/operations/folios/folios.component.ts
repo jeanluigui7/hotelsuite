@@ -31,6 +31,7 @@ interface FolioDetail {
   plannedCheckoutAt: string;
   durationMinutes: number;
   amounts: { habitacion: number; renovaciones: number; consumos: number; total: number; paid: number };
+  billing: { status: 'PENDIENTE' | 'PARCIAL' | 'FACTURADO'; invoicedAmount: number; pending: number; invoices: { folio: string; type: string; total: number; at: string }[] };
   movements: { at: string; type: string; description: string; charge: number; payment: number; balance: number; by: string }[];
   products: { name: string; quantity: number; amount: number; at: string; paid: boolean }[];
 }
@@ -112,6 +113,17 @@ const STATUS_LABEL: Record<string, string> = { OPEN: 'Activa', CLOSED: 'Cerrada'
           <div><span class="l">Salida prevista</span><strong>{{ d.plannedCheckoutAt | date: 'dd/MM/yyyy HH:mm' }}</strong></div>
         </div>
 
+        <div class="bill">
+          <span class="bl">Facturación:</span>
+          <span class="bchip" [class.fact]="d.billing.status === 'FACTURADO'" [class.parc]="d.billing.status === 'PARCIAL'">{{ billLabel(d.billing.status) }}</span>
+          @if (canSeeAmounts()) {
+            <span class="bsub">Facturado S/ {{ d.billing.invoicedAmount | number: '1.2-2' }} · Pendiente S/ {{ d.billing.pending | number: '1.2-2' }}</span>
+          }
+          @if (d.billing.invoices.length) {
+            <span class="binv">@for (v of d.billing.invoices; track v.folio) { <span class="vtag">{{ v.type === 'FACTURA' ? 'F' : 'B' }} {{ v.folio }}@if (canSeeAmounts()) { · S/ {{ v.total | number: '1.2-2' }} }</span> }</span>
+          }
+        </div>
+
         @if (canSeeAmounts()) {
           <div class="d-cards">
             <div class="mc"><span>Hospedaje</span><strong>S/ {{ d.amounts.habitacion | number: '1.2-2' }}</strong></div>
@@ -175,6 +187,11 @@ const STATUS_LABEL: Record<string, string> = { OPEN: 'Activa', CLOSED: 'Cerrada'
       .d-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.6rem; }
       .mc { background: #131d2b; border: 1px solid #243245; border-radius: 10px; padding: 0.7rem; display: flex; flex-direction: column; gap: 0.2rem; } .mc.hl { border-color: #10b981; } .mc span { font-size: 0.72rem; color: #8aa0bd; } .mc strong { font-size: 1.05rem; color: #34d399; } .mc.neg strong { color: #f87171; }
       .tbl.inner th, .tbl.inner td { font-size: 0.8rem; padding: 0.4rem 0.6rem; } .pos { color: #34d399; }
+      .bill { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; background: #0e1622; border: 1px solid #1c2c44; border-radius: 10px; padding: 0.6rem 0.8rem; margin-bottom: 0.8rem; }
+      .bill .bl { font-size: 0.78rem; color: #8aa0bd; font-weight: 700; }
+      .bchip { background: rgba(245,158,11,0.18); color: #fbbf24; border-radius: 999px; padding: 0.12rem 0.7rem; font-size: 0.74rem; font-weight: 700; } .bchip.fact { background: rgba(16,185,129,0.2); color: #34d399; } .bchip.parc { background: rgba(59,130,246,0.2); color: #60a5fa; }
+      .bsub { font-size: 0.78rem; color: #cbd5e1; } .binv { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-left: auto; }
+      .vtag { background: #13243a; color: #a5b4fc; border-radius: 6px; padding: 0.1rem 0.5rem; font-size: 0.72rem; font-weight: 700; }
       .blind { display: flex; align-items: center; gap: 0.5rem; color: #93a4bd; background: #0e1622; border: 1px solid #1c2c44; border-radius: 10px; padding: 1rem; }
       :host ::ng-deep .fo-dialog .p-dialog-content, :host ::ng-deep .fo-dialog .p-dialog-header { background: #0e1622; color: #e6e9ef; }
       @media (max-width: 1000px) { .filters { grid-template-columns: repeat(2, 1fr); } .d-head { grid-template-columns: repeat(2, 1fr); } }
@@ -220,6 +237,7 @@ export class FoliosComponent implements OnInit {
 
   guestName(r: FolioRow): string { return r.guest ? `${r.guest.firstName} ${r.guest.lastName ?? ''}`.trim() : '—'; }
   statusLabel(s: string): string { return STATUS_LABEL[s] ?? s; }
+  billLabel(s: string): string { return s === 'FACTURADO' ? 'Facturado' : s === 'PARCIAL' ? 'Parcialmente facturado' : 'Pendiente de facturación'; }
 
   private loadRooms(): void {
     this.http.get<ApiResponse<RoomOpt[]>>(`${this.api}/rooms`, { params: { pageSize: '300' } }).subscribe({

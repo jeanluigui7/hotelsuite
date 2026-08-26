@@ -15,6 +15,14 @@ import type { IssueInvoiceDto } from './invoices.schema';
 
 const SORTABLE = ['issuedAt', 'total', 'type', 'status'] as const;
 
+/** Clasifica una línea de venta en un concepto de facturación (etiqueta del snapshot). */
+function conceptOfLine(desc: string, productId: string | null): string {
+  if (/penalidad|multa|mora|tardanza|da[ñn]o|rotura/i.test(desc)) return 'PENALIDAD';
+  if (/renovaci|tiempo extra|extensi/i.test(desc)) return 'RENOVACION';
+  if (!productId && /^tarifa[:\s]|pernocta|hospedaje|early|d[ií]a hotelero/i.test(desc)) return 'HOSPEDAJE';
+  return productId ? 'PRODUCTO' : 'SERVICIO';
+}
+
 function serialize(inv: InvoiceWithRelations) {
   return {
     id: inv.id,
@@ -42,11 +50,22 @@ export const invoicesService = {
     const branchId = requireActiveBranch(scope);
 
     let total = dto.total ?? 0;
+    let stayId: string | null = null;
+    let lines: { saleItemId: string | null; concept: string | null; description: string; quantity: number; amount: number }[] = [];
     if (dto.saleId) {
-      const sale = await prisma.sale.findUnique({ where: { id: dto.saleId } });
+      const sale = await prisma.sale.findUnique({ where: { id: dto.saleId }, include: { items: true } });
       if (!sale || sale.branchId !== branchId) throw new ValidationError('Venta inválida');
       if (sale.status === 'CANCELLED') throw new ValidationError('No se puede facturar una venta anulada');
       total = Number(sale.total);
+      stayId = sale.stayId ?? null;
+      // Snapshot de líneas facturadas (habilita facturación por concepto y trazabilidad).
+      lines = sale.items.map((it) => ({
+        saleItemId: it.id,
+        concept: conceptOfLine(it.description, it.productId),
+        description: it.description,
+        quantity: it.quantity,
+        amount: Number(it.subtotal),
+      }));
     }
     if (total <= 0) throw new ValidationError('El total debe ser mayor a cero');
 
@@ -57,6 +76,7 @@ export const invoicesService = {
       invoice = await invoicesRepository.issue({
         branchId,
         saleId: dto.saleId ?? null,
+        stayId,
         type: dto.type,
         customerName: dto.customerName,
         customerDoc: dto.customerDoc || null,
@@ -65,6 +85,7 @@ export const invoicesService = {
         taxAmount,
         total,
         createdByUserId: scope.userId,
+        lines,
       });
     } catch (err) {
       if (err instanceof Error && err.message.startsWith('NO_FOLIO_SERIES')) {
