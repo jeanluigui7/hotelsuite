@@ -823,6 +823,40 @@ export const staysService = {
   },
 
   /**
+   * Backfill (una sola vez, superadmin): reconstruye el `lateCharge` de las estancias día-hotelero
+   * ya cerradas con demora (el cargo que históricamente se sumaba al adeudo pero no se guardaba
+   * por separado). El colaborador no es recuperable → permanece en NULL ("—" en el historial).
+   */
+  async backfillCheckoutCharges(scope: RequestScope) {
+    if (!scope.isSuperAdmin) throw new ConflictError('Solo el superadministrador puede ejecutar el backfill.');
+    const branches = await prisma.branch.findMany({ select: { id: true } });
+    let scanned = 0;
+    let updated = 0;
+    for (const b of branches) {
+      const rateSetting = await prisma.setting.findUnique({ where: { branchId_key: { branchId: b.id, key: 'pernocta.lateRatePerHour' } } });
+      const rate = rateSetting?.value != null ? Number(rateSetting.value) : 0;
+      if (!(rate > 0)) continue; // sin tarifa de demora configurada no hay cargo que reconstruir
+      const stays = await prisma.stay.findMany({
+        where: { branchId: b.id, status: 'CLOSED', checkOutAt: { not: null }, durationMinutes: { gte: 1440 }, lateCharge: null },
+        select: { id: true, plannedCheckoutAt: true, checkOutAt: true },
+      });
+      for (const s of stays) {
+        scanned++;
+        const real = s.checkOutAt as Date;
+        const diffMs = real.getTime() - s.plannedCheckoutAt.getTime();
+        if (diffMs <= 0) continue;
+        const lateHours = Math.ceil(diffMs / 3_600_000);
+        const lateCharge = round2(lateHours * rate);
+        if (lateCharge > 0) {
+          await prisma.stay.update({ where: { id: s.id }, data: { lateCharge } });
+          updated++;
+        }
+      }
+    }
+    return { branches: branches.length, scanned, updated };
+  },
+
+  /**
    * Historial de check-outs realizados (pestaña "Finalizados"), con filtros e indicadores.
    * Estado "cobro": para salidas con demora, se considera COBRADO cuando la estancia no
    * conserva adeudo pendiente (balanceDue <= 0); NO COBRADO si aún hay saldo.

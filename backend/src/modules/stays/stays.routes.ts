@@ -13,6 +13,7 @@ staysRouter.get('/stays', requirePermission('operations', 'view'), asyncHandler(
 staysRouter.get('/stays/history', requirePermission('operations', 'view'), asyncHandler(staysController.history));
 staysRouter.get('/stays/folios', requirePermission('operations', 'view'), asyncHandler(staysController.folios));
 staysRouter.get('/stays/checkout-history', requirePermission('operations', 'view'), asyncHandler(staysController.checkoutHistory));
+staysRouter.post('/stays/checkout-backfill', requirePermission('settings', 'edit'), asyncHandler(staysController.checkoutBackfill));
 staysRouter.get('/stays/:id', requirePermission('operations', 'view'), asyncHandler(staysController.getById));
 staysRouter.get('/stays/:id/checkout-summary', requirePermission('operations', 'view'), asyncHandler(staysController.checkoutSummary));
 staysRouter.post('/stays/check-in', requirePermission('operations', 'create'), asyncHandler(staysController.checkIn));

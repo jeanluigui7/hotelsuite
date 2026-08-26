@@ -91,6 +91,11 @@ export const staysController = {
     res.status(200).json(ok(items, meta));
   },
 
+  async checkoutBackfill(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await staysService.backfillCheckoutCharges(req.scope)));
+  },
+
   async checkoutHistory(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const params = paginationSchema.parse(req.query);
