@@ -37,6 +37,9 @@ const SEGMENT_LABELS: Record<string, string> = {
         <button type="button" class="menu-btn" (click)="layout.toggleMenu()">
           <i class="pi pi-bars"></i><span>Menú</span>
         </button>
+        <button type="button" class="icon-btn home" (click)="goHome()" pTooltip="Ir al Dashboard" tooltipPosition="bottom">
+          <i class="pi pi-home"></i>
+        </button>
         <nav class="crumbs">
           @for (c of crumbs(); track c; let last = $last) {
             <span class="crumb" [class.last]="last">{{ c }}</span>
@@ -200,6 +203,8 @@ export class TopbarComponent {
   private prettify(seg: string): string {
     return seg.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   }
+
+  goHome(): void { this.router.navigateByUrl('/dashboard'); }
 
   logout(): void {
     this.auth.logout().subscribe({

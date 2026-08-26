@@ -8,6 +8,10 @@ const routes: Routes = [
     loadComponent: () => import('./cajas/cash.component').then((m) => m.CashComponent),
   },
   {
+    path: 'cajas/:id/movimientos',
+    loadComponent: () => import('./cajas/movimientos-page.component').then((m) => m.CashMovementsPageComponent),
+  },
+  {
     path: 'pagos',
     loadComponent: () => import('./pagos/sales.component').then((m) => m.SalesComponent),
   },

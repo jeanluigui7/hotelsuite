@@ -111,7 +111,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
                 </td>
                 <td class="ac">
                   <button class="mini" (click)="viewCuadre(s)"><i class="pi pi-print"></i> Ver</button>
-                  @if (canSeeCuadre() && canEdit) { <button class="mini" (click)="openDetail(s)">Movimientos</button> }
+                  @if (canSeeCuadre() && canEdit) { <button class="mini" (click)="openMovements(s)">Movimientos</button> }
                   @if (s.status === 'OPEN' && canEdit) { <button class="mini close" (click)="openCloseDialog(s)">Cerrar</button> }
                 </td>
               </tr>
@@ -587,7 +587,10 @@ export class CashComponent implements OnInit {
     });
   }
 
-  // ── Detalle ──
+  /** Abre los MOVIMIENTOS de la caja en una pestaña nueva (el listado queda intacto). */
+  openMovements(row: CashSessionRow): void { window.open(`/finance/cajas/${row.id}/movimientos`, '_blank'); }
+
+  // ── Detalle (modal antiguo; conservado por compatibilidad) ──
   openDetail(row: CashSessionRow): void {
     this.detailRow = row; this.detail.set(null); this.typeFilter = ''; this.methodFilter = ''; this.recon.set(null);
     this.detailVisible = true; this.detailLoading.set(true);
