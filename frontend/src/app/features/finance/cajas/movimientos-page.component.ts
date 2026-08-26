@@ -14,6 +14,7 @@ import type { ApiResponse } from '../../../core/models/api-response.model';
 import { AuthService } from '../../../core/auth/auth.service';
 import { FinanceApiService } from '../services/finance-api.service';
 import type { CashDetail, CashDetailMovement } from '../services/finance.models';
+import { buildCuadreTicket } from '../services/cuadre-ticket';
 
 interface ReconItem { id: string; at: string; type: string; amount: number; affectsCash: boolean; quantity: number | null; note: string | null; by: string | null; approvedBy: string | null; }
 interface ReconSummary { expected: number | null; declared: number | null; originalDifference: number; pendingDifference: number; reconciliations: ReconItem[]; }
@@ -40,7 +41,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
             <p class="turno">Turno: {{ d.session.openedAt | date: 'dd/MM/yyyy HH:mm' }} — {{ d.session.closedAt ? (d.session.closedAt | date: 'dd/MM/yyyy HH:mm') : 'En curso' }} · {{ d.session.openedByName }}</p>
           </div>
           <div class="dactions">
-            <button class="mini" (click)="download(d)"><i class="pi pi-download"></i> Descargar</button>
+            <button class="mini" (click)="verCuadre(d)"><i class="pi pi-print"></i> Ver</button>
             @if (d.session.status === 'CLOSED' && canEdit) { <button class="mini warn" (click)="reopen(d.session.id)"><i class="pi pi-replay"></i> Reabrir</button> }
           </div>
         </header>
@@ -308,17 +309,10 @@ export class CashMovementsPageComponent implements OnInit {
     });
   }
 
-  download(d: CashDetail): void {
-    const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
-    const lines: string[] = [esc(`Caja #${d.session.number ?? ''} (${d.session.status})`), [esc('Hora'), esc('Tipo'), esc('Descripción'), esc('Monto'), esc('Método'), esc('Estado')].join(',')];
-    for (const m of d.movements) {
-      const t = new Date(m.time);
-      const hh = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
-      lines.push([esc(hh), esc(this.typeLabel(m.type)), esc(m.description), esc(m.amount.toFixed(2)), esc(this.methodLabel(m.method)), esc(m.status)].join(','));
-    }
-    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `caja-${d.session.number ?? d.session.id}.csv`; a.click();
-    URL.revokeObjectURL(url);
+  /** Igual que el botón "Ver" de Finanzas › Cajas: abre el cuadre imprimible en una pestaña nueva. */
+  verCuadre(d: CashDetail): void {
+    const w = window.open('', '_blank');
+    if (!w) { this.messages.add({ severity: 'warn', summary: 'Ventana bloqueada', detail: 'Permite ventanas emergentes para ver/imprimir el cuadre.' }); return; }
+    w.document.open(); w.document.write(buildCuadreTicket(d)); w.document.close();
   }
 }
