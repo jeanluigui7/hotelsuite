@@ -5,6 +5,7 @@ import { ValidationError, NotFoundError, ConflictError } from '../../shared/erro
 import { prisma } from '../../config/prisma';
 import { applyStockTx, createMovementTx } from '../movements/movements.repository';
 import { cashRepository } from '../cash/cash.repository';
+import { requiresReference, PAYMENT_REFERENCE_REQUIRED } from '../../shared/payments';
 
 /**
  * Regularizaciones posteriores a un cierre de caja CONFIRMADO. Reglas:
@@ -38,17 +39,23 @@ export type AttributeLossDto = z.infer<typeof attributeLossSchema>;
 //  - NO_COBRADA: el producto salió sin cobrar (incidencia del colaborador; NO descuenta sueldo aún).
 //  - POR_VERIFICAR: pendiente de revisión de administración.
 export const unregisteredSaleV2Schema = z.object({
-  sessionId: z.string().min(1).optional(), // caja a la que se relaciona (default: caja abierta)
+  sessionId: z.string().min(1).optional(), // caja/turno de origen (default: caja abierta)
   productId: z.string().min(1),
   warehouseId: z.string().min(1),
   quantity: z.coerce.number().int().positive(),
   unitPrice: z.coerce.number().positive(),
   classification: z.enum(['COBRADA', 'NO_COBRADA', 'POR_VERIFICAR']),
   method: z.enum(['CASH', 'CARD', 'TRANSFER', 'YAPE', 'PLIN', 'WALLET']).optional(),
+  reference: z.string().max(120).optional().or(z.literal('')), // código de verificación/operación
   roomId: z.string().min(1).optional(),
   stayId: z.string().min(1).optional(),
   note: z.string().max(500).optional().or(z.literal('')),
-}).refine((v) => v.classification !== 'COBRADA' || !!v.method, { message: 'Indica el medio de pago con el que se cobró', path: ['method'] });
+})
+  .refine((v) => v.classification !== 'COBRADA' || !!v.method, { message: 'Indica el medio de pago con el que se cobró', path: ['method'] })
+  // Solo COBRADA con medio virtual exige el código; NO_COBRADA / POR_VERIFICAR no piden medio ni código.
+  .refine((v) => !(v.classification === 'COBRADA' && v.method && requiresReference(v.method)) || !!(v.reference && v.reference.trim()), {
+    message: PAYMENT_REFERENCE_REQUIRED, path: ['reference'],
+  });
 export type UnregisteredSaleV2Dto = z.infer<typeof unregisteredSaleV2Schema>;
 
 const VERIFY_STATUS: Record<UnregisteredSaleV2Dto['classification'], string> = {
@@ -142,10 +149,13 @@ export const reconciliationsService = {
 
   /**
    * VENTA NO REGISTRADA (desde Kardex → Ajuste): crea una venta marcada (unregistered) como fuente
-   * única, para que aparezca en MOVIMIENTOS y en las tarjetas sin duplicar lógica.
-   *  - No crea Payment (el efectivo, si se cobró, ya está en el cajón/sobrante) → no duplica caja.
-   *  - COBRADA sobre caja CERRADA con sobrante: crea CashReconciliation(affectsCash) para conciliar.
-   *  - Caja CERRADA: la marca AJUSTADA y deja huella CashIntervention(UNREGISTERED_SALE).
+   * única, en la CAJA/TURNO seleccionado (histórico o abierto), sin crear una segunda caja, sin
+   * reabrirla y sin alterar su fecha/turno original.
+   *  - COBRADA: crea un Payment con el medio y (si es virtual) el código de verificación → el dinero
+   *    queda reflejado en el método del turno y el código auditable. NO_COBRADA / POR_VERIFICAR no
+   *    generan Payment (quedan como deuda / pendiente de revisión).
+   *  - Si la caja estaba CERRADA pasa a AJUSTADA (conservando su cierre) y deja huella
+   *    CashIntervention(UNREGISTERED_SALE). Si ya estaba AJUSTADA, permanece AJUSTADA.
    */
   async unregisteredSaleV2(scope: RequestScope, dto: UnregisteredSaleV2Dto) {
     const branchId = requireActiveBranch(scope);
@@ -172,39 +182,33 @@ export const reconciliationsService = {
         adjustType: 'VENTA_NO_REGISTRADA', cashSessionId: session.id, roomId: dto.roomId ?? null,
         createdByUserId: scope.userId, approvedByUserId: dto.classification === 'POR_VERIFICAR' ? null : scope.userId,
       });
+      const cobrada = dto.classification === 'COBRADA';
       const sale = await tx.sale.create({
         data: {
           branchId, stayId: dto.stayId ?? null, cashSessionId: session.id,
-          total, status: dto.classification === 'COBRADA' ? 'PAID' : 'OPEN',
+          total, status: cobrada ? 'PAID' : 'OPEN',
           unregistered: true, verifyStatus, customerName: noteBase, createdByUserId: scope.userId,
           items: { create: [{ productId: dto.productId, description: noteBase, quantity: dto.quantity, unitPrice: dto.unitPrice, unitCost, subtotal: total }] },
+          // COBRADA: registra el pago con su medio y código (si es virtual) en el turno de origen.
+          ...(cobrada && dto.method
+            ? { payments: { create: [{ branchId, method: dto.method, amount: total, reference: dto.reference?.trim() || null, cashSessionId: session.id, createdByUserId: scope.userId }] } }
+            : {}),
         },
       });
-      // COBRADA sobre caja cerrada con sobrante: concilia la diferencia (reduce el sobrante).
-      let reconciliationId: string | null = null;
-      if (dto.classification === 'COBRADA' && session.status !== 'OPEN') {
-        const rec = await tx.cashReconciliation.create({
-          data: {
-            branchId, cashSessionId: session.id, type: 'VENTA_NO_REGISTRADA', amount: total, affectsCash: true,
-            productId: dto.productId, quantity: dto.quantity, movementId: mv.id, note: noteBase,
-            createdByUserId: scope.userId, approvedByUserId: scope.userId,
-          },
-        });
-        reconciliationId = rec.id;
-      }
-      // Huella de auditoría + marca AJUSTADA si la caja ya estaba cerrada.
+      // Si la caja estaba CERRADA pasa a AJUSTADA (conserva su cierre) con huella de auditoría.
+      // Si ya estaba AJUSTADA, permanece AJUSTADA (el updateMany solo afecta CLOSED).
       if (session.status !== 'OPEN') {
         await tx.cashIntervention.create({
           data: {
             branchId, cashSessionId: session.id, type: 'UNREGISTERED_SALE', targetKind: 'SALE', targetId: sale.id,
             beforeJson: null,
-            afterJson: JSON.stringify({ productId: dto.productId, quantity: dto.quantity, total, classification: dto.classification }),
+            afterJson: JSON.stringify({ productId: dto.productId, quantity: dto.quantity, total, classification: dto.classification, method: cobrada ? dto.method : null }),
             reason: noteBase, createdByUserId: scope.userId,
           },
         });
         await tx.cashSession.updateMany({ where: { id: session.id, status: 'CLOSED' }, data: { status: 'AJUSTADA' } });
       }
-      return { saleId: sale.id, movementId: mv.id, reconciliationId };
+      return { saleId: sale.id, movementId: mv.id };
     }).catch((err) => {
       if (err instanceof Error && err.message === 'STOCK_INSUFFICIENT') throw new ValidationError('Stock insuficiente para descontar el producto');
       throw err as Error;

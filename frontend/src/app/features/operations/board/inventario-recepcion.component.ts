@@ -139,13 +139,19 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
           <p-select [options]="warehouses()" optionLabel="name" optionValue="id" [(ngModel)]="adjForm.toWarehouseId" placeholder="Elegir almacén" appendTo="body" styleClass="w" />
         }
         @if (adjForm.kind === 'VENTA_NO_REGISTRADA') {
+          <label>Caja / turno de origen</label>
+          <p-select [options]="cajaOpts()" optionLabel="label" optionValue="value" [(ngModel)]="adjForm.sessionId" [filter]="true" filterBy="label" placeholder="Elegir la caja donde ocurrió" appendTo="body" styleClass="w" [loading]="cajasLoading()" />
           <label>Precio unitario (S/)</label>
           <p-inputNumber [(ngModel)]="adjForm.unitPrice" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
           <label>Clasificación del cobro</label>
           <p-select [options]="vnrClassOpts" optionLabel="label" optionValue="value" [(ngModel)]="adjForm.classification" appendTo="body" styleClass="w" />
           @if (adjForm.classification === 'COBRADA') {
             <label>Medio de pago</label>
-            <p-select [options]="vnrMethodOpts" optionLabel="label" optionValue="value" [(ngModel)]="adjForm.method" appendTo="body" styleClass="w" />
+            <p-select [options]="vnrMethodOpts" optionLabel="label" optionValue="value" [(ngModel)]="adjForm.method" (onChange)="onVnrMethodChange()" appendTo="body" styleClass="w" />
+            @if (vnrNeedsCode()) {
+              <label>Código de verificación / operación</label>
+              <input pInputText [(ngModel)]="adjForm.verifyCode" placeholder="N° de operación (obligatorio)" />
+            }
           }
         }
         <label>Motivo / observación</label>
@@ -157,7 +163,7 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
             @case ('MERMA') { <i class="pi pi-info-circle"></i> Producto perdido/dañado (baja definitiva, no mueve caja). }
             @case ('FALTANTE') { <i class="pi pi-info-circle"></i> Diferencia (sistema > físico) pendiente de revisión. No genera venta ni descuento. }
             @case ('TRANSFER') { <i class="pi pi-info-circle"></i> Transferencia interna entre almacenes (p. ej. Recepción ↔ Productos-Limpieza). }
-            @case ('VENTA_NO_REGISTRADA') { <i class="pi pi-info-circle"></i> Descuenta el producto y crea la venta en la caja del turno. Cobrada = regularizada; No cobrada = queda como deuda del turno; Por verificar = pendiente de revisión. }
+            @case ('VENTA_NO_REGISTRADA') { <i class="pi pi-info-circle"></i> Descuenta el producto y registra la venta no registrada en la caja/turno seleccionado. Si la caja estaba cerrada, quedará como AJUSTADA (conserva su cierre). Cobrada = regularizada; No cobrada = deuda del turno; Por verificar = pendiente de revisión. }
           }
         </p>
       </div>
@@ -324,7 +330,11 @@ export class InventarioRecepcionComponent implements OnInit {
   readonly warehouses = signal<WhOpt[]>([]);
   adjVisible = false;
   adjItem: InvItem | null = null;
-  adjForm: { kind: 'SOBRANTE' | 'VENCIDO' | 'MERMA' | 'FALTANTE' | 'TRANSFER' | 'VENTA_NO_REGISTRADA'; quantity: number; reference: string; toWarehouseId: string | null; classification: 'COBRADA' | 'NO_COBRADA' | 'POR_VERIFICAR'; unitPrice: number | null; method: string } = { kind: 'SOBRANTE', quantity: 1, reference: '', toWarehouseId: null, classification: 'COBRADA', unitPrice: null, method: 'CASH' };
+  adjForm: { kind: 'SOBRANTE' | 'VENCIDO' | 'MERMA' | 'FALTANTE' | 'TRANSFER' | 'VENTA_NO_REGISTRADA'; quantity: number; reference: string; toWarehouseId: string | null; classification: 'COBRADA' | 'NO_COBRADA' | 'POR_VERIFICAR'; unitPrice: number | null; method: string; sessionId: string | null; verifyCode: string } = { kind: 'SOBRANTE', quantity: 1, reference: '', toWarehouseId: null, classification: 'COBRADA', unitPrice: null, method: 'CASH', sessionId: null, verifyCode: '' };
+  // Cajas/turnos seleccionables para "Venta no registrada" (abiertas, cerradas y ajustadas).
+  readonly cajas = signal<{ id: string; number: number | null; status: string; openedAt: string; closedAt: string | null; openedByName: string }[]>([]);
+  readonly cajasLoading = signal(false);
+  readonly cajaOpts = computed(() => this.cajas().map((c) => ({ value: c.id, label: this.cajaLabel(c) })));
   readonly adjKinds = [
     { label: 'Sobrante (regresa a Almacén General)', value: 'SOBRANTE' },
     { label: 'Vencido', value: 'VENCIDO' },
@@ -412,12 +422,41 @@ export class InventarioRecepcionComponent implements OnInit {
 
   openAdjust(it: InvItem): void {
     this.adjItem = it;
-    this.adjForm = { kind: 'SOBRANTE', quantity: 1, reference: '', toWarehouseId: null, classification: 'COBRADA', unitPrice: null, method: 'CASH' };
+    this.adjForm = { kind: 'SOBRANTE', quantity: 1, reference: '', toWarehouseId: null, classification: 'COBRADA', unitPrice: null, method: 'CASH', sessionId: null, verifyCode: '' };
     if (!this.warehouses().length) {
       this.http.get<ApiResponse<WhOpt[]>>(`${this.api}/warehouses`, { params: { pageSize: '100' } }).subscribe((r) => this.warehouses.set(r.data ?? []));
     }
+    this.loadCajas();
     this.adjVisible = true;
   }
+
+  /** Carga cajas seleccionables (abiertas, cerradas y ajustadas) para "Venta no registrada". */
+  private loadCajas(): void {
+    this.cajasLoading.set(true);
+    this.http.get<ApiResponse<{ id: string; number: number | null; status: string; openedAt: string; closedAt: string | null; openedByName: string }[]>>(`${this.api}/cash/sessions`, { params: { pageSize: '50' } }).subscribe({
+      next: (r) => {
+        const list = r.data ?? [];
+        this.cajas.set(list);
+        // Default: la caja abierta actual (si hay); si no, no fuerza selección (se elige la histórica).
+        const open = list.find((c) => c.status === 'OPEN');
+        this.adjForm.sessionId = open?.id ?? null;
+        this.cajasLoading.set(false);
+      },
+      error: () => this.cajasLoading.set(false),
+    });
+  }
+
+  private readonly dp = new DatePipe('es-PE');
+  cajaLabel(c: { number: number | null; status: string; openedAt: string; closedAt: string | null; openedByName: string }): string {
+    const est = c.status === 'OPEN' ? 'Abierta' : c.status === 'AJUSTADA' ? 'Ajustada' : 'Cerrada';
+    const ini = this.dp.transform(c.openedAt, 'dd/MM HH:mm') ?? '';
+    const fin = c.closedAt ? (this.dp.transform(c.closedAt, 'HH:mm') ?? '') : '—';
+    return `Caja #${c.number ?? '—'} · ${ini}–${fin} · ${c.openedByName} · ${est}`;
+  }
+
+  /** Regla general: los medios distintos de efectivo requieren código de verificación. */
+  vnrNeedsCode(): boolean { return this.adjForm.classification === 'COBRADA' && this.adjForm.method !== 'CASH'; }
+  onVnrMethodChange(): void { if (this.adjForm.method === 'CASH') this.adjForm.verifyCode = ''; }
 
   // ── Pérdida atribuida al colaborador (reclasifica un FALTANTE; solo administración) ──
   attrVisible = false;
@@ -452,15 +491,21 @@ export class InventarioRecepcionComponent implements OnInit {
     if (!this.adjForm.quantity || this.adjForm.quantity < 1) { this.toast.add({ severity: 'warn', summary: 'Cantidad', detail: 'Indica una cantidad válida.' }); return; }
     if (this.adjForm.kind === 'TRANSFER' && !this.adjForm.toWarehouseId) { this.toast.add({ severity: 'warn', summary: 'Destino', detail: 'Elige el almacén destino.' }); return; }
 
-    // Venta no registrada: crea la venta marcada en la caja del turno (fuente única).
+    // Venta no registrada: crea la venta marcada en la CAJA/TURNO seleccionado (fuente única).
     if (this.adjForm.kind === 'VENTA_NO_REGISTRADA') {
+      if (!this.adjForm.sessionId) { this.toast.add({ severity: 'warn', summary: 'Caja', detail: 'Elige la caja/turno de origen.' }); return; }
       if (!this.adjForm.unitPrice || this.adjForm.unitPrice <= 0) { this.toast.add({ severity: 'warn', summary: 'Precio', detail: 'Indica el precio unitario.' }); return; }
+      if (this.vnrNeedsCode() && !this.adjForm.verifyCode.trim()) { this.toast.add({ severity: 'warn', summary: 'Código', detail: 'Ingresa el código de verificación del pago.' }); return; }
       this.busy.set(true);
       const vnr: Record<string, unknown> = {
+        sessionId: this.adjForm.sessionId,
         productId: it.productId, warehouseId: this.whId(), quantity: this.adjForm.quantity, unitPrice: this.adjForm.unitPrice,
         classification: this.adjForm.classification, note: this.adjForm.reference || undefined,
       };
-      if (this.adjForm.classification === 'COBRADA') vnr['method'] = this.adjForm.method;
+      if (this.adjForm.classification === 'COBRADA') {
+        vnr['method'] = this.adjForm.method;
+        if (this.vnrNeedsCode()) vnr['reference'] = this.adjForm.verifyCode.trim();
+      }
       this.http.post<ApiResponse<unknown>>(`${this.api}/reconciliation/unregistered-sale`, vnr).subscribe({
         next: () => { this.busy.set(false); this.adjVisible = false; this.toast.add({ severity: 'success', summary: 'Venta registrada', detail: `Venta no registrada · ${it.name}` }); this.reload(); },
         error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo registrar la venta.' }); },
