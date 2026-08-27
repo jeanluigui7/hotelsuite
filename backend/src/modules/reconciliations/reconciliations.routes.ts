@@ -5,7 +5,7 @@ import { tenant } from '../../middlewares/tenant.middleware';
 import { requirePermission } from '../../middlewares/rbac.middleware';
 import { ok } from '../../shared/response';
 import { UnauthorizedError } from '../../shared/errors';
-import { reconciliationsService, unregisteredSaleSchema, attributeLossSchema } from './reconciliations.service';
+import { reconciliationsService, unregisteredSaleSchema, unregisteredSaleV2Schema, attributeLossSchema } from './reconciliations.service';
 
 export const reconciliationsRouter = Router();
 
@@ -29,6 +29,17 @@ reconciliationsRouter.post(
     if (!req.scope) throw new UnauthorizedError();
     const dto = unregisteredSaleSchema.parse(req.body);
     res.status(201).json(ok(await reconciliationsService.unregisteredSale(req.scope, req.params.sessionId, dto)));
+  }),
+);
+
+// VENTA NO REGISTRADA desde el Kardex (COBRADA | NO_COBRADA | POR_VERIFICAR). Crea la venta marcada.
+reconciliationsRouter.post(
+  '/reconciliation/unregistered-sale',
+  requirePermission('finance', 'edit'),
+  asyncHandler(async (req, res) => {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = unregisteredSaleV2Schema.parse(req.body);
+    res.status(201).json(ok(await reconciliationsService.unregisteredSaleV2(req.scope, dto)));
   }),
 );
 

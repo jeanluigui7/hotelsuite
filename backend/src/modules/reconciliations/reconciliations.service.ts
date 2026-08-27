@@ -4,6 +4,7 @@ import { requireActiveBranch } from '../../shared/scope';
 import { ValidationError, NotFoundError, ConflictError } from '../../shared/errors';
 import { prisma } from '../../config/prisma';
 import { applyStockTx, createMovementTx } from '../movements/movements.repository';
+import { cashRepository } from '../cash/cash.repository';
 
 /**
  * Regularizaciones posteriores a un cierre de caja CONFIRMADO. Reglas:
@@ -31,6 +32,30 @@ export const attributeLossSchema = z.object({
   note: z.string().max(500).optional().or(z.literal('')),
 });
 export type AttributeLossDto = z.infer<typeof attributeLossSchema>;
+
+// VENTA NO REGISTRADA desde el Kardex → Ajuste. Clasificación del cobro:
+//  - COBRADA: el dinero SÍ se cobró (con medio) → se regulariza como venta cobrada (REGULARIZADA).
+//  - NO_COBRADA: el producto salió sin cobrar (incidencia del colaborador; NO descuenta sueldo aún).
+//  - POR_VERIFICAR: pendiente de revisión de administración.
+export const unregisteredSaleV2Schema = z.object({
+  sessionId: z.string().min(1).optional(), // caja a la que se relaciona (default: caja abierta)
+  productId: z.string().min(1),
+  warehouseId: z.string().min(1),
+  quantity: z.coerce.number().int().positive(),
+  unitPrice: z.coerce.number().positive(),
+  classification: z.enum(['COBRADA', 'NO_COBRADA', 'POR_VERIFICAR']),
+  method: z.enum(['CASH', 'CARD', 'TRANSFER', 'YAPE', 'PLIN', 'WALLET']).optional(),
+  roomId: z.string().min(1).optional(),
+  stayId: z.string().min(1).optional(),
+  note: z.string().max(500).optional().or(z.literal('')),
+}).refine((v) => v.classification !== 'COBRADA' || !!v.method, { message: 'Indica el medio de pago con el que se cobró', path: ['method'] });
+export type UnregisteredSaleV2Dto = z.infer<typeof unregisteredSaleV2Schema>;
+
+const VERIFY_STATUS: Record<UnregisteredSaleV2Dto['classification'], string> = {
+  COBRADA: 'REGULARIZADA',
+  NO_COBRADA: 'NO_COBRADA',
+  POR_VERIFICAR: 'POR_VERIFICAR',
+};
 
 function isAdmin(scope: RequestScope): boolean {
   return scope.isSuperAdmin || scope.permissions.includes('settings:edit');
@@ -113,6 +138,78 @@ export const reconciliationsService = {
       if (err instanceof Error && err.message === 'STOCK_INSUFFICIENT') throw new ValidationError('Stock insuficiente para descontar el producto');
       throw err as Error;
     });
+  },
+
+  /**
+   * VENTA NO REGISTRADA (desde Kardex → Ajuste): crea una venta marcada (unregistered) como fuente
+   * única, para que aparezca en MOVIMIENTOS y en las tarjetas sin duplicar lógica.
+   *  - No crea Payment (el efectivo, si se cobró, ya está en el cajón/sobrante) → no duplica caja.
+   *  - COBRADA sobre caja CERRADA con sobrante: crea CashReconciliation(affectsCash) para conciliar.
+   *  - Caja CERRADA: la marca AJUSTADA y deja huella CashIntervention(UNREGISTERED_SALE).
+   */
+  async unregisteredSaleV2(scope: RequestScope, dto: UnregisteredSaleV2Dto) {
+    const branchId = requireActiveBranch(scope);
+    const session = dto.sessionId
+      ? await prisma.cashSession.findUnique({ where: { id: dto.sessionId } })
+      : await cashRepository.findOpen(branchId);
+    if (!session || session.branchId !== branchId) throw new NotFoundError('No se encontró la caja a la que relacionar la venta.');
+
+    const product = await prisma.product.findUnique({ where: { id: dto.productId } });
+    if (!product || product.branchId !== branchId) throw new ValidationError('Producto inválido');
+    const wh = await prisma.warehouse.findUnique({ where: { id: dto.warehouseId } });
+    if (!wh || wh.branchId !== branchId) throw new ValidationError('Almacén inválido');
+
+    const total = Math.round(dto.quantity * dto.unitPrice * 100) / 100;
+    const unitCost = product.cost != null ? Number(product.cost) : null;
+    const verifyStatus = VERIFY_STATUS[dto.classification];
+    const noteBase = dto.note?.trim() || 'Venta no registrada';
+
+    const result = await prisma.$transaction(async (tx) => {
+      await applyStockTx(tx, dto.productId, wh.id, -dto.quantity);
+      const mv = await createMovementTx(tx, {
+        branchId, productId: dto.productId, warehouseId: wh.id, type: 'SALE', quantity: -dto.quantity,
+        unitCost, reference: `${noteBase} (${dto.classification})`,
+        adjustType: 'VENTA_NO_REGISTRADA', cashSessionId: session.id, roomId: dto.roomId ?? null,
+        createdByUserId: scope.userId, approvedByUserId: dto.classification === 'POR_VERIFICAR' ? null : scope.userId,
+      });
+      const sale = await tx.sale.create({
+        data: {
+          branchId, stayId: dto.stayId ?? null, cashSessionId: session.id,
+          total, status: dto.classification === 'COBRADA' ? 'PAID' : 'OPEN',
+          unregistered: true, verifyStatus, customerName: noteBase, createdByUserId: scope.userId,
+          items: { create: [{ productId: dto.productId, description: noteBase, quantity: dto.quantity, unitPrice: dto.unitPrice, unitCost, subtotal: total }] },
+        },
+      });
+      // COBRADA sobre caja cerrada con sobrante: concilia la diferencia (reduce el sobrante).
+      let reconciliationId: string | null = null;
+      if (dto.classification === 'COBRADA' && session.status !== 'OPEN') {
+        const rec = await tx.cashReconciliation.create({
+          data: {
+            branchId, cashSessionId: session.id, type: 'VENTA_NO_REGISTRADA', amount: total, affectsCash: true,
+            productId: dto.productId, quantity: dto.quantity, movementId: mv.id, note: noteBase,
+            createdByUserId: scope.userId, approvedByUserId: scope.userId,
+          },
+        });
+        reconciliationId = rec.id;
+      }
+      // Huella de auditoría + marca AJUSTADA si la caja ya estaba cerrada.
+      if (session.status !== 'OPEN') {
+        await tx.cashIntervention.create({
+          data: {
+            branchId, cashSessionId: session.id, type: 'UNREGISTERED_SALE', targetKind: 'SALE', targetId: sale.id,
+            beforeJson: null,
+            afterJson: JSON.stringify({ productId: dto.productId, quantity: dto.quantity, total, classification: dto.classification }),
+            reason: noteBase, createdByUserId: scope.userId,
+          },
+        });
+        await tx.cashSession.updateMany({ where: { id: session.id, status: 'CLOSED' }, data: { status: 'AJUSTADA' } });
+      }
+      return { saleId: sale.id, movementId: mv.id, reconciliationId };
+    }).catch((err) => {
+      if (err instanceof Error && err.message === 'STOCK_INSUFFICIENT') throw new ValidationError('Stock insuficiente para descontar el producto');
+      throw err as Error;
+    });
+    return result;
   },
 
   /** PÉRDIDA ATRIBUIDA AL COLABORADOR: reclasifica un FALTANTE (solo admin). No mueve caja ni stock. */

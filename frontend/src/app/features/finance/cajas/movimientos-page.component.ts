@@ -13,7 +13,7 @@ import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { AuthService } from '../../../core/auth/auth.service';
 import { FinanceApiService } from '../services/finance-api.service';
-import type { CashDetail, CashDetailMovement } from '../services/finance.models';
+import type { CashDetail, CashDetailMovement, MovementDetail, MovementHistoryEntry } from '../services/finance.models';
 import { buildCuadreTicket } from '../services/cuadre-ticket';
 
 interface ReconItem { id: string; at: string; type: string; amount: number; affectsCash: boolean; quantity: number | null; note: string | null; by: string | null; approvedBy: string | null; }
@@ -42,7 +42,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
           </div>
           <div class="dactions">
             <button class="mini" (click)="verCuadre(d)"><i class="pi pi-print"></i> Ver</button>
-            @if (d.session.status === 'CLOSED' && canEdit) { <button class="mini warn" (click)="reopen(d.session.id)"><i class="pi pi-replay"></i> Reabrir</button> }
+            @if (d.session.status !== 'OPEN' && canReopen) { <button class="mini warn" (click)="reopen(d.session.id)"><i class="pi pi-replay"></i> Reabrir</button> }
           </div>
         </header>
 
@@ -50,9 +50,24 @@ const TYPE_COLOR: Record<string, [string, string]> = {
           <div class="mc blue"><span>Total Ventas Hospedaje</span><strong>S/ {{ d.cards.ventasHospedaje | number: '1.2-2' }}</strong></div>
           <div class="mc brown"><span>Ventas Productos</span><strong>S/ {{ d.cards.ventasProductos | number: '1.2-2' }}</strong></div>
           <div class="mc teal"><span>Servicios y Otros</span><strong>S/ {{ d.cards.serviciosOtros | number: '1.2-2' }}</strong></div>
-          <div class="mc brown"><span>Deudas Pendientes</span><strong>S/ {{ d.cards.deudasPendientes | number: '1.2-2' }}</strong></div>
+          <button class="mc brown clickable" (click)="deudasVisible = true" [disabled]="!(d.deudas?.length)">
+            <span>Deudas Pendientes @if (d.deudas?.length) { <i class="pi pi-external-link"></i> }</span>
+            <strong>S/ {{ d.cards.deudasPendientes | number: '1.2-2' }}</strong>
+            @if (d.deudas?.length) { <em>{{ d.deudas!.length }} obligación(es) al cierre</em> }
+          </button>
           <div class="mc green"><span>Efectivo</span><strong>S/ {{ d.cards.efectivo | number: '1.2-2' }}</strong></div>
           <div class="mc purple"><span>Ajustes (+/-)</span><strong>{{ d.cards.ajustes >= 0 ? '+' : '' }}S/ {{ d.cards.ajustes | number: '1.2-2' }}</strong></div>
+          @if (regsTotal(d) > 0) {
+            <button class="mc amber clickable" (click)="toggleRegsFilter()" [class.active]="typeFilter === '__REG__'">
+              <span>Regularizaciones <i class="pi pi-filter"></i></span>
+              <strong>S/ {{ (d.regularizaciones!.cobradas.amount + d.regularizaciones!.noCobradas.amount + d.regularizaciones!.porVerificar.amount) | number: '1.2-2' }}</strong>
+              <em>
+                <b class="ok">{{ d.regularizaciones!.cobradas.count }} cobr.</b> ·
+                <b class="warn">{{ d.regularizaciones!.noCobradas.count }} no cobr.</b> ·
+                <b class="pend">{{ d.regularizaciones!.porVerificar.count }} x verif.</b>
+              </em>
+            </button>
+          }
         </div>
 
         @if (recon(); as rc) {
@@ -96,7 +111,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
 
         <div class="tbl-wrap">
           <table class="tbl">
-            <thead><tr><th>Hora</th><th>Tipo</th><th>Descripción</th><th class="r">Monto</th><th class="c">Método</th><th class="c">Estado</th>@if (canEdit) { <th class="c">Acción</th> }</tr></thead>
+            <thead><tr><th>Hora</th><th>Tipo</th><th>Descripción</th><th class="r">Monto</th><th class="c">Método</th><th class="c">Estado</th><th class="c">Acción</th></tr></thead>
             <tbody>
               @for (m of filteredMovements(); track m.id) {
                 <tr [class.anulado]="m.status === 'ANULADO'">
@@ -105,17 +120,19 @@ const TYPE_COLOR: Record<string, [string, string]> = {
                   <td>{{ m.description }}</td>
                   <td class="r">S/ {{ m.amount | number: '1.2-2' }}</td>
                   <td class="c">{{ methodLabel(m.method) }}</td>
-                  <td class="c"><span class="est" [class.anul]="m.status === 'ANULADO'">{{ m.status }}</span></td>
-                  @if (canEdit) {
-                    <td class="c nowrap">
-                      @if (m.status === 'NORMAL') {
-                        <button class="lnk red" (click)="anular(m)">Anular</button>
-                        <button class="lnk" (click)="openCorrect(m)">Corregir</button>
-                      } @else { <span class="muted">—</span> }
-                    </td>
-                  }
+                  <td class="c">
+                    @if (m.unregistered && m.verify) { <span class="est" [class]="verifyClass(m.verify)">{{ verifyLabel(m.verify) }}</span> }
+                    @else { <span class="est" [class.anul]="m.status === 'ANULADO'">{{ m.status }}</span> }
+                  </td>
+                  <td class="c nowrap">
+                    <button class="lnk" (click)="verMovimiento(m)">Ver</button>
+                    @if (canEdit && m.status === 'NORMAL') {
+                      <button class="lnk red" (click)="anular(m)">Anular</button>
+                      <button class="lnk" (click)="openCorrect(m)">Corregir</button>
+                    }
+                  </td>
                 </tr>
-              } @empty { <tr><td [attr.colspan]="canEdit ? 7 : 6" class="empty">Sin movimientos.</td></tr> }
+              } @empty { <tr><td colspan="7" class="empty">Sin movimientos.</td></tr> }
             </tbody>
           </table>
         </div>
@@ -135,6 +152,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
             <label>Concepto</label><input pInputText [(ngModel)]="correctMovConcept" />
           </div>
         }
+        <div class="form"><label>Motivo de la corrección (auditoría)</label><input pInputText [(ngModel)]="correctReason" placeholder="Ej. error de digitación" /></div>
       }
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="correctVisible = false" />
@@ -156,6 +174,75 @@ const TYPE_COLOR: Record<string, [string, string]> = {
         <p-button label="Regularizar" icon="pi pi-check" [loading]="busy()" (onClick)="saveVnr()" />
       </ng-template>
     </p-dialog>
+
+    <!-- VER detalle de movimiento -->
+    <p-dialog [(visible)]="detailModalVisible" [modal]="true" [style]="{ width: '38rem', maxWidth: '96vw' }" header="Detalle del movimiento">
+      @if (movDetail(); as x) {
+        <div class="vdet">
+          <div class="vrow"><span>Fecha / hora</span><b>{{ x.time | date: 'dd/MM/yyyy HH:mm' }}</b></div>
+          <div class="vrow"><span>Caja</span><b>#{{ x.sessionNumber ?? '—' }}</b></div>
+          <div class="vrow"><span>Registrado por</span><b>{{ x.user || '—' }}</b></div>
+          @if (x.kind === 'SALE') {
+            @if (x.room) { <div class="vrow"><span>Habitación</span><b>{{ x.room }}</b></div> }
+            @if (x.guest) { <div class="vrow"><span>Cliente</span><b>{{ x.guest }}</b></div> }
+            @if (x.folio) { <div class="vrow"><span>Folio</span><b>{{ x.folio }}</b></div> }
+            @if (x.unregistered) { <div class="vrow"><span>Tipo</span><b class="tag amber">Venta no registrada · {{ verifyLabel(x.verifyStatus || '') }}</b></div> }
+            <div class="vrow"><span>Estado</span><b>{{ x.status }}</b></div>
+            <div class="vsub">Productos / servicios</div>
+            <table class="vtbl"><thead><tr><th>Descripción</th><th class="c">Cant.</th><th class="r">P.Unit</th><th class="r">Subtotal</th></tr></thead>
+              <tbody>@for (it of x.items || []; track $index) { <tr><td>{{ it.description }}</td><td class="c">{{ it.quantity }}</td><td class="r">S/ {{ it.unitPrice | number:'1.2-2' }}</td><td class="r">S/ {{ it.subtotal | number:'1.2-2' }}</td></tr> }</tbody>
+              <tfoot><tr><td colspan="3" class="r">Total</td><td class="r"><b>S/ {{ x.total | number:'1.2-2' }}</b></td></tr></tfoot>
+            </table>
+            @if (x.payments?.length) {
+              <div class="vsub">Pagos</div>
+              @for (p of x.payments!; track $index) { <div class="vrow"><span>{{ methodLabel(p.method) }} @if (p.code) { · cód. {{ p.code }} }</span><b>S/ {{ p.amount | number:'1.2-2' }}</b></div> }
+            }
+          } @else {
+            <div class="vrow"><span>Tipo</span><b>{{ x.type === 'IN' ? 'Ingreso' : 'Egreso' }}</b></div>
+            <div class="vrow"><span>Concepto</span><b>{{ x.concept }}</b></div>
+            <div class="vrow"><span>Monto</span><b>S/ {{ x.amount | number:'1.2-2' }}</b></div>
+            <div class="vrow"><span>Método</span><b>{{ methodLabel(x.method || 'CASH') }}</b></div>
+            @if (x.reference) { <div class="vrow"><span>Comprobante</span><b>{{ x.reference }}</b></div> }
+            @if (x.note) { <div class="vrow"><span>Observación</span><b>{{ x.note }}</b></div> }
+            <div class="vrow"><span>Estado</span><b [class.neg]="x.status === 'ANULADO'">{{ x.status }}</b></div>
+            @if (x.status === 'ANULADO') { <div class="vrow"><span>Anulado por</span><b>{{ x.voidedBy || '—' }} · {{ x.voidReason || 's/motivo' }}</b></div> }
+          }
+          <div class="vsub">Historial de intervenciones</div>
+          @if (x.history.length) {
+            @for (h of x.history; track h.id) {
+              <div class="vhist"><span class="ht">{{ histLabel(h.type) }}</span><span class="hd">{{ h.createdAt | date: 'dd/MM HH:mm' }} · {{ h.user || '—' }}</span>
+                @if (h.reason) { <span class="hr">{{ h.reason }}</span> }
+                <span class="hj">{{ histChange(h) }}</span>
+              </div>
+            }
+          } @else { <p class="muted sm">Sin correcciones ni anulaciones.</p> }
+        </div>
+      } @else { <p class="muted">Cargando…</p> }
+      <ng-template pTemplate="footer"><p-button label="Cerrar" severity="secondary" [text]="true" (onClick)="detailModalVisible = false" /></ng-template>
+    </p-dialog>
+
+    <!-- DEUDAS pendientes al cierre -->
+    <p-dialog [(visible)]="deudasVisible" [modal]="true" [style]="{ width: '46rem', maxWidth: '97vw' }" header="Deudas pendientes al cierre">
+      @if (detail(); as d) {
+        <p class="muted sm">Snapshot de obligaciones del turno al momento del cierre. Aunque se cobren después, permanecen como pendientes de este turno para auditoría.</p>
+        <table class="vtbl">
+          <thead><tr><th>Hora</th><th>Hab.</th><th>Tipo</th><th>Concepto</th><th>Folio</th><th class="c">Estado</th><th class="r">Importe</th></tr></thead>
+          <tbody>
+            @for (x of d.deudas || []; track x.saleId) {
+              <tr>
+                <td>{{ x.time | date: 'HH:mm' }}</td><td>{{ x.room || '—' }}</td>
+                <td><span class="tbadge" [style.background]="typeBg(x.tipo)" [style.color]="typeFg(x.tipo)">{{ deudaTipo(x.tipo) }}</span></td>
+                <td>{{ x.concepto }}</td><td>{{ x.folio || '—' }}</td>
+                <td class="c"><span class="est" [class]="x.estado === 'NO_COBRADA' ? 'warn' : 'pend'">{{ deudaEstado(x.estado) }}</span></td>
+                <td class="r">S/ {{ x.importe | number: '1.2-2' }}</td>
+              </tr>
+            } @empty { <tr><td colspan="7" class="empty">Sin deudas pendientes.</td></tr> }
+          </tbody>
+          <tfoot><tr><td colspan="6" class="r">Total pendiente</td><td class="r"><b>S/ {{ d.cards.deudasPendientes | number: '1.2-2' }}</b></td></tr></tfoot>
+        </table>
+      }
+      <ng-template pTemplate="footer"><p-button label="Cerrar" severity="secondary" [text]="true" (onClick)="deudasVisible = false" /></ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -167,7 +254,15 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .mini { background: #13243a; border: 1px solid #274468; color: #cbd5e1; border-radius: 7px; padding: 0.4rem 0.75rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; } .mini.warn { background: #78350f; color: #fcd34d; border-color: #b45309; }
       .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 0.7rem; margin-bottom: 1rem; }
       .mc { border: 1px solid #243245; border-radius: 10px; padding: 0.7rem 0.9rem; display: flex; flex-direction: column; gap: 0.2rem; background: #131d2b; } .mc span { font-size: 0.72rem; color: #8aa0bd; } .mc strong { font-size: 1.1rem; }
-      .mc.blue strong { color: #60a5fa; } .mc.brown strong { color: #fbbf24; } .mc.teal strong { color: #2dd4bf; } .mc.green strong { color: #34d399; } .mc.purple strong { color: #c4b5fd; }
+      .mc.blue strong { color: #60a5fa; } .mc.brown strong { color: #fbbf24; } .mc.teal strong { color: #2dd4bf; } .mc.green strong { color: #34d399; } .mc.purple strong { color: #c4b5fd; } .mc.amber strong { color: #f59e0b; }
+      .mc.clickable { cursor: pointer; text-align: left; font: inherit; transition: border-color .15s; } .mc.clickable:hover:not([disabled]) { border-color: #3b5a86; } .mc.clickable[disabled] { cursor: default; opacity: 0.75; } .mc.clickable.active { border-color: #f59e0b; }
+      .mc em { font-size: 0.68rem; color: #8aa0bd; font-style: normal; } .mc em .ok { color: #34d399; } .mc em .warn { color: #f59e0b; } .mc em .pend { color: #60a5fa; }
+      .vdet { display: flex; flex-direction: column; gap: 0.3rem; } .vrow { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.85rem; padding: 0.15rem 0; } .vrow span { color: #8aa0bd; }
+      .vsub { margin-top: 0.6rem; font-size: 0.72rem; text-transform: uppercase; color: #8aa0bd; border-top: 1px dashed #1c2c44; padding-top: 0.45rem; }
+      .vtbl { width: 100%; border-collapse: collapse; margin-top: 0.3rem; } .vtbl th, .vtbl td { padding: 0.35rem 0.5rem; border-bottom: 1px solid #16233a; font-size: 0.8rem; text-align: left; } .vtbl .r { text-align: right; } .vtbl .c { text-align: center; } .vtbl th { color: #8aa0bd; font-weight: 600; font-size: 0.7rem; } .vtbl tfoot td { border-bottom: 0; }
+      .vhist { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; font-size: 0.8rem; padding: 0.3rem 0; border-bottom: 1px dashed #16233a; } .vhist .ht { font-weight: 700; color: #c4b5fd; } .vhist .hd { color: #8aa0bd; font-size: 0.74rem; } .vhist .hr { color: #cbd5e1; } .vhist .hj { color: #8aa0bd; font-size: 0.74rem; width: 100%; }
+      .tag { border-radius: 6px; padding: 0.1rem 0.5rem; font-size: 0.72rem; font-weight: 700; } .tag.amber { background: rgba(245,158,11,0.16); color: #f59e0b; }
+      .sm { font-size: 0.8rem; } .est.ok { color: #34d399; } .est.warn { color: #f59e0b; } .est.pend { color: #60a5fa; }
       .recon { border: 1px solid #1c2c44; border-radius: 10px; padding: 0.7rem 0.9rem; margin-bottom: 0.9rem; background: rgba(139,92,246,0.06); }
       .recon-h { display: flex; align-items: center; justify-content: space-between; gap: 1rem; font-weight: 700; color: #c4b5fd; margin-bottom: 0.5rem; }
       .recon-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.6rem; } .recon-grid > div { display: flex; flex-direction: column; gap: 0.15rem; } .recon-grid span { font-size: 0.72rem; color: #8aa0bd; } .recon-grid strong { font-size: 1.02rem; } .recon-grid .ok { color: #34d399; }
@@ -198,6 +293,7 @@ export class CashMovementsPageComponent implements OnInit {
   private readonly messages = inject(MessageService);
 
   readonly canEdit = this.auth.can('finance', 'edit');
+  readonly canReopen = this.auth.can('settings', 'edit'); // reabrir es solo Admin/Superadmin
   readonly loading = signal(true);
   readonly busy = signal(false);
   readonly detail = signal<CashDetail | null>(null);
@@ -209,11 +305,18 @@ export class CashMovementsPageComponent implements OnInit {
   readonly typeFilterOpts = [
     { label: 'Todos', value: '' }, { label: 'Hospedaje', value: 'HOSPEDAJE' }, { label: 'Pago Renovación', value: 'RENOVACION' },
     { label: 'Venta Producto', value: 'PRODUCTO' }, { label: 'Servicio', value: 'SERVICIO' }, { label: 'Ingreso', value: 'INGRESO' }, { label: 'Egreso', value: 'EGRESO' },
+    { label: 'Regularizaciones', value: '__REG__' },
   ];
   readonly methodFilterOpts = [
     { label: 'Todos', value: '' }, { label: 'Efectivo', value: 'CASH' }, { label: 'Transferencia', value: 'TRANSFER' },
     { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' }, { label: 'Tarjeta', value: 'CARD' },
   ];
+
+  // VER detalle
+  detailModalVisible = false;
+  readonly movDetail = signal<MovementDetail | null>(null);
+  // DEUDAS
+  deudasVisible = false;
 
   // Corregir
   correctVisible = false;
@@ -222,6 +325,7 @@ export class CashMovementsPageComponent implements OnInit {
   correctMovType: 'IN' | 'OUT' = 'IN';
   correctMovAmount: number | null = null;
   correctMovConcept = '';
+  correctReason = '';
   readonly methodEditOpts = [{ label: 'Efectivo', value: 'CASH' }, { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' }, { label: 'Tarjeta', value: 'CARD' }];
   readonly movTypeOpts = [{ label: 'Ingreso', value: 'IN' }, { label: 'Egreso', value: 'OUT' }];
 
@@ -240,7 +344,7 @@ export class CashMovementsPageComponent implements OnInit {
     if (!this.sessionId) { this.loading.set(false); return; }
     this.loading.set(true);
     this.finance.sessionDetail(this.sessionId).subscribe({
-      next: (r) => { this.detail.set(r.data); this.loading.set(false); if (r.data?.session?.status === 'CLOSED') this.loadRecon(this.sessionId); },
+      next: (r) => { this.detail.set(r.data); this.loading.set(false); if (r.data?.session?.status && r.data.session.status !== 'OPEN') this.loadRecon(this.sessionId); },
       error: () => { this.loading.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar la caja.' }); },
     });
   }
@@ -253,20 +357,56 @@ export class CashMovementsPageComponent implements OnInit {
   reconType(t: string): string { return ({ VENTA_NO_REGISTRADA: 'Venta no registrada', PERDIDA_COLABORADOR: 'Pérdida atribuida' } as Record<string, string>)[t] ?? t; }
   readonly filteredMovements = computed<CashDetailMovement[]>(() => {
     const all = this.detail()?.movements ?? [];
-    return all.filter((m) => (!this.typeFilter || m.type === this.typeFilter) && (!this.methodFilter || m.method === this.methodFilter));
+    return all.filter((m) => {
+      if (this.typeFilter === '__REG__') return !!m.unregistered;
+      return (!this.typeFilter || m.type === this.typeFilter) && (!this.methodFilter || m.method === this.methodFilter);
+    });
   });
+
+  // ── Etapa 3/4 — ventas no registradas y regularizaciones ──
+  verifyLabel(v: string): string { return ({ REGULARIZADA: 'Regularizada', POR_VERIFICAR: 'Por verificar', NO_COBRADA: 'No cobrada' } as Record<string, string>)[v] ?? v; }
+  verifyClass(v: string): string { return v === 'REGULARIZADA' ? 'ok' : v === 'NO_COBRADA' ? 'warn' : 'pend'; }
+  regsTotal(d: CashDetail): number { const r = d.regularizaciones; return r ? r.cobradas.count + r.noCobradas.count + r.porVerificar.count : 0; }
+  toggleRegsFilter(): void { this.typeFilter = this.typeFilter === '__REG__' ? '' : '__REG__'; }
+
+  // ── Etapa 5 — deudas ──
+  deudaTipo(t: string): string { return ({ RENOVACION: 'Renovación', HOSPEDAJE: 'Hospedaje', PRODUCTO: 'Producto', SERVICIO: 'Servicio', VENTA_NO_COBRADA: 'Venta no cobrada' } as Record<string, string>)[t] ?? t; }
+  deudaEstado(e: string): string { return ({ PENDIENTE: 'Pendiente', PARCIAL: 'Parcial', NO_COBRADA: 'No cobrada' } as Record<string, string>)[e] ?? e; }
+
+  // ── Etapa 2 — VER + historial ──
+  histLabel(t: string): string { return ({ CORRECTION: 'Corrección', VOID: 'Anulación', UNREGISTERED_SALE: 'Venta no registrada', REOPEN: 'Reapertura' } as Record<string, string>)[t] ?? t; }
+  histChange(h: MovementHistoryEntry): string {
+    const b = h.before as Record<string, unknown> | null;
+    const a = h.after as Record<string, unknown> | null;
+    const fmt = (o: Record<string, unknown> | null) => o ? Object.entries(o).map(([k, v]) => `${k}: ${v}`).join(', ') : '—';
+    if (b && a) return `${fmt(b)} → ${fmt(a)}`;
+    if (a) return fmt(a);
+    if (b) return fmt(b);
+    return '';
+  }
+  verMovimiento(m: CashDetailMovement): void {
+    this.movDetail.set(null);
+    this.detailModalVisible = true;
+    const params = m.saleId ? { saleId: m.saleId } : { movementId: m.id };
+    this.finance.movementDetail(params).subscribe({
+      next: (r) => this.movDetail.set(r.data),
+      error: () => { this.detailModalVisible = false; this.messages.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el detalle.' }); },
+    });
+  }
 
   anular(m: CashDetailMovement): void {
     const what = m.saleId ? 'esta venta' : 'este movimiento';
-    if (!confirm(`¿Anular ${what}? Esta acción lo excluye del arqueo.`)) return;
+    const reason = prompt(`¿Anular ${what}? Se conserva para auditoría y se excluye del arqueo.\n\nMotivo (auditoría):`, '');
+    if (reason === null) return;
     const next = () => { this.messages.add({ severity: 'success', summary: 'Anulado', detail: 'Movimiento anulado.' }); this.reload(); };
     const error = (e: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo anular.' });
-    if (m.saleId) this.finance.cancelSale(m.saleId).subscribe({ next, error });
-    else this.finance.deleteMovement(m.id).subscribe({ next, error });
+    if (m.saleId) this.finance.cancelSale(m.saleId, reason || undefined).subscribe({ next, error });
+    else this.finance.deleteMovement(m.id, reason || undefined).subscribe({ next, error });
   }
 
   openCorrect(m: CashDetailMovement): void {
     this.correctTarget.set(m);
+    this.correctReason = '';
     if (m.saleId) { this.correctMethod = m.method === 'MIXTO' || m.method === 'PENDIENTE' ? 'CASH' : m.method; }
     else { this.correctMovType = m.type === 'EGRESO' ? 'OUT' : 'IN'; this.correctMovAmount = m.amount; this.correctMovConcept = m.description; }
     this.correctVisible = true;
@@ -274,12 +414,13 @@ export class CashMovementsPageComponent implements OnInit {
   doCorrect(): void {
     const m = this.correctTarget(); if (!m) return;
     this.busy.set(true);
+    const reason = this.correctReason.trim() || undefined;
     const done = () => { this.busy.set(false); this.correctVisible = false; this.messages.add({ severity: 'success', summary: 'Corregido', detail: 'Movimiento actualizado.' }); this.reload(); };
     const fail = (e: HttpErrorResponse) => { this.busy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo corregir.' }); };
-    if (m.saleId) { this.finance.correctSale(m.saleId, this.correctMethod).subscribe({ next: done, error: fail }); }
+    if (m.saleId) { this.finance.correctSale(m.saleId, this.correctMethod, reason).subscribe({ next: done, error: fail }); }
     else {
       if (this.correctMovAmount == null || this.correctMovAmount <= 0 || !this.correctMovConcept.trim()) { this.busy.set(false); this.messages.add({ severity: 'warn', summary: 'Datos', detail: 'Monto y concepto requeridos.' }); return; }
-      this.finance.editMovement(m.id, { type: this.correctMovType, amount: this.correctMovAmount, concept: this.correctMovConcept.trim() }).subscribe({ next: done, error: fail });
+      this.finance.editMovement(m.id, { type: this.correctMovType, amount: this.correctMovAmount, concept: this.correctMovConcept.trim(), reason }).subscribe({ next: done, error: fail });
     }
   }
 

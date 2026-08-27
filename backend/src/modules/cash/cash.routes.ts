@@ -23,5 +23,8 @@ cashRouter.post('/cash/sessions/:id/reopen', requirePermission('finance', 'edit'
 // Detalle del turno para el modal de caja (Finanzas).
 cashRouter.get('/cash/sessions/:id/detail', requirePermission('finance', 'view'), asyncHandler(cashController.detail));
 
+// Detalle VER de un movimiento del feed (venta o movimiento de caja), con historial de intervenciones.
+cashRouter.get('/cash/movement-detail', requirePermission('finance', 'view'), asyncHandler(cashController.movementDetail));
+
 // Cuadro de Turno (reporte) — bajo el módulo de reportes.
 cashRouter.get('/cash/sessions/:id/report', requirePermission('reports', 'view'), asyncHandler(cashController.report));

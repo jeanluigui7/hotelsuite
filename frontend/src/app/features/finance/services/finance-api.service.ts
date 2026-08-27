@@ -14,6 +14,7 @@ import type {
   FiscalPanel,
   FolioSeries,
   Invoice,
+  MovementDetail,
   MovementInput,
   Sale,
   SessionReport,
@@ -48,14 +49,28 @@ export class FinanceApiService {
   saveFrequentConcepts(concepts: string[]): Observable<ApiResponse<string[]>> {
     return this.http.put<ApiResponse<string[]>>(`${this.api}/cash/frequent-concepts`, { concepts });
   }
-  deleteMovement(id: string): Observable<ApiResponse<{ success: boolean }>> {
-    return this.http.delete<ApiResponse<{ success: boolean }>>(`${this.api}/cash/movements/${id}`);
+  deleteMovement(id: string, reason?: string): Observable<ApiResponse<{ success: boolean }>> {
+    return this.http.request<ApiResponse<{ success: boolean }>>('delete', `${this.api}/cash/movements/${id}`, { body: { reason } });
   }
   reopenSession(id: string): Observable<ApiResponse<unknown>> {
     return this.http.post<ApiResponse<unknown>>(`${this.api}/cash/sessions/${id}/reopen`, {});
   }
-  correctSale(id: string, method: string): Observable<ApiResponse<unknown>> {
-    return this.http.post<ApiResponse<unknown>>(`${this.api}/sales/${id}/correct`, { method });
+  correctSale(id: string, method: string, reason?: string): Observable<ApiResponse<unknown>> {
+    return this.http.post<ApiResponse<unknown>>(`${this.api}/sales/${id}/correct`, { method, reason });
+  }
+  /** Detalle VER de un movimiento del feed (venta o movimiento de caja). */
+  movementDetail(params: { saleId?: string | null; movementId?: string | null }): Observable<ApiResponse<MovementDetail>> {
+    const p: Record<string, string> = {};
+    if (params.saleId) p['saleId'] = params.saleId;
+    if (params.movementId) p['movementId'] = params.movementId;
+    return this.http.get<ApiResponse<MovementDetail>>(`${this.api}/cash/movement-detail`, { params: p });
+  }
+  /** Venta no registrada (regularización desde Kardex) con clasificación de cobro. */
+  registerUnregisteredSale(dto: {
+    sessionId?: string; productId: string; warehouseId: string; quantity: number; unitPrice: number;
+    classification: 'COBRADA' | 'NO_COBRADA' | 'POR_VERIFICAR'; method?: string; roomId?: string; stayId?: string; note?: string;
+  }): Observable<ApiResponse<unknown>> {
+    return this.http.post<ApiResponse<unknown>>(`${this.api}/reconciliation/unregistered-sale`, dto);
   }
   listSessions(params: ListParams = {}): Observable<ApiResponse<CashSessionRow[]>> {
     return this.http.get<ApiResponse<CashSessionRow[]>>(`${this.api}/cash/sessions`, { params: toHttpParams(params) });
@@ -73,8 +88,8 @@ export class FinanceApiService {
   listSales(params: ListParams = {}): Observable<ApiResponse<Sale[]>> {
     return this.http.get<ApiResponse<Sale[]>>(`${this.api}/sales`, { params: toHttpParams(params) });
   }
-  cancelSale(id: string): Observable<ApiResponse<Sale>> {
-    return this.http.post<ApiResponse<Sale>>(`${this.api}/sales/${id}/cancel`, {});
+  cancelSale(id: string, reason?: string): Observable<ApiResponse<Sale>> {
+    return this.http.post<ApiResponse<Sale>>(`${this.api}/sales/${id}/cancel`, { reason });
   }
 
   // ── Comprobantes ──

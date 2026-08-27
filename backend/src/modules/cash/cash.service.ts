@@ -8,6 +8,21 @@ import type { CloseCashDto, MovementDto, OpenCashDto } from './cash.schema';
 
 const FREQUENT_CONCEPTS_KEY = 'cashFrequentConcepts';
 
+/** Snapshot serializable de un movimiento para la huella de auditoría (valor anterior/nuevo). */
+function snapshotMovement(m: {
+  type: string; amount: unknown; concept: string; method?: string | null; reference?: string | null; note?: string | null; category?: string | null;
+}) {
+  return {
+    type: m.type,
+    amount: Number(m.amount),
+    concept: m.concept,
+    method: m.method ?? null,
+    reference: m.reference ?? null,
+    note: m.note ?? null,
+    category: m.category ?? null,
+  };
+}
+
 /** Parsea el JSON de denominaciones del cierre; null si no hay o es inválido. */
 function parseDenoms(raw: string | null): { value: number; qty: number }[] | null {
   if (!raw) return null;
@@ -180,22 +195,126 @@ export const cashService = {
     };
   },
 
-  /** Reabre un turno cerrado (no puede haber otro abierto en la sucursal). */
+  /** Detalle VER de un movimiento del feed: se adapta a venta o a movimiento de caja. Incluye historial. */
+  async movementDetail(scope: RequestScope, params: { saleId?: string; movementId?: string }) {
+    const branchId = requireActiveBranch(scope);
+    const round = (n: number) => Math.round(n * 100) / 100;
+
+    if (params.saleId) {
+      const sale = await cashRepository.saleById(params.saleId);
+      if (!sale || sale.branchId !== branchId) throw new NotFoundError('Venta no encontrada');
+      const stayMap = sale.stayId ? await cashRepository.stayInfo([sale.stayId]) : new Map();
+      const info = sale.stayId ? stayMap.get(sale.stayId) : undefined;
+      const names = await cashRepository.userNames([sale.createdByUserId].filter((x): x is string => !!x));
+      const session = sale.cashSessionId ? await cashRepository.findById(sale.cashSessionId) : null;
+      const history = await this.buildHistory(sale.id);
+      return {
+        kind: 'SALE' as const,
+        id: sale.id,
+        time: sale.createdAt,
+        status: sale.status,
+        total: Number(sale.total),
+        unregistered: sale.unregistered,
+        verifyStatus: sale.verifyStatus,
+        room: info?.room || null,
+        guest: info?.guest || sale.customerName || null,
+        folio: info?.folioCode || null,
+        user: sale.createdByUserId ? (names.get(sale.createdByUserId) ?? null) : null,
+        sessionId: sale.cashSessionId,
+        sessionNumber: session?.number ?? null,
+        items: sale.items.map((it) => ({ description: it.description, quantity: it.quantity, unitPrice: Number(it.unitPrice), subtotal: Number(it.subtotal) })),
+        payments: sale.payments.map((p) => ({ method: p.method, amount: Number(p.amount), code: p.reference ?? null, time: p.createdAt })),
+        history,
+      };
+    }
+
+    if (params.movementId) {
+      const m = await cashRepository.findMovement(params.movementId);
+      if (!m || m.branchId !== branchId) throw new NotFoundError('Movimiento no encontrado');
+      const names = await cashRepository.userNames([m.createdByUserId, m.voidedByUserId].filter((x): x is string => !!x));
+      const session = await cashRepository.findById(m.cashSessionId);
+      const history = await this.buildHistory(m.id);
+      return {
+        kind: 'MOVEMENT' as const,
+        id: m.id,
+        time: m.createdAt,
+        type: m.type,
+        concept: m.concept,
+        amount: round(Number(m.amount)),
+        method: m.method ?? 'CASH',
+        reference: m.reference ?? null,
+        note: m.note ?? null,
+        category: m.category ?? 'MOVEMENT',
+        status: m.voided ? 'ANULADO' : 'NORMAL',
+        voidReason: m.voidReason ?? null,
+        voidedBy: m.voidedByUserId ? (names.get(m.voidedByUserId) ?? null) : null,
+        voidedAt: m.voidedAt,
+        user: m.createdByUserId ? (names.get(m.createdByUserId) ?? null) : null,
+        sessionId: m.cashSessionId,
+        sessionNumber: session?.number ?? null,
+        history,
+      };
+    }
+
+    throw new NotFoundError('Indique la venta o el movimiento a consultar');
+  },
+
+  /** Historial de intervenciones (correcciones/anulaciones) que apuntan a un objeto. */
+  async buildHistory(targetId: string) {
+    const rows = await cashRepository.interventionsForTarget(targetId);
+    const ids = [...new Set(rows.map((r) => r.createdByUserId).filter((x): x is string => !!x))];
+    const names = ids.length ? await cashRepository.userNames(ids) : new Map<string, string>();
+    return rows.map((r) => ({
+      id: r.id,
+      type: r.type,
+      before: r.beforeJson ? (JSON.parse(r.beforeJson) as unknown) : null,
+      after: r.afterJson ? (JSON.parse(r.afterJson) as unknown) : null,
+      reason: r.reason,
+      createdAt: r.createdAt,
+      user: r.createdByUserId ? (names.get(r.createdByUserId) ?? null) : null,
+    }));
+  },
+
+  /** Reabre un turno cerrado. Solo Admin/Superadmin; no puede haber otro turno abierto en la sucursal. */
   async reopen(scope: RequestScope, id: string) {
     const branchId = requireActiveBranch(scope);
+    if (!(scope.isSuperAdmin || scope.permissions.includes('settings:edit'))) {
+      throw new ConflictError('Solo un administrador puede reabrir una caja.');
+    }
     const session = await cashRepository.findById(id);
     if (!session || session.branchId !== branchId) throw new NotFoundError('Turno no encontrado');
     if (session.status === 'OPEN') throw new ConflictError('El turno ya está abierto');
     const open = await cashRepository.findOpen(branchId);
     if (open) throw new ConflictError('Ya hay un turno abierto; ciérrelo antes de reabrir otro');
+    // Conserva la trazabilidad del cierre original antes de reabrir.
+    await cashRepository.createIntervention({
+      branchId,
+      cashSessionId: id,
+      type: 'REOPEN',
+      targetKind: 'SESSION',
+      targetId: id,
+      beforeJson: JSON.stringify({
+        status: session.status,
+        closedAt: session.closedAt,
+        closingAmount: session.closingAmount != null ? Number(session.closingAmount) : null,
+        expectedAmount: session.expectedAmount != null ? Number(session.expectedAmount) : null,
+        closedByUserId: session.closedByUserId ?? null,
+      }),
+      afterJson: JSON.stringify({ status: 'OPEN' }),
+      reason: null,
+      createdByUserId: scope.userId,
+    });
     return cashRepository.reopen(id);
   },
 
-  /** Edita un movimiento de caja (corrección: monto/concepto/tipo/método/comprobante/observación). */
-  async updateMovement(scope: RequestScope, id: string, dto: { type?: string; amount?: number; concept?: string; method?: string; reference?: string; note?: string; category?: string }) {
+  /** Edita un movimiento de caja (corrección: monto/concepto/tipo/método/comprobante/observación).
+   *  Deja huella de auditoría (valor anterior → nuevo) y, si la caja ya estaba cerrada, la marca AJUSTADA. */
+  async updateMovement(scope: RequestScope, id: string, dto: { type?: string; amount?: number; concept?: string; method?: string; reference?: string; note?: string; category?: string; reason?: string }) {
     const branchId = requireActiveBranch(scope);
     const mov = await cashRepository.findMovement(id);
     if (!mov || mov.branchId !== branchId) throw new NotFoundError('Movimiento no encontrado');
+    if (mov.voided) throw new ConflictError('El movimiento está anulado; no puede corregirse');
+    const before = snapshotMovement(mov);
     const data: { type?: string; amount?: number; concept?: string; method?: string; reference?: string | null; note?: string | null; category?: string } = {
       type: dto.type, amount: dto.amount, concept: dto.concept, category: dto.category,
     };
@@ -204,15 +323,42 @@ export const cashService = {
     else if (dto.method !== undefined) data.method = dto.method;
     if (dto.reference !== undefined) data.reference = dto.reference.trim() || null;
     if (dto.note !== undefined) data.note = dto.note.trim() || null;
-    return cashRepository.updateMovement(id, data);
+    const updated = await cashRepository.updateMovement(id, data);
+    await cashRepository.createIntervention({
+      branchId,
+      cashSessionId: mov.cashSessionId,
+      type: 'CORRECTION',
+      targetKind: 'MOVEMENT',
+      targetId: id,
+      beforeJson: JSON.stringify(before),
+      afterJson: JSON.stringify(snapshotMovement(updated)),
+      reason: dto.reason?.trim() || null,
+      createdByUserId: scope.userId,
+    });
+    await cashRepository.markAdjusted(mov.cashSessionId);
+    return updated;
   },
 
-  /** Anula (elimina) un movimiento de caja. */
-  async deleteMovement(scope: RequestScope, id: string) {
+  /** Anula un movimiento de caja (soft-void: se conserva para auditoría, sale de los totales).
+   *  Deja huella de auditoría y, si la caja ya estaba cerrada, la marca AJUSTADA. */
+  async deleteMovement(scope: RequestScope, id: string, reason?: string) {
     const branchId = requireActiveBranch(scope);
     const mov = await cashRepository.findMovement(id);
     if (!mov || mov.branchId !== branchId) throw new NotFoundError('Movimiento no encontrado');
-    await cashRepository.deleteMovement(id);
+    if (mov.voided) throw new ConflictError('El movimiento ya está anulado');
+    await cashRepository.voidMovement(id, scope.userId, reason?.trim() || null);
+    await cashRepository.createIntervention({
+      branchId,
+      cashSessionId: mov.cashSessionId,
+      type: 'VOID',
+      targetKind: 'MOVEMENT',
+      targetId: id,
+      beforeJson: JSON.stringify(snapshotMovement(mov)),
+      afterJson: null,
+      reason: reason?.trim() || null,
+      createdByUserId: scope.userId,
+    });
+    await cashRepository.markAdjusted(mov.cashSessionId);
     return { success: true };
   },
 
@@ -261,17 +407,45 @@ export const cashService = {
     let anulaciones = 0;
     const feed: {
       id: string; saleId: string | null; time: Date; type: string; description: string;
-      amount: number; method: string; status: 'NORMAL' | 'ANULADO';
+      amount: number; method: string; status: 'NORMAL' | 'ANULADO'; verify?: string | null; unregistered?: boolean;
     }[] = [];
+    // Etapa 4 — REGULARIZACIONES: desglose de ventas no registradas por clasificación (subconjunto informativo).
+    const regs = {
+      cobradas: { count: 0, amount: 0 },
+      noCobradas: { count: 0, amount: 0 },
+      porVerificar: { count: 0, amount: 0 },
+    };
+    // Etapa 5 — DEUDAS PENDIENTES: snapshot itemizado de obligaciones del turno al cierre.
+    const debts: { saleId: string; concepto: string; tipo: string; room: string | null; importe: number; time: Date; estado: string; folio: string | null }[] = [];
 
     for (const sale of sales) {
       const cancelled = sale.status === 'CANCELLED';
       const method = saleMethod(sale.payments);
       const info = sale.stayId ? stayInfo.get(sale.stayId) : undefined;
       const suffix = info?.room ? ` - Hab. ${info.room}` : '';
-      if (cancelled) anulaciones = round(anulaciones + Number(sale.total));
+      const folio = info?.folioCode ?? null;
+      if (cancelled) { anulaciones = round(anulaciones + Number(sale.total)); }
+
+      // Ventas no registradas (regularizaciones): fuente única = la propia venta marcada.
+      if (!cancelled && sale.unregistered) {
+        const amount = Number(sale.total);
+        const vs = sale.verifyStatus ?? 'POR_VERIFICAR';
+        if (vs === 'REGULARIZADA') { regs.cobradas.count++; regs.cobradas.amount = round(regs.cobradas.amount + amount); cards.ventasProductos = round(cards.ventasProductos + amount); }
+        else if (vs === 'NO_COBRADA') { regs.noCobradas.count++; regs.noCobradas.amount = round(regs.noCobradas.amount + amount); cards.deudasPendientes = round(cards.deudasPendientes + amount); debts.push({ saleId: sale.id, concepto: sale.customerName || 'Venta no registrada', tipo: 'VENTA_NO_COBRADA', room: info?.room || null, importe: amount, time: sale.createdAt, estado: 'NO_COBRADA', folio }); }
+        else { regs.porVerificar.count++; regs.porVerificar.amount = round(regs.porVerificar.amount + amount); }
+        feed.push({ id: sale.id, saleId: sale.id, time: sale.createdAt, type: 'PRODUCTO', description: ((sale.customerName || 'Venta no registrada') + suffix).trim(), amount, method: 'PENDIENTE', status: 'NORMAL', verify: vs, unregistered: true });
+        continue;
+      }
+
       const paid = sale.payments.reduce((a, p) => a + Number(p.amount), 0);
-      if (!cancelled) cards.deudasPendientes = round(cards.deudasPendientes + Math.max(0, Number(sale.total) - paid));
+      const pendiente = round(Math.max(0, Number(sale.total) - paid));
+      if (!cancelled && pendiente > 0) {
+        cards.deudasPendientes = round(cards.deudasPendientes + pendiente);
+        const types = new Set(sale.items.map((it) => itemType(it.description, it.productId)));
+        const tipo = types.has('RENOVACION') ? 'RENOVACION' : types.has('HOSPEDAJE') ? 'HOSPEDAJE' : types.has('PRODUCTO') ? 'PRODUCTO' : 'SERVICIO';
+        const concepto = sale.items.map((it) => it.description).join(', ') || 'Venta';
+        debts.push({ saleId: sale.id, concepto, tipo, room: info?.room || null, importe: pendiente, time: sale.createdAt, estado: paid > 0 ? 'PARCIAL' : 'PENDIENTE', folio });
+      }
 
       for (const it of sale.items) {
         const t = itemType(it.description, it.productId);
@@ -348,6 +522,22 @@ export const cashService = {
     cards.efectivo = byMethod['CASH'] ?? 0;
     const total = round(Object.values(byMethod).reduce((a, b) => a + b, 0));
 
+    // Huella de auditoría: intervenciones posteriores sobre esta caja (correcciones, anulaciones, reaperturas).
+    const interventionRows = await cashRepository.listInterventions(id);
+    const interventionUserIds = [...new Set(interventionRows.map((r) => r.createdByUserId).filter((x): x is string => !!x))];
+    const interventionNames = interventionUserIds.length ? await cashRepository.userNames(interventionUserIds) : new Map<string, string>();
+    const interventions = interventionRows.map((r) => ({
+      id: r.id,
+      type: r.type,
+      targetKind: r.targetKind,
+      targetId: r.targetId,
+      before: r.beforeJson ? (JSON.parse(r.beforeJson) as unknown) : null,
+      after: r.afterJson ? (JSON.parse(r.afterJson) as unknown) : null,
+      reason: r.reason,
+      createdAt: r.createdAt,
+      user: r.createdByUserId ? (interventionNames.get(r.createdByUserId) ?? null) : null,
+    }));
+
     return {
       session: {
         id: session.id,
@@ -365,6 +555,9 @@ export const cashService = {
       methodBar: { byMethod, ingresos: movIn, egresos: movOut, anulaciones, total },
       movements: feed,
       virtualPayments,
+      interventions,
+      regularizaciones: regs,
+      deudas: debts.sort((a, b) => b.time.getTime() - a.time.getTime()),
     };
   },
 };

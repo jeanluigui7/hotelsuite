@@ -3,7 +3,7 @@ export type PaymentMethod = 'CASH' | 'CARD' | 'TRANSFER' | 'YAPE' | 'PLIN' | 'WA
 export interface CashSession {
   id: string;
   number?: number | null;
-  status: 'OPEN' | 'CLOSED';
+  status: 'OPEN' | 'CLOSED' | 'AJUSTADA';
   openingAmount: string | number;
   closingAmount?: string | number | null;
   expectedAmount?: string | number | null;
@@ -16,7 +16,7 @@ export interface CashSession {
 export interface CashSessionRow {
   id: string;
   number: number | null;
-  status: 'OPEN' | 'CLOSED';
+  status: 'OPEN' | 'CLOSED' | 'AJUSTADA';
   openingAmount: number;
   closingAmount: number | null;
   expectedAmount: number | null;
@@ -61,6 +61,7 @@ export interface MovementInput {
   reference?: string;
   note?: string;
   category?: 'MOVEMENT' | 'EXTRAORDINARY';
+  reason?: string;
 }
 
 export interface CashMovementRow {
@@ -92,13 +93,33 @@ export interface CashDetailMovement {
   amount: number;
   method: string;
   status: 'NORMAL' | 'ANULADO';
+  /** Ventas no registradas: estado de verificación (REGULARIZADA | POR_VERIFICAR | NO_COBRADA). */
+  verify?: string | null;
+  unregistered?: boolean;
+}
+
+export interface RegularizacionesResumen {
+  cobradas: { count: number; amount: number };
+  noCobradas: { count: number; amount: number };
+  porVerificar: { count: number; amount: number };
+}
+
+export interface DeudaPendiente {
+  saleId: string;
+  concepto: string;
+  tipo: string;
+  room: string | null;
+  importe: number;
+  time: string;
+  estado: string;
+  folio: string | null;
 }
 
 export interface CashDetail {
   session: {
     id: string;
     number: number | null;
-    status: 'OPEN' | 'CLOSED';
+    status: 'OPEN' | 'CLOSED' | 'AJUSTADA';
     openedAt: string;
     closedAt: string | null;
     openedByName: string;
@@ -119,6 +140,66 @@ export interface CashDetail {
   movements: CashDetailMovement[];
   /** Detalle de pagos virtuales para el ticket físico (MEDIO/HORA/MONTO/CLI/CONC/COD + pago mixto). */
   virtualPayments?: CashVirtualPayment[];
+  /** Huella de auditoría: intervenciones posteriores sobre la caja (correcciones, anulaciones, reaperturas). */
+  interventions?: CashIntervention[];
+  /** Etapa 4 — desglose de ventas no registradas (regularizaciones). Subconjunto informativo. */
+  regularizaciones?: RegularizacionesResumen;
+  /** Etapa 5 — obligaciones pendientes del turno al cierre (deudas). */
+  deudas?: DeudaPendiente[];
+}
+
+/** Detalle VER de un movimiento del feed (venta o movimiento de caja). */
+export interface MovementDetail {
+  kind: 'SALE' | 'MOVEMENT';
+  id: string;
+  time: string;
+  status: string;
+  user: string | null;
+  sessionId: string | null;
+  sessionNumber: number | null;
+  history: MovementHistoryEntry[];
+  // SALE
+  total?: number;
+  unregistered?: boolean;
+  verifyStatus?: string | null;
+  room?: string | null;
+  guest?: string | null;
+  folio?: string | null;
+  items?: { description: string; quantity: number; unitPrice: number; subtotal: number }[];
+  payments?: { method: string; amount: number; code: string | null; time: string }[];
+  // MOVEMENT
+  type?: string;
+  concept?: string;
+  amount?: number;
+  method?: string;
+  reference?: string | null;
+  note?: string | null;
+  category?: string;
+  voidReason?: string | null;
+  voidedBy?: string | null;
+  voidedAt?: string | null;
+}
+
+export interface MovementHistoryEntry {
+  id: string;
+  type: string;
+  before: unknown;
+  after: unknown;
+  reason: string | null;
+  createdAt: string;
+  user: string | null;
+}
+
+export interface CashIntervention {
+  id: string;
+  type: 'CORRECTION' | 'VOID' | 'UNREGISTERED_SALE' | 'REOPEN';
+  targetKind: 'MOVEMENT' | 'SALE' | 'PAYMENT' | 'SESSION';
+  targetId: string | null;
+  before: unknown;
+  after: unknown;
+  reason: string | null;
+  createdAt: string;
+  user: string | null;
 }
 
 export interface CashVirtualPayment {

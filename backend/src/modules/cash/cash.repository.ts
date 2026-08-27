@@ -87,13 +87,19 @@ export const cashRepository = {
   },
 
   listMovements(cashSessionId: string) {
-    return prisma.cashMovement.findMany({ where: { cashSessionId }, orderBy: { createdAt: 'asc' } });
+    return prisma.cashMovement.findMany({ where: { cashSessionId, voided: false }, orderBy: { createdAt: 'asc' } });
   },
 
-  /** Movimientos del turno con el nombre del usuario que los registró (para la vista de caja). */
+  /** Movimientos del turno con el nombre del usuario que los registró (para la vista de caja).
+   *  Incluye los anulados (voided) para trazabilidad; la UI los muestra como ANULADO y quedan
+   *  fuera de los totales. */
   async listMovementsDetailed(cashSessionId: string) {
     const movs = await prisma.cashMovement.findMany({ where: { cashSessionId }, orderBy: { createdAt: 'asc' } });
-    const userIds = [...new Set(movs.map((m) => m.createdByUserId).filter((x): x is string => !!x))];
+    const userIds = [
+      ...new Set(
+        movs.flatMap((m) => [m.createdByUserId, m.voidedByUserId]).filter((x): x is string => !!x),
+      ),
+    ];
     const users = userIds.length ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : [];
     const uMap = new Map(users.map((u) => [u.id, u.name]));
     return movs.map((m) => ({
@@ -107,12 +113,16 @@ export const cashRepository = {
       category: m.category ?? 'MOVEMENT',
       createdAt: m.createdAt,
       user: m.createdByUserId ? (uMap.get(m.createdByUserId) ?? null) : null,
+      voided: m.voided,
+      voidedAt: m.voidedAt,
+      voidReason: m.voidReason ?? null,
+      voidedBy: m.voidedByUserId ? (uMap.get(m.voidedByUserId) ?? null) : null,
     }));
   },
 
   async movementsTotal(cashSessionId: string, type: string) {
     const result = await prisma.cashMovement.aggregate({
-      where: { cashSessionId, type },
+      where: { cashSessionId, type, voided: false },
       _sum: { amount: true },
     });
     return Number(result._sum.amount ?? 0);
@@ -121,10 +131,46 @@ export const cashRepository = {
   /** Total de INGRESOS que entran físicamente al cajón (solo efectivo; null = efectivo legado). */
   async movementsCashInTotal(cashSessionId: string) {
     const result = await prisma.cashMovement.aggregate({
-      where: { cashSessionId, type: 'IN', OR: [{ method: 'CASH' }, { method: null }] },
+      where: { cashSessionId, type: 'IN', voided: false, OR: [{ method: 'CASH' }, { method: null }] },
       _sum: { amount: true },
     });
     return Number(result._sum.amount ?? 0);
+  },
+
+  /** Soft-anular un movimiento: se conserva el registro pero queda fuera de todos los totales. */
+  voidMovement(id: string, voidedByUserId: string | null, voidReason: string | null) {
+    return prisma.cashMovement.update({
+      where: { id },
+      data: { voided: true, voidedAt: new Date(), voidedByUserId, voidReason },
+    });
+  },
+
+  /** Registra una intervención de auditoría sobre una caja. */
+  createIntervention(data: {
+    branchId: string;
+    cashSessionId: string;
+    type: string;
+    targetKind: string;
+    targetId?: string | null;
+    beforeJson?: string | null;
+    afterJson?: string | null;
+    reason?: string | null;
+    createdByUserId?: string | null;
+  }) {
+    return prisma.cashIntervention.create({ data });
+  },
+
+  listInterventions(cashSessionId: string) {
+    return prisma.cashIntervention.findMany({ where: { cashSessionId }, orderBy: { createdAt: 'asc' } });
+  },
+
+  /** Marca una caja como AJUSTADA solo si estaba CERRADA (nunca toca cajas ABIERTAS). */
+  async markAdjusted(cashSessionId: string) {
+    const res = await prisma.cashSession.updateMany({
+      where: { id: cashSessionId, status: 'CLOSED' },
+      data: { status: 'AJUSTADA' },
+    });
+    return res.count > 0;
   },
 
   async getSetting(branchId: string, key: string) {
@@ -168,6 +214,16 @@ export const cashRepository = {
     });
   },
 
+  /** Una venta con sus líneas y pagos (para el detalle VER de un movimiento). */
+  saleById(id: string) {
+    return prisma.sale.findUnique({ where: { id }, include: { items: true, payments: true } });
+  },
+
+  /** Intervenciones de auditoría que apuntan a un objeto (venta/movimiento). */
+  interventionsForTarget(targetId: string) {
+    return prisma.cashIntervention.findMany({ where: { targetId }, orderBy: { createdAt: 'asc' } });
+  },
+
   /** Tipo de cada producto (PRODUCTO | SERVICIO | AMENITY | INSUMO) por id. */
   async productTypes(ids: string[]) {
     if (ids.length === 0) return new Map<string, string>();
@@ -175,17 +231,17 @@ export const cashRepository = {
     return new Map(rows.map((p) => [p.id, p.productType]));
   },
 
-  /** Habitación y huésped por estancia (para enriquecer la descripción del movimiento). */
+  /** Habitación, huésped y folio por estancia (para enriquecer la descripción del movimiento). */
   async stayInfo(ids: string[]) {
-    if (ids.length === 0) return new Map<string, { room: string; guest: string }>();
+    if (ids.length === 0) return new Map<string, { room: string; guest: string; folioCode: string | null }>();
     const rows = await prisma.stay.findMany({
       where: { id: { in: ids } },
-      select: { id: true, room: { select: { number: true } }, guest: { select: { firstName: true, lastName: true } } },
+      select: { id: true, folioCode: true, room: { select: { number: true } }, guest: { select: { firstName: true, lastName: true } } },
     });
     return new Map(
       rows.map((s) => [
         s.id,
-        { room: s.room?.number ?? '', guest: `${s.guest?.firstName ?? ''} ${s.guest?.lastName ?? ''}`.trim() },
+        { room: s.room?.number ?? '', guest: `${s.guest?.firstName ?? ''} ${s.guest?.lastName ?? ''}`.trim(), folioCode: s.folioCode ?? null },
       ]),
     );
   },

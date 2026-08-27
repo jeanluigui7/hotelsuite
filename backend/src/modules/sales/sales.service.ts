@@ -200,18 +200,40 @@ export const salesService = {
     return { items: rows.map(serialize), meta: pageMeta(params, total) };
   },
 
-  async cancel(scope: RequestScope, id: string) {
+  async cancel(scope: RequestScope, id: string, reason?: string) {
+    const branchId = requireActiveBranch(scope);
     const sale = await salesRepository.findById(id);
-    if (!sale || sale.branchId !== requireActiveBranch(scope)) throw new NotFoundError('Venta no encontrada');
+    if (!sale || sale.branchId !== branchId) throw new NotFoundError('Venta no encontrada');
     if (sale.status === 'CANCELLED') throw new ConflictError('La venta ya está anulada');
-    return serialize(await salesRepository.cancel(id));
+    const result = serialize(await salesRepository.cancel(id));
+    // Huella de auditoría: anular una venta ya cerrada marca su caja como AJUSTADA.
+    if (sale.cashSessionId) {
+      await cashRepository.createIntervention({
+        branchId, cashSessionId: sale.cashSessionId, type: 'VOID', targetKind: 'SALE', targetId: id,
+        beforeJson: JSON.stringify({ total: Number(sale.total), status: sale.status }),
+        afterJson: JSON.stringify({ status: 'CANCELLED' }), reason: reason?.trim() || null, createdByUserId: scope.userId,
+      });
+      await cashRepository.markAdjusted(sale.cashSessionId);
+    }
+    return result;
   },
 
   /** Corrige el método de pago de una venta (desde el detalle de caja). */
-  async correct(scope: RequestScope, id: string, dto: { method: string }) {
+  async correct(scope: RequestScope, id: string, dto: { method: string; reason?: string }) {
+    const branchId = requireActiveBranch(scope);
     const sale = await salesRepository.findById(id);
-    if (!sale || sale.branchId !== requireActiveBranch(scope)) throw new NotFoundError('Venta no encontrada');
+    if (!sale || sale.branchId !== branchId) throw new NotFoundError('Venta no encontrada');
     if (sale.status === 'CANCELLED') throw new ConflictError('No se puede corregir una venta anulada');
-    return serialize((await salesRepository.setPaymentsMethod(id, dto.method))!);
+    const beforeMethods = [...new Set((sale.payments ?? []).map((p) => p.method))];
+    const result = serialize((await salesRepository.setPaymentsMethod(id, dto.method))!);
+    if (sale.cashSessionId) {
+      await cashRepository.createIntervention({
+        branchId, cashSessionId: sale.cashSessionId, type: 'CORRECTION', targetKind: 'SALE', targetId: id,
+        beforeJson: JSON.stringify({ methods: beforeMethods }), afterJson: JSON.stringify({ method: dto.method }),
+        reason: dto.reason?.trim() || null, createdByUserId: scope.userId,
+      });
+      await cashRepository.markAdjusted(sale.cashSessionId);
+    }
+    return result;
   },
 };

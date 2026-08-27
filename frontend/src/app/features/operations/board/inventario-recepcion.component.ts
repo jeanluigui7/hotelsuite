@@ -138,6 +138,16 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
           <label>Almacén destino</label>
           <p-select [options]="warehouses()" optionLabel="name" optionValue="id" [(ngModel)]="adjForm.toWarehouseId" placeholder="Elegir almacén" appendTo="body" styleClass="w" />
         }
+        @if (adjForm.kind === 'VENTA_NO_REGISTRADA') {
+          <label>Precio unitario (S/)</label>
+          <p-inputNumber [(ngModel)]="adjForm.unitPrice" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
+          <label>Clasificación del cobro</label>
+          <p-select [options]="vnrClassOpts" optionLabel="label" optionValue="value" [(ngModel)]="adjForm.classification" appendTo="body" styleClass="w" />
+          @if (adjForm.classification === 'COBRADA') {
+            <label>Medio de pago</label>
+            <p-select [options]="vnrMethodOpts" optionLabel="label" optionValue="value" [(ngModel)]="adjForm.method" appendTo="body" styleClass="w" />
+          }
+        }
         <label>Motivo / observación</label>
         <input pInputText [(ngModel)]="adjForm.reference" placeholder="Opcional" />
         <p class="adj-hint">
@@ -147,6 +157,7 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
             @case ('MERMA') { <i class="pi pi-info-circle"></i> Producto perdido/dañado (baja definitiva, no mueve caja). }
             @case ('FALTANTE') { <i class="pi pi-info-circle"></i> Diferencia (sistema > físico) pendiente de revisión. No genera venta ni descuento. }
             @case ('TRANSFER') { <i class="pi pi-info-circle"></i> Transferencia interna entre almacenes (p. ej. Recepción ↔ Productos-Limpieza). }
+            @case ('VENTA_NO_REGISTRADA') { <i class="pi pi-info-circle"></i> Descuenta el producto y crea la venta en la caja del turno. Cobrada = regularizada; No cobrada = queda como deuda del turno; Por verificar = pendiente de revisión. }
           }
         </p>
       </div>
@@ -313,13 +324,23 @@ export class InventarioRecepcionComponent implements OnInit {
   readonly warehouses = signal<WhOpt[]>([]);
   adjVisible = false;
   adjItem: InvItem | null = null;
-  adjForm: { kind: 'SOBRANTE' | 'VENCIDO' | 'MERMA' | 'FALTANTE' | 'TRANSFER'; quantity: number; reference: string; toWarehouseId: string | null } = { kind: 'SOBRANTE', quantity: 1, reference: '', toWarehouseId: null };
+  adjForm: { kind: 'SOBRANTE' | 'VENCIDO' | 'MERMA' | 'FALTANTE' | 'TRANSFER' | 'VENTA_NO_REGISTRADA'; quantity: number; reference: string; toWarehouseId: string | null; classification: 'COBRADA' | 'NO_COBRADA' | 'POR_VERIFICAR'; unitPrice: number | null; method: string } = { kind: 'SOBRANTE', quantity: 1, reference: '', toWarehouseId: null, classification: 'COBRADA', unitPrice: null, method: 'CASH' };
   readonly adjKinds = [
     { label: 'Sobrante (regresa a Almacén General)', value: 'SOBRANTE' },
     { label: 'Vencido', value: 'VENCIDO' },
     { label: 'Perdido / Merma', value: 'MERMA' },
     { label: 'Faltante de inventario', value: 'FALTANTE' },
     { label: 'Transferencia interna', value: 'TRANSFER' },
+    { label: 'Venta no registrada', value: 'VENTA_NO_REGISTRADA' },
+  ];
+  readonly vnrClassOpts = [
+    { label: 'Cobrada (con medio de pago)', value: 'COBRADA' },
+    { label: 'No cobrada (incidencia del colaborador)', value: 'NO_COBRADA' },
+    { label: 'Por verificar (revisión de administración)', value: 'POR_VERIFICAR' },
+  ];
+  readonly vnrMethodOpts = [
+    { label: 'Efectivo', value: 'CASH' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Transferencia', value: 'TRANSFER' },
+    { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' }, { label: 'Billetera', value: 'WALLET' },
   ];
   // Detalle interactivo de ajustes
   adjDetailVisible = false;
@@ -391,7 +412,7 @@ export class InventarioRecepcionComponent implements OnInit {
 
   openAdjust(it: InvItem): void {
     this.adjItem = it;
-    this.adjForm = { kind: 'SOBRANTE', quantity: 1, reference: '', toWarehouseId: null };
+    this.adjForm = { kind: 'SOBRANTE', quantity: 1, reference: '', toWarehouseId: null, classification: 'COBRADA', unitPrice: null, method: 'CASH' };
     if (!this.warehouses().length) {
       this.http.get<ApiResponse<WhOpt[]>>(`${this.api}/warehouses`, { params: { pageSize: '100' } }).subscribe((r) => this.warehouses.set(r.data ?? []));
     }
@@ -430,6 +451,23 @@ export class InventarioRecepcionComponent implements OnInit {
     if (!it || !this.whId()) return;
     if (!this.adjForm.quantity || this.adjForm.quantity < 1) { this.toast.add({ severity: 'warn', summary: 'Cantidad', detail: 'Indica una cantidad válida.' }); return; }
     if (this.adjForm.kind === 'TRANSFER' && !this.adjForm.toWarehouseId) { this.toast.add({ severity: 'warn', summary: 'Destino', detail: 'Elige el almacén destino.' }); return; }
+
+    // Venta no registrada: crea la venta marcada en la caja del turno (fuente única).
+    if (this.adjForm.kind === 'VENTA_NO_REGISTRADA') {
+      if (!this.adjForm.unitPrice || this.adjForm.unitPrice <= 0) { this.toast.add({ severity: 'warn', summary: 'Precio', detail: 'Indica el precio unitario.' }); return; }
+      this.busy.set(true);
+      const vnr: Record<string, unknown> = {
+        productId: it.productId, warehouseId: this.whId(), quantity: this.adjForm.quantity, unitPrice: this.adjForm.unitPrice,
+        classification: this.adjForm.classification, note: this.adjForm.reference || undefined,
+      };
+      if (this.adjForm.classification === 'COBRADA') vnr['method'] = this.adjForm.method;
+      this.http.post<ApiResponse<unknown>>(`${this.api}/reconciliation/unregistered-sale`, vnr).subscribe({
+        next: () => { this.busy.set(false); this.adjVisible = false; this.toast.add({ severity: 'success', summary: 'Venta registrada', detail: `Venta no registrada · ${it.name}` }); this.reload(); },
+        error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo registrar la venta.' }); },
+      });
+      return;
+    }
+
     this.busy.set(true);
     const body: Record<string, unknown> = { kind: this.adjForm.kind, productId: it.productId, warehouseId: this.whId(), quantity: this.adjForm.quantity, reference: this.adjForm.reference || undefined };
     if (this.adjForm.kind === 'TRANSFER') body['toWarehouseId'] = this.adjForm.toWarehouseId;

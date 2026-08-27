@@ -33,6 +33,11 @@ export const updateMovementSchema = z.object({
   reference: z.string().max(200).optional().or(z.literal('')),
   note: z.string().max(500).optional().or(z.literal('')),
   category: categoryEnum.optional(),
+  reason: z.string().max(500).optional(),
+});
+
+export const voidMovementSchema = z.object({
+  reason: z.string().max(500).optional(),
 });
 
 export const frequentConceptsSchema = z.object({

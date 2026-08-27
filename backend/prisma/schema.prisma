@@ -37,6 +37,7 @@ model Branch {
   customRates    CustomRate[]
   settings       Setting[]
   cashReconciliations CashReconciliation[]
+  cashInterventions   CashIntervention[]
   areas          Area[]
   inventoryCategories InventoryCategory[]
   items          Item[]
@@ -905,6 +906,10 @@ model CashMovement {
   reference       String? // N° de comprobante / referencia
   note            String? // observación
   category        String? // MOVEMENT | EXTRAORDINARY (null = MOVEMENT)
+  voided          Boolean  @default(false) // soft-anular: se conserva el registro; excluido de los totales
+  voidedAt        DateTime?
+  voidedByUserId  String?
+  voidReason      String?
   createdByUserId String?
   createdAt       DateTime @default(now())
 
@@ -1095,6 +1100,27 @@ model CashReconciliation {
   createdByUserId  String?
   approvedByUserId String?
   createdAt        DateTime @default(now())
+
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+  @@index([cashSessionId])
+}
+
+/// Huella de auditoría de intervenciones posteriores sobre una caja (corrección, anulación,
+/// venta no registrada, reapertura). Conserva valor anterior/nuevo, motivo, usuario y fecha.
+model CashIntervention {
+  id              String   @id @default(uuid())
+  branchId        String
+  cashSessionId   String // caja afectada
+  type            String // CORRECTION | VOID | UNREGISTERED_SALE | REOPEN
+  targetKind      String // MOVEMENT | SALE | PAYMENT | SESSION
+  targetId        String?
+  beforeJson      String?  @db.NVarChar(Max) // estado/valor original (JSON)
+  afterJson       String?  @db.NVarChar(Max) // valor nuevo (JSON)
+  reason          String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
 
   branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
@@ -1445,6 +1471,10 @@ model Sale {
   cashSessionId   String?
   total           Decimal  @db.Decimal(10, 2)
   status          String   @default("OPEN") // OPEN | PAID | CANCELLED
+  // Venta no registrada (regularización desde Kardex). unregistered marca el origen;
+  // verifyStatus clasifica el estado: REGULARIZADA (cobrada) | POR_VERIFICAR | NO_COBRADA.
+  unregistered    Boolean  @default(false)
+  verifyStatus    String? // REGULARIZADA | POR_VERIFICAR | NO_COBRADA
   createdByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

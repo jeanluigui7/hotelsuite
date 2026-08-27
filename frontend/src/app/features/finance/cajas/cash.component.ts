@@ -101,7 +101,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
                 </td>
                 <td class="r">S/ {{ s.openingAmount | number: '1.2-2' }}</td>
                 <td class="r">{{ s.closingAmount != null ? ('S/ ' + (s.closingAmount | number: '1.2-2')) : '—' }}</td>
-                <td class="c"><span class="pill" [class.open]="s.status === 'OPEN'" [class.closed]="s.status === 'CLOSED'"><i class="pi" [class.pi-lock-open]="s.status==='OPEN'" [class.pi-lock]="s.status==='CLOSED'"></i> {{ s.status === 'OPEN' ? 'Abierta' : 'Cerrada' }}</span></td>
+                <td class="c"><span class="pill" [class.open]="s.status === 'OPEN'" [class.closed]="s.status === 'CLOSED'" [class.adjusted]="s.status === 'AJUSTADA'"><i class="pi" [class.pi-lock-open]="s.status==='OPEN'" [class.pi-lock]="s.status==='CLOSED'" [class.pi-pencil]="s.status==='AJUSTADA'"></i> {{ s.status === 'OPEN' ? 'Abierta' : (s.status === 'AJUSTADA' ? 'Ajustada' : 'Cerrada') }}</span></td>
                 <td class="c">
                   @if (!canSeeCuadre()) { <span class="muted" title="Cierre ciego: el cuadre lo audita administración"><i class="pi pi-lock"></i></span> }
                   @else if (s.status === 'OPEN' || s.difference == null) { <span class="muted">—</span> }
@@ -111,7 +111,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
                 </td>
                 <td class="ac">
                   <button class="mini" (click)="viewCuadre(s)"><i class="pi pi-print"></i> Ver</button>
-                  @if (s.status === 'CLOSED' && canSeeCuadre()) { <button class="mini" (click)="reprintBlind(s)"><i class="pi pi-inbox"></i> Entrega</button> }
+                  @if (s.status !== 'OPEN' && canSeeCuadre()) { <button class="mini" (click)="reprintBlind(s)"><i class="pi pi-inbox"></i> Entrega</button> }
                   @if (canSeeCuadre() && canEdit) { <button class="mini" (click)="openMovements(s)">Movimientos</button> }
                   @if (s.status === 'OPEN' && canEdit) { <button class="mini close" (click)="openCloseDialog(s)">Cerrar</button> }
                 </td>
@@ -194,7 +194,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
           <p class="turno">Turno: {{ d.session.openedAt | date: 'dd/MM/yyyy HH:mm' }} — {{ d.session.closedAt ? (d.session.closedAt | date: 'dd/MM/yyyy HH:mm') : 'En curso' }}</p>
           <div class="dactions">
             <button class="mini" (click)="downloadDetail(d)"><i class="pi pi-download"></i> Descargar</button>
-            @if (d.session.status === 'CLOSED' && canEdit) { <button class="mini warn" (click)="reopen(d.session.id)"><i class="pi pi-replay"></i> Reabrir</button> }
+            @if (d.session.status !== 'OPEN' && isAdmin) { <button class="mini warn" (click)="reopen(d.session.id)"><i class="pi pi-replay"></i> Reabrir</button> }
           </div>
         </div>
         <div class="cards">
@@ -345,6 +345,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .dt { font-weight: 600; } .usr { color: #8aa0bd; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem; }
       .pill { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.74rem; font-weight: 700; padding: 0.18rem 0.7rem; border-radius: 999px; }
       .pill.open { background: rgba(16,185,129,0.16); color: #34d399; } .pill.closed { background: rgba(148,163,184,0.16); color: #94a3b8; }
+      .pill.adjusted { background: rgba(245,158,11,0.16); color: #f59e0b; }
       .cuadre { font-size: 0.74rem; font-weight: 700; padding: 0.18rem 0.7rem; border-radius: 999px; white-space: nowrap; }
       .cuadre.sob { background: rgba(16,185,129,0.16); color: #34d399; } .cuadre.fal { background: rgba(248,113,113,0.16); color: #f87171; } .cuadre.ok { background: rgba(59,130,246,0.18); color: #60a5fa; }
       .mini { background: #13243a; border: 1px solid #274468; color: #cbd5e1; border-radius: 7px; padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; cursor: pointer; margin-left: 0.35rem; }
@@ -423,11 +424,12 @@ export class CashComponent implements OnInit {
   readonly pageSize = 25;
   readonly pages = computed(() => Math.max(1, Math.ceil(this.total() / this.pageSize)));
 
-  statusFilter: '' | 'OPEN' | 'CLOSED' = '';
+  statusFilter: '' | 'OPEN' | 'CLOSED' | 'AJUSTADA' = '';
   readonly stateOptions = [
     { label: 'Todos los Estados', value: '' },
     { label: 'Abierta', value: 'OPEN' },
     { label: 'Cerrada', value: 'CLOSED' },
+    { label: 'Ajustada', value: 'AJUSTADA' },
   ];
 
   // Turno abierto (para cabecera / arqueo)
@@ -623,7 +625,7 @@ export class CashComponent implements OnInit {
       next: (res) => { this.detail.set(res.data); this.detailLoading.set(false); },
       error: () => { this.detailLoading.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el detalle.' }); },
     });
-    if (row.status === 'CLOSED') this.loadRecon(row.id);
+    if (row.status !== 'OPEN') this.loadRecon(row.id);
   }
 
   private loadRecon(sessionId: string): void {
