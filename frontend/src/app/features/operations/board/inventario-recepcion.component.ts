@@ -446,11 +446,18 @@ export class InventarioRecepcionComponent implements OnInit {
     });
   }
 
-  private readonly dp = new DatePipe('es-PE');
+  /** Formatea fecha/hora sin DatePipe (evita depender de un locale registrado). */
+  private fmtDT(iso: string, withDate = true): string {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const p = (n: number) => String(n).padStart(2, '0');
+    const time = `${p(d.getHours())}:${p(d.getMinutes())}`;
+    return withDate ? `${p(d.getDate())}/${p(d.getMonth() + 1)} ${time}` : time;
+  }
   cajaLabel(c: { number: number | null; status: string; openedAt: string; closedAt: string | null; openedByName: string }): string {
     const est = c.status === 'OPEN' ? 'Abierta' : c.status === 'AJUSTADA' ? 'Ajustada' : 'Cerrada';
-    const ini = this.dp.transform(c.openedAt, 'dd/MM HH:mm') ?? '';
-    const fin = c.closedAt ? (this.dp.transform(c.closedAt, 'HH:mm') ?? '') : '—';
+    const ini = this.fmtDT(c.openedAt, true);
+    const fin = c.closedAt ? this.fmtDT(c.closedAt, false) : '—';
     return `Caja #${c.number ?? '—'} · ${ini}–${fin} · ${c.openedByName} · ${est}`;
   }
 
