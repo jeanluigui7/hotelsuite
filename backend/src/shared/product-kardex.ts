@@ -61,7 +61,7 @@ export async function productWarehouses(branchId: string) {
 type MinField = 'reorderPoint' | 'receptionReorderPoint';
 export interface KardexItem {
   productId: string; name: string; sku: string | null; categoryId: string | null; categoryName: string | null;
-  stockInicial: number; ingresos: number; salidas: number; ajustes: number; stock: number; min: number; belowMin: boolean;
+  price: number; stockInicial: number; ingresos: number; salidas: number; ajustes: number; stock: number; min: number; belowMin: boolean;
 }
 
 /** Construye las filas del kardex para un almacén dentro de la ventana de turno. */
@@ -102,7 +102,7 @@ export async function buildProductKardex(opts: {
     const min = (p as unknown as Record<string, number>)[minField] ?? 0;
     return {
       productId: p.id, name: p.name, sku: p.sku, categoryId: p.categoryId, categoryName: p.category?.name ?? null,
-      stockInicial, ingresos: ingresos.get(p.id) ?? 0, salidas: salidas.get(p.id) ?? 0, ajustes: ajustes.get(p.id) ?? 0,
+      price: Number(p.salePrice), stockInicial, ingresos: ingresos.get(p.id) ?? 0, salidas: salidas.get(p.id) ?? 0, ajustes: ajustes.get(p.id) ?? 0,
       stock: stockFinal, min, belowMin: stockFinal <= min,
     };
   });

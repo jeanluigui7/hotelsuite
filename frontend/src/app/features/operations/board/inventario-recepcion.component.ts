@@ -15,7 +15,7 @@ import { PrintingService } from '../../../core/printing/printing.service';
 import { AuthService } from '../../../core/auth/auth.service';
 import { printPdf } from '../../../core/utils/export';
 
-interface InvItem { productId: string; name: string; sku?: string | null; categoryId?: string | null; categoryName?: string | null; stockInicial: number; stock: number; min: number; ingresos: number; salidas: number; ajustes: number; belowMin: boolean; }
+interface InvItem { productId: string; name: string; sku?: string | null; categoryId?: string | null; categoryName?: string | null; price?: number; stockInicial: number; stock: number; min: number; ingresos: number; salidas: number; ajustes: number; belowMin: boolean; }
 interface AdjDetail { id: string; at: string; kind: string; productName: string; quantity: number; counterpart: string | null; room: string | null; reason: string | null; user: string | null; approvedBy: string | null; }
 interface TurnInfo { shift: string; businessDate: string; startTime: string; endTime: string; isCurrent: boolean; from?: string; to?: string; }
 interface WhOpt { id: string; name: string; type: string; }
@@ -169,7 +169,7 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="adjVisible = false" />
-        <p-button label="Registrar" icon="pi pi-check" [loading]="busy()" (onClick)="saveAdjust()" />
+        <p-button label="Registrar" icon="pi pi-check" [loading]="busy()" [disabled]="adjForm.kind === 'VENTA_NO_REGISTRADA' && !vnrCanRegister()" (onClick)="saveAdjust()" />
       </ng-template>
     </p-dialog>
 
@@ -422,7 +422,8 @@ export class InventarioRecepcionComponent implements OnInit {
 
   openAdjust(it: InvItem): void {
     this.adjItem = it;
-    this.adjForm = { kind: 'SOBRANTE', quantity: 1, reference: '', toWarehouseId: null, classification: 'COBRADA', unitPrice: null, method: 'CASH', sessionId: null, verifyCode: '' };
+    // Precio unitario se autocompleta con el precio de venta del producto (editable).
+    this.adjForm = { kind: 'SOBRANTE', quantity: 1, reference: '', toWarehouseId: null, classification: 'COBRADA', unitPrice: it.price ?? null, method: 'CASH', sessionId: null, verifyCode: '' };
     if (!this.warehouses().length) {
       this.http.get<ApiResponse<WhOpt[]>>(`${this.api}/warehouses`, { params: { pageSize: '100' } }).subscribe((r) => this.warehouses.set(r.data ?? []));
     }
@@ -464,6 +465,13 @@ export class InventarioRecepcionComponent implements OnInit {
   /** Regla general: los medios distintos de efectivo requieren código de verificación. */
   vnrNeedsCode(): boolean { return this.adjForm.classification === 'COBRADA' && this.adjForm.method !== 'CASH'; }
   onVnrMethodChange(): void { if (this.adjForm.method === 'CASH') this.adjForm.verifyCode = ''; }
+  /** ¿Se puede registrar la venta no registrada? (caja, precio y —si aplica— código). */
+  vnrCanRegister(): boolean {
+    if (!this.adjForm.sessionId) return false;
+    if (!this.adjForm.unitPrice || this.adjForm.unitPrice <= 0) return false;
+    if (this.vnrNeedsCode() && !this.adjForm.verifyCode.trim()) return false;
+    return true;
+  }
 
   // ── Pérdida atribuida al colaborador (reclasifica un FALTANTE; solo administración) ──
   attrVisible = false;
