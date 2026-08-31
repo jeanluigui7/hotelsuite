@@ -58,7 +58,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
           <div class="mc green"><span>Efectivo</span><strong>S/ {{ d.cards.efectivo | number: '1.2-2' }}</strong></div>
           <div class="mc purple"><span>Ajustes (+/-)</span><strong>{{ d.cards.ajustes >= 0 ? '+' : '' }}S/ {{ d.cards.ajustes | number: '1.2-2' }}</strong></div>
           @if (regsTotal(d) > 0) {
-            <button class="mc amber clickable" (click)="toggleRegsFilter()" [class.active]="typeFilter === '__REG__'">
+            <button class="mc amber clickable" (click)="toggleRegsFilter()" [class.active]="typeFilter() === '__REG__'">
               <span>Regularizaciones <i class="pi pi-filter"></i></span>
               <strong>S/ {{ (d.regularizaciones!.cobradas.amount + d.regularizaciones!.noCobradas.amount + d.regularizaciones!.porVerificar.amount) | number: '1.2-2' }}</strong>
               <em>
@@ -104,8 +104,8 @@ const TYPE_COLOR: Record<string, [string, string]> = {
         </div>
 
         <div class="filters">
-          <label>Tipo: <p-select [options]="typeFilterOpts" optionLabel="label" optionValue="value" [(ngModel)]="typeFilter" styleClass="flt-sm" /></label>
-          <label>Método: <p-select [options]="methodFilterOpts" optionLabel="label" optionValue="value" [(ngModel)]="methodFilter" styleClass="flt-sm" /></label>
+          <label>Tipo: <p-select [options]="typeFilterOpts" optionLabel="label" optionValue="value" [ngModel]="typeFilter()" (ngModelChange)="typeFilter.set($event)" styleClass="flt-sm" /></label>
+          <label>Método: <p-select [options]="methodFilterOpts" optionLabel="label" optionValue="value" [ngModel]="methodFilter()" (ngModelChange)="methodFilter.set($event)" styleClass="flt-sm" /></label>
           <span class="count">Mostrando {{ filteredMovements().length }} de {{ d.movements.length }} movimientos</span>
         </div>
 
@@ -300,8 +300,9 @@ export class CashMovementsPageComponent implements OnInit {
   readonly recon = signal<ReconSummary | null>(null);
   private sessionId = '';
 
-  typeFilter = '';
-  methodFilter = '';
+  // Signals para que el computed filteredMovements reaccione al cambiar los filtros.
+  readonly typeFilter = signal('');
+  readonly methodFilter = signal('');
   readonly typeFilterOpts = [
     { label: 'Todos', value: '' }, { label: 'Hospedaje', value: 'HOSPEDAJE' }, { label: 'Pago Renovación', value: 'RENOVACION' },
     { label: 'Venta Producto', value: 'PRODUCTO' }, { label: 'Servicio', value: 'SERVICIO' }, { label: 'Ingreso', value: 'INGRESO' }, { label: 'Egreso', value: 'EGRESO' },
@@ -357,9 +358,11 @@ export class CashMovementsPageComponent implements OnInit {
   reconType(t: string): string { return ({ VENTA_NO_REGISTRADA: 'Venta no registrada', PERDIDA_COLABORADOR: 'Pérdida atribuida' } as Record<string, string>)[t] ?? t; }
   readonly filteredMovements = computed<CashDetailMovement[]>(() => {
     const all = this.detail()?.movements ?? [];
+    const type = this.typeFilter();
+    const method = this.methodFilter();
     return all.filter((m) => {
-      if (this.typeFilter === '__REG__') return !!m.unregistered;
-      return (!this.typeFilter || m.type === this.typeFilter) && (!this.methodFilter || m.method === this.methodFilter);
+      if (type === '__REG__') return !!m.unregistered;
+      return (!type || m.type === type) && (!method || m.method === method);
     });
   });
 
@@ -367,7 +370,7 @@ export class CashMovementsPageComponent implements OnInit {
   verifyLabel(v: string): string { return ({ REGULARIZADA: 'Regularizada', POR_VERIFICAR: 'Por verificar', NO_COBRADA: 'No cobrada' } as Record<string, string>)[v] ?? v; }
   verifyClass(v: string): string { return v === 'REGULARIZADA' ? 'ok' : v === 'NO_COBRADA' ? 'warn' : 'pend'; }
   regsTotal(d: CashDetail): number { const r = d.regularizaciones; return r ? r.cobradas.count + r.noCobradas.count + r.porVerificar.count : 0; }
-  toggleRegsFilter(): void { this.typeFilter = this.typeFilter === '__REG__' ? '' : '__REG__'; }
+  toggleRegsFilter(): void { this.typeFilter.set(this.typeFilter() === '__REG__' ? '' : '__REG__'); }
 
   // ── Etapa 5 — deudas ──
   deudaTipo(t: string): string { return ({ RENOVACION: 'Renovación', HOSPEDAJE: 'Hospedaje', PRODUCTO: 'Producto', SERVICIO: 'Servicio', VENTA_NO_COBRADA: 'Venta no cobrada' } as Record<string, string>)[t] ?? t; }
