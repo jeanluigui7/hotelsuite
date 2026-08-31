@@ -14,13 +14,22 @@ datasource db {
 /// Sucursal (tenant). Toda entidad operativa se relaciona con una Branch.
 model Branch {
   id         String   @id @default(uuid())
-  name       String
+  name       String // nombre comercial
   address    String?
   taxId      String? // RUC / identificación fiscal
   legalName  String? // razón social
-  phone      String?
+  phone      String? // legado (migrado a landline)
+  landline   String? // teléfono fijo
+  mobile     String? // celular
+  whatsapp   String? // número de WhatsApp
+  whatsappSameAsMobile Boolean @default(false) // WhatsApp = mismo número del celular
   email      String?
-  logoUrl    String?
+  website    String? // sitio web
+  facebook   String?
+  instagram  String?
+  tiktok     String?
+  mapsUrl    String?  @db.NVarChar(Max) // enlace de Google Maps (puede ser largo)
+  logoUrl    String?  @db.NVarChar(Max) // logo subido como data URL
   currency   String   @default("PEN")
   cutoffHour Int      @default(0) // hora de corte de turno (0-23)
   // Administrador presente: ON = cierre de caja con cuadre detallado; OFF = cierre ciego (recepción entrega a ciegas).
