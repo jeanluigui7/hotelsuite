@@ -143,13 +143,16 @@ export function buildCuadreTicket(d: CashDetail): string {
 
   const vps = d.virtualPayments ?? [];
   if (vps.length) {
+    // Ancho disponible para COD = TW − (columnas previas). El código se recorta a ese ancho
+    // para que ninguna fila desborde el ticket (antes "NO REGISTRADO" se salía del ancho).
+    const COD_W = TW - 31; // medio6+hora6+monto7+2+cli4+1+conc4+1 = 31
     const vrow = (medio: string, hora: string, monto: string, cli: string, conc: string, cod: string) =>
-      medio.padEnd(6) + hora.padEnd(6) + monto.padStart(7) + '  ' + cli.padEnd(4) + ' ' + conc.padEnd(4) + ' ' + cod;
+      medio.padEnd(6) + hora.padEnd(6) + monto.padStart(7) + '  ' + cli.padEnd(4) + ' ' + conc.padEnd(4) + ' ' + cod.slice(0, COD_W);
     L.push(sec('PAGOS VIRTUALES'));
     L.push(vrow('MEDIO', 'HORA', 'MONTO', 'CLI', 'CONC', 'COD'));
     L.push(line('-'));
-    // Código real desde la venta; si la venta no lo registró, se indica explícitamente (no un campo vacío).
-    for (const p of vps) L.push(vrow(ticketMedio(p.method), hhmm(p.time), p.amount.toFixed(2) + (p.mixed ? '*' : ''), (p.client || '').slice(0, 4).toUpperCase(), p.concept, p.code?.trim() || 'NO REGISTRADO'));
+    // Código real desde la venta; si la venta no lo registró (legado), se indica de forma breve.
+    for (const p of vps) L.push(vrow(ticketMedio(p.method), hhmm(p.time), p.amount.toFixed(2) + (p.mixed ? '*' : ''), (p.client || '').slice(0, 4).toUpperCase(), p.concept, p.code?.trim() || 'SIN CODIGO'));
     L.push(line('-'));
     if (vps.some((p) => p.mixed)) L.push('* = Pago mixto (Hospedaje + Productos)');
     L.push(line('='));

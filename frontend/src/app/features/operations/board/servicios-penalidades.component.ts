@@ -92,7 +92,7 @@ const METHODS = [
                   <button class="del" (click)="rmPay(i)"><i class="pi pi-times"></i></button>
                 </div>
                 @if (needsRef(p.method)) {
-                  <div class="payref"><i class="pi pi-hashtag"></i><input pInputText [(ngModel)]="p.reference" placeholder="Código de confirmación / N° de operación (opcional)" /></div>
+                  <div class="payref"><i class="pi pi-hashtag"></i><input pInputText [(ngModel)]="p.reference" placeholder="Código de verificación / N° de operación (obligatorio)" /></div>
                 }
               }
               @if (!pays().length) { <p class="pay-hint"><i class="pi pi-info-circle"></i> Agrega un método de pago para poder cobrar.</p> }
@@ -281,7 +281,10 @@ export class ServiciosPenalidadesComponent {
     if (this.cobro === 'ADEUDO') return '';
     const ps = this.pays();
     if (!ps.length) return 'Agrega un método de pago para cobrar.';
-    for (const p of ps) if (!(p.amount > 0)) return 'Ingresa el monto de cada método de pago.';
+    for (const p of ps) {
+      if (!(p.amount > 0)) return 'Ingresa el monto de cada método de pago.';
+      if (this.needsRef(p.method) && !(p.reference?.trim())) return 'Ingresa el código de verificación de los pagos con Yape, Plin, Transferencia o Tarjeta.';
+    }
     const paid = this.paid();
     const total = this.total();
     if (this.cobro === 'TOTAL' && paid + 0.001 < total) return `El pago no cubre el total (faltan S/ ${(total - paid).toFixed(2)}).`;

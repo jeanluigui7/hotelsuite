@@ -252,7 +252,7 @@ const MANT_CATS = [
         <p-select [options]="payMethods" optionLabel="label" optionValue="value" [(ngModel)]="payMethod" styleClass="w" appendTo="body" />
         <label>Monto a cobrar</label>
         <p-inputNumber [(ngModel)]="payAmount" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w" />
-        @if (payMethod !== 'CASH') { <label>Referencia</label><input pInputText [(ngModel)]="payReference" placeholder="N° de operación / voucher" /> }
+        @if (payMethod !== 'CASH') { <label>Código de verificación *</label><input pInputText [(ngModel)]="payReference" placeholder="N° de operación (obligatorio)" /> }
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="payVisible = false" />
@@ -480,7 +480,7 @@ const MANT_CATS = [
                     <div class="fld"><label>Tipo</label><p-select [options]="renovarPayMethods" optionLabel="label" optionValue="value" [(ngModel)]="m.method" styleClass="w" appendTo="body" /></div>
                     <div class="fld"><label>Monto (S/)</label><p-inputNumber [(ngModel)]="m.amount" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w" /></div>
                     @if (m.method === 'CASH') { <div class="fld"><label>Con cuánto paga</label><p-inputNumber [(ngModel)]="m.received" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w" /></div> }
-                    @else { <div class="fld"><label>Referencia</label><input pInputText [(ngModel)]="m.reference" placeholder="N° operación" /></div> }
+                    @else { <div class="fld"><label>Código de verificación *</label><input pInputText [(ngModel)]="m.reference" placeholder="N° de operación (obligatorio)" /></div> }
                   </div>
                 </div>
               }
@@ -1281,8 +1281,10 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     if (!this.renovarAmount || this.renovarAmount <= 0) { this.toast.add({ severity: 'warn', summary: 'Falta el monto', detail: 'Ingresa el monto a cobrar.' }); return; }
     const payments = this.renovarPayMode === 'DEFERRED'
       ? []
-      : this.renovarPays.filter((p) => (p.amount || 0) > 0).map((p) => ({ method: p.method, amount: p.amount as number, reference: p.reference || undefined }));
+      : this.renovarPays.filter((p) => (p.amount || 0) > 0).map((p) => ({ method: p.method, amount: p.amount as number, reference: p.reference?.trim() || undefined }));
     if (this.renovarPayMode !== 'DEFERRED' && !payments.length) { this.toast.add({ severity: 'warn', summary: 'Falta el pago', detail: 'Ingresa al menos un método con monto, o elige Pago diferido.' }); return; }
+    // Pago virtual (no efectivo): el código de verificación es OBLIGATORIO.
+    if (payments.some((p) => p.method !== 'CASH' && !p.reference)) { this.toast.add({ severity: 'warn', summary: 'Falta código de verificación', detail: 'Los pagos con Yape, Plin, Transferencia o Tarjeta requieren el código de operación.' }); return; }
     this.savingRenovar.set(true);
     this.ops.renew(r.activeStay.id, {
       mode: this.renovarMode,
@@ -1536,9 +1538,11 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   confirmPay(): void {
     const stayId = this.checkoutRoom?.activeStay?.id;
     if (!stayId || !this.payAmount || this.payAmount <= 0) return;
+    // Pago virtual (no efectivo): el código de verificación es OBLIGATORIO.
+    if (this.payMethod !== 'CASH' && !this.payReference.trim()) { this.toast.add({ severity: 'warn', summary: 'Falta código de verificación', detail: 'Los pagos con Yape, Plin, Transferencia o Tarjeta requieren el código de operación.' }); return; }
     const amount = this.payAmount;
     this.paying.set(true);
-    this.ops.payStay(stayId, { method: this.payMethod, amount, reference: this.payReference || undefined }).subscribe({
+    this.ops.payStay(stayId, { method: this.payMethod, amount, reference: this.payReference?.trim() || undefined }).subscribe({
       next: () => {
         this.paying.set(false);
         this.payVisible = false;

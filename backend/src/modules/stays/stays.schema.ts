@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PAYMENT_METHODS } from '../../shared/payments';
+import { PAYMENT_METHODS, PAYMENT_REFERENCE_REQUIRED, hasRequiredReference } from '../../shared/payments';
 
 const newGuestSchema = z.object({
   documentType: z.enum(['DNI', 'RUC', 'PASAPORTE', 'CE', 'DNI_EXT']).default('DNI'),
@@ -65,14 +65,16 @@ export const renewSchema = z.object({
   // Monto a cobrar por la renovación (libre; el cálculo por noche/hora es solo guía).
   amount: z.coerce.number().min(0),
   // Pagos registrados ahora (pueden ser varios métodos; vacío = pago diferido / deuda).
-  // Código de operación OPCIONAL (ver nota en sales.schema): no bloquea el pago.
+  // Código de operación OBLIGATORIO para pagos virtuales (red de seguridad; el front lo exige).
   payments: z
     .array(
-      z.object({
-        method: z.enum(PAYMENT_METHODS),
-        amount: z.coerce.number().min(0),
-        reference: z.string().max(120).optional().or(z.literal('')),
-      }),
+      z
+        .object({
+          method: z.enum(PAYMENT_METHODS),
+          amount: z.coerce.number().min(0),
+          reference: z.string().max(120).optional().or(z.literal('')),
+        })
+        .refine(hasRequiredReference, { message: PAYMENT_REFERENCE_REQUIRED, path: ['reference'] }),
     )
     .default([]),
   notes: z.string().max(300).optional().or(z.literal('')),
@@ -80,12 +82,14 @@ export const renewSchema = z.object({
 });
 
 /** Cobro del pendiente de una estancia (abona a sus ventas OPEN / adeudo).
- *  Código de operación OPCIONAL (ver nota en sales.schema): no bloquea el pago. */
-export const payStaySchema = z.object({
-  method: z.enum(PAYMENT_METHODS),
-  amount: z.coerce.number().positive(),
-  reference: z.string().max(120).optional().or(z.literal('')),
-});
+ *  Código de operación OBLIGATORIO para pagos virtuales (red de seguridad; el front lo exige). */
+export const payStaySchema = z
+  .object({
+    method: z.enum(PAYMENT_METHODS),
+    amount: z.coerce.number().positive(),
+    reference: z.string().max(120).optional().or(z.literal('')),
+  })
+  .refine(hasRequiredReference, { message: PAYMENT_REFERENCE_REQUIRED, path: ['reference'] });
 
 /** Edición rápida de la estancia (recepción): teléfono, placa y acompañantes. */
 export const updateStayDetailsSchema = z.object({

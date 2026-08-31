@@ -103,7 +103,7 @@ const DOC_TYPES = [
                 @if (needsRef(p.method)) {
                   <div class="payref">
                     <i class="pi pi-hashtag"></i>
-                    <input pInputText [(ngModel)]="p.reference" placeholder="Código de confirmación / N° de operación (opcional)" />
+                    <input pInputText [(ngModel)]="p.reference" placeholder="Código de verificación / N° de operación (obligatorio)" />
                   </div>
                 }
               }
@@ -422,6 +422,8 @@ export class VentaProductosComponent {
     if (!ps.length) return 'Agrega un método de pago para cobrar.';
     for (const p of ps) {
       if (!(p.amount > 0)) return 'Ingresa el monto de cada método de pago.';
+      // Pago virtual (no efectivo): el código de verificación/operación es OBLIGATORIO.
+      if (this.needsRef(p.method) && !(p.reference?.trim())) return 'Ingresa el código de verificación de los pagos con Yape, Plin, Transferencia o Tarjeta.';
     }
     const paid = this.paid();
     const total = this.total();

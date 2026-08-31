@@ -313,7 +313,7 @@ const PAY_TYPES = [
                       <div class="fld"><label>💰 Con cuánto paga el cliente</label><p-inputNumber [(ngModel)]="p.received" mode="decimal" [minFractionDigits]="2" [min]="0" /></div>
                       <div class="fld"><label>🔁 Vuelto a entregar</label><div class="vuelto">S/ {{ vuelto(p) | number: '1.2-2' }}</div></div>
                     } @else {
-                      <div class="fld span2"><label>Referencia (opcional)</label><input pInputText [(ngModel)]="p.reference" placeholder="N° de transacción, voucher, etc." /></div>
+                      <div class="fld span2"><label>Código de verificación / operación *</label><input pInputText [(ngModel)]="p.reference" placeholder="N° de operación (obligatorio)" /></div>
                     }
                     <div class="fld span2"><label>Notas</label><input pInputText [(ngModel)]="p.notes" placeholder="Notas adicionales del pago" /></div>
                   </div>
@@ -891,6 +891,9 @@ export class CheckInDialogComponent {
     // Efectivo: exige "con cuánto paga el cliente" (recibido) y que cubra el monto a cobrar.
     const badCash = this.pays().find((p) => this.payMeta(p.type).value === 'CASH' && (p.amount || 0) > 0 && (p.received == null || p.received < (p.amount || 0)));
     if (badCash) { this.tab.set('pago'); this.messages.add({ severity: 'warn', summary: 'Falta el efectivo recibido', detail: 'Ingresa con cuánto paga el cliente (debe cubrir el monto a cobrar).' }); return; }
+    // Pagos virtuales (no efectivo): el código de verificación/operación es OBLIGATORIO.
+    const badRef = this.pays().find((p) => this.payMeta(p.type).value !== 'CASH' && (p.amount || 0) > 0 && !p.reference.trim());
+    if (badRef) { this.tab.set('pago'); this.messages.add({ severity: 'warn', summary: 'Falta código de verificación', detail: 'Los pagos con Yape, Plin, Transferencia o Tarjeta requieren el código de operación.' }); return; }
 
     this.saving.set(true);
     // 1. Crear huéspedes adicionales (los que tengan documento) y luego check-in.
@@ -949,7 +952,7 @@ export class CheckInDialogComponent {
           // La comisión POS se cobra al cliente: se agrega como cargo para que la venta cuadre con lo pagado.
           ...(this.commissionTotal() > 0 ? [{ description: 'Comisión POS', unitPrice: this.commissionTotal(), quantity: 1 }] : []),
         ];
-        const payments = this.pays().filter((p) => (p.amount || 0) > 0).map((p) => ({ method: this.payMeta(p.type).backend, amount: p.amount }));
+        const payments = this.pays().filter((p) => (p.amount || 0) > 0).map((p) => ({ method: this.payMeta(p.type).backend, amount: p.amount, reference: p.reference?.trim() || undefined }));
         // Se registra SIEMPRE el cargo de la estancia (deja rastro en el folio), con o sin pago.
         if (stay?.id) {
           this.finance.createSale({ stayId: stay.id, items, payments, sourceArea: 'RECEPTION' }).subscribe({

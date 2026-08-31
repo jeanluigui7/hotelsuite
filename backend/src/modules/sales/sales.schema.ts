@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PAYMENT_METHODS } from '../../shared/payments';
+import { PAYMENT_METHODS, PAYMENT_REFERENCE_REQUIRED, hasRequiredReference } from '../../shared/payments';
 
 const saleItemSchema = z
   .object({
@@ -12,14 +12,15 @@ const saleItemSchema = z
     message: 'Cada línea requiere un producto, o descripción y precio',
   });
 
-// El código de operación es OPCIONAL (coincide con el frontend "(opcional)"): un pago con
-// Yape/Plin/Transferencia/Tarjeta sin código NO debe bloquearse; se registra igual y el
-// código queda en null. (Antes era obligatorio y rompía ventas/pagos reales sin código.)
-const paymentSchema = z.object({
-  method: z.enum(PAYMENT_METHODS),
-  amount: z.coerce.number().positive(),
-  reference: z.string().max(120).optional().or(z.literal('')),
-});
+// El código de operación es OBLIGATORIO para pagos virtuales (Yape/Plin/Transferencia/Tarjeta).
+// Los frontends lo exigen antes de enviar; este refine es la red de seguridad del backend.
+const paymentSchema = z
+  .object({
+    method: z.enum(PAYMENT_METHODS),
+    amount: z.coerce.number().positive(),
+    reference: z.string().max(120).optional().or(z.literal('')),
+  })
+  .refine(hasRequiredReference, { message: PAYMENT_REFERENCE_REQUIRED, path: ['reference'] });
 
 export const createSaleSchema = z
   .object({
