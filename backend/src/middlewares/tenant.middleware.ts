@@ -11,6 +11,12 @@ import type { RequestScope } from '../shared/context';
 export function tenant() {
   return (req: Request, _res: Response, next: NextFunction): void => {
     try {
+      // Igual que authenticate(): tenant() se monta en cada router y una petición atraviesa
+      // muchos routers. req.scope ya calculado ⇒ no lo recalculamos por cada router.
+      if (req.scope) {
+        next();
+        return;
+      }
       const user = req.user;
       if (!user) throw new UnauthorizedError();
 
