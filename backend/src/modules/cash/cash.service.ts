@@ -521,6 +521,29 @@ export const cashService = {
     }
     virtualPayments.sort((a, b) => b.time.getTime() - a.time.getTime());
 
+    // Etapa 5 (refuerzo): estancias con check-in en el turno cuyo cargo de hospedaje NO se registró
+    // como venta (el check-in dejó la estancia sin su venta). Su deuda es real pero era invisible en
+    // la caja; la sumamos como "Hospedaje sin registrar" para que el turno la refleje.
+    const winTo = session.closedAt ?? new Date();
+    const winStays = await cashRepository.staysInWindow(branchId, session.openedAt, winTo);
+    const chargedStayIds = await cashRepository.stayIdsWithSales(winStays.map((s) => s.id));
+    for (const st of winStays) {
+      if (chargedStayIds.has(st.id)) continue; // ya tiene una venta (el cargo se registró)
+      const importe = round(Number(st.priceAgreed));
+      if (importe <= 0) continue;
+      cards.deudasPendientes = round(cards.deudasPendientes + importe);
+      debts.push({
+        saleId: `stay:${st.id}`,
+        concepto: `Hospedaje sin registrar${st.guest ? ` — ${st.guest.firstName} ${st.guest.lastName ?? ''}`.trim() : ''}`,
+        tipo: 'HOSPEDAJE',
+        room: st.room?.number ?? null,
+        importe,
+        time: st.checkInAt,
+        estado: 'SIN_REGISTRAR',
+        folio: st.folioCode ?? null,
+      });
+    }
+
     const byMethod: Record<string, number> = {};
     for (const m of PAYMENT_METHODS) byMethod[m] = await cashRepository.paymentsTotal(id, m);
     cards.efectivo = byMethod['CASH'] ?? 0;

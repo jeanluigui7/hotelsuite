@@ -957,7 +957,15 @@ export class CheckInDialogComponent {
         if (stay?.id) {
           this.finance.createSale({ stayId: stay.id, items, payments, sourceArea: 'RECEPTION' }).subscribe({
             next: () => this.finish(payments.length ? 'Habitación ocupada. Pago registrado.' : 'Habitación ocupada. Cargo pendiente de cobro.'),
-            error: () => this.finish('Check-in hecho. El cargo no se pudo registrar.'),
+            error: (e: HttpErrorResponse) => {
+              // El check-in ya ocupó la habitación, pero el cargo/pago NO se registró. NO lo ocultamos:
+              // aviso persistente para que recepción lo cobre desde la estancia (si no, queda deuda oculta).
+              this.messages.add({
+                severity: 'error', sticky: true, summary: '⚠ Cargo NO registrado',
+                detail: `La habitación quedó ocupada, pero el cobro no se guardó: ${e.error?.error?.message ?? 'error'}. Registra el cargo desde la estancia (botón Ticket/Vender) para que figure en la caja.`,
+              });
+              this.finish('Habitación ocupada — FALTA registrar el cargo.');
+            },
           });
         } else {
           this.finish('Habitación ocupada.');

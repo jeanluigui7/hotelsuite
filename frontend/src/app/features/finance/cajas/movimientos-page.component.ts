@@ -233,7 +233,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
                 <td>{{ x.time | date: 'HH:mm' }}</td><td>{{ x.room || '—' }}</td>
                 <td><span class="tbadge" [style.background]="typeBg(x.tipo)" [style.color]="typeFg(x.tipo)">{{ deudaTipo(x.tipo) }}</span></td>
                 <td>{{ x.concepto }}</td><td>{{ x.folio || '—' }}</td>
-                <td class="c"><span class="est" [class]="x.estado === 'NO_COBRADA' ? 'warn' : 'pend'">{{ deudaEstado(x.estado) }}</span></td>
+                <td class="c"><span class="est" [class]="x.estado === 'NO_COBRADA' || x.estado === 'SIN_REGISTRAR' ? 'warn' : 'pend'">{{ deudaEstado(x.estado) }}</span></td>
                 <td class="r">S/ {{ x.importe | number: '1.2-2' }}</td>
               </tr>
             } @empty { <tr><td colspan="7" class="empty">Sin deudas pendientes.</td></tr> }
@@ -374,7 +374,7 @@ export class CashMovementsPageComponent implements OnInit {
 
   // ── Etapa 5 — deudas ──
   deudaTipo(t: string): string { return ({ RENOVACION: 'Renovación', HOSPEDAJE: 'Hospedaje', PRODUCTO: 'Producto', SERVICIO: 'Servicio', VENTA_NO_COBRADA: 'Venta no cobrada' } as Record<string, string>)[t] ?? t; }
-  deudaEstado(e: string): string { return ({ PENDIENTE: 'Pendiente', PARCIAL: 'Parcial', NO_COBRADA: 'No cobrada' } as Record<string, string>)[e] ?? e; }
+  deudaEstado(e: string): string { return ({ PENDIENTE: 'Pendiente', PARCIAL: 'Parcial', NO_COBRADA: 'No cobrada', SIN_REGISTRAR: 'Sin registrar' } as Record<string, string>)[e] ?? e; }
 
   // ── Etapa 2 — VER + historial ──
   histLabel(t: string): string { return ({ CORRECTION: 'Corrección', VOID: 'Anulación', UNREGISTERED_SALE: 'Venta no registrada', REOPEN: 'Reapertura' } as Record<string, string>)[t] ?? t; }

@@ -252,4 +252,26 @@ export const cashRepository = {
       where: { sale: { cashSessionId, status: { not: 'CANCELLED' } } },
     });
   },
+
+  /** Estancias con check-in dentro de la ventana del turno (para detectar cargos sin registrar). */
+  staysInWindow(branchId: string, from: Date, to: Date) {
+    return prisma.stay.findMany({
+      where: { branchId, status: { not: 'CANCELLED' }, checkInAt: { gte: from, lte: to } },
+      select: {
+        id: true, priceAgreed: true, checkInAt: true, status: true, folioCode: true,
+        room: { select: { number: true } },
+        guest: { select: { firstName: true, lastName: true } },
+      },
+    });
+  },
+
+  /** Ids de estancias (de la lista) que YA tienen al menos una venta no anulada. */
+  async stayIdsWithSales(stayIds: string[]): Promise<Set<string>> {
+    if (stayIds.length === 0) return new Set();
+    const rows = await prisma.sale.findMany({
+      where: { stayId: { in: stayIds }, status: { not: 'CANCELLED' } },
+      select: { stayId: true },
+    });
+    return new Set(rows.map((r) => r.stayId).filter((x): x is string => !!x));
+  },
 };
