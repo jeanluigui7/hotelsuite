@@ -90,7 +90,9 @@ export const cashService = {
     return {
       session: closed,
       summary,
-      difference: Math.round((dto.closingAmount - summary.expectedCash) * 100) / 100,
+      // Cuadre = contado − esperado A ENTREGAR (esperado del cajón − caja base). El contado
+      // (closingAmount) NO incluye la base; el esperado sí. Igual que el ticket de cuadre.
+      difference: Math.round((dto.closingAmount - (summary.expectedCash - Number(session.openingAmount))) * 100) / 100,
     };
   },
 
@@ -146,19 +148,21 @@ export const cashService = {
     const items = rows.map((s) => {
       const closing = s.closingAmount != null ? Number(s.closingAmount) : null;
       const expected = s.expectedAmount != null ? Number(s.expectedAmount) : null;
+      const base = Number(s.openingAmount);
       return {
         id: s.id,
         number: s.number,
         status: s.status,
-        openingAmount: Number(s.openingAmount),
+        openingAmount: base,
         closingAmount: closing,
         expectedAmount: expected,
         openedAt: s.openedAt,
         closedAt: s.closedAt,
         openedByName: names.get(s.openedByUserId) ?? '—',
         closedByName: s.closedByUserId ? (names.get(s.closedByUserId) ?? '—') : null,
-        // Cuadre: efectivo contado − esperado (null si el turno sigue abierto).
-        difference: closing != null && expected != null ? Math.round((closing - expected) * 100) / 100 : null,
+        // Cuadre = contado − esperado A ENTREGAR (esperado del cajón − caja base). El contado
+        // (closingAmount) NO incluye la base; el esperado sí. Igual que el ticket de cuadre.
+        difference: closing != null && expected != null ? Math.round((closing - (expected - base)) * 100) / 100 : null,
       };
     });
     return { items, meta: pageMeta(params, total) };
