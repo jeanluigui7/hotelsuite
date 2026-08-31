@@ -19,6 +19,7 @@ import { profileForRole } from '../../../layout/menu';
 import { OperationsApiService } from '../services/operations-api.service';
 import { CatalogApiService } from '../../settings/catalogs/catalog-api.service';
 import type { RoomType } from '../../settings/catalogs/catalog.models';
+import { docLabel, natLabel } from '../services/operations.models';
 import type { ActiveStay, CheckoutSummary, RoomMapItem } from '../services/operations.models';
 import { CheckInDialogComponent } from '../habitaciones/check-in-dialog.component';
 import { VentaProductosComponent } from './venta-productos.component';
@@ -150,7 +151,8 @@ const MANT_CATS = [
                 <span class="g-count clickable" (click)="toggleStayEdit(r.activeStay!.id)"><i class="pi pi-users"></i> {{ r.activeStay.guestCount || 1 }}</span>
                 @if (stayEditPencil() === r.activeStay.id) { <button class="pencil-y" (click)="openStayEdit(r)" pTooltip="Editar teléfono, placa y acompañantes"><i class="pi pi-pencil"></i></button> }
               </div>
-                <div class="g-meta"><span><i class="pi pi-id-card"></i> {{ r.activeStay.documentNumber || '—' }}</span><span><i class="pi pi-phone"></i> {{ r.activeStay.phone || '—' }}</span></div>
+                <div class="g-meta"><span><i class="pi pi-id-card"></i> {{ docLabel(r.activeStay.documentType, r.activeStay.documentNumber) }}</span><span><i class="pi pi-phone"></i> {{ r.activeStay.phone || '—' }}</span></div>
+                @if (r.activeStay.nationality || (r.activeStay.documentType && r.activeStay.documentType !== 'DNI' && r.activeStay.documentType !== 'RUC')) { <div class="g-meta nat"><span><i class="pi pi-flag"></i> {{ natLabel(r.activeStay.documentType, r.activeStay.nationality) }}</span></div> }
                 <div class="g-dates">
                   <div><span>Entrada</span><strong>{{ r.activeStay.checkInAt | date: 'dd/MM HH:mm' }}</strong></div>
                   <div><span>Salida</span><strong>{{ r.activeStay.plannedCheckoutAt | date: 'dd/MM HH:mm' }}</strong></div>
@@ -820,6 +822,8 @@ const MANT_CATS = [
   ],
 })
 export class HabitacionesBoardComponent implements OnInit, OnDestroy {
+  readonly docLabel = docLabel;
+  readonly natLabel = natLabel;
   private readonly ops = inject(OperationsApiService);
   private readonly toast = inject(MessageService);
   private readonly router = inject(Router);
@@ -1491,7 +1495,7 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
         <div style="text-align:center;font-size:12px">Ticket de estancia</div><hr>
         <div>Hab.: ${r.number} (${r.roomType.name})</div>
         <div>Huésped: ${s.guestName}</div>
-        <div>Doc: ${s.documentNumber ?? '—'}</div>
+        <div>Doc: ${docLabel(s.documentType, s.documentNumber)}</div>${s.nationality ? `<div>Nacionalidad: ${s.nationality}</div>` : ''}
         <div>Entrada: ${new Date(s.checkInAt).toLocaleString('es-PE')}</div>
         <div>Salida: ${new Date(s.plannedCheckoutAt).toLocaleString('es-PE')}</div><hr>
         <div>Habitación: S/ ${fmt(Number(s.priceAgreed))}</div>

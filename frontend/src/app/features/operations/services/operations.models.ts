@@ -8,10 +8,32 @@ export type RoomStatus =
   | 'LIMPIEZA_EN_CURSO'
   | 'REQUIERE_REPASO';
 
+/** Etiqueta del tipo de documento para mostrar en tarjetas y folios. */
+export const DOC_TYPE_LABEL: Record<string, string> = {
+  DNI: 'DNI',
+  RUC: 'RUC',
+  PASAPORTE: 'Pasaporte',
+  CE: 'Carné de Extranjería',
+  DNI_EXT: 'DNI Extranjero',
+};
+/** "DNI 12345678" · "Pasaporte X123" — tipo + número. */
+export function docLabel(type?: string | null, num?: string | null): string {
+  const t = type ? (DOC_TYPE_LABEL[type] ?? type) : 'DNI';
+  return `${t} ${num ?? '—'}`.trim();
+}
+/** Nacionalidad a mostrar: la registrada; si falta, "Peruana" para documentos nacionales
+ *  (DNI/RUC) y "Extranjera" para documentos de extranjero (Pasaporte/CE/DNI Extranjero). */
+export function natLabel(type?: string | null, nationality?: string | null): string {
+  if (nationality && nationality.trim()) return nationality.trim();
+  return type === 'DNI' || type === 'RUC' || !type ? 'Peruana' : 'Extranjera';
+}
+
 export interface ActiveStay {
   id: string;
   guestName: string;
+  documentType?: string | null;
   documentNumber?: string | null;
+  nationality?: string | null;
   phone?: string | null;
   guestCount?: number;
   checkInAt: string;

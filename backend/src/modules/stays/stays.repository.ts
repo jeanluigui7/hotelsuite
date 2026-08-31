@@ -3,7 +3,7 @@ import { prisma } from '../../config/prisma';
 
 const stayInclude = {
   room: { select: { id: true, number: true, floor: true } },
-  guest: { select: { id: true, firstName: true, lastName: true, documentNumber: true, phone: true } },
+  guest: { select: { id: true, firstName: true, lastName: true, documentType: true, documentNumber: true, nationality: true, phone: true } },
   rate: { select: { id: true, label: true, pernocta: true } },
   tier: { select: { id: true, name: true } },
   additionalGuests: { include: { guest: { select: { id: true, firstName: true, lastName: true } } } },

@@ -33,7 +33,9 @@ function serializeMap(room: RoomForMap) {
       ? {
           id: stay.id,
           guestName: `${stay.guest.firstName} ${stay.guest.lastName ?? ''}`.trim(),
+          documentType: stay.guest.documentType,
           documentNumber: stay.guest.documentNumber,
+          nationality: stay.guest.nationality,
           phone: stay.guest.phone,
           guestCount: 1 + (stay._count?.additionalGuests ?? 0),
           checkInAt: stay.checkInAt,

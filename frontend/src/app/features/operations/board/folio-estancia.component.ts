@@ -6,10 +6,11 @@ import { ButtonModule } from 'primeng/button';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
+import { docLabel, natLabel } from '../services/operations.models';
 
 interface Folio {
   folio: { code: string; status: string };
-  guest: { name: string; documentNumber?: string | null; phone?: string | null };
+  guest: { name: string; documentType?: string | null; documentNumber?: string | null; nationality?: string | null; phone?: string | null };
   room: { number: string; typeName: string };
   checkInAt: string; plannedCheckoutAt: string; durationMinutes: number; renewals: number;
   amounts: { habitacion: number; renovaciones: number; consumos: number; total: number; paid: number };
@@ -52,10 +53,10 @@ type Tab = 'resumen' | 'folio' | 'historial' | 'operacion';
                 <div class="panel">
                   <h4><i class="pi pi-user"></i> HUÉSPED PRINCIPAL</h4>
                   <div class="g-name">{{ f.guest.name }}</div>
-                  <div class="g-meta"><span><i class="pi pi-id-card"></i> {{ f.guest.documentNumber || '—' }}</span><span><i class="pi pi-phone"></i> {{ f.guest.phone || '—' }}</span></div>
-                  <div class="g-meta"><span><i class="pi pi-users"></i> 1 / 3 personas</span></div>
+                  <div class="g-meta"><span><i class="pi pi-id-card"></i> {{ docLabel(f.guest.documentType, f.guest.documentNumber) }}</span><span><i class="pi pi-phone"></i> {{ f.guest.phone || '—' }}</span></div>
+                  <div class="g-meta"><span><i class="pi pi-flag"></i> {{ natLabel(f.guest.documentType, f.guest.nationality) }}</span><span><i class="pi pi-users"></i> 1 / 3 personas</span></div>
                   <div class="bill"><div class="bh"><span>DATOS DE FACTURACIÓN</span></div>
-                    <div>Nombre: {{ f.guest.name }}</div><div>DNI: {{ f.guest.documentNumber || '—' }}</div><div>Dir: Sin registrar</div></div>
+                    <div>Nombre: {{ f.guest.name }}</div><div>{{ docLabel(f.guest.documentType, f.guest.documentNumber) }}</div><div>Nacionalidad: {{ natLabel(f.guest.documentType, f.guest.nationality) }}</div><div>Dir: Sin registrar</div></div>
                 </div>
                 <div class="panel">
                   <h4><i class="pi pi-calendar"></i> FECHAS Y TIEMPO</h4>
@@ -256,6 +257,8 @@ type Tab = 'resumen' | 'folio' | 'historial' | 'operacion';
   ],
 })
 export class FolioEstanciaComponent implements OnDestroy {
+  readonly docLabel = docLabel;
+  readonly natLabel = natLabel;
   private readonly http = inject(HttpClient);
   private readonly api = environment.apiUrl;
 

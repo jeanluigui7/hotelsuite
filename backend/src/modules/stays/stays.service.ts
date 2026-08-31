@@ -382,7 +382,7 @@ export const staysService = {
 
     return {
       folio: { code: stay.folioCode ?? `FP-${stay.id.slice(0, 6).toUpperCase()}`, status: stay.status === 'OPEN' ? 'Activa' : 'Cerrada' },
-      guest: { name: `${stay.guest.firstName} ${stay.guest.lastName ?? ''}`.trim(), documentNumber: stay.guest.documentNumber, phone: stay.guest.phone },
+      guest: { name: `${stay.guest.firstName} ${stay.guest.lastName ?? ''}`.trim(), documentType: stay.guest.documentType, documentNumber: stay.guest.documentNumber, nationality: stay.guest.nationality, phone: stay.guest.phone },
       room: { number: room?.number ?? '—', typeName: room?.roomType.name ?? '—' },
       checkInAt: stay.checkInAt,
       plannedCheckoutAt: stay.plannedCheckoutAt,

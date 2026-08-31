@@ -16,7 +16,7 @@ const mapInclude = {
     take: 1,
     orderBy: { checkInAt: 'desc' },
     include: {
-      guest: { select: { id: true, firstName: true, lastName: true, documentNumber: true, phone: true } },
+      guest: { select: { id: true, firstName: true, lastName: true, documentType: true, documentNumber: true, nationality: true, phone: true } },
       _count: { select: { additionalGuests: true } },
     },
   },
