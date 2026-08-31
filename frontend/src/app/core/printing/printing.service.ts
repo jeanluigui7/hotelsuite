@@ -58,12 +58,37 @@ export class PrintingService {
     this.status.set('disconnected');
   }
 
-  /** Prints an HTML document to the default printer (auto-connects if needed). */
-  async printHtml(html: string): Promise<void> {
+  /** Lista las impresoras instaladas (requiere QZ conectado; auto-conecta). */
+  async listPrinters(): Promise<string[]> {
     if (!qz.websocket.isActive()) await this.connect();
-    const printer = await qz.printers.getDefault();
+    const res = (await qz.printers.find()) as string | string[];
+    return Array.isArray(res) ? res : [res];
+  }
+
+  /**
+   * Imprime un HTML. Si se indica `printer` usa esa impresora; si no, la predeterminada.
+   * `copies` repite el trabajo (QZ no expone copies para HTML de forma uniforme).
+   */
+  async printHtml(html: string, opts?: { printer?: string; copies?: number }): Promise<void> {
+    if (!qz.websocket.isActive()) await this.connect();
+    const printer = opts?.printer && opts.printer.trim() ? opts.printer : await qz.printers.getDefault();
     const config = qz.configs.create(printer);
-    await qz.print(config, [{ type: 'pixel', format: 'html', flavor: 'plain', data: html }]);
+    const copies = Math.max(1, opts?.copies ?? 1);
+    for (let i = 0; i < copies; i++) {
+      await qz.print(config, [{ type: 'pixel', format: 'html', flavor: 'plain', data: html }]);
+    }
+  }
+
+  /** Imprime un ticket de prueba en la impresora indicada (o la predeterminada). */
+  async printTest(printer?: string): Promise<void> {
+    const html = `<div style="font-family:monospace;width:260px;text-align:center">
+      <div style="font-weight:bold">PRUEBA DE IMPRESION</div>
+      <div>HotelSuite · QZ Tray</div>
+      <div>${new Date().toLocaleString('es-PE')}</div>
+      <div>--------------------------------</div>
+      <div>Si lees esto, la impresora funciona.</div>
+    </div>`;
+    await this.printHtml(html, { printer });
   }
 
   /**
