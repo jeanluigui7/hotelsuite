@@ -36,6 +36,7 @@ interface RoomOpt { stayId: string; label: string; }
           <label class="tgl"><input type="checkbox" [(ngModel)]="showUsed" (ngModelChange)="reload()" /> Mostrar usadas</label>
           @if (canEdit) {
             <input #imp type="file" accept=".csv,.txt" hidden (change)="onImport($event)" />
+            <p-button label="Plantilla CSV" icon="pi pi-download" severity="secondary" [text]="true" (onClick)="downloadTemplate()" />
             <p-button label="Importar CSV" icon="pi pi-upload" severity="secondary" (onClick)="imp.click()" />
             <p-button label="Crear Credenciales" icon="pi pi-plus" (onClick)="openCreate()" />
           }
@@ -351,6 +352,25 @@ export class WifiPoolComponent implements OnInit {
       },
       error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo generar el ticket.' }),
     });
+  }
+
+  /** Descarga una plantilla CSV lista para llenar (con el SSID de la sucursal y ejemplos). */
+  downloadTemplate(): void {
+    const ssid = this.auth.activeBranch()?.name ?? 'RIZZOS HOSPEDAJE';
+    const rows = [
+      'ssid,password,code,category',
+      `${ssid},contrasena01,,PERNOCTACION`,
+      `${ssid},contrasena02,,ESTADIA_CORTA`,
+      `${ssid},contrasena03,WIFI-010,PERSONALIZADA`,
+      `${ssid},contrasena04,,GRATIS`,
+    ];
+    // BOM para que Excel abra los acentos correctamente.
+    const blob = new Blob(['﻿' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'plantilla-credenciales-wifi.csv';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
   }
 
   // ── Importar CSV ──
