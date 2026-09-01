@@ -14,7 +14,9 @@ wifiRouter.get('/wifi-credentials/summary', requirePermission('settings', 'view'
 wifiRouter.get('/wifi-credentials/:id', requirePermission('settings', 'view'), asyncHandler(wifiController.getById));
 wifiRouter.post('/wifi-credentials', requirePermission('settings', 'create'), asyncHandler(wifiController.create));
 wifiRouter.post('/wifi-credentials/bulk', requirePermission('settings', 'create'), asyncHandler(wifiController.createBulk));
+wifiRouter.post('/wifi-credentials/import', requirePermission('settings', 'create'), asyncHandler(wifiController.importRows));
 wifiRouter.post('/wifi-credentials/bulk-delete', requirePermission('settings', 'delete'), asyncHandler(wifiController.bulkRemove));
+wifiRouter.get('/wifi-credentials/:id/ticket', requirePermission('settings', 'view'), asyncHandler(wifiController.ticket));
 wifiRouter.post('/wifi-credentials/:id/assign', requirePermission('settings', 'edit'), asyncHandler(wifiController.assign));
 wifiRouter.put('/wifi-credentials/:id', requirePermission('settings', 'edit'), asyncHandler(wifiController.update));
 wifiRouter.delete('/wifi-credentials/:id', requirePermission('settings', 'delete'), asyncHandler(wifiController.remove));

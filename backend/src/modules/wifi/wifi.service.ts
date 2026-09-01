@@ -155,4 +155,61 @@ export const wifiService = {
       data: { used: true },
     });
   },
+
+  /**
+   * Auto-asigna una credencial DISPONIBLE de la categoría a una estancia (usado en el check-in y en
+   * la rotación diaria de pernoctación). Devuelve la credencial asignada, o null si el pool está vacío.
+   */
+  async assignAvailableToStay(branchId: string, stayId: string, category: string, room: string | null, guest: string | null) {
+    const cred = await prisma.wifiCredential.findFirst({
+      where: { branchId, category, used: false, assignedStayId: null },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!cred) return null;
+    return prisma.wifiCredential.update({
+      where: { id: cred.id },
+      data: { assignedStayId: stayId, assignedRoom: room, assignedGuest: guest, assignedAt: new Date() },
+    });
+  },
+
+  /** Datos para imprimir el ticket WiFi de una credencial (identidad de la sucursal + estancia). */
+  async ticketData(scope: RequestScope, id: string) {
+    const branchId = requireActiveBranch(scope);
+    const cred = await this.getById(scope, id);
+    const branch = await prisma.branch.findUnique({
+      where: { id: branchId },
+      select: { name: true, address: true, landline: true, mobile: true, whatsapp: true, logoUrl: true },
+    });
+    let stay: { room: string | null; rateLabel: string | null; adults: number; checkOutAt: Date | null } | null = null;
+    if (cred.assignedStayId) {
+      const s = await prisma.stay.findUnique({
+        where: { id: cred.assignedStayId },
+        include: { room: { select: { number: true } }, rate: { select: { label: true } } },
+      });
+      if (s) stay = { room: s.room?.number ?? cred.assignedRoom, rateLabel: s.rate?.label ?? 'Tarifa personalizada', adults: s.adults, checkOutAt: s.plannedCheckoutAt };
+    }
+    return {
+      branch: {
+        name: branch?.name ?? '', address: branch?.address ?? '',
+        phone: branch?.landline || branch?.mobile || branch?.whatsapp || '', logoUrl: branch?.logoUrl ?? null,
+      },
+      credential: { ssid: cred.ssid, code: cred.code, category: cred.category, message: cred.message, validMinutes: cred.validMinutes },
+      stay: stay ?? { room: cred.assignedRoom, rateLabel: null, adults: 0, checkOutAt: null },
+    };
+  },
+
+  /** Importación masiva: filas {ssid, password, code?, category?}. Genera código si falta. */
+  async importRows(scope: RequestScope, rows: { ssid: string; password: string; code?: string; category?: string }[]) {
+    const branchId = requireActiveBranch(scope);
+    const data = rows
+      .map((r) => ({ ssid: (r.ssid || '').trim(), password: (r.password || '').trim(), code: (r.code || '').trim(), category: (r.category || '').trim().toUpperCase() }))
+      .filter((r) => r.ssid && r.password)
+      .map((r) => ({
+        branchId, ssid: r.ssid, password: r.password, code: r.code || genCode(),
+        category: (WIFI_CATEGORIES as readonly string[]).includes(r.category) ? r.category : 'PERNOCTACION',
+      }));
+    if (!data.length) throw new ValidationError('El archivo no tiene filas válidas (ssid y password requeridos).');
+    const res = await prisma.wifiCredential.createMany({ data });
+    return { created: res.count };
+  },
 };

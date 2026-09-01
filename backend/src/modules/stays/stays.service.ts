@@ -253,7 +253,16 @@ export const staysService = {
       reservationId: dto.reservationId ?? null,
       additionalGuestIds: dto.additionalGuestIds.filter((id) => id !== guestId),
     });
-    return serialize(stay as StayWithRelations);
+    // Auto-asignación de credencial WiFi del pool según el tipo de tarifa de la estancia.
+    const created = stay as StayWithRelations;
+    const wifiCat = !rate
+      ? 'PERSONALIZADA'
+      : rate.pernocta || /hotelero|pernocta|pernoctaci/i.test(rate.label) || durationMinutes >= 1440
+        ? 'PERNOCTACION'
+        : 'ESTADIA_CORTA';
+    const gName = `${created.guest?.firstName ?? ''} ${created.guest?.lastName ?? ''}`.trim();
+    await wifiService.assignAvailableToStay(branchId, created.id, wifiCat, room.number, gName || null);
+    return serialize(created);
   },
 
   /** Pendiente de pago de una estancia: recargos (balanceDue) + ventas OPEN no pagadas. */

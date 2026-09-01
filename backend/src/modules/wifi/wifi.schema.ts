@@ -35,6 +35,16 @@ export const bulkCreateWifiSchema = z.object({
 
 export const bulkDeleteWifiSchema = z.object({ ids: z.array(z.string().min(1)).min(1).max(500) });
 
+/** Importación masiva (CSV/Excel parseado en el front). */
+export const importWifiSchema = z.object({
+  rows: z.array(z.object({
+    ssid: z.string().max(120),
+    password: z.string().max(120),
+    code: z.string().max(60).optional(),
+    category: z.string().max(30).optional(),
+  })).min(1).max(2000),
+});
+
 /** Asignar una credencial a la estancia activa de una habitación. */
 export const assignWifiSchema = z.object({ stayId: z.string().min(1) });
 

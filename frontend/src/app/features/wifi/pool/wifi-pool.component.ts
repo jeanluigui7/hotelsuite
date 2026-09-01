@@ -34,7 +34,11 @@ interface RoomOpt { stayId: string; label: string; }
         </div>
         <div class="hr">
           <label class="tgl"><input type="checkbox" [(ngModel)]="showUsed" (ngModelChange)="reload()" /> Mostrar usadas</label>
-          @if (canEdit) { <p-button label="Crear Credenciales" icon="pi pi-plus" (onClick)="openCreate()" /> }
+          @if (canEdit) {
+            <input #imp type="file" accept=".csv,.txt" hidden (change)="onImport($event)" />
+            <p-button label="Importar CSV" icon="pi pi-upload" severity="secondary" (onClick)="imp.click()" />
+            <p-button label="Crear Credenciales" icon="pi pi-plus" (onClick)="openCreate()" />
+          }
         </div>
       </header>
 
@@ -88,11 +92,12 @@ interface RoomOpt { stayId: string; label: string; }
                     <td>{{ w.guest || '—' }}</td>
                     <td class="c">{{ w.room || '—' }}</td>
                     <td class="c nowrap">
+                      @if (w.state === 'EN_USO') { <button class="ic prt" (click)="printTicket(w)" title="Imprimir ticket"><i class="pi pi-print"></i></button> }
                       @if (canEdit) {
                         @if (w.state === 'DISPONIBLE') { <button class="ic link" (click)="openAssign(w)" title="Asignar a habitación"><i class="pi pi-link"></i></button> }
                         <button class="ic" (click)="openEdit(w)" title="Editar"><i class="pi pi-pencil"></i></button>
                         <button class="ic del" (click)="askDelete(w)" title="Eliminar"><i class="pi pi-trash"></i></button>
-                      } @else { <span class="muted">—</span> }
+                      }
                     </td>
                   </tr>
                 } @empty { <tr><td [attr.colspan]="canEdit ? 8 : 7" class="empty">Sin credenciales en esta categoría.</td></tr> }
@@ -186,7 +191,7 @@ interface RoomOpt { stayId: string; label: string; }
       .ssid { display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 700; } .ssid .pi { color: #10b981; }
       .pw { font-family: monospace; letter-spacing: 1px; } .mono { font-family: monospace; }
       .eye { background: none; border: 0; color: var(--p-text-muted-color, #94a3b8); cursor: pointer; }
-      .ic { background: none; border: 0; cursor: pointer; color: var(--p-text-muted-color, #64748b); padding: 0 0.3rem; font-size: 0.95rem; } .ic.link { color: #f59e0b; } .ic.del { color: #ef4444; }
+      .ic { background: none; border: 0; cursor: pointer; color: var(--p-text-muted-color, #64748b); padding: 0 0.3rem; font-size: 0.95rem; } .ic.link { color: #f59e0b; } .ic.del { color: #ef4444; } .ic.prt { color: #10b981; }
       .empty { text-align: center; padding: 1.5rem; color: var(--p-text-muted-color, #94a3b8); }
       .form { display: flex; flex-direction: column; gap: 0.35rem; } .form label { font-size: 0.82rem; color: var(--p-text-muted-color, #64748b); margin-top: 0.5rem; }
       .hint { font-size: 0.82rem; margin: 0 0 0.3rem; } .hint.gr { color: #d97706; }
@@ -334,4 +339,105 @@ export class WifiPoolComponent implements OnInit {
   }
 
   private afterChange(): void { this.selected.set(new Set()); this.reload(); this.loadSummary(); }
+
+  // ── Imprimir ticket ──
+  printTicket(w: WifiCred): void {
+    this.http.get<ApiResponse<WifiTicketData>>(`${this.api}/wifi-credentials/${w.id}/ticket`).subscribe({
+      next: (r) => {
+        if (!r.data) return;
+        const win = window.open('', '_blank', 'width=380,height=640');
+        if (!win) { this.toast.add({ severity: 'warn', summary: 'Ventana bloqueada', detail: 'Permite ventanas emergentes para imprimir.' }); return; }
+        win.document.open(); win.document.write(buildWifiTicket(r.data)); win.document.close();
+      },
+      error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo generar el ticket.' }),
+    });
+  }
+
+  // ── Importar CSV ──
+  onImport(ev: Event): void {
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const rows = parseCsv(String(reader.result));
+      if (!rows.length) { this.toast.add({ severity: 'warn', summary: 'CSV', detail: 'No se encontraron filas válidas (ssid, password).' }); return; }
+      this.busy.set(true);
+      this.http.post<ApiResponse<{ created: number }>>(`${this.api}/wifi-credentials/import`, { rows }).subscribe({
+        next: (r) => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Importadas', detail: `${r.data?.created ?? rows.length} credenciales.` }); this.afterChange(); },
+        error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo importar.' }); },
+      });
+    };
+    reader.readAsText(file);
+  }
+}
+
+interface WifiTicketData {
+  branch: { name: string; address: string; phone: string; logoUrl: string | null };
+  credential: { ssid: string; code: string | null; category: string; message: string | null; validMinutes: number | null };
+  stay: { room: string | null; rateLabel: string | null; adults: number; checkOutAt: string | null };
+}
+
+/** Parsea un CSV (coma o punto y coma). Cabecera con ssid,password,code,category o posicional. */
+function parseCsv(text: string): { ssid: string; password: string; code?: string; category?: string }[] {
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return [];
+  const delim = lines[0].includes(';') && !lines[0].includes(',') ? ';' : ',';
+  const cells = (l: string) => l.split(delim).map((c) => c.trim().replace(/^"|"$/g, ''));
+  const head = cells(lines[0]).map((h) => h.toLowerCase());
+  const hasHeader = head.some((h) => ['ssid', 'red', 'password', 'contraseña', 'contrasena', 'code', 'codigo', 'category', 'categoria'].includes(h));
+  const idx = (names: string[]) => head.findIndex((h) => names.includes(h));
+  const iS = hasHeader ? idx(['ssid', 'red']) : 0;
+  const iP = hasHeader ? idx(['password', 'contraseña', 'contrasena']) : 1;
+  const iC = hasHeader ? idx(['code', 'codigo']) : 2;
+  const iG = hasHeader ? idx(['category', 'categoria']) : 3;
+  const out: { ssid: string; password: string; code?: string; category?: string }[] = [];
+  for (const line of lines.slice(hasHeader ? 1 : 0)) {
+    const c = cells(line);
+    const ssid = (iS >= 0 ? c[iS] : '') || '';
+    const password = (iP >= 0 ? c[iP] : '') || '';
+    if (!ssid || !password) continue;
+    out.push({ ssid, password, code: iC >= 0 ? c[iC] : undefined, category: iG >= 0 ? c[iG] : undefined });
+  }
+  return out;
+}
+
+/** Ticket WiFi imprimible (formato térmico ~58mm), con identidad de la sucursal + estancia. */
+function buildWifiTicket(d: WifiTicketData): string {
+  const esc = (s: unknown) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] as string);
+  const now = new Date();
+  const fdt = `${String(now.getDate()).padStart(2, '0')}/${String(now.getMonth() + 1).padStart(2, '0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const room = d.stay.room ? `HABITACIÓN: ${esc(d.stay.room)}${d.stay.rateLabel ? ' - ' + esc(d.stay.rateLabel) : ''}${d.stay.adults ? ' - ' + d.stay.adults + ' PERSONA' + (d.stay.adults > 1 ? 'S' : '') : ''}` : '';
+  const co = d.stay.checkOutAt ? new Date(d.stay.checkOutAt) : null;
+  const culmina = co ? `SALIDA: ${String(co.getDate()).padStart(2, '0')}/${String(co.getMonth() + 1).padStart(2, '0')} ${String(co.getHours()).padStart(2, '0')}:${String(co.getMinutes()).padStart(2, '0')}` : '';
+  const catLabel = d.credential.category === 'GRATIS' ? 'WIFI GRATIS' : 'ACCESO WIFI';
+  const msg = d.credential.message ? esc(d.credential.message) : '';
+  const valid = d.credential.validMinutes ? `Válido por ${d.credential.validMinutes} min` : '';
+  const logo = d.branch.logoUrl ? `<img src="${d.branch.logoUrl}" style="max-width:120px;max-height:60px;object-fit:contain" alt="logo"/>` : `<div style="font-weight:bold;font-size:16px">${esc(d.branch.name)}</div>`;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ticket WiFi</title>
+  <style>@page{margin:0} body{font-family:'Courier New',monospace;width:280px;margin:0 auto;padding:10px;color:#000;font-size:12px;text-align:center}
+  .l{border-top:1px dashed #000;margin:8px 0} .h{border-top:2px solid #000} b{font-size:13px}</style></head><body onload="window.print()">
+  <div>${logo}</div>
+  <div class="h"></div>
+  ${room ? `<div style="font-weight:bold;margin-top:6px">${room}</div>` : ''}
+  <div>${fdt}</div>
+  ${culmina ? `<div style="font-size:11px">${culmina}</div>` : ''}
+  <div class="l"></div>
+  <div style="font-weight:bold;font-size:15px;margin:6px 0">${catLabel}</div>
+  <div>Red: <b>${esc(d.credential.ssid)}</b></div>
+  <div>Código: <b>${esc(d.credential.code || '—')}</b></div>
+  ${msg ? `<div style="margin-top:4px">${msg}</div>` : ''}
+  ${valid ? `<div style="font-size:11px">${valid}</div>` : ''}
+  <div style="margin-top:6px">📺 Netflix &nbsp; ▶ Amazon Prime</div>
+  <div class="l"></div>
+  <div style="font-weight:bold">☎ ROOM SERVICE 24 HORAS</div>
+  <div style="font-size:11px">Levante el intercomunicador para consultas, productos y ayuda.</div>
+  <div style="font-size:11px;margin-top:4px">Servicios y productos no sujetos a devolución.</div>
+  <div class="l"></div>
+  ${d.branch.address ? `<div style="font-size:11px">${esc(d.branch.address)}</div>` : ''}
+  ${d.branch.phone ? `<div style="font-size:11px">☎ ${esc(d.branch.phone)}</div>` : ''}
+  <div style="font-size:11px;font-weight:bold;margin-top:6px">ESTE TICKET NO ES BOLETA NI FACTURA</div>
+  <div style="font-size:10px">Solicítela en recepción.</div>
+  </body></html>`;
 }
