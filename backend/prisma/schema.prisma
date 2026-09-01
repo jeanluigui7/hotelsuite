@@ -1542,13 +1542,27 @@ model WifiCredential {
   password  String
   voucher   String?
   note      String?
-  status    String   @default("active") // active | inactive
+  // Pool de credenciales WiFi por categoría de tarifa.
+  category  String   @default("PERNOCTACION") // PERNOCTACION | ESTADIA_CORTA | PERSONALIZADA | GRATIS
+  code      String? // código impreso en el ticket (ej. R7iEmJ / WIFI-001)
+  used      Boolean  @default(false) // consumida (liberada tras el checkout) → "Usada"
+  // Asignación a una estancia (En Uso). Se denormaliza hab/huésped para mostrar e historial.
+  assignedStayId String?
+  assignedRoom   String?
+  assignedGuest  String?
+  assignedAt     DateTime?
+  // Solo GRATIS: validez del ticket y mensaje promocional impreso.
+  validMinutes Int?
+  message      String?
+  status    String   @default("active") // active | inactive (legado)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
   @@index([branchId])
+  @@index([branchId, category])
+  @@index([assignedStayId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

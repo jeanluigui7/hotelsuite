@@ -12,6 +12,7 @@ import { operationsConfigService, requireReceptionFlag } from '../operations-con
 import { prisma } from '../../config/prisma';
 import { guestsRepository } from '../guests/guests.repository';
 import { pernoctaService } from '../pernocta/pernocta.service';
+import { wifiService } from '../wifi/wifi.service';
 import { cashRepository } from '../cash/cash.repository';
 import { staysRepository, type StayWithRelations } from './stays.repository';
 import type { ChangeRoomDto, CheckInDto, CheckOutDto, PayStayDto, RenewDto, UpdateStayDetailsDto } from './stays.schema';
@@ -294,6 +295,8 @@ export const staysService = {
       }
     }
     const result = await staysRepository.checkOut(id, stay.roomId, dto.roomStatus, scope.userId, lateCharge > 0 ? lateCharge : null);
+    // Al checkout, la credencial WiFi asignada a la estancia se consume ("Usada"), liberando el pool.
+    await wifiService.releaseByStay(id);
     return serialize(result as StayWithRelations);
   },
 

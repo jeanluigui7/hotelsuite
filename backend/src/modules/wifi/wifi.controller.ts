@@ -1,16 +1,20 @@
 import type { Request, Response } from 'express';
 import { ok } from '../../shared/response';
-import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { wifiService } from './wifi.service';
-import { createWifiSchema, updateWifiSchema } from './wifi.schema';
+import { createWifiSchema, updateWifiSchema, bulkCreateWifiSchema, bulkDeleteWifiSchema, assignWifiSchema } from './wifi.schema';
 
 export const wifiController = {
   async list(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
-    const params = paginationSchema.parse(req.query);
-    const { items, meta } = await wifiService.list(req.scope, params);
-    res.status(200).json(ok(items, meta));
+    const category = typeof req.query.category === 'string' ? req.query.category : undefined;
+    const showUsed = req.query.showUsed === 'true' || req.query.showUsed === '1';
+    const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+    res.status(200).json(ok(await wifiService.list(req.scope, { category, showUsed, search })));
+  },
+  async summary(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await wifiService.summary(req.scope)));
   },
   async getById(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
@@ -21,6 +25,11 @@ export const wifiController = {
     const dto = createWifiSchema.parse(req.body);
     res.status(201).json(ok(await wifiService.create(req.scope, dto)));
   },
+  async createBulk(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = bulkCreateWifiSchema.parse(req.body);
+    res.status(201).json(ok(await wifiService.createBulk(req.scope, dto)));
+  },
   async update(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const dto = updateWifiSchema.parse(req.body);
@@ -28,7 +37,16 @@ export const wifiController = {
   },
   async remove(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
-    await wifiService.remove(req.scope, req.params.id);
-    res.status(200).json(ok({ success: true }));
+    res.status(200).json(ok(await wifiService.remove(req.scope, req.params.id)));
+  },
+  async bulkRemove(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const { ids } = bulkDeleteWifiSchema.parse(req.body);
+    res.status(200).json(ok(await wifiService.bulkRemove(req.scope, ids)));
+  },
+  async assign(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = assignWifiSchema.parse(req.body);
+    res.status(200).json(ok(await wifiService.assign(req.scope, req.params.id, dto)));
   },
 };
