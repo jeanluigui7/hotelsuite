@@ -3,7 +3,7 @@ import { ok } from '../../shared/response';
 import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { cashService } from './cash.service';
-import { closeCashSchema, frequentConceptsSchema, movementSchema, openCashSchema, updateMovementSchema, voidMovementSchema } from './cash.schema';
+import { closeCashSchema, frequentConceptsSchema, movementSchema, openCashSchema, regularizeDebtSchema, updateMovementSchema, voidMovementSchema } from './cash.schema';
 
 export const cashController = {
   async current(req: Request, res: Response): Promise<void> {
@@ -45,6 +45,11 @@ export const cashController = {
     const saleId = typeof req.query.saleId === 'string' ? req.query.saleId : undefined;
     const movementId = typeof req.query.movementId === 'string' ? req.query.movementId : undefined;
     res.status(200).json(ok(await cashService.movementDetail(req.scope, { saleId, movementId })));
+  },
+  async regularizeDebt(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = regularizeDebtSchema.parse(req.body);
+    res.status(201).json(ok(await cashService.regularizeDebt(req.scope, req.params.id, dto)));
   },
   async reopen(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();

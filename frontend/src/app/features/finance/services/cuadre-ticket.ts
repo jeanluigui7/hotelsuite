@@ -110,18 +110,35 @@ export function buildCuadreTicket(d: CashDetail): string {
   L.push(kv('EFECTIVO CONTADO DENOMIN.', 'S/ ' + (contado != null ? contado.toFixed(2) : '--')));
   L.push(line('='), '');
 
-  const agg = (title: string, types: string[]) => {
+  // Desglose por categoría basado en PAGOS reales (viene del backend): el total por método
+  // SIEMPRE cuadra con el total de la categoría, incluso con pagos mixtos.
+  const cats = d.categories;
+  const aggCat = (title: string, cat: 'HOSPEDAJE' | 'PRODUCTO' | 'SERVICIO') => {
+    const c = cats?.[cat];
+    const tot = c ? Math.round(c.total * 100) / 100 : 0;
+    if (!c || tot <= 0) return;
+    L.push(sec(title));
+    for (const mth of METHODS) { const v = Math.round((c.byMethod[mth] || 0) * 100) / 100; if (v > 0) L.push(moneyRow(ticketMethod(mth), v)); }
+    L.push(line('-'), moneyRow('TOTAL', tot), '');
+  };
+  // Fallback (compat): si el backend no envía categories, desglosa desde el feed por tipo.
+  const aggType = (title: string, types: string[]) => {
     const tot = sumT(types);
     if (tot <= 0) return;
     L.push(sec(title));
-    // Solo se imprimen los métodos con movimientos (dinámico, sin líneas en cero).
     for (const mth of METHODS) { const v = sumBy(types, mth); if (v > 0) L.push(moneyRow(ticketMethod(mth), v)); }
     L.push(line('-'), moneyRow('TOTAL', tot), '');
   };
-  // Categorías reales: HOSPEDAJE agrupa hospedaje + renovaciones/upgrades/extras de la estancia.
-  agg('HOSPEDAJE', ['HOSPEDAJE', 'RENOVACION']);
-  agg('PRODUCTOS', ['PRODUCTO']);
-  agg('SERVICIOS / PENALIDADES', ['SERVICIO']);
+  if (cats) {
+    // HOSPEDAJE = check-in + renovaciones. Tiempo extra va a SERVICIOS / PENALIDADES.
+    aggCat('HOSPEDAJE', 'HOSPEDAJE');
+    aggCat('PRODUCTOS', 'PRODUCTO');
+    aggCat('SERVICIOS / PENALIDADES', 'SERVICIO');
+  } else {
+    aggType('HOSPEDAJE', ['HOSPEDAJE', 'RENOVACION']);
+    aggType('PRODUCTOS', ['PRODUCTO']);
+    aggType('SERVICIOS / PENALIDADES', ['SERVICIO']);
+  }
 
   L.push(sec('RESUMEN POR METODO'));
   for (const mth of METHODS) { const v = d.methodBar.byMethod[mth] || 0; if (v > 0) L.push(ticketMethod(mth).slice(0, 14).padEnd(14) + 'TOTAL TURNO : S/ ' + v.toFixed(2).padStart(6)); }

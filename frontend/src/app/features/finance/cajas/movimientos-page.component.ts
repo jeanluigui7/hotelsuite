@@ -20,10 +20,11 @@ interface ReconItem { id: string; at: string; type: string; amount: number; affe
 interface ReconSummary { expected: number | null; declared: number | null; originalDifference: number; pendingDifference: number; reconciliations: ReconItem[]; }
 
 const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera', MIXTO: 'Mixto', PENDIENTE: 'Pendiente' };
-const TYPE_LABEL: Record<string, string> = { HOSPEDAJE: 'Hospedaje', RENOVACION: 'Pago Renovación', PRODUCTO: 'Venta Producto', SERVICIO: 'Servicio', INGRESO: 'Ingreso', EGRESO: 'Egreso' };
+const TYPE_LABEL: Record<string, string> = { HOSPEDAJE: 'Hospedaje', RENOVACION: 'Pago Renovación', PRODUCTO: 'Venta Producto', SERVICIO: 'Servicio', INGRESO: 'Ingreso', EGRESO: 'Egreso', DEUDA: 'Deuda' };
 const TYPE_COLOR: Record<string, [string, string]> = {
   HOSPEDAJE: ['rgba(59,130,246,0.18)', '#60a5fa'], RENOVACION: ['rgba(245,158,11,0.2)', '#f59e0b'], PRODUCTO: ['rgba(245,158,11,0.2)', '#fbbf24'],
   SERVICIO: ['rgba(20,184,166,0.2)', '#2dd4bf'], INGRESO: ['rgba(16,185,129,0.18)', '#34d399'], EGRESO: ['rgba(248,113,113,0.18)', '#f87171'],
+  DEUDA: ['rgba(248,113,113,0.2)', '#f87171'],
 };
 
 @Component({
@@ -111,28 +112,34 @@ const TYPE_COLOR: Record<string, [string, string]> = {
 
         <div class="tbl-wrap">
           <table class="tbl">
-            <thead><tr><th>Hora</th><th>Tipo</th><th>Descripción</th><th class="r">Monto</th><th class="c">Método</th><th class="c">Estado</th><th class="c">Acción</th></tr></thead>
+            <thead><tr><th>Hora</th><th class="c">Hab.</th><th>Tipo</th><th>Descripción</th><th class="r">Monto</th><th class="c">Método</th><th class="c">Estado</th><th class="c">Acción</th></tr></thead>
             <tbody>
               @for (m of filteredMovements(); track m.id) {
-                <tr [class.anulado]="m.status === 'ANULADO'">
+                <tr [class.anulado]="m.status === 'ANULADO'" [class.deuda]="m.type === 'DEUDA'">
                   <td>{{ m.time | date: 'HH:mm' }}</td>
+                  <td class="c">{{ m.room || '—' }}</td>
                   <td><span class="tbadge" [style.background]="typeBg(m.type)" [style.color]="typeFg(m.type)">{{ typeLabel(m.type) }}</span></td>
                   <td>{{ m.description }}</td>
                   <td class="r">S/ {{ m.amount | number: '1.2-2' }}</td>
                   <td class="c">{{ methodLabel(m.method) }}</td>
                   <td class="c">
-                    @if (m.unregistered && m.verify) { <span class="est" [class]="verifyClass(m.verify)">{{ verifyLabel(m.verify) }}</span> }
+                    @if (m.type === 'DEUDA') { <span class="est warn">Pendiente</span> }
+                    @else if (m.unregistered && m.verify) { <span class="est" [class]="verifyClass(m.verify)">{{ verifyLabel(m.verify) }}</span> }
                     @else { <span class="est" [class.anul]="m.status === 'ANULADO'">{{ m.status }}</span> }
                   </td>
                   <td class="c nowrap">
-                    <button class="lnk" (click)="verMovimiento(m)">Ver</button>
-                    @if (canEdit && m.status === 'NORMAL') {
-                      <button class="lnk red" (click)="anular(m)">Anular</button>
-                      <button class="lnk" (click)="openCorrect(m)">Corregir</button>
+                    @if (m.type === 'DEUDA') {
+                      @if (canEdit) { <button class="lnk green" (click)="openRegularize(m)">Regularizar</button> }
+                    } @else {
+                      <button class="lnk" (click)="verMovimiento(m)">Ver</button>
+                      @if (canEdit && m.status === 'NORMAL') {
+                        <button class="lnk red" (click)="anular(m)">Anular</button>
+                        <button class="lnk" (click)="openCorrect(m)">Corregir</button>
+                      }
                     }
                   </td>
                 </tr>
-              } @empty { <tr><td colspan="7" class="empty">Sin movimientos.</td></tr> }
+              } @empty { <tr><td colspan="8" class="empty">Sin movimientos.</td></tr> }
             </tbody>
           </table>
         </div>
@@ -243,6 +250,27 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       }
       <ng-template pTemplate="footer"><p-button label="Cerrar" severity="secondary" [text]="true" (onClick)="deudasVisible = false" /></ng-template>
     </p-dialog>
+
+    <!-- Regularizar / cobrar deuda -->
+    <p-dialog [(visible)]="regVisible" [modal]="true" header="Regularizar deuda" [style]="{ width: '28rem', maxWidth: '96vw' }">
+      @if (regTarget(); as m) {
+        <p class="muted sm">{{ m.description }}@if (m.room) { · Hab. {{ m.room }} }</p>
+        <div class="form">
+          <label>Importe a cobrar (S/)</label>
+          <p-inputNumber [(ngModel)]="regAmount" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
+          <label>Medio de pago</label>
+          <p-select [options]="methodEditOpts" optionLabel="label" optionValue="value" [(ngModel)]="regMethod" (onChange)="onRegMethod()" appendTo="body" styleClass="w" />
+          @if (regNeedsCode()) {
+            <label>Código de verificación / operación</label>
+            <input pInputText [(ngModel)]="regCode" placeholder="N° de operación (obligatorio)" />
+          }
+        </div>
+      }
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="regVisible = false" />
+        <p-button label="Registrar cobro" icon="pi pi-check" [loading]="busy()" [disabled]="!regCanSave()" (onClick)="doRegularize()" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -277,7 +305,8 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       tr.anulado td { opacity: 0.5; text-decoration: line-through; }
       .tbadge { border-radius: 6px; padding: 0.1rem 0.5rem; font-size: 0.7rem; font-weight: 700; }
       .est { font-size: 0.72rem; font-weight: 700; color: #34d399; } .est.anul { color: #f87171; }
-      .lnk { background: none; border: 0; color: #60a5fa; cursor: pointer; font-size: 0.8rem; padding: 0 0.3rem; } .lnk.red { color: #f87171; }
+      .lnk { background: none; border: 0; color: #60a5fa; cursor: pointer; font-size: 0.8rem; padding: 0 0.3rem; } .lnk.red { color: #f87171; } .lnk.green { color: #34d399; font-weight: 700; }
+      tr.deuda td { background: rgba(248,113,113,0.05); } .est.warn { color: #f59e0b; }
       .form { display: flex; flex-direction: column; gap: 0.35rem; } .form label { font-size: 0.82rem; color: #8aa0bd; margin-top: 0.4rem; }
       :host ::ng-deep .w, :host ::ng-deep .form input[pInputText], :host ::ng-deep .form .p-inputnumber, :host ::ng-deep .form .p-inputnumber input, :host ::ng-deep .form .p-select { width: 100%; }
       @media (max-width: 720px) { .recon-grid { grid-template-columns: repeat(2,1fr); } }
@@ -306,7 +335,7 @@ export class CashMovementsPageComponent implements OnInit {
   readonly typeFilterOpts = [
     { label: 'Todos', value: '' }, { label: 'Hospedaje', value: 'HOSPEDAJE' }, { label: 'Pago Renovación', value: 'RENOVACION' },
     { label: 'Venta Producto', value: 'PRODUCTO' }, { label: 'Servicio', value: 'SERVICIO' }, { label: 'Ingreso', value: 'INGRESO' }, { label: 'Egreso', value: 'EGRESO' },
-    { label: 'Regularizaciones', value: '__REG__' },
+    { label: 'Deuda', value: 'DEUDA' }, { label: 'Regularizaciones', value: '__REG__' },
   ];
   readonly methodFilterOpts = [
     { label: 'Todos', value: '' }, { label: 'Efectivo', value: 'CASH' }, { label: 'Transferencia', value: 'TRANSFER' },
@@ -318,6 +347,12 @@ export class CashMovementsPageComponent implements OnInit {
   readonly movDetail = signal<MovementDetail | null>(null);
   // DEUDAS
   deudasVisible = false;
+  // Regularizar deuda
+  regVisible = false;
+  readonly regTarget = signal<CashDetailMovement | null>(null);
+  regAmount: number | null = null;
+  regMethod = 'CASH';
+  regCode = '';
 
   // Corregir
   correctVisible = false;
@@ -374,6 +409,33 @@ export class CashMovementsPageComponent implements OnInit {
 
   // ── Etapa 5 — deudas ──
   deudaTipo(t: string): string { return ({ RENOVACION: 'Renovación', HOSPEDAJE: 'Hospedaje', PRODUCTO: 'Producto', SERVICIO: 'Servicio', VENTA_NO_COBRADA: 'Venta no cobrada' } as Record<string, string>)[t] ?? t; }
+
+  // ── Regularizar deuda desde movimientos ──
+  regNeedsCode(): boolean { return this.regMethod !== 'CASH'; }
+  onRegMethod(): void { if (this.regMethod === 'CASH') this.regCode = ''; }
+  regCanSave(): boolean { return !!this.regAmount && this.regAmount > 0 && (!this.regNeedsCode() || !!this.regCode.trim()); }
+  openRegularize(m: CashDetailMovement): void {
+    this.regTarget.set(m);
+    this.regAmount = m.amount;
+    this.regMethod = 'CASH';
+    this.regCode = '';
+    this.regVisible = true;
+  }
+  doRegularize(): void {
+    const m = this.regTarget(); const d = this.detail();
+    if (!m || !d || !this.regCanSave()) return;
+    this.busy.set(true);
+    this.finance.regularizeDebt(d.session.id, {
+      saleId: m.saleId ?? undefined,
+      stayId: m.stayId ?? undefined,
+      method: this.regMethod,
+      amount: this.regAmount!,
+      reference: this.regNeedsCode() ? this.regCode.trim() : undefined,
+    }).subscribe({
+      next: () => { this.busy.set(false); this.regVisible = false; this.messages.add({ severity: 'success', summary: 'Deuda regularizada', detail: '' }); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo regularizar.' }); },
+    });
+  }
   deudaEstado(e: string): string { return ({ PENDIENTE: 'Pendiente', PARCIAL: 'Parcial', NO_COBRADA: 'No cobrada', SIN_REGISTRAR: 'Sin registrar' } as Record<string, string>)[e] ?? e; }
 
   // ── Etapa 2 — VER + historial ──

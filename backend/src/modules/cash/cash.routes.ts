@@ -26,5 +26,8 @@ cashRouter.get('/cash/sessions/:id/detail', requirePermission('finance', 'view')
 // Detalle VER de un movimiento del feed (venta o movimiento de caja), con historial de intervenciones.
 cashRouter.get('/cash/movement-detail', requirePermission('finance', 'view'), asyncHandler(cashController.movementDetail));
 
+// Regularizar/cobrar una DEUDA desde los movimientos de una caja (aunque esté cerrada).
+cashRouter.post('/cash/sessions/:id/regularize-debt', requirePermission('finance', 'edit'), asyncHandler(cashController.regularizeDebt));
+
 // Cuadro de Turno (reporte) — bajo el módulo de reportes.
 cashRouter.get('/cash/sessions/:id/report', requirePermission('reports', 'view'), asyncHandler(cashController.report));

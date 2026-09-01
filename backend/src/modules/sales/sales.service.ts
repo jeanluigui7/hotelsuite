@@ -11,7 +11,6 @@ import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { cashRepository } from '../cash/cash.repository';
 import { productsRepository } from '../products/products.repository';
-import { operationsConfigService, posRateOf } from '../operations-config/operations-config.service';
 import {
   salesRepository,
   type SaleLineInput,
@@ -121,34 +120,12 @@ export const salesService = {
 
     const goodsTotal = round(lines.reduce((acc, l) => acc + l.subtotal, 0));
 
-    // Comisiones POS: recargo al cliente según el método de pago (Configuración Operativa por sucursal).
-    // El monto de cada pago entrante es la base (bienes); la comisión se suma como línea aparte y al total.
-    // Guard: si la venta YA trae una línea "Comisión POS" (p. ej. el check-in la calcula), no se re-aplica.
-    const cfg = await operationsConfigService.get(scope);
-    const alreadyHasCommission = lines.some((l) => {
-      const d = (l.description ?? '').toLowerCase();
-      return d.includes('comisi') && d.includes('pos');
-    });
-    const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera' };
+    // La comisión POS (5% de tarjeta) NO es ingreso del negocio: la retiene el proveedor. Solo se
+    // muestra en pantalla al cobrar (para saber cuánto cargar en el POS). El sistema registra el
+    // pago NETO tal como lo envía el frontend, sin sumar la comisión ni crear una línea "Comisión POS".
+    const payments: SalePaymentInput[] = dto.payments.map((p) => ({ method: p.method, amount: round(p.amount), reference: p.reference || null }));
 
-    let commission = 0;
-    const payments: SalePaymentInput[] = dto.payments.map((p) => {
-      const rate = alreadyHasCommission ? 0 : posRateOf(cfg, p.method);
-      const c = round(p.amount * rate / 100);
-      commission = round(commission + c);
-      return { method: p.method, amount: round(p.amount + c), reference: p.reference || null };
-    });
-
-    if (commission > 0) {
-      const commMethods = [...new Set(dto.payments.filter((p) => posRateOf(cfg, p.method) > 0).map((p) => p.method))];
-      const label =
-        commMethods.length === 1
-          ? `Comisión POS (${METHOD_LABEL[commMethods[0]] ?? commMethods[0]} ${posRateOf(cfg, commMethods[0])}%)`
-          : 'Comisión POS';
-      lines.push({ productId: null, itemId: null, description: label, quantity: 1, unitPrice: commission, unitCost: null, subtotal: commission });
-    }
-
-    const total = round(goodsTotal + commission);
+    const total = round(goodsTotal);
     const paid = round(payments.reduce((acc, p) => acc + p.amount, 0));
     if (paid > total) throw new ValidationError('El pago excede el total de la venta');
     const status = total > 0 && paid >= total ? 'PAID' : 'OPEN';

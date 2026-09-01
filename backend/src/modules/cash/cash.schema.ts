@@ -40,6 +40,18 @@ export const voidMovementSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+// Regularizar/cobrar una DEUDA desde los movimientos de caja (aunque la estancia ya terminó y la
+// caja esté cerrada). saleId = deuda de una venta existente; stayId = estancia sin cargo registrado.
+export const regularizeDebtSchema = z
+  .object({
+    saleId: z.string().min(1).optional(),
+    stayId: z.string().min(1).optional(),
+    method: methodEnum,
+    amount: z.coerce.number().positive(),
+    reference: z.string().max(120).optional().or(z.literal('')),
+  })
+  .refine((v) => !!v.saleId || !!v.stayId, { message: 'Indica la venta o la estancia a regularizar', path: ['saleId'] });
+
 export const frequentConceptsSchema = z.object({
   concepts: z.array(z.string().min(1).max(120)).max(50),
 });

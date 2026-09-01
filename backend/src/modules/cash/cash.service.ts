@@ -1,10 +1,13 @@
 import type { RequestScope } from '../../shared/context';
-import { ConflictError, NotFoundError } from '../../shared/errors';
+import { ConflictError, NotFoundError, ValidationError } from '../../shared/errors';
 import { pageMeta, toPrismaPaging, type PaginationParams } from '../../shared/pagination';
 import { requireActiveBranch } from '../../shared/scope';
+import { prisma } from '../../config/prisma';
 import { cashRepository } from './cash.repository';
-import { PAYMENT_METHODS } from '../../shared/payments';
+import { PAYMENT_METHODS, requiresReference, PAYMENT_REFERENCE_REQUIRED } from '../../shared/payments';
 import type { CloseCashDto, MovementDto, OpenCashDto } from './cash.schema';
+
+interface RegularizeDebtDto { saleId?: string; stayId?: string; method: string; amount: number; reference?: string }
 
 const FREQUENT_CONCEPTS_KEY = 'cashFrequentConcepts';
 
@@ -279,6 +282,60 @@ export const cashService = {
     }));
   },
 
+  /**
+   * Regulariza/cobra una DEUDA desde los movimientos de caja (aunque la estancia ya terminó y la
+   * caja esté cerrada). saleId = abona a una venta con saldo; stayId = crea el cargo de hospedaje
+   * no registrado + su pago. Si la caja estaba cerrada, queda AJUSTADA con huella de auditoría.
+   */
+  async regularizeDebt(scope: RequestScope, sessionId: string, dto: RegularizeDebtDto) {
+    const branchId = requireActiveBranch(scope);
+    const session = await cashRepository.findById(sessionId);
+    if (!session || session.branchId !== branchId) throw new NotFoundError('Turno no encontrado');
+    if (requiresReference(dto.method) && !(dto.reference && dto.reference.trim())) throw new ValidationError(PAYMENT_REFERENCE_REQUIRED);
+    const ref = dto.reference?.trim() || null;
+
+    const result = await prisma.$transaction(async (tx) => {
+      if (dto.saleId) {
+        const sale = await tx.sale.findUnique({ where: { id: dto.saleId }, include: { payments: true } });
+        if (!sale || sale.branchId !== branchId) throw new NotFoundError('Venta no encontrada');
+        const paid = sale.payments.reduce((a, p) => a + Number(p.amount), 0);
+        const saldo = Math.round((Number(sale.total) - paid) * 100) / 100;
+        if (saldo <= 0) throw new ConflictError('La venta ya está pagada');
+        const pay = Math.min(dto.amount, saldo);
+        await tx.payment.create({ data: { branchId, saleId: sale.id, method: dto.method, amount: pay, reference: ref, cashSessionId: session.id, createdByUserId: scope.userId } });
+        if (paid + pay >= Number(sale.total) - 0.001) await tx.sale.update({ where: { id: sale.id }, data: { status: 'PAID' } });
+        return { saleId: sale.id, amount: pay };
+      }
+      // stayId: estancia sin cargo registrado → crea la venta del hospedaje + su pago.
+      const stay = await tx.stay.findUnique({ where: { id: dto.stayId! }, include: { room: true, rate: true } });
+      if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
+      const existing = await tx.sale.findFirst({ where: { stayId: stay.id, status: { not: 'CANCELLED' } } });
+      if (existing) throw new ConflictError('La estancia ya tiene un cargo registrado');
+      const price = Math.round(Number(stay.priceAgreed) * 100) / 100;
+      const pay = Math.min(dto.amount, price);
+      const desc = `Tarifa: ${stay.rate?.label || 'Hospedaje'}`;
+      const sale = await tx.sale.create({
+        data: {
+          branchId, stayId: stay.id, cashSessionId: session.id, total: price,
+          status: pay >= price - 0.001 ? 'PAID' : 'OPEN', createdByUserId: scope.userId,
+          items: { create: [{ description: desc, quantity: 1, unitPrice: price, subtotal: price }] },
+          payments: { create: [{ branchId, method: dto.method, amount: pay, reference: ref, cashSessionId: session.id, createdByUserId: scope.userId }] },
+        },
+      });
+      return { saleId: sale.id, amount: pay };
+    });
+
+    if (session.status !== 'OPEN') {
+      await cashRepository.createIntervention({
+        branchId, cashSessionId: session.id, type: 'CORRECTION', targetKind: 'SALE', targetId: result.saleId,
+        beforeJson: null, afterJson: JSON.stringify({ regularizeDebt: true, method: dto.method, amount: result.amount }),
+        reason: 'Regularización de deuda desde movimientos de caja', createdByUserId: scope.userId,
+      });
+      await cashRepository.markAdjusted(session.id);
+    }
+    return result;
+  },
+
   /** Reabre un turno cerrado. Solo Admin/Superadmin; no puede haber otro turno abierto en la sucursal. */
   async reopen(scope: RequestScope, id: string) {
     const branchId = requireActiveBranch(scope);
@@ -390,14 +447,19 @@ export const cashService = {
     ]);
 
     const round = (n: number) => Math.round(n * 100) / 100;
-    const rxRenewal = /renovaci|tiempo extra|extensi/i;
+    // "Tiempo extra" = PENALIDAD (va a SERVICIOS/PENALIDADES). "Renovación/extensión" = HOSPEDAJE.
+    const rxExtra = /tiempo extra/i;
+    const rxRenewal = /renovaci|extensi/i;
     const rxRoom = /^tarifa[:\s]|pernocta|hospedaje|servicio de hospedaje|early|d[ií]a hotelero/i;
     const itemType = (desc: string, productId: string | null): 'HOSPEDAJE' | 'RENOVACION' | 'PRODUCTO' | 'SERVICIO' => {
+      if (!productId && rxExtra.test(desc)) return 'SERVICIO';
       if (rxRenewal.test(desc)) return 'RENOVACION';
       if (!productId && rxRoom.test(desc)) return 'HOSPEDAJE';
       if (productId) return productTypes.get(productId) === 'SERVICIO' ? 'SERVICIO' : 'PRODUCTO';
       return 'SERVICIO';
     };
+    // Categoría de ticket a la que pertenece cada tipo de ítem.
+    const ticketCat = (t: string): 'HOSPEDAJE' | 'PRODUCTO' | 'SERVICIO' => (t === 'HOSPEDAJE' || t === 'RENOVACION' ? 'HOSPEDAJE' : t === 'PRODUCTO' ? 'PRODUCTO' : 'SERVICIO');
 
     // Método a nivel de venta: único → ese; varios → MIXTO; sin pago → PENDIENTE.
     const saleMethod = (payments: { method: string }[]): string => {
@@ -412,7 +474,16 @@ export const cashService = {
     const feed: {
       id: string; saleId: string | null; time: Date; type: string; description: string;
       amount: number; method: string; status: 'NORMAL' | 'ANULADO'; verify?: string | null; unregistered?: boolean;
+      room?: string | null; stayId?: string | null;
     }[] = [];
+    // Desglose por categoría y método basado en PAGOS reales (distribuye pagos mixtos por peso de
+    // cada categoría en la venta) → el total por método SIEMPRE cuadra con el total de la categoría.
+    const emptyCat = () => ({ total: 0, byMethod: {} as Record<string, number> });
+    const categories = { HOSPEDAJE: emptyCat(), PRODUCTO: emptyCat(), SERVICIO: emptyCat() };
+    const addCat = (cat: 'HOSPEDAJE' | 'PRODUCTO' | 'SERVICIO', method: string, amount: number) => {
+      categories[cat].total = round(categories[cat].total + amount);
+      categories[cat].byMethod[method] = round((categories[cat].byMethod[method] ?? 0) + amount);
+    };
     // Etapa 4 — REGULARIZACIONES: desglose de ventas no registradas por clasificación (subconjunto informativo).
     const regs = {
       cobradas: { count: 0, amount: 0 },
@@ -437,7 +508,7 @@ export const cashService = {
         if (vs === 'REGULARIZADA') { regs.cobradas.count++; regs.cobradas.amount = round(regs.cobradas.amount + amount); cards.ventasProductos = round(cards.ventasProductos + amount); }
         else if (vs === 'NO_COBRADA') { regs.noCobradas.count++; regs.noCobradas.amount = round(regs.noCobradas.amount + amount); cards.deudasPendientes = round(cards.deudasPendientes + amount); debts.push({ saleId: sale.id, concepto: sale.customerName || 'Venta no registrada', tipo: 'VENTA_NO_COBRADA', room: info?.room || null, importe: amount, time: sale.createdAt, estado: 'NO_COBRADA', folio }); }
         else { regs.porVerificar.count++; regs.porVerificar.amount = round(regs.porVerificar.amount + amount); }
-        feed.push({ id: sale.id, saleId: sale.id, time: sale.createdAt, type: 'PRODUCTO', description: ((sale.customerName || 'Venta no registrada') + suffix).trim(), amount, method: 'PENDIENTE', status: 'NORMAL', verify: vs, unregistered: true });
+        feed.push({ id: sale.id, saleId: sale.id, time: sale.createdAt, type: 'PRODUCTO', description: ((sale.customerName || 'Venta no registrada') + suffix).trim(), amount, method: 'PENDIENTE', status: 'NORMAL', verify: vs, unregistered: true, room: info?.room ?? null, stayId: sale.stayId ?? null });
         continue;
       }
 
@@ -451,6 +522,7 @@ export const cashService = {
         debts.push({ saleId: sale.id, concepto, tipo, room: info?.room || null, importe: pendiente, time: sale.createdAt, estado: paid > 0 ? 'PARCIAL' : 'PENDIENTE', folio });
       }
 
+      const catWeight: Record<'HOSPEDAJE' | 'PRODUCTO' | 'SERVICIO', number> = { HOSPEDAJE: 0, PRODUCTO: 0, SERVICIO: 0 };
       for (const it of sale.items) {
         const t = itemType(it.description, it.productId);
         const amount = Number(it.subtotal);
@@ -458,6 +530,7 @@ export const cashService = {
           if (t === 'HOSPEDAJE' || t === 'RENOVACION') cards.ventasHospedaje = round(cards.ventasHospedaje + amount);
           else if (t === 'PRODUCTO') cards.ventasProductos = round(cards.ventasProductos + amount);
           else cards.serviciosOtros = round(cards.serviciosOtros + amount);
+          catWeight[ticketCat(t)] += amount;
         }
         feed.push({
           id: it.id,
@@ -468,7 +541,25 @@ export const cashService = {
           amount,
           method,
           status: cancelled ? 'ANULADO' : 'NORMAL',
+          room: info?.room ?? null,
+          stayId: sale.stayId ?? null,
         });
+      }
+      // Distribuye cada PAGO real por categoría según el peso de sus ítems (arqueo por método correcto).
+      if (!cancelled) {
+        const wTotal = catWeight.HOSPEDAJE + catWeight.PRODUCTO + catWeight.SERVICIO;
+        const active = (['HOSPEDAJE', 'PRODUCTO', 'SERVICIO'] as const).filter((c) => catWeight[c] > 0);
+        if (wTotal > 0 && active.length) {
+          for (const pay of sale.payments) {
+            const amt = Number(pay.amount);
+            let assigned = 0;
+            active.forEach((cat, i) => {
+              const portion = i === active.length - 1 ? round(amt - assigned) : round((amt * catWeight[cat]) / wTotal);
+              if (portion !== 0) addCat(cat, pay.method, portion);
+              assigned = round(assigned + portion);
+            });
+          }
+        }
       }
     }
 
@@ -487,6 +578,7 @@ export const cashService = {
         amount,
         method: 'CASH',
         status: 'NORMAL',
+        room: null,
       });
     }
 
@@ -544,6 +636,23 @@ export const cashService = {
       });
     }
 
+    // Las DEUDAS también figuran como filas en la lista de movimientos (tipo DEUDA), con su habitación,
+    // para localizarlas y poder regularizarlas desde aquí (aunque la estancia ya haya terminado).
+    for (const d of debts) {
+      feed.push({
+        id: `debt:${d.saleId}`,
+        saleId: d.saleId.startsWith('stay:') ? null : d.saleId,
+        stayId: d.saleId.startsWith('stay:') ? d.saleId.slice(5) : null,
+        time: d.time,
+        type: 'DEUDA',
+        description: d.concepto,
+        amount: d.importe,
+        method: 'PENDIENTE',
+        status: 'NORMAL',
+        room: d.room,
+      });
+    }
+
     const byMethod: Record<string, number> = {};
     for (const m of PAYMENT_METHODS) byMethod[m] = await cashRepository.paymentsTotal(id, m);
     cards.efectivo = byMethod['CASH'] ?? 0;
@@ -584,6 +693,7 @@ export const cashService = {
       virtualPayments,
       interventions,
       regularizaciones: regs,
+      categories, // desglose por categoría (HOSPEDAJE/PRODUCTO/SERVICIO) y método, cuadra con el total
       deudas: debts.sort((a, b) => b.time.getTime() - a.time.getTime()),
     };
   },

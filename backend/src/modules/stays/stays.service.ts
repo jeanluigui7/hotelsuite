@@ -8,7 +8,7 @@ import {
   type PaginationParams,
 } from '../../shared/pagination';
 import { requireActiveBranch } from '../../shared/scope';
-import { operationsConfigService, posRateOf, requireReceptionFlag } from '../operations-config/operations-config.service';
+import { operationsConfigService, requireReceptionFlag } from '../operations-config/operations-config.service';
 import { prisma } from '../../config/prisma';
 import { guestsRepository } from '../guests/guests.repository';
 import { pernoctaService } from '../pernocta/pernocta.service';
@@ -439,21 +439,14 @@ export const staysService = {
     const sessionId: string | null = session.id;
     const ref = dto.mode === 'HOURS' ? 'Tiempo extra (horas)' : 'Renovación de estadía';
 
-    // Comisión POS (Configuración Operativa): recargo al cliente por el método de pago.
-    // El monto de cada pago es la base; la comisión se agrega como línea y se cobra sobre el pago.
-    const opsCfg = await operationsConfigService.get(scope);
-    let commission = 0;
-    const adjPayments = payments.map((p) => {
-      const c = round2(p.amount * posRateOf(opsCfg, p.method) / 100);
-      commission = round2(commission + c);
-      return { ...p, amount: round2(p.amount + c) };
-    });
-    const saleTotal = round2(price + commission);
+    // La comisión POS (5% tarjeta) NO es ingreso del negocio (la retiene el proveedor): solo se
+    // muestra al cobrar. Se registra el pago NETO tal cual, sin línea "Comisión POS".
+    const adjPayments = payments;
+    const saleTotal = round2(price);
     const paidWithComm = round2(adjPayments.reduce((a, p) => a + p.amount, 0));
     const saleItems: { description: string; quantity: number; unitPrice: number; subtotal: number }[] = [
       { description: `${ref}${dto.notes ? ' — ' + dto.notes : ''}`, quantity: 1, unitPrice: price, subtotal: price },
     ];
-    if (commission > 0) saleItems.push({ description: 'Comisión POS', quantity: 1, unitPrice: commission, subtotal: commission });
 
     // Solicitud inmediata de limpieza al renovar: solo si YA hay una limpieza habilitada
     // (se alcanzó el checkout de una noche). Si aún no, la renovación procede sin solicitarla;
@@ -504,13 +497,7 @@ export const staysService = {
     if (pending <= 0) throw new ValidationError('Esta estancia no tiene pendiente por cobrar.');
     if (amount > pending + 0.001) throw new ValidationError(`El cobro (S/ ${amount.toFixed(2)}) excede el pendiente (S/ ${pending.toFixed(2)}).`);
 
-    // Comisión POS al pagar con tarjeta/virtual: se cobra APARTE (no altera la deuda original).
-    // Ej.: deuda 100 + tarjeta 5% → 100 cancela la deuda, 5 se registran como "Comisión POS".
-    const opsCfg = await operationsConfigService.get(scope);
-    const rate = posRateOf(opsCfg, dto.method);
-    const commission = round2(amount * rate / 100);
-    const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera' };
-
+    // La comisión POS NO es ingreso del negocio: se muestra solo al cobrar, no se registra.
     let remaining = amount;
     await prisma.$transaction(async (tx) => {
       for (const s of openSales) {
@@ -526,17 +513,6 @@ export const staysService = {
       // Sobrante: cubre el adeudo legacy (early/late) guardado en balanceDue.
       if (remaining > 0.001 && bd > 0) {
         await tx.stay.update({ where: { id }, data: { balanceDue: round2(Math.max(0, bd - remaining)) } });
-      }
-      // Recargo por comisión POS: venta separada "Comisión POS", pagada con el mismo método.
-      if (commission > 0) {
-        await tx.sale.create({
-          data: {
-            branchId, stayId: id, guestId: stay.guestId, total: commission, status: 'PAID',
-            cashSessionId: session.id, createdByUserId: scope.userId,
-            items: { create: [{ description: `Comisión POS (${METHOD_LABEL[dto.method] ?? dto.method} ${rate}%)`, quantity: 1, unitPrice: commission, subtotal: commission }] },
-            payments: { create: [{ branchId, method: dto.method, amount: commission, reference: dto.reference || null, cashSessionId: session.id, createdByUserId: scope.userId }] },
-          },
-        });
       }
     });
     const updated = await staysRepository.findById(id);

@@ -949,10 +949,10 @@ export class CheckInDialogComponent {
           { description: `Tarifa: ${this.rateLabel()}`, unitPrice: this.precioBase(), quantity: 1 },
           ...(this.earlyCharge() > 0 ? [{ description: 'Early Check-in', unitPrice: this.earlyCharge(), quantity: 1 }] : []),
           ...this.lines().map((l) => ({ productId: l.product.id, quantity: l.quantity })),
-          // La comisión POS se cobra al cliente: se agrega como cargo para que la venta cuadre con lo pagado.
-          ...(this.commissionTotal() > 0 ? [{ description: 'Comisión POS', unitPrice: this.commissionTotal(), quantity: 1 }] : []),
         ];
-        const payments = this.pays().filter((p) => (p.amount || 0) > 0).map((p) => ({ method: this.payMeta(p.type).backend, amount: p.amount, reference: p.reference?.trim() || undefined }));
+        // La comisión POS (5% tarjeta) NO se registra como ingreso: el campo muestra el bruto (lo que
+        // se cobra en el POS), pero al sistema se envía el NETO (payNet) sin la comisión.
+        const payments = this.pays().filter((p) => (p.amount || 0) > 0).map((p) => ({ method: this.payMeta(p.type).backend, amount: Math.round(this.payNet(p) * 100) / 100, reference: p.reference?.trim() || undefined }));
         // Se registra SIEMPRE el cargo de la estancia (deja rastro en el folio), con o sin pago.
         if (stay?.id) {
           this.finance.createSale({ stayId: stay.id, items, payments, sourceArea: 'RECEPTION' }).subscribe({

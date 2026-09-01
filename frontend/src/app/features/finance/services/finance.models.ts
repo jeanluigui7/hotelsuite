@@ -88,7 +88,7 @@ export interface CashDetailMovement {
   id: string;
   saleId: string | null;
   time: string;
-  type: 'HOSPEDAJE' | 'RENOVACION' | 'PRODUCTO' | 'SERVICIO' | 'INGRESO' | 'EGRESO';
+  type: 'HOSPEDAJE' | 'RENOVACION' | 'PRODUCTO' | 'SERVICIO' | 'INGRESO' | 'EGRESO' | 'DEUDA';
   description: string;
   amount: number;
   method: string;
@@ -96,6 +96,8 @@ export interface CashDetailMovement {
   /** Ventas no registradas: estado de verificación (REGULARIZADA | POR_VERIFICAR | NO_COBRADA). */
   verify?: string | null;
   unregistered?: boolean;
+  room?: string | null;
+  stayId?: string | null;
 }
 
 export interface RegularizacionesResumen {
@@ -146,6 +148,8 @@ export interface CashDetail {
   regularizaciones?: RegularizacionesResumen;
   /** Etapa 5 — obligaciones pendientes del turno al cierre (deudas). */
   deudas?: DeudaPendiente[];
+  /** Desglose por categoría y método basado en pagos reales (cuadra con el total). */
+  categories?: Record<'HOSPEDAJE' | 'PRODUCTO' | 'SERVICIO', { total: number; byMethod: Record<string, number> }>;
 }
 
 /** Detalle VER de un movimiento del feed (venta o movimiento de caja). */
