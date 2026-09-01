@@ -545,19 +545,29 @@ export const cashService = {
           stayId: sale.stayId ?? null,
         });
       }
-      // Distribuye cada PAGO real por categoría según el peso de sus ítems (arqueo por método correcto).
+      // Atribuye cada PAGO al concepto que realmente cubrió. En pagos mixtos, primero se asigna por
+      // COINCIDENCIA EXACTA (ej.: efectivo 50 = hospedaje 50, yape 6 = productos 6), y el resto en
+      // cascada. Así el arqueo por método refleja lo que de verdad pagó cada método, sin "smearing".
       if (!cancelled) {
-        const wTotal = catWeight.HOSPEDAJE + catWeight.PRODUCTO + catWeight.SERVICIO;
-        const active = (['HOSPEDAJE', 'PRODUCTO', 'SERVICIO'] as const).filter((c) => catWeight[c] > 0);
-        if (wTotal > 0 && active.length) {
-          for (const pay of sale.payments) {
-            const amt = Number(pay.amount);
-            let assigned = 0;
-            active.forEach((cat, i) => {
-              const portion = i === active.length - 1 ? round(amt - assigned) : round((amt * catWeight[cat]) / wTotal);
-              if (portion !== 0) addCat(cat, pay.method, portion);
-              assigned = round(assigned + portion);
-            });
+        const CATS = ['HOSPEDAJE', 'PRODUCTO', 'SERVICIO'] as const;
+        const remW: Record<'HOSPEDAJE' | 'PRODUCTO' | 'SERVICIO', number> = { ...catWeight };
+        const pays = sale.payments.map((p) => ({ method: p.method, rem: round(Number(p.amount)) }));
+        // Pass 1 — coincidencia exacta: un pago cuyo monto = el total de una categoría → va entero ahí.
+        for (const cat of CATS) {
+          if (remW[cat] <= 0) continue;
+          const p = pays.find((x) => x.rem > 0 && Math.abs(x.rem - remW[cat]) < 0.005);
+          if (p) { addCat(cat, p.method, remW[cat]); p.rem = round(p.rem - remW[cat]); remW[cat] = 0; }
+        }
+        // Pass 2 — cascada: reparte los pagos restantes en el peso restante de cada categoría.
+        for (const cat of CATS) {
+          if (remW[cat] <= 0) continue;
+          for (const p of pays) {
+            if (remW[cat] <= 0) break;
+            if (p.rem <= 0) continue;
+            const take = round(Math.min(remW[cat], p.rem));
+            if (take > 0) addCat(cat, p.method, take);
+            remW[cat] = round(remW[cat] - take);
+            p.rem = round(p.rem - take);
           }
         }
       }
