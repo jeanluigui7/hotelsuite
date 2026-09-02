@@ -8,6 +8,7 @@ import { DialogModule } from 'primeng/dialog';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
+import { DatePickerModule } from 'primeng/datepicker';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
@@ -30,7 +31,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
 @Component({
   selector: 'app-cash-movements-page',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule, DatePickerModule],
   template: `
     <section class="wrap">
       @if (loading()) { <p class="muted">Cargando…</p> }
@@ -252,23 +253,45 @@ const TYPE_COLOR: Record<string, [string, string]> = {
     </p-dialog>
 
     <!-- Regularizar / cobrar deuda -->
-    <p-dialog [(visible)]="regVisible" [modal]="true" header="Regularizar deuda" [style]="{ width: '28rem', maxWidth: '96vw' }">
+    <p-dialog [(visible)]="regVisible" [modal]="true" header="Regularizar deuda" [style]="{ width: '32rem', maxWidth: '97vw' }">
       @if (regTarget(); as m) {
         <p class="muted sm">{{ m.description }}@if (m.room) { · Hab. {{ m.room }} }</p>
         <div class="form">
-          <label>Importe a cobrar (S/)</label>
+          <label>Importe a regularizar (S/)</label>
           <p-inputNumber [(ngModel)]="regAmount" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
+
+          <label>¿Cuándo se recibió realmente el pago?</label>
+          <div class="modes">
+            <label class="mode"><input type="radio" name="regmode" value="HISTORICAL" [(ngModel)]="regMode" /> Ya fue pagado en el turno original</label>
+            <label class="mode"><input type="radio" name="regmode" value="NOW" [(ngModel)]="regMode" /> Lo estoy cobrando ahora</label>
+          </div>
+
+          @if (regMode === 'HISTORICAL') {
+            <label>Caja / turno original</label>
+            <p-select [options]="cajaOpts()" optionLabel="label" optionValue="value" [(ngModel)]="regTargetSession" [filter]="true" filterBy="label" placeholder="Elegir la caja donde ocurrió" appendTo="body" styleClass="w" [loading]="cajasLoading()" />
+            <label>Fecha y hora del pago</label>
+            <p-datepicker [(ngModel)]="regPaidAt" [showTime]="true" hourFormat="12" dateFormat="dd/mm/yy" appendTo="body" styleClass="w" [showIcon]="true" />
+          }
+
           <label>Medio de pago</label>
           <p-select [options]="methodEditOpts" optionLabel="label" optionValue="value" [(ngModel)]="regMethod" (onChange)="onRegMethod()" appendTo="body" styleClass="w" />
           @if (regNeedsCode()) {
             <label>Código de verificación / operación</label>
             <input pInputText [(ngModel)]="regCode" placeholder="N° de operación (obligatorio)" />
           }
+          <label>Observación (opcional)</label>
+          <input pInputText [(ngModel)]="regNote" maxlength="200" placeholder="Ej. pago al ingreso por Yape, no registrado en caja" />
+
+          @if (regMode === 'HISTORICAL') {
+            <p class="infobox"><i class="pi pi-info-circle"></i> Esta acción ajusta la caja y turno originales para fines de auditoría. <b>No se sumará dinero al turno actual.</b></p>
+          } @else {
+            <p class="infobox now"><i class="pi pi-wallet"></i> El pago ingresará al <b>turno abierto actual</b> con la fecha de hoy.</p>
+          }
         </div>
       }
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="regVisible = false" />
-        <p-button label="Registrar cobro" icon="pi pi-check" [loading]="busy()" [disabled]="!regCanSave()" (onClick)="doRegularize()" />
+        <p-button [label]="regMode === 'HISTORICAL' ? 'Regularizar pago histórico' : 'Registrar cobro'" icon="pi pi-check" [loading]="busy()" [disabled]="!regCanSave()" (onClick)="doRegularize()" />
       </ng-template>
     </p-dialog>
   `,
@@ -308,6 +331,9 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .lnk { background: none; border: 0; color: #60a5fa; cursor: pointer; font-size: 0.8rem; padding: 0 0.3rem; } .lnk.red { color: #f87171; } .lnk.green { color: #34d399; font-weight: 700; }
       tr.deuda td { background: rgba(248,113,113,0.05); } .est.warn { color: #f59e0b; }
       .form { display: flex; flex-direction: column; gap: 0.35rem; } .form label { font-size: 0.82rem; color: #8aa0bd; margin-top: 0.4rem; }
+      .modes { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.2rem; }
+      .mode { display: flex; align-items: center; gap: 0.5rem; font-size: 0.86rem; color: #cbd5e1; cursor: pointer; margin: 0; } .mode input { width: auto; }
+      .infobox { display: flex; gap: 0.5rem; align-items: flex-start; margin-top: 0.8rem; padding: 0.6rem 0.8rem; border-radius: 8px; font-size: 0.8rem; background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); color: #93c5fd; } .infobox.now { background: rgba(16,185,129,0.1); border-color: rgba(16,185,129,0.3); color: #6ee7b7; }
       :host ::ng-deep .w, :host ::ng-deep .form input[pInputText], :host ::ng-deep .form .p-inputnumber, :host ::ng-deep .form .p-inputnumber input, :host ::ng-deep .form .p-select { width: 100%; }
       @media (max-width: 720px) { .recon-grid { grid-template-columns: repeat(2,1fr); } }
     `,
@@ -353,6 +379,14 @@ export class CashMovementsPageComponent implements OnInit {
   regAmount: number | null = null;
   regMethod = 'CASH';
   regCode = '';
+  regMode: 'HISTORICAL' | 'NOW' = 'HISTORICAL';
+  regTargetSession: string | null = null;
+  regPaidAt: Date | null = null;
+  regNote = '';
+  // Cajas seleccionables como "caja original" (cerradas/ajustadas/abiertas).
+  readonly cajas = signal<{ id: string; number: number | null; status: string; openedAt: string; closedAt: string | null; openedByName: string }[]>([]);
+  readonly cajasLoading = signal(false);
+  readonly cajaOpts = computed(() => this.cajas().map((c) => ({ value: c.id, label: this.cajaLabel(c) })));
 
   // Corregir
   correctVisible = false;
@@ -413,12 +447,38 @@ export class CashMovementsPageComponent implements OnInit {
   // ── Regularizar deuda desde movimientos ──
   regNeedsCode(): boolean { return this.regMethod !== 'CASH'; }
   onRegMethod(): void { if (this.regMethod === 'CASH') this.regCode = ''; }
-  regCanSave(): boolean { return !!this.regAmount && this.regAmount > 0 && (!this.regNeedsCode() || !!this.regCode.trim()); }
+  regCanSave(): boolean {
+    if (!(this.regAmount && this.regAmount > 0)) return false;
+    if (this.regNeedsCode() && !this.regCode.trim()) return false;
+    if (this.regMode === 'HISTORICAL' && (!this.regTargetSession || !this.regPaidAt)) return false;
+    return true;
+  }
+  private fmtDT(iso: string, withDate = true): string {
+    const d = new Date(iso); if (isNaN(d.getTime())) return '';
+    const p = (n: number) => String(n).padStart(2, '0');
+    const t = `${p(d.getHours())}:${p(d.getMinutes())}`;
+    return withDate ? `${p(d.getDate())}/${p(d.getMonth() + 1)} ${t}` : t;
+  }
+  cajaLabel(c: { number: number | null; status: string; openedAt: string; closedAt: string | null; openedByName: string }): string {
+    const est = c.status === 'OPEN' ? 'Abierta' : c.status === 'AJUSTADA' ? 'Ajustada' : 'Cerrada';
+    return `Caja #${c.number ?? '—'} · ${this.fmtDT(c.openedAt)}–${c.closedAt ? this.fmtDT(c.closedAt, false) : '—'} · ${c.openedByName} · ${est}`;
+  }
   openRegularize(m: CashDetailMovement): void {
     this.regTarget.set(m);
     this.regAmount = m.amount;
-    this.regMethod = 'CASH';
-    this.regCode = '';
+    this.regMethod = 'CASH'; this.regCode = ''; this.regNote = '';
+    this.regMode = 'HISTORICAL';
+    const d = this.detail();
+    this.regTargetSession = d?.session.id ?? null; // por defecto, la caja que se está viendo
+    this.regPaidAt = d?.session.openedAt ? new Date(d.session.openedAt) : new Date();
+    // Cargar cajas para el selector de "caja original".
+    if (!this.cajas().length) {
+      this.cajasLoading.set(true);
+      this.http.get<ApiResponse<{ id: string; number: number | null; status: string; openedAt: string; closedAt: string | null; openedByName: string }[]>>(`${this.api}/cash/sessions`, { params: { pageSize: '50' } }).subscribe({
+        next: (r) => { this.cajas.set(r.data ?? []); this.cajasLoading.set(false); },
+        error: () => this.cajasLoading.set(false),
+      });
+    }
     this.regVisible = true;
   }
   doRegularize(): void {
@@ -431,8 +491,12 @@ export class CashMovementsPageComponent implements OnInit {
       method: this.regMethod,
       amount: this.regAmount!,
       reference: this.regNeedsCode() ? this.regCode.trim() : undefined,
+      mode: this.regMode,
+      targetSessionId: this.regMode === 'HISTORICAL' ? (this.regTargetSession ?? undefined) : undefined,
+      paidAt: this.regMode === 'HISTORICAL' && this.regPaidAt ? this.regPaidAt.toISOString() : undefined,
+      note: this.regNote.trim() || undefined,
     }).subscribe({
-      next: () => { this.busy.set(false); this.regVisible = false; this.messages.add({ severity: 'success', summary: 'Deuda regularizada', detail: '' }); this.reload(); },
+      next: () => { this.busy.set(false); this.regVisible = false; this.messages.add({ severity: 'success', summary: 'Deuda regularizada', detail: this.regMode === 'HISTORICAL' ? 'Registrada en el turno original.' : 'Cobrada en el turno actual.' }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo regularizar.' }); },
     });
   }

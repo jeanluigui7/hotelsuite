@@ -59,7 +59,7 @@ export class FinanceApiService {
     return this.http.post<ApiResponse<unknown>>(`${this.api}/sales/${id}/correct`, { method, reason });
   }
   /** Regulariza/cobra una deuda desde los movimientos de una caja. */
-  regularizeDebt(sessionId: string, dto: { saleId?: string; stayId?: string; method: string; amount: number; reference?: string }): Observable<ApiResponse<unknown>> {
+  regularizeDebt(sessionId: string, dto: { saleId?: string; stayId?: string; method: string; amount: number; reference?: string; mode?: 'HISTORICAL' | 'NOW'; targetSessionId?: string; paidAt?: string; note?: string }): Observable<ApiResponse<unknown>> {
     return this.http.post<ApiResponse<unknown>>(`${this.api}/cash/sessions/${sessionId}/regularize-debt`, dto);
   }
   /** Detalle VER de un movimiento del feed (venta o movimiento de caja). */

@@ -7,7 +7,12 @@ import { cashRepository } from './cash.repository';
 import { PAYMENT_METHODS, requiresReference, PAYMENT_REFERENCE_REQUIRED } from '../../shared/payments';
 import type { CloseCashDto, MovementDto, OpenCashDto } from './cash.schema';
 
-interface RegularizeDebtDto { saleId?: string; stayId?: string; method: string; amount: number; reference?: string }
+interface RegularizeDebtDto {
+  saleId?: string; stayId?: string; method: string; amount: number; reference?: string;
+  // HISTORICAL = el dinero YA ingresó en el turno original (no suma al turno actual).
+  // NOW = se está cobrando ahora (ingresa al turno abierto actual).
+  mode?: 'HISTORICAL' | 'NOW'; targetSessionId?: string; paidAt?: Date | string; note?: string;
+}
 
 const FREQUENT_CONCEPTS_KEY = 'cashFrequentConcepts';
 
@@ -283,16 +288,29 @@ export const cashService = {
   },
 
   /**
-   * Regulariza/cobra una DEUDA desde los movimientos de caja (aunque la estancia ya terminó y la
-   * caja esté cerrada). saleId = abona a una venta con saldo; stayId = crea el cargo de hospedaje
-   * no registrado + su pago. Si la caja estaba cerrada, queda AJUSTADA con huella de auditoría.
+   * Regulariza/cobra una DEUDA desde los movimientos de caja. Dos modos:
+   *  - HISTORICAL: el dinero YA ingresó en el turno original (p. ej. la recepción recibió el Yape
+   *    pero no lo registró). El pago se atribuye a la CAJA ORIGINAL con la FECHA original y NO suma
+   *    al turno actual; la caja original queda AJUSTADA con huella.
+   *  - NOW: se está cobrando ahora → el pago entra al turno ABIERTO actual, con la fecha de hoy.
+   * saleId = abona a una venta con saldo; stayId = crea el cargo de hospedaje no registrado + su pago.
    */
   async regularizeDebt(scope: RequestScope, sessionId: string, dto: RegularizeDebtDto) {
     const branchId = requireActiveBranch(scope);
-    const session = await cashRepository.findById(sessionId);
-    if (!session || session.branchId !== branchId) throw new NotFoundError('Turno no encontrado');
     if (requiresReference(dto.method) && !(dto.reference && dto.reference.trim())) throw new ValidationError(PAYMENT_REFERENCE_REQUIRED);
     const ref = dto.reference?.trim() || null;
+    const mode = dto.mode ?? 'NOW';
+
+    // Caja/turno destino del pago y fecha a registrar según el modo.
+    let target;
+    if (mode === 'HISTORICAL') {
+      target = await cashRepository.findById(dto.targetSessionId || sessionId);
+      if (!target || target.branchId !== branchId) throw new NotFoundError('Caja original no encontrada');
+    } else {
+      target = await cashRepository.findOpen(branchId);
+      if (!target) throw new ConflictError('No hay caja abierta para cobrar ahora. Abre caja o marca "ya fue pagado en el turno original".');
+    }
+    const when = mode === 'HISTORICAL' ? (dto.paidAt ? new Date(dto.paidAt) : target.openedAt) : new Date();
 
     const result = await prisma.$transaction(async (tx) => {
       if (dto.saleId) {
@@ -302,7 +320,7 @@ export const cashService = {
         const saldo = Math.round((Number(sale.total) - paid) * 100) / 100;
         if (saldo <= 0) throw new ConflictError('La venta ya está pagada');
         const pay = Math.min(dto.amount, saldo);
-        await tx.payment.create({ data: { branchId, saleId: sale.id, method: dto.method, amount: pay, reference: ref, cashSessionId: session.id, createdByUserId: scope.userId } });
+        await tx.payment.create({ data: { branchId, saleId: sale.id, method: dto.method, amount: pay, reference: ref, cashSessionId: target.id, createdByUserId: scope.userId, createdAt: when } });
         if (paid + pay >= Number(sale.total) - 0.001) await tx.sale.update({ where: { id: sale.id }, data: { status: 'PAID' } });
         return { saleId: sale.id, amount: pay };
       }
@@ -316,24 +334,27 @@ export const cashService = {
       const desc = `Tarifa: ${stay.rate?.label || 'Hospedaje'}`;
       const sale = await tx.sale.create({
         data: {
-          branchId, stayId: stay.id, cashSessionId: session.id, total: price,
+          branchId, stayId: stay.id, cashSessionId: target.id, total: price, createdAt: when,
           status: pay >= price - 0.001 ? 'PAID' : 'OPEN', createdByUserId: scope.userId,
           items: { create: [{ description: desc, quantity: 1, unitPrice: price, subtotal: price }] },
-          payments: { create: [{ branchId, method: dto.method, amount: pay, reference: ref, cashSessionId: session.id, createdByUserId: scope.userId }] },
+          payments: { create: [{ branchId, method: dto.method, amount: pay, reference: ref, cashSessionId: target.id, createdByUserId: scope.userId, createdAt: when }] },
         },
       });
       return { saleId: sale.id, amount: pay };
     });
 
-    if (session.status !== 'OPEN') {
+    // Solo se marca AJUSTADA si la caja destino ya estaba cerrada (regularización histórica).
+    if (target.status !== 'OPEN') {
       await cashRepository.createIntervention({
-        branchId, cashSessionId: session.id, type: 'CORRECTION', targetKind: 'SALE', targetId: result.saleId,
-        beforeJson: null, afterJson: JSON.stringify({ regularizeDebt: true, method: dto.method, amount: result.amount }),
-        reason: 'Regularización de deuda desde movimientos de caja', createdByUserId: scope.userId,
+        branchId, cashSessionId: target.id, type: 'CORRECTION', targetKind: 'SALE', targetId: result.saleId,
+        beforeJson: null,
+        afterJson: JSON.stringify({ regularizeDebt: true, mode, method: dto.method, amount: result.amount, paidAt: when.toISOString() }),
+        reason: dto.note?.trim() || (mode === 'HISTORICAL' ? 'Regularización de pago histórico (ya ingresó en el turno original)' : 'Regularización de deuda desde movimientos de caja'),
+        createdByUserId: scope.userId,
       });
-      await cashRepository.markAdjusted(session.id);
+      await cashRepository.markAdjusted(target.id);
     }
-    return result;
+    return { ...result, sessionId: target.id, mode };
   },
 
   /** Reabre un turno cerrado. Solo Admin/Superadmin; no puede haber otro turno abierto en la sucursal. */

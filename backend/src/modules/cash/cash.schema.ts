@@ -49,6 +49,11 @@ export const regularizeDebtSchema = z
     method: methodEnum,
     amount: z.coerce.number().positive(),
     reference: z.string().max(120).optional().or(z.literal('')),
+    // HISTORICAL = ya se pagó en el turno original (no suma al actual). NOW = se cobra ahora.
+    mode: z.enum(['HISTORICAL', 'NOW']).default('NOW'),
+    targetSessionId: z.string().min(1).optional(), // caja original (solo HISTORICAL)
+    paidAt: z.coerce.date().optional(), // fecha/hora real del pago (solo HISTORICAL)
+    note: z.string().max(200).optional().or(z.literal('')),
   })
   .refine((v) => !!v.saleId || !!v.stayId, { message: 'Indica la venta o la estancia a regularizar', path: ['saleId'] });
 
