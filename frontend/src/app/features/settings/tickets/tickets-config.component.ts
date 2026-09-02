@@ -2,16 +2,19 @@ import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
+import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { SelectModule } from 'primeng/select';
 import { TagModule } from 'primeng/tag';
+import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { AuthService } from '../../../core/auth/auth.service';
 import { PrintingService } from '../../../core/printing/printing.service';
+import { buildComandaTicket, sampleComandaData, SAMPLE_IDENTITY, type ComandaKind } from './comanda-ticket';
 
 type Tab = 'comandas' | 'comprobantes' | 'operaciones' | 'impresion' | 'automatizaciones';
 type Channel = 'PRINT' | 'WHATSAPP' | 'NONE';
@@ -26,13 +29,13 @@ interface TicketsConfig {
 }
 
 /** Un documento dentro de una familia. Estructura data-driven: agregar uno nuevo es sumar un objeto. */
-interface DocDef { key: string; icon: string; label: string; desc: string; fields: string[]; note?: string; }
+interface DocDef { key: string; icon: string; label: string; desc: string; fields: string[]; note?: string; preview?: ComandaKind; }
 interface Family { id: Tab; title: string; intro: string; docs: DocDef[]; }
 
 @Component({
   selector: 'app-tickets-config',
   standalone: true,
-  imports: [FormsModule, RouterLink, ButtonModule, InputTextModule, InputNumberModule, SelectModule, TagModule],
+  imports: [FormsModule, RouterLink, ButtonModule, InputTextModule, InputNumberModule, SelectModule, TagModule, DialogModule],
   template: `
     <section class="wrap">
       <header class="head">
@@ -71,8 +74,11 @@ interface Family { id: Tab; title: string; intro: string; docs: DocDef[]; }
                   </div>
                   @if (d.note) { <p class="doc-note"><i class="pi pi-info-circle"></i> {{ d.note }}</p> }
                   <div class="doc-actions">
+                    @if (d.preview) {
+                      <p-button label="Ver formato" icon="pi pi-eye" size="small" [outlined]="true" (onClick)="openPreview(d)" />
+                    }
                     <p-button label="Configurar" icon="pi pi-sliders-h" size="small" [text]="true" [disabled]="true" />
-                    <span class="soon">Próximamente</span>
+                    <span class="soon">Configurar: próximamente</span>
                   </div>
                 </article>
               }
@@ -129,6 +135,14 @@ interface Family { id: Tab; title: string; intro: string; docs: DocDef[]; }
           @if (canEdit) { <div class="actions"><p-button label="Guardar automatizaciones" icon="pi pi-check" [loading]="saving()" (onClick)="save('automations', { automations: c.automations })" /></div> }
         }
       }
+
+      <!-- Vista previa de plantilla fija (80 mm) -->
+      <p-dialog [(visible)]="previewOpen" [modal]="true" [header]="previewTitle()" [style]="{ width: '360px' }" [dismissableMask]="true">
+        <p class="preview-note"><i class="pi pi-info-circle"></i> Formato fijo de referencia (80&nbsp;mm) con datos de muestra. La identidad real vendrá de <a routerLink="/settings/hotel">Hotel</a> y el WiFi del módulo WiFi.</p>
+        <div class="preview-frame">
+          @if (previewUrl()) { <iframe [src]="previewUrl()!" title="Vista previa" class="ticket-iframe"></iframe> }
+        </div>
+      </p-dialog>
     </section>
   `,
   styles: [
@@ -168,6 +182,9 @@ interface Family { id: Tab; title: string; intro: string; docs: DocDef[]; }
       .prow { display: flex; gap: 1rem; margin-top: 1rem; flex-wrap: wrap; } .pcol { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 0.35rem; } .pcol label { font-size: 0.83rem; color: var(--p-text-muted-color, #94a3b8); }
       .actions { display: flex; gap: 0.6rem; justify-content: flex-end; margin-top: 1.3rem; }
       :host ::ng-deep .w, :host ::ng-deep .ch { width: 100%; } :host ::ng-deep .ch { max-width: 12rem; }
+      .preview-note { font-size: 0.78rem; color: var(--p-text-muted-color, #64748b); margin: 0 0 0.7rem; line-height: 1.45; } .preview-note a { color: var(--p-primary-color, #3b82f6); font-weight: 600; }
+      .preview-frame { display: flex; justify-content: center; background: #eef2f6; border-radius: 8px; padding: 10px; }
+      .ticket-iframe { width: 322px; height: 560px; border: 0; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.12); border-radius: 4px; }
       @media (max-width: 760px) { .cards, .doc-list { grid-template-columns: 1fr; } }
     `,
   ],
@@ -177,7 +194,13 @@ export class TicketsConfigComponent implements OnInit {
   private readonly api = environment.apiUrl;
   private readonly auth = inject(AuthService);
   private readonly messages = inject(MessageService);
+  private readonly sanitizer = inject(DomSanitizer);
   readonly printing = inject(PrintingService);
+
+  // Vista previa de plantilla fija
+  previewOpen = false;
+  readonly previewUrl = signal<SafeResourceUrl | null>(null);
+  readonly previewTitle = signal('Vista previa');
 
   readonly canEdit = this.auth.can('settings', 'edit');
   readonly loading = signal(true);
@@ -206,12 +229,12 @@ export class TicketsConfigComponent implements OnInit {
       intro: 'Documentos informativos y no tributarios entregados al huésped. No son boleta ni factura: su función es dar información útil de un momento de la estadía.',
       docs: [
         { key: 'checkin', icon: 'pi-sign-in', label: 'Check-in / Bienvenida', desc: 'La que recibe el huésped al ingresar.',
-          fields: ['Habitación', 'Día hotelero', 'Ingreso', 'Hora límite de salida', 'WiFi (red/voucher)', 'Servicios: Netflix, Prime, Room Service, Intercomunicador', 'Dirección y teléfonos', 'Mensajes'] },
-        { key: 'renovacion', icon: 'pi-refresh', label: 'Renovación', desc: 'Cuando el huésped renueva su estadía. Independiente de la bienvenida.',
-          fields: ['Habitación', 'Renovación realizada', 'Nueva hora límite de salida', 'Nuevo voucher WiFi', 'Vigencia del voucher', 'Mensaje de renovación'] },
+          fields: ['Habitación', 'Día hotelero', 'Ingreso', 'Hora límite de salida', 'WiFi (red/voucher)', 'Servicios: Netflix, Prime, Room Service, Intercomunicador', 'Dirección y teléfonos', 'Mensajes'], preview: 'BIENVENIDA' },
+        { key: 'renovacion', icon: 'pi-refresh', label: 'Renovación', desc: 'Cuando el huésped renueva su estadía. Mismo formato completo; cambia la hora límite y el voucher.',
+          fields: ['Habitación', 'Renovación realizada', 'Nueva hora límite de salida', 'Nuevo voucher WiFi', 'Vigencia del voucher', 'Mensaje de renovación'], preview: 'RENOVACION' },
         { key: 'voucherWifi', icon: 'pi-wifi', label: 'Voucher Wi-Fi', desc: 'Comanda pequeña e independiente para entregar solo el acceso WiFi.',
           fields: ['Nombre del hospedaje', 'Red', 'Código', 'Tiempo / vigencia'],
-          note: 'Útil cuando el huésped no dio WhatsApp, necesita renovar solo el WiFi, cortesía, o conectarse para pagar por Yape.' },
+          note: 'Útil cuando el huésped no dio WhatsApp, necesita renovar solo el WiFi, cortesía, o conectarse para pagar por Yape.', preview: 'VOUCHER_WIFI' },
       ],
     },
     {
@@ -259,6 +282,17 @@ export class TicketsConfigComponent implements OnInit {
   readonly channelOpts = [{ label: 'Imprimir (QZ)', value: 'PRINT' }, { label: 'WhatsApp', value: 'WHATSAPP' }, { label: 'Ninguno', value: 'NONE' }];
 
   qzLabel(): string { return this.printing.status() === 'connected' ? 'Conectado' : this.printing.status() === 'connecting' ? 'Conectando…' : 'Desconectado'; }
+
+  /** Abre la vista previa de una plantilla fija con datos de muestra. */
+  openPreview(d: DocDef): void {
+    if (!d.preview) return;
+    const kind = d.preview as ComandaKind;
+    const html = buildComandaTicket(kind, SAMPLE_IDENTITY, sampleComandaData(kind));
+    const url = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
+    this.previewUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(url));
+    this.previewTitle.set('Formato: ' + d.label);
+    this.previewOpen = true;
+  }
 
   ngOnInit(): void {
     this.http.get<ApiResponse<TicketsConfig>>(`${this.api}/tickets-config`).subscribe({
