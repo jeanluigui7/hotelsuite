@@ -1242,7 +1242,15 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     this.renovarStep = 'form';
   }
 
-  nightlyRate(): number { return Math.round(Number(this.renovarRoom?.activeStay?.priceAgreed ?? 0) * 100) / 100; }
+  /** Tarifa POR NOCHE (día hotelero). priceAgreed = tarifa × noches de la reserva, así que se divide
+   *  entre las noches para no duplicar el cobro inicial (ej. reserva de 3 días a S/50 = S/150 → S/50/noche). */
+  nightlyRate(): number {
+    const s = this.renovarRoom?.activeStay;
+    if (!s) return 0;
+    const price = Number(s.priceAgreed ?? 0);
+    const nights = Math.max(1, Math.round(Number(s.durationMinutes ?? 1440) / 1440));
+    return Math.round((price / nights) * 100) / 100;
+  }
   hourlyRate(): number {
     const rt = this.roomTypes().find((t) => t.id === this.renovarRoom?.roomType.id);
     return rt?.extraHourPrice != null ? Number(rt.extraHourPrice) : 0;

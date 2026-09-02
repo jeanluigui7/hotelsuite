@@ -594,12 +594,18 @@ export const cashService = {
       }
     }
 
-    let movIn = 0;
+    let movInCash = 0; // ingresos que entran al CAJÓN (efectivo) → afectan el cuadre
     let movOut = 0;
+    const virtualMovs: { method: string; amount: number }[] = []; // ingresos virtuales (Yape/etc.)
     for (const m of movements) {
       const amount = Number(m.amount);
-      if (m.type === 'IN') movIn = round(movIn + amount);
-      else movOut = round(movOut + amount);
+      const mMethod = m.method ?? 'CASH';
+      if (m.type === 'IN') {
+        if (mMethod === 'CASH') movInCash = round(movInCash + amount);
+        else virtualMovs.push({ method: mMethod, amount }); // no es efectivo del cajón
+      } else {
+        movOut = round(movOut + amount); // egresos siempre en efectivo (restan del cajón)
+      }
       feed.push({
         id: m.id,
         saleId: null,
@@ -607,13 +613,14 @@ export const cashService = {
         type: m.type === 'IN' ? 'INGRESO' : 'EGRESO',
         description: m.concept,
         amount,
-        method: 'CASH',
+        method: mMethod, // método real del movimiento (antes se forzaba a Efectivo)
         status: 'NORMAL',
         room: null,
       });
     }
 
-    cards.ajustes = round(movIn - movOut);
+    // Ajustes de EFECTIVO del turno (los ingresos virtuales no tocan el cajón; van al total por método).
+    cards.ajustes = round(movInCash - movOut);
     feed.sort((a, b) => b.time.getTime() - a.time.getTime());
 
     // Detalle de pagos virtuales (para el ticket físico: MEDIO/HORA/MONTO/CLI/CONC/COD y marca de pago mixto).
@@ -686,6 +693,9 @@ export const cashService = {
 
     const byMethod: Record<string, number> = {};
     for (const m of PAYMENT_METHODS) byMethod[m] = await cashRepository.paymentsTotal(id, m);
+    // Los ingresos VIRTUALES registrados como movimiento (ej. FRIOBAR por Yape) suman a su método,
+    // no al efectivo (así el total por método está completo y no inflan el cuadre de caja).
+    for (const v of virtualMovs) byMethod[v.method] = round((byMethod[v.method] ?? 0) + v.amount);
     cards.efectivo = byMethod['CASH'] ?? 0;
     const total = round(Object.values(byMethod).reduce((a, b) => a + b, 0));
 
@@ -719,7 +729,7 @@ export const cashService = {
         denominations: parseDenoms(session.closingDenominations),
       },
       cards,
-      methodBar: { byMethod, ingresos: movIn, egresos: movOut, anulaciones, total },
+      methodBar: { byMethod, ingresos: movInCash, egresos: movOut, anulaciones, total },
       movements: feed,
       virtualPayments,
       interventions,
