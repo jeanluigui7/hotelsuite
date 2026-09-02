@@ -13,15 +13,21 @@ import type { ApiResponse } from '../../../core/models/api-response.model';
 import { AuthService } from '../../../core/auth/auth.service';
 import { PrintingService } from '../../../core/printing/printing.service';
 
-type Tab = 'plantillas' | 'visualizacion' | 'mensajes' | 'impresion' | 'automatizaciones';
+type Tab = 'comandas' | 'comprobantes' | 'operaciones' | 'impresion' | 'automatizaciones';
 type Channel = 'PRINT' | 'WHATSAPP' | 'NONE';
 interface Rule { enabled: boolean; channel: Channel; }
 interface TicketsConfig {
+  // visual/messages se conservan en backend por compatibilidad, pero ya no se editan aquí:
+  // la visualización y los textos pertenecerán a cada documento cuando se hagan configurables.
   visual: Record<string, boolean>;
-  messages: { welcome: string; farewell: string; guestNotes: string; notices: string; legal: string; footer: string };
+  messages: Record<string, string>;
   print: { paper: '58' | '80'; copies: number; autocut: boolean; defaultPrinter: string };
   automations: { checkin: Rule; pendingChange: Rule; cashClose: Rule; productTransfer: Rule; cleaningClose: Rule };
 }
+
+/** Un documento dentro de una familia. Estructura data-driven: agregar uno nuevo es sumar un objeto. */
+interface DocDef { key: string; icon: string; label: string; desc: string; fields: string[]; note?: string; }
+interface Family { id: Tab; title: string; intro: string; docs: DocDef[]; }
 
 @Component({
   selector: 'app-tickets-config',
@@ -31,7 +37,12 @@ interface TicketsConfig {
     <section class="wrap">
       <header class="head">
         <h1><i class="pi pi-receipt"></i> Configuración de Tickets</h1>
-        <p class="muted">Identidad de la sucursal desde <a routerLink="/settings/hotel">Hotel</a>; credenciales WiFi desde <a routerLink="/wifi/configuracion">WiFi</a>. Aquí se decide qué se muestra, cómo se imprime y cuándo.</p>
+        <p class="muted">
+          RIZZOS genera tres naturalezas de documento — <b>Comandas</b> (información al huésped),
+          <b>Comprobantes</b> (ventas/cobros) y <b>Operaciones</b> (control interno) — más dos capas de ejecución:
+          <b>Impresión</b> (cómo/dónde) y <b>Automatizaciones</b> (cuándo). La identidad viene de
+          <a routerLink="/settings/hotel">Hotel</a> y las credenciales de <a routerLink="/wifi/configuracion">WiFi</a>.
+        </p>
       </header>
 
       <div class="tabs">
@@ -43,46 +54,36 @@ interface TicketsConfig {
       @if (loading()) { <p class="muted">Cargando…</p> }
       @else { @let c = config();
 
-        <!-- PLANTILLAS -->
-        @if (tab() === 'plantillas') {
-          <p class="tab-desc">Tipos de documento que el sistema puede generar. Cada plantilla tendrá su propia configuración y vista previa en una etapa siguiente.</p>
-          <div class="cards">
-            @for (p of plantillas; track p.key) {
-              <div class="pcard"><i class="pi" [class]="p.icon"></i><div><strong>{{ p.label }}</strong><span>{{ p.desc }}</span></div><p-tag value="Preparada" severity="secondary" /></div>
-            }
-          </div>
-        }
-
-        <!-- VISUALIZACIÓN -->
-        @if (tab() === 'visualizacion') {
-          <p class="tab-desc">Marca qué elementos aparecen en el ticket. WiFi y QR son solo interruptores: su contenido viene de sus módulos, no se guarda aquí.</p>
-          @for (g of visualGroups; track g.title) {
-            <div class="vgroup">
-              <h4>{{ g.title }}</h4>
-              <div class="vgrid">
-                @for (f of g.fields; track f.key) {
-                  <label class="chk"><input type="checkbox" [(ngModel)]="c.visual[f.key]" [disabled]="!canEdit" /> {{ f.label }}</label>
-                }
-              </div>
+        <!-- FAMILIAS DE DOCUMENTOS: COMANDAS / COMPROBANTES / OPERACIONES -->
+        @for (fam of families; track fam.id) {
+          @if (tab() === fam.id) {
+            <p class="tab-desc">{{ fam.intro }}</p>
+            <div class="doc-list">
+              @for (d of fam.docs; track d.key) {
+                <article class="doc">
+                  <div class="doc-head">
+                    <i class="pi" [class]="d.icon"></i>
+                    <div class="doc-title"><strong>{{ d.label }}</strong><span>{{ d.desc }}</span></div>
+                    <p-tag value="Formato fijo" severity="secondary" />
+                  </div>
+                  <div class="doc-fields">
+                    @for (f of d.fields; track f) { <span class="chip">{{ f }}</span> }
+                  </div>
+                  @if (d.note) { <p class="doc-note"><i class="pi pi-info-circle"></i> {{ d.note }}</p> }
+                  <div class="doc-actions">
+                    <p-button label="Configurar" icon="pi pi-sliders-h" size="small" [text]="true" [disabled]="true" />
+                    <span class="soon">Próximamente</span>
+                  </div>
+                </article>
+              }
             </div>
+            <p class="fam-foot"><i class="pi pi-plus-circle"></i> Esta familia es extensible: se podrán incorporar nuevos documentos {{ fam.id === 'comandas' ? 'informativos' : fam.id === 'comprobantes' ? 'de venta' : 'internos' }} más adelante.</p>
           }
-          @if (canEdit) { <div class="actions"><p-button label="Guardar visualización" icon="pi pi-check" [loading]="saving()" (onClick)="save('visual', { visual: c.visual })" /></div> }
-        }
-
-        <!-- MENSAJES -->
-        @if (tab() === 'mensajes') {
-          <p class="tab-desc">Textos adicionales que se imprimen en los tickets. Podrán variar por plantilla más adelante.</p>
-          <div class="mgrid">
-            @for (m of mensajes; track m.key) {
-              <div class="mfld"><label>{{ m.label }}</label><textarea [(ngModel)]="c.messages[m.key]" [disabled]="!canEdit" rows="2" [placeholder]="m.ph"></textarea></div>
-            }
-          </div>
-          @if (canEdit) { <div class="actions"><p-button label="Guardar mensajes" icon="pi pi-check" [loading]="saving()" (onClick)="save('messages', { messages: c.messages })" /></div> }
         }
 
         <!-- IMPRESIÓN -->
         @if (tab() === 'impresion') {
-          <p class="tab-desc">Impresión física vía QZ Tray (imprime directo sin el diálogo del navegador). Requiere QZ Tray instalado en la PC de recepción.</p>
+          <p class="tab-desc">Capa de ejecución: <b>cómo y dónde</b> se imprime, independientemente del documento. Impresión física vía QZ Tray (imprime directo sin el diálogo del navegador). Requiere QZ Tray instalado en la PC de recepción.</p>
           <div class="panel">
             <div class="qzrow">
               <span>Estado QZ Tray:</span>
@@ -90,7 +91,7 @@ interface TicketsConfig {
               <p-button label="Conectar" icon="pi pi-link" severity="secondary" size="small" [disabled]="printing.status() === 'connected'" (onClick)="connect()" />
               <p-button label="Detectar impresoras" icon="pi pi-search" size="small" [text]="true" [disabled]="printing.status() !== 'connected'" (onClick)="detect()" />
             </div>
-            @if (printing.status() !== 'connected') { <p class="warn"><i class="pi pi-info-circle"></i> Sin QZ conectado, la impresión usará la vista previa del navegador.</p> }
+            @if (printing.status() !== 'connected') { <p class="warn"><i class="pi pi-info-circle"></i> Sin QZ conectado, la impresión usará la vista previa del navegador (ticketera 80&nbsp;mm).</p> }
 
             <div class="prow">
               <div class="pcol"><label>Impresora predeterminada</label>
@@ -113,9 +114,9 @@ interface TicketsConfig {
 
         <!-- AUTOMATIZACIONES -->
         @if (tab() === 'automatizaciones') {
-          <p class="tab-desc">Reglas de <b>cuándo</b> se imprime un ticket o se usa otro canal (WhatsApp). Los interruptores quedan listos; el disparo automático se activará en una etapa posterior.</p>
+          <p class="tab-desc">Capa de ejecución: <b>cuándo o bajo qué condición</b> se genera/imprime/envía un documento. Los interruptores quedan listos; el disparo automático (evento → documento → canal) se activará en una etapa posterior.</p>
           <div class="cards">
-            @for (a of automations; track a.key) {
+            @for (a of automationDefs; track a.key) {
               <div class="acard">
                 <div class="ahead"><i class="pi" [class]="a.icon"></i><div><strong>{{ a.label }}</strong><span>{{ a.desc }}</span></div></div>
                 <div class="arow">
@@ -132,33 +133,42 @@ interface TicketsConfig {
   `,
   styles: [
     `
-      .wrap { padding: 1.5rem; max-width: 960px; }
+      .wrap { padding: 1.5rem; max-width: 1000px; }
       .head h1 { margin: 0; font-size: 1.5rem; display: inline-flex; align-items: center; gap: 0.5rem; }
-      .muted { color: var(--p-text-muted-color, #64748b); margin: 0.35rem 0 0; } .muted a, .head a { color: var(--p-primary-color, #3b82f6); font-weight: 600; }
-      .tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 1.2rem 0 1rem; border-bottom: 1px solid var(--p-content-border-color, #2b2b30); }
+      .muted { color: var(--p-text-muted-color, #64748b); margin: 0.35rem 0 0; line-height: 1.5; } .muted a, .head a { color: var(--p-primary-color, #3b82f6); font-weight: 600; }
+      .tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 1.2rem 0 1rem; border-bottom: 1px solid var(--p-content-border-color, #e2e8f0); }
       .tab { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--p-text-muted-color, #94a3b8); padding: 0.6rem 0.9rem; font-weight: 600; font-size: 0.9rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; }
       .tab.active { color: var(--p-primary-color, #3b82f6); border-bottom-color: var(--p-primary-color, #3b82f6); }
-      .tab-desc { font-size: 0.88rem; color: var(--p-text-muted-color, #64748b); margin: 0 0 1rem; }
-      .panel { background: var(--p-content-background, #1f1f23); border: 1px solid var(--p-content-border-color, #2b2b30); border-radius: 12px; padding: 1.25rem; }
+      .tab-desc { font-size: 0.88rem; color: var(--p-text-muted-color, #64748b); margin: 0 0 1rem; line-height: 1.5; }
+      .panel { background: var(--p-content-background, #fff); border: 1px solid var(--p-content-border-color, #e2e8f0); border-radius: 12px; padding: 1.25rem; }
+
+      /* Catálogo de documentos por familia */
+      .doc-list { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
+      .doc { border: 1px solid var(--p-content-border-color, #e2e8f0); border-radius: 12px; background: var(--p-content-background, #fff); padding: 1rem; display: flex; flex-direction: column; gap: 0.7rem; }
+      .doc-head { display: flex; align-items: flex-start; gap: 0.7rem; }
+      .doc-head > .pi { font-size: 1.3rem; color: var(--p-primary-color, #3b82f6); margin-top: 0.15rem; }
+      .doc-title { flex: 1; } .doc-title strong { display: block; } .doc-title span { font-size: 0.8rem; color: var(--p-text-muted-color, #64748b); }
+      .doc-fields { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+      .chip { font-size: 0.72rem; padding: 0.2rem 0.5rem; border-radius: 999px; background: var(--p-surface-100, #f1f5f9); color: var(--p-text-muted-color, #475569); border: 1px solid var(--p-content-border-color, #e2e8f0); }
+      .doc-note { display: flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; color: #b45309; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 0.4rem 0.6rem; margin: 0; }
+      .doc-actions { display: flex; align-items: center; gap: 0.6rem; border-top: 1px dashed var(--p-content-border-color, #e2e8f0); padding-top: 0.6rem; margin-top: auto; }
+      .soon { font-size: 0.75rem; color: var(--p-text-muted-color, #94a3b8); font-style: italic; }
+      .fam-foot { display: flex; align-items: center; gap: 0.45rem; font-size: 0.82rem; color: var(--p-text-muted-color, #64748b); margin: 1rem 0 0; }
+
       .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem; }
-      .pcard, .acard { display: flex; align-items: center; gap: 0.7rem; padding: 0.9rem; border: 1px solid var(--p-content-border-color, #2b2b30); border-radius: 12px; background: var(--p-content-background, #1f1f23); }
-      .pcard { justify-content: space-between; } .pcard > div { flex: 1; } .pcard .pi, .acard .pi { font-size: 1.25rem; color: var(--p-primary-color, #3b82f6); }
-      .pcard strong, .acard strong { display: block; } .pcard span, .acard span { font-size: 0.8rem; color: var(--p-text-muted-color, #64748b); }
-      .acard { flex-direction: column; align-items: stretch; gap: 0.7rem; } .ahead { display: flex; gap: 0.7rem; align-items: flex-start; } .ahead > div { flex: 1; }
-      .arow { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; border-top: 1px dashed var(--p-content-border-color, #2b2b30); padding-top: 0.6rem; }
-      .vgroup { margin-bottom: 1.1rem; } .vgroup h4 { margin: 0 0 0.5rem; font-size: 0.85rem; color: var(--p-primary-color, #3b82f6); }
-      .vgrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem 1rem; }
+      .acard { display: flex; flex-direction: column; align-items: stretch; gap: 0.7rem; padding: 0.9rem; border: 1px solid var(--p-content-border-color, #e2e8f0); border-radius: 12px; background: var(--p-content-background, #fff); }
+      .acard .pi { font-size: 1.25rem; color: var(--p-primary-color, #3b82f6); }
+      .acard strong { display: block; } .acard span { font-size: 0.8rem; color: var(--p-text-muted-color, #64748b); }
+      .ahead { display: flex; gap: 0.7rem; align-items: flex-start; } .ahead > div { flex: 1; }
+      .arow { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; border-top: 1px dashed var(--p-content-border-color, #e2e8f0); padding-top: 0.6rem; }
       .chk { display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.87rem; cursor: pointer; }
       .chk input { width: auto; }
-      .mgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem 1rem; }
-      .mfld { display: flex; flex-direction: column; gap: 0.3rem; } .mfld label { font-size: 0.83rem; color: var(--p-text-muted-color, #94a3b8); }
-      .mfld textarea { resize: vertical; font: inherit; padding: 0.55rem 0.7rem; border-radius: 8px; border: 1px solid var(--p-content-border-color, #2b2b30); background: var(--p-content-background, #131313); color: inherit; }
       .qzrow { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; } .qzrow span { font-size: 0.9rem; }
       .warn { display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: #f59e0b; margin: 0.6rem 0 0; }
       .prow { display: flex; gap: 1rem; margin-top: 1rem; flex-wrap: wrap; } .pcol { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 0.35rem; } .pcol label { font-size: 0.83rem; color: var(--p-text-muted-color, #94a3b8); }
       .actions { display: flex; gap: 0.6rem; justify-content: flex-end; margin-top: 1.3rem; }
       :host ::ng-deep .w, :host ::ng-deep .ch { width: 100%; } :host ::ng-deep .ch { max-width: 12rem; }
-      @media (max-width: 760px) { .cards, .mgrid { grid-template-columns: 1fr; } .vgrid { grid-template-columns: 1fr 1fr; } }
+      @media (max-width: 760px) { .cards, .doc-list { grid-template-columns: 1fr; } }
     `,
   ],
 })
@@ -172,60 +182,77 @@ export class TicketsConfigComponent implements OnInit {
   readonly canEdit = this.auth.can('settings', 'edit');
   readonly loading = signal(true);
   readonly saving = signal(false);
-  readonly tab = signal<Tab>('visualizacion');
+  readonly tab = signal<Tab>('comandas');
   readonly config = signal<TicketsConfig>({
-    visual: {}, messages: { welcome: '', farewell: '', guestNotes: '', notices: '', legal: '', footer: '' },
+    visual: {}, messages: {},
     print: { paper: '80', copies: 1, autocut: true, defaultPrinter: '' },
     automations: { checkin: r(), pendingChange: r(), cashClose: r(), productTransfer: r(), cleaningClose: r() },
   });
   readonly printers = signal<string[]>([]);
 
   readonly tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: 'plantillas', label: 'Plantillas', icon: 'pi-clone' },
-    { id: 'visualizacion', label: 'Visualización', icon: 'pi-eye' },
-    { id: 'mensajes', label: 'Mensajes', icon: 'pi-comment' },
+    { id: 'comandas', label: 'Comandas', icon: 'pi-comment' },
+    { id: 'comprobantes', label: 'Comprobantes', icon: 'pi-file' },
+    { id: 'operaciones', label: 'Operaciones', icon: 'pi-cog' },
     { id: 'impresion', label: 'Impresión', icon: 'pi-print' },
     { id: 'automatizaciones', label: 'Automatizaciones', icon: 'pi-bolt' },
   ];
-  readonly plantillas = [
-    { key: 'checkin', icon: 'pi-sign-in', label: 'Check-in / Bienvenida', desc: 'Ticket de ingreso del huésped.' },
-    { key: 'hospedaje', icon: 'pi-home', label: 'Comprobante de hospedaje', desc: 'Cargo de la estancia.' },
-    { key: 'renovacion', icon: 'pi-refresh', label: 'Renovación / Extensión', desc: 'Ampliación de la estancia.' },
-    { key: 'productos', icon: 'pi-shopping-cart', label: 'Venta de productos', desc: 'Consumos y frigobar.' },
-    { key: 'servicios', icon: 'pi-tags', label: 'Servicios y penalidades', desc: 'Cargos adicionales.' },
-    { key: 'vuelto', icon: 'pi-wallet', label: 'Vuelto pendiente', desc: 'Vuelto no entregado.' },
-    { key: 'transferencia', icon: 'pi-arrow-right-arrow-left', label: 'Transferencia de productos', desc: 'Constancia de entrega.' },
-    { key: 'cierreCaja', icon: 'pi-lock', label: 'Cierre de caja', desc: 'Cuadre del turno.' },
-    { key: 'cierreLimpieza', icon: 'pi-sparkles', label: 'Cierre de turno de limpieza', desc: 'Resumen operativo.' },
+
+  /** Catálogo data-driven de documentos por naturaleza. Agregar uno nuevo = sumar un objeto DocDef. */
+  readonly families: Family[] = [
+    {
+      id: 'comandas',
+      title: 'Comandas',
+      intro: 'Documentos informativos y no tributarios entregados al huésped. No son boleta ni factura: su función es dar información útil de un momento de la estadía.',
+      docs: [
+        { key: 'checkin', icon: 'pi-sign-in', label: 'Check-in / Bienvenida', desc: 'La que recibe el huésped al ingresar.',
+          fields: ['Habitación', 'Día hotelero', 'Ingreso', 'Hora límite de salida', 'WiFi (red/voucher)', 'Servicios: Netflix, Prime, Room Service, Intercomunicador', 'Dirección y teléfonos', 'Mensajes'] },
+        { key: 'renovacion', icon: 'pi-refresh', label: 'Renovación', desc: 'Cuando el huésped renueva su estadía. Independiente de la bienvenida.',
+          fields: ['Habitación', 'Renovación realizada', 'Nueva hora límite de salida', 'Nuevo voucher WiFi', 'Vigencia del voucher', 'Mensaje de renovación'] },
+        { key: 'voucherWifi', icon: 'pi-wifi', label: 'Voucher Wi-Fi', desc: 'Comanda pequeña e independiente para entregar solo el acceso WiFi.',
+          fields: ['Nombre del hospedaje', 'Red', 'Código', 'Tiempo / vigencia'],
+          note: 'Útil cuando el huésped no dio WhatsApp, necesita renovar solo el WiFi, cortesía, o conectarse para pagar por Yape.' },
+      ],
+    },
+    {
+      id: 'comprobantes',
+      title: 'Comprobantes',
+      intro: 'Documentos de ventas/cobros al cliente, separados de las comandas informativas. Arquitectura preparada para la futura facturación electrónica/SUNAT (aún no implementada).',
+      docs: [
+        { key: 'hospedaje', icon: 'pi-home', label: 'Comprobante de hospedaje', desc: 'Cobro del servicio de hospedaje.',
+          fields: ['Concepto', 'Importe', 'Método de pago', 'Datos del cliente'] },
+        { key: 'productos', icon: 'pi-shopping-cart', label: 'Venta de productos', desc: 'Consumos y frigobar.',
+          fields: ['Detalle de productos', 'Cantidades', 'Importes', 'Método de pago'] },
+        { key: 'servicios', icon: 'pi-tags', label: 'Servicios', desc: 'Servicios adicionales.',
+          fields: ['Servicio', 'Importe', 'Método de pago'] },
+        { key: 'penalidades', icon: 'pi-exclamation-triangle', label: 'Penalidades', desc: 'Cargos por penalidad / extensión de horas.',
+          fields: ['Concepto', 'Importe', 'Método de pago'] },
+        { key: 'boleta', icon: 'pi-file', label: 'Boleta', desc: 'Comprobante tributario tipo boleta.',
+          fields: ['Razón social', 'RUC', 'Cliente', 'Conceptos', 'IGV', 'Total'] },
+        { key: 'factura', icon: 'pi-file-edit', label: 'Factura', desc: 'Comprobante tributario tipo factura.',
+          fields: ['Razón social', 'RUC', 'Cliente + RUC', 'Conceptos', 'IGV', 'Total'] },
+      ],
+    },
+    {
+      id: 'operaciones',
+      title: 'Operaciones',
+      intro: 'Tickets de control interno del hospedaje. No están destinados al huésped ni son comprobantes de venta.',
+      docs: [
+        { key: 'transferencia', icon: 'pi-arrow-right-arrow-left', label: 'Transferencia de productos', desc: 'Recepción solicita productos al almacén.',
+          fields: ['Producto', 'Solicitado', 'Enviado', 'Origen / destino', 'Turno', 'Usuario', 'Fecha/hora'] },
+        { key: 'cierreCaja', icon: 'pi-lock', label: 'Cierre de caja', desc: 'Cuadre del turno (ciego o administrativo).',
+          fields: ['Turno', 'Colaborador', 'Caja base', 'Efectivo contado', 'Ingresos/egresos', 'Ajustes', 'Auditoría'] },
+        { key: 'cierreLimpieza', icon: 'pi-sparkles', label: 'Cierre de turno de limpieza', desc: 'Control/cierre de turno de housekeeping.',
+          fields: ['Turno', 'Colaborador', 'Limpiezas realizadas', 'Fecha/hora'] },
+      ],
+    },
   ];
-  readonly visualGroups: { title: string; fields: { key: string; label: string }[] }[] = [
-    { title: 'Identidad (desde Hotel)', fields: [
-      { key: 'logo', label: 'Logo' }, { key: 'tradeName', label: 'Nombre comercial' }, { key: 'legalName', label: 'Razón social' },
-      { key: 'ruc', label: 'RUC' }, { key: 'address', label: 'Dirección' }, { key: 'phone', label: 'Teléfono / WhatsApp' },
-    ] },
-    { title: 'Estancia', fields: [
-      { key: 'room', label: 'Habitación' }, { key: 'guest', label: 'Huésped' }, { key: 'datetime', label: 'Fecha y hora' }, { key: 'stayType', label: 'Tipo de estadía' },
-    ] },
-    { title: 'Pago y consumo', fields: [
-      { key: 'paymentMethod', label: 'Método de pago' }, { key: 'amounts', label: 'Importes' }, { key: 'products', label: 'Productos y servicios' },
-    ] },
-    { title: 'Operación y extras', fields: [
-      { key: 'user', label: 'Usuario que operó' }, { key: 'wifi', label: 'WiFi (del módulo WiFi)' }, { key: 'qr', label: 'Código QR' }, { key: 'loyalty', label: 'Puntos de lealtad' },
-    ] },
-  ];
-  readonly mensajes: { key: keyof TicketsConfig['messages']; label: string; ph: string }[] = [
-    { key: 'welcome', label: 'Mensaje de bienvenida', ph: 'Ej.: ¡Bienvenido a RIZZOS!' },
-    { key: 'farewell', label: 'Mensaje de despedida', ph: 'Ej.: ¡Gracias por su visita!' },
-    { key: 'guestNotes', label: 'Indicaciones al huésped', ph: 'Ej.: Check-out hasta las 12:00.' },
-    { key: 'notices', label: 'Avisos', ph: 'Ej.: Prohibido fumar.' },
-    { key: 'legal', label: 'Texto legal', ph: 'Ej.: Comprobante no tributario.' },
-    { key: 'footer', label: 'Pie del ticket', ph: 'Ej.: www.rizzos.pe' },
-  ];
-  readonly automations: { key: keyof TicketsConfig['automations']; icon: string; label: string; desc: string }[] = [
-    { key: 'checkin', icon: 'pi-sign-in', label: 'Check-in', desc: 'Imprimir bienvenida (con WiFi) o enviar por WhatsApp según el cliente.' },
-    { key: 'pendingChange', icon: 'pi-wallet', label: 'Vuelto pendiente', desc: 'Generar ticket cuando queda vuelto "No entregado".' },
+
+  readonly automationDefs: { key: keyof TicketsConfig['automations']; icon: string; label: string; desc: string }[] = [
+    { key: 'checkin', icon: 'pi-sign-in', label: 'Check-in', desc: 'Imprimir la comanda de bienvenida (con WiFi) o enviar por WhatsApp según el cliente.' },
+    { key: 'pendingChange', icon: 'pi-wallet', label: 'Vuelto pendiente', desc: 'Generar comprobante cuando queda vuelto "No entregado".' },
     { key: 'cashClose', icon: 'pi-lock', label: 'Cierre de caja', desc: 'Imprimir el cuadre al cerrar el turno.' },
-    { key: 'productTransfer', icon: 'pi-arrow-right-arrow-left', label: 'Transferencia de productos', desc: 'Constancia al entregar/confirmar una solicitud.' },
+    { key: 'productTransfer', icon: 'pi-arrow-right-arrow-left', label: 'Transferencia de productos', desc: 'Constancia al entregar/confirmar una solicitud de almacén.' },
     { key: 'cleaningClose', icon: 'pi-sparkles', label: 'Cierre de turno de limpieza', desc: 'Resumen al finalizar el turno de limpieza.' },
   ];
   readonly paperOpts = [{ label: '80 mm', value: '80' }, { label: '58 mm', value: '58' }];
