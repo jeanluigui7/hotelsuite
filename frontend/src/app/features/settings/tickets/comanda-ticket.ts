@@ -10,7 +10,7 @@
  * reducida (solo el bloque de red/código).
  */
 
-export type ComandaKind = 'BIENVENIDA' | 'RENOVACION' | 'VOUCHER_WIFI';
+export type ComandaKind = 'BIENVENIDA' | 'RENOVACION' | 'TIEMPO_EXTRA' | 'VOUCHER_WIFI';
 
 export interface ComandaIdentity {
   tradeName: string; // p. ej. "RIZZOS"
@@ -69,8 +69,10 @@ function frame(inner: string): string {
 }
 
 function brand(id: ComandaIdentity): string {
-  const logo = id.logoUrl ? `<img class="logo" src="${esc(id.logoUrl)}" alt="">` : '';
-  return `<div class="brand">${logo}<div class="name">${esc(id.tradeName)}</div>${
+  // Si hay logo cargado (data URL desde Configuración → Hotel), es el wordmark: se muestra solo el
+  // logo. Sin logo (p. ej. la vista de muestra) se usa el nombre + subtítulo en texto.
+  if (id.logoUrl) return `<div class="brand"><img class="logo" src="${esc(id.logoUrl)}" alt=""></div>`;
+  return `<div class="brand"><div class="name">${esc(id.tradeName)}</div>${
     id.subtitle ? `<div class="sub">${esc(id.subtitle)}</div>` : ''
   }</div>`;
 }
@@ -120,18 +122,32 @@ export function buildComandaTicket(kind: ComandaKind, id: ComandaIdentity, d: Co
       <div class="legal bold">ESTE TICKET NO ES BOLETA NI FACTURA</div>`);
   }
 
-  const isRenewal = kind === 'RENOVACION';
+  // Renovación y Tiempo extra: comanda COMPACTA = marca + badge + habitación + nueva hora límite +
+  // BLOQUE WIFI, sin el bloque de servicios (Netflix/Prime/Room Service). El WiFi de renovación sale
+  // del voucher asignado (pernocta); el de tiempo extra, de un voucher PERSONALIZADO.
+  if (kind === 'RENOVACION' || kind === 'TIEMPO_EXTRA') {
+    const badge = kind === 'RENOVACION' ? 'RENOVACIÓN' : 'TIEMPO EXTRA';
+    return frame(`
+      ${brand(id)}
+      <div class="badge">${badge}</div>
+      <hr class="sep">
+      <div class="hl">HABITACIÓN: ${esc(d.room)}</div>
+      ${d.renewalNote ? `<div class="center small bold" style="margin-top:4px">${esc(d.renewalNote)}</div>` : ''}
+      <hr class="sep">
+      ${wifiBlock(d, true)}
+      <hr class="sep">
+      ${footer(id)}`);
+  }
+
   const personsTxt = d.persons ? ` - ${d.persons} PERSONA${d.persons === 1 ? '' : 'S'}` : '';
   const showServices = d.services !== false;
 
   const head = `
     ${brand(id)}
-    ${isRenewal ? `<div class="badge">RENOVACIÓN</div>` : ''}
     <hr class="sep">
     <div class="hl">HABITACIÓN: ${esc(d.room)} - ${esc(d.stayLabel)}${personsTxt}</div>
     <div class="center" style="margin-top:4px">${esc(d.checkinAt)}</div>
     <div class="center small muted" style="margin-top:2px">${esc(d.checkoutNote)}</div>
-    ${isRenewal && d.renewalNote ? `<div class="center small bold" style="margin-top:4px">${esc(d.renewalNote)}</div>` : ''}
     <hr class="sep">
     ${wifiBlock(d, true)}`;
 
@@ -148,6 +164,21 @@ export const SAMPLE_IDENTITY: ComandaIdentity = {
   mobile: '991 139 349',
 };
 
+/** Mapea la identidad de la sucursal (Configuración → Hotel) al formato de la comanda. */
+export function identityFromBranch(b: {
+  name?: string; landline?: string; phone?: string; mobile?: string; address?: string; logoUrl?: string;
+} | null | undefined): ComandaIdentity {
+  if (!b || (!b.name && !b.logoUrl && !b.address)) return SAMPLE_IDENTITY;
+  return {
+    tradeName: b.name || SAMPLE_IDENTITY.tradeName,
+    subtitle: undefined,
+    address: b.address || '',
+    landline: b.landline || b.phone || '',
+    mobile: b.mobile || '',
+    logoUrl: b.logoUrl || null,
+  };
+}
+
 export function sampleComandaData(kind: ComandaKind): ComandaData {
   const base: ComandaData = {
     room: '202',
@@ -161,9 +192,18 @@ export function sampleComandaData(kind: ComandaKind): ComandaData {
   if (kind === 'RENOVACION') {
     return {
       ...base,
-      renewalNote: 'Estadía renovada · nueva hora límite 02/09 12:00 P.M.',
+      renewalNote: 'Estadía renovada - nueva hora límite 12:00 P.M.',
       wifiCode: 'K9pLm2',
       wifiValidity: 'Vigencia del nuevo voucher: 24 h',
+    };
+  }
+  if (kind === 'TIEMPO_EXTRA') {
+    // WiFi tomado de un voucher PERSONALIZADO (tiempo/precio editable).
+    return {
+      ...base,
+      renewalNote: 'Tiempo extra - nueva hora límite 02:00 P.M.',
+      wifiCode: 'X7pQ2a',
+      wifiValidity: 'Tiempo del voucher: 3 h',
     };
   }
   if (kind === 'VOUCHER_WIFI') {

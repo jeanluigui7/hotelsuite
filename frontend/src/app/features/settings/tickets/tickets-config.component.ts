@@ -14,7 +14,7 @@ import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { AuthService } from '../../../core/auth/auth.service';
 import { PrintingService } from '../../../core/printing/printing.service';
-import { buildComandaTicket, sampleComandaData, SAMPLE_IDENTITY, type ComandaKind } from './comanda-ticket';
+import { buildComandaTicket, sampleComandaData, SAMPLE_IDENTITY, identityFromBranch, type ComandaKind, type ComandaIdentity } from './comanda-ticket';
 
 type Tab = 'comandas' | 'comprobantes' | 'operaciones' | 'impresion' | 'automatizaciones';
 type Channel = 'PRINT' | 'WHATSAPP' | 'NONE';
@@ -138,7 +138,7 @@ interface Family { id: Tab; title: string; intro: string; docs: DocDef[]; }
 
       <!-- Vista previa de plantilla fija (80 mm) -->
       <p-dialog [(visible)]="previewOpen" [modal]="true" [header]="previewTitle()" [style]="{ width: '360px' }" [dismissableMask]="true">
-        <p class="preview-note"><i class="pi pi-info-circle"></i> Formato fijo de referencia (80&nbsp;mm) con datos de muestra. La identidad real vendrá de <a routerLink="/settings/hotel">Hotel</a> y el WiFi del módulo WiFi.</p>
+        <p class="preview-note"><i class="pi pi-info-circle"></i> Formato fijo (80&nbsp;mm). La identidad (logo, dirección, teléfonos) sale de <a routerLink="/settings/hotel">Hotel</a>; los datos de estadía y el voucher WiFi son de muestra (en operación vendrán de la estancia y del módulo WiFi).</p>
         <div class="preview-frame">
           @if (previewUrl()) { <iframe [src]="previewUrl()!" title="Vista previa" class="ticket-iframe"></iframe> }
         </div>
@@ -201,6 +201,7 @@ export class TicketsConfigComponent implements OnInit {
   previewOpen = false;
   readonly previewUrl = signal<SafeResourceUrl | null>(null);
   readonly previewTitle = signal('Vista previa');
+  readonly identity = signal<ComandaIdentity>(SAMPLE_IDENTITY);
 
   readonly canEdit = this.auth.can('settings', 'edit');
   readonly loading = signal(true);
@@ -230,8 +231,10 @@ export class TicketsConfigComponent implements OnInit {
       docs: [
         { key: 'checkin', icon: 'pi-sign-in', label: 'Check-in / Bienvenida', desc: 'La que recibe el huésped al ingresar.',
           fields: ['Habitación', 'Día hotelero', 'Ingreso', 'Hora límite de salida', 'WiFi (red/voucher)', 'Servicios: Netflix, Prime, Room Service, Intercomunicador', 'Dirección y teléfonos', 'Mensajes'], preview: 'BIENVENIDA' },
-        { key: 'renovacion', icon: 'pi-refresh', label: 'Renovación', desc: 'Cuando el huésped renueva su estadía. Mismo formato completo; cambia la hora límite y el voucher.',
-          fields: ['Habitación', 'Renovación realizada', 'Nueva hora límite de salida', 'Nuevo voucher WiFi', 'Vigencia del voucher', 'Mensaje de renovación'], preview: 'RENOVACION' },
+        { key: 'renovacion', icon: 'pi-refresh', label: 'Renovación', desc: 'El huésped renueva su estadía. Comanda compacta: bloque WiFi + nueva hora límite.',
+          fields: ['Habitación', 'Estadía renovada - nueva hora límite', 'Nuevo voucher WiFi (pernocta)', 'Vigencia del voucher'], preview: 'RENOVACION' },
+        { key: 'tiempoExtra', icon: 'pi-clock', label: 'Tiempo extra', desc: 'Extensión por horas adicionales. Igual a renovación pero "Tiempo extra"; WiFi de voucher personalizado.',
+          fields: ['Habitación', 'Tiempo extra - nueva hora límite', 'Voucher WiFi (personalizado)', 'Tiempo del voucher'], preview: 'TIEMPO_EXTRA' },
         { key: 'voucherWifi', icon: 'pi-wifi', label: 'Voucher Wi-Fi', desc: 'Comanda pequeña e independiente para entregar solo el acceso WiFi.',
           fields: ['Nombre del hospedaje', 'Red', 'Código', 'Tiempo / vigencia'],
           note: 'Útil cuando el huésped no dio WhatsApp, necesita renovar solo el WiFi, cortesía, o conectarse para pagar por Yape.', preview: 'VOUCHER_WIFI' },
@@ -287,7 +290,7 @@ export class TicketsConfigComponent implements OnInit {
   openPreview(d: DocDef): void {
     if (!d.preview) return;
     const kind = d.preview as ComandaKind;
-    const html = buildComandaTicket(kind, SAMPLE_IDENTITY, sampleComandaData(kind));
+    const html = buildComandaTicket(kind, this.identity(), sampleComandaData(kind));
     const url = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
     this.previewUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(url));
     this.previewTitle.set('Formato: ' + d.label);
@@ -299,6 +302,14 @@ export class TicketsConfigComponent implements OnInit {
       next: (r) => { if (r.data) this.config.set(r.data); this.loading.set(false); },
       error: () => this.loading.set(false),
     });
+    // Identidad real (logo, dirección, teléfonos) desde Configuración → Hotel, para la vista previa.
+    const branchId = this.auth.activeBranchId();
+    if (branchId) {
+      this.http.get<ApiResponse<Record<string, string>>>(`${this.api}/branches/${branchId}`).subscribe({
+        next: (r) => { if (r.data) this.identity.set(identityFromBranch(r.data)); },
+        error: () => {/* se mantiene la identidad de muestra */},
+      });
+    }
   }
 
   async connect(): Promise<void> {
