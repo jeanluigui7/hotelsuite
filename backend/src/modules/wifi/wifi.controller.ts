@@ -55,7 +55,7 @@ export const wifiController = {
   },
   async importRows(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
-    const { rows } = importWifiSchema.parse(req.body);
-    res.status(201).json(ok(await wifiService.importRows(req.scope, rows)));
+    const dto = importWifiSchema.parse(req.body);
+    res.status(201).json(ok(await wifiService.importRows(req.scope, dto)));
   },
 };

@@ -2,15 +2,7 @@ import type { RequestScope } from '../../shared/context';
 import { NotFoundError, ConflictError, ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
-import { WIFI_CATEGORIES, type CreateWifiDto, type UpdateWifiDto, type BulkCreateWifiDto, type AssignWifiDto } from './wifi.schema';
-
-/** Código corto imprimible (evita 0/O/1/I para leerlo bien en el ticket). */
-function genCode(): string {
-  const alpha = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-  let s = '';
-  for (let i = 0; i < 6; i++) s += alpha[Math.floor(Math.random() * alpha.length)];
-  return s;
-}
+import { WIFI_CATEGORIES, type CreateWifiDto, type UpdateWifiDto, type BulkCreateWifiDto, type AssignWifiDto, type ImportWifiDto } from './wifi.schema';
 
 type WifiRow = {
   id: string; ssid: string; password: string; code: string | null; category: string;
@@ -26,8 +18,11 @@ function stateOf(c: { used: boolean; assignedStayId: string | null }): 'USADA' |
 }
 
 function serialize(c: WifiRow) {
+  // El VOUCHER (columna Code de Omada) es el único valor entregado al huésped. `password` queda
+  // en la BD por compatibilidad, pero ya no se usa: siempre es igual al voucher.
+  const voucher = c.code || c.password || '';
   return {
-    id: c.id, ssid: c.ssid, password: c.password, code: c.code, category: c.category,
+    id: c.id, ssid: c.ssid, voucher, code: c.code, category: c.category,
     used: c.used, state: stateOf(c), room: c.assignedRoom, guest: c.assignedGuest,
     validMinutes: c.validMinutes, message: c.message,
   };
@@ -70,40 +65,47 @@ export const wifiService = {
 
   create(scope: RequestScope, dto: CreateWifiDto) {
     const branchId = requireActiveBranch(scope);
+    const voucher = dto.voucher.trim();
     return prisma.wifiCredential.create({
       data: {
-        branchId, ssid: dto.ssid, password: dto.password, category: dto.category,
-        code: dto.code?.trim() || genCode(), voucher: dto.voucher || null, note: dto.note || null,
+        branchId, ssid: dto.ssid, category: dto.category,
+        code: voucher, password: voucher, voucher, note: dto.note || null,
         validMinutes: dto.category === 'GRATIS' ? dto.validMinutes ?? 60 : null,
         message: dto.category === 'GRATIS' ? dto.message || null : null,
       },
     });
   },
 
-  /** Crea varias credenciales de una categoría con sus contraseñas. */
+  /** Crea varias credenciales de una categoría con sus vouchers/cupones (columna Code de Omada). */
   async createBulk(scope: RequestScope, dto: BulkCreateWifiDto) {
     const branchId = requireActiveBranch(scope);
-    const data = dto.passwords
-      .map((p, i) => ({ password: p.trim(), code: (dto.codes?.[i] || '').trim() || genCode() }))
-      .filter((x) => x.password)
-      .map((x) => ({
-        branchId, ssid: dto.ssid, password: x.password, code: x.code, category: dto.category,
+    const vouchers = [...new Set(dto.vouchers.map((v) => v.trim()).filter(Boolean))];
+    if (!vouchers.length) throw new ValidationError('Ingresa al menos un voucher/cupón');
+    // No duplicar un voucher (Code) que ya exista en la sucursal.
+    const existing = new Set(
+      (await prisma.wifiCredential.findMany({ where: { branchId, code: { in: vouchers } }, select: { code: true } }))
+        .map((r) => r.code).filter((x): x is string => !!x),
+    );
+    const data = vouchers
+      .filter((v) => !existing.has(v))
+      .map((v) => ({
+        branchId, ssid: dto.ssid, password: v, code: v, voucher: v, category: dto.category,
         validMinutes: dto.category === 'GRATIS' ? dto.validMinutes ?? 60 : null,
         message: dto.category === 'GRATIS' ? dto.message || null : null,
       }));
-    if (!data.length) throw new ValidationError('Ingresa al menos una contraseña');
+    if (!data.length) throw new ValidationError('Todos los vouchers ingresados ya existen.');
     const res = await prisma.wifiCredential.createMany({ data });
-    return { created: res.count };
+    return { created: res.count, duplicates: vouchers.length - data.length };
   },
 
   async update(scope: RequestScope, id: string, dto: UpdateWifiDto) {
     await this.getById(scope, id);
+    const voucher = dto.voucher?.trim();
     return prisma.wifiCredential.update({
       where: { id },
       data: {
         ...(dto.ssid !== undefined ? { ssid: dto.ssid } : {}),
-        ...(dto.password !== undefined ? { password: dto.password } : {}),
-        ...(dto.code !== undefined ? { code: dto.code.trim() || null } : {}),
+        ...(voucher !== undefined ? { code: voucher, password: voucher, voucher } : {}),
         ...(dto.category !== undefined ? { category: dto.category } : {}),
         ...(dto.validMinutes !== undefined ? { validMinutes: dto.validMinutes } : {}),
         ...(dto.message !== undefined ? { message: dto.message || null } : {}),
@@ -198,18 +200,52 @@ export const wifiService = {
     };
   },
 
-  /** Importación masiva: filas {ssid, password, code?, category?}. Genera código si falta. */
-  async importRows(scope: RequestScope, rows: { ssid: string; password: string; code?: string; category?: string }[]) {
+  /**
+   * Importa el CSV nativo de Omada en la categoría indicada (la de la pestaña activa). El identificador
+   * es el `voucher` (columna Code). Ignora columnas no usadas, salta duplicados (voucher ya existente en
+   * RIZZOS o repetido en el archivo) y marca inválidas las filas sin voucher. Con `preview` solo valida.
+   */
+  async importRows(scope: RequestScope, dto: ImportWifiDto) {
     const branchId = requireActiveBranch(scope);
-    const data = rows
-      .map((r) => ({ ssid: (r.ssid || '').trim(), password: (r.password || '').trim(), code: (r.code || '').trim(), category: (r.category || '').trim().toUpperCase() }))
-      .filter((r) => r.ssid && r.password)
-      .map((r) => ({
-        branchId, ssid: r.ssid, password: r.password, code: r.code || genCode(),
-        category: (WIFI_CATEGORIES as readonly string[]).includes(r.category) ? r.category : 'PERNOCTACION',
-      }));
-    if (!data.length) throw new ValidationError('El archivo no tiene filas válidas (ssid y password requeridos).');
-    const res = await prisma.wifiCredential.createMany({ data });
-    return { created: res.count };
+    const category = (WIFI_CATEGORIES as readonly string[]).includes(dto.category) ? dto.category : 'PERNOCTACION';
+    const defaultSsid = (await prisma.branch.findUnique({ where: { id: branchId }, select: { name: true } }))?.name ?? 'RIZZOS HOSPEDAJE';
+
+    const detected = dto.rows.length;
+    const seen = new Set<string>();
+    const valid: { ssid: string; voucher: string; validMinutes: number | null; message: string | null }[] = [];
+    let invalid = 0;
+    let dupInFile = 0;
+    for (const r of dto.rows) {
+      const voucher = (r.voucher || '').trim();
+      if (!voucher) { invalid++; continue; }
+      if (seen.has(voucher)) { dupInFile++; continue; }
+      seen.add(voucher);
+      valid.push({
+        ssid: (r.ssid || '').trim() || defaultSsid,
+        voucher,
+        validMinutes: category === 'GRATIS' ? (r.validMinutes ?? 60) : null,
+        message: category === 'GRATIS' ? (r.message?.trim() || null) : null,
+      });
+    }
+    // Duplicados contra la BD (voucher/Code ya registrado en la sucursal, en cualquier categoría).
+    const existing = valid.length
+      ? new Set(
+          (await prisma.wifiCredential.findMany({ where: { branchId, code: { in: valid.map((v) => v.voucher) } }, select: { code: true } }))
+            .map((r) => r.code).filter((x): x is string => !!x),
+        )
+      : new Set<string>();
+    const toInsert = valid.filter((v) => !existing.has(v.voucher));
+    const duplicates = dupInFile + (valid.length - toInsert.length);
+    const summary = { detected, new: toInsert.length, duplicates, invalid };
+
+    if (dto.preview) return { ...summary, created: 0 };
+    if (!toInsert.length) return { ...summary, created: 0 };
+    const res = await prisma.wifiCredential.createMany({
+      data: toInsert.map((v) => ({
+        branchId, ssid: v.ssid, password: v.voucher, code: v.voucher, voucher: v.voucher, category,
+        validMinutes: v.validMinutes, message: v.message,
+      })),
+    });
+    return { ...summary, created: res.count };
   },
 };

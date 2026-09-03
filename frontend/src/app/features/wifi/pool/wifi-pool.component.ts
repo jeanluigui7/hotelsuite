@@ -14,12 +14,14 @@ import { AuthService } from '../../../core/auth/auth.service';
 
 type Cat = 'PERNOCTACION' | 'ESTADIA_CORTA' | 'PERSONALIZADA' | 'GRATIS';
 interface WifiCred {
-  id: string; ssid: string; password: string; code: string | null; category: Cat;
+  id: string; ssid: string; voucher: string; code: string | null; category: Cat;
   used: boolean; state: 'DISPONIBLE' | 'EN_USO' | 'USADA'; room: string | null; guest: string | null;
   validMinutes: number | null; message: string | null;
 }
 interface CatSummary { total: number; available: number; inUse: number; used: number; }
 interface RoomOpt { stayId: string; label: string; }
+interface ImportRow { ssid?: string; voucher: string; message?: string; validMinutes?: number; }
+interface ImportSummary { detected: number; new: number; duplicates: number; invalid: number; created: number; }
 
 @Component({
   selector: 'app-wifi-pool',
@@ -30,16 +32,10 @@ interface RoomOpt { stayId: string; label: string; }
       <!-- Header -->
       <header class="hero">
         <div class="hl"><span class="hicon"><i class="pi pi-wifi"></i></span>
-          <div><h1>Pool de Credenciales WiFi</h1><p>Gestiona las credenciales WiFi que se asignan a las estancias.</p></div>
+          <div><h1>Pool de Credenciales WiFi</h1><p>Vouchers de Omada que se asignan a las estancias. El huésped ingresa el voucher en el portal cautivo.</p></div>
         </div>
         <div class="hr">
           <label class="tgl"><input type="checkbox" [(ngModel)]="showUsed" (ngModelChange)="reload()" /> Mostrar usadas</label>
-          @if (canEdit) {
-            <input #imp type="file" accept=".csv,.txt" hidden (change)="onImport($event)" />
-            <p-button label="Plantilla CSV" icon="pi pi-download" severity="secondary" [text]="true" (onClick)="downloadTemplate()" />
-            <p-button label="Importar CSV" icon="pi pi-upload" severity="secondary" (onClick)="imp.click()" />
-            <p-button label="Crear Credenciales" icon="pi pi-plus" (onClick)="openCreate()" />
-          }
         </div>
       </header>
 
@@ -65,6 +61,19 @@ interface RoomOpt { stayId: string; label: string; }
         }
       </div>
 
+      <!-- Barra de acciones de la categoría activa -->
+      @if (canEdit) {
+        <div class="catbar">
+          <div class="cbl"><i class="pi" [class]="catIcon(category())"></i> <strong>{{ catLabel(category()) }}</strong> · acciones de esta categoría</div>
+          <div class="cbr">
+            <input #imp type="file" accept=".csv,.txt" hidden (change)="onImport($event)" />
+            <p-button label="Plantilla CSV" icon="pi pi-download" severity="secondary" [text]="true" size="small" (onClick)="downloadTemplate()" />
+            <p-button label="Importar CSV" icon="pi pi-upload" severity="secondary" size="small" (onClick)="imp.click()" />
+            <p-button label="Crear credenciales" icon="pi pi-plus" size="small" (onClick)="openCreate()" />
+          </div>
+        </div>
+      }
+
       <!-- Barra de selección -->
       @if (selected().size > 0 && canEdit) {
         <div class="selbar"><span>{{ selected().size }} seleccionada(s)</span>
@@ -80,15 +89,14 @@ interface RoomOpt { stayId: string; label: string; }
             <table class="tbl">
               <thead><tr>
                 @if (canEdit) { <th class="ck"><input type="checkbox" [checked]="allSelected()" (change)="toggleAll()" /></th> }
-                <th>Red WiFi</th><th>Contraseña</th><th>Código</th><th class="c">Estado</th><th>En Uso Por</th><th class="c">Hab.</th><th class="c">Acciones</th>
+                <th>Red WiFi</th><th>Voucher</th><th class="c">Estado</th><th>En Uso Por</th><th class="c">Hab.</th><th class="c">Acciones</th>
               </tr></thead>
               <tbody>
                 @for (w of creds(); track w.id) {
                   <tr>
                     @if (canEdit) { <td class="ck"><input type="checkbox" [checked]="selected().has(w.id)" (change)="toggle(w.id)" /></td> }
                     <td><span class="ssid"><i class="pi pi-wifi"></i> {{ w.ssid }}</span></td>
-                    <td><span class="pw">{{ shown().has(w.id) ? w.password : '••••••••' }}</span> <button class="eye" (click)="toggleShow(w.id)"><i class="pi" [class.pi-eye]="!shown().has(w.id)" [class.pi-eye-slash]="shown().has(w.id)"></i></button></td>
-                    <td class="mono">{{ w.code || '—' }}</td>
+                    <td><span class="voucher">{{ w.voucher || '—' }}</span> <button class="eye" (click)="copy(w.voucher)" title="Copiar voucher"><i class="pi pi-copy"></i></button></td>
                     <td class="c"><p-tag [value]="stateLabel(w.state)" [severity]="w.state === 'DISPONIBLE' ? 'success' : w.state === 'EN_USO' ? 'info' : 'secondary'" /></td>
                     <td>{{ w.guest || '—' }}</td>
                     <td class="c">{{ w.room || '—' }}</td>
@@ -101,7 +109,7 @@ interface RoomOpt { stayId: string; label: string; }
                       }
                     </td>
                   </tr>
-                } @empty { <tr><td [attr.colspan]="canEdit ? 8 : 7" class="empty">Sin credenciales en esta categoría.</td></tr> }
+                } @empty { <tr><td [attr.colspan]="canEdit ? 7 : 6" class="empty">Sin credenciales en esta categoría.</td></tr> }
               </tbody>
             </table>
           </div>
@@ -109,45 +117,44 @@ interface RoomOpt { stayId: string; label: string; }
       </div>
     </section>
 
-    <!-- Crear credenciales -->
-    <p-dialog [(visible)]="createVisible" [modal]="true" [style]="{ width: '34rem', maxWidth: '96vw' }" [header]="'Crear Credenciales · ' + catLabel(createCat)">
+    <!-- Crear credenciales (categoría fija = pestaña activa) -->
+    <p-dialog [(visible)]="createVisible" [modal]="true" [style]="{ width: '34rem', maxWidth: '96vw' }" [header]="'Crear credenciales · ' + catLabel(category())">
       <div class="form">
-        @if (createCat === 'GRATIS') { <p class="hint gr"><i class="pi pi-gift"></i> WiFi Gratis: uso promocional/cortesía. Se entrega con ticket impreso.</p> }
+        <div class="lockcat"><i class="pi" [class]="catIcon(category())"></i> Categoría: <strong>{{ catLabel(category()) }}</strong> <span class="lk"><i class="pi pi-lock"></i></span></div>
+        @if (category() === 'GRATIS') { <p class="hint gr"><i class="pi pi-gift"></i> WiFi Gratis: uso promocional/cortesía. Se entrega con ticket impreso.</p> }
         <label>Red WiFi (SSID)</label><input pInputText [(ngModel)]="cSsid" placeholder="Ej. RIZZOS HOSPEDAJE" />
-        <label>Categoría</label><p-select [options]="catOpts" optionLabel="label" optionValue="value" [(ngModel)]="createCat" (onChange)="onCreateCatChange()" appendTo="body" styleClass="w" />
-        <label>Cantidad de credenciales</label><p-select [options]="countOpts" [(ngModel)]="cCount" (onChange)="syncPw()" appendTo="body" styleClass="w" />
-        @if (createCat === 'GRATIS') {
+        <label>Cantidad de vouchers</label><p-select [options]="countOpts" [(ngModel)]="cCount" (onChange)="syncV()" appendTo="body" styleClass="w" />
+        @if (category() === 'GRATIS') {
           <label>Tiempo de validez (minutos)</label><p-inputNumber [(ngModel)]="cValid" [min]="1" [showButtons]="true" styleClass="w" />
           <label>Mensaje del ticket</label><input pInputText [(ngModel)]="cMessage" placeholder="Ej. WIFI CORTESÍA" />
         }
-        <label>Contraseñas</label>
+        <label>Vouchers / Cupones</label>
         <div class="pwgrid">
-          @for (i of pwIdx(); track i) {
-            <div class="pwf"><span>#{{ i + 1 }}</span><input pInputText [(ngModel)]="cPasswords[i]" placeholder="Contraseña" /></div>
+          @for (i of vIdx(); track i) {
+            <div class="pwf"><span>#{{ i + 1 }}</span><input pInputText [(ngModel)]="cVouchers[i]" placeholder="Voucher / cupón" /></div>
           }
         </div>
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="createVisible = false" />
-        <p-button [label]="'Crear ' + cCount + ' Credenciales'" icon="pi pi-plus" [loading]="busy()" (onClick)="doCreate()" />
+        <p-button [label]="'Crear ' + cCount + ' vouchers'" icon="pi pi-plus" [loading]="busy()" (onClick)="doCreate()" />
       </ng-template>
     </p-dialog>
 
     <!-- Editar -->
-    <p-dialog [(visible)]="editVisible" [modal]="true" [style]="{ width: '26rem' }" header="Editar Credencial">
+    <p-dialog [(visible)]="editVisible" [modal]="true" [style]="{ width: '26rem' }" header="Editar credencial">
       <div class="form">
         <label>Red WiFi (SSID)</label><input pInputText [(ngModel)]="eSsid" />
-        <label>Contraseña</label><input pInputText [(ngModel)]="ePassword" />
-        <label>Código</label><input pInputText [(ngModel)]="eCode" />
+        <label>Voucher / Cupón</label><input pInputText [(ngModel)]="eVoucher" />
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="editVisible = false" />
-        <p-button label="Guardar Cambios" icon="pi pi-check" [loading]="busy()" (onClick)="doEdit()" />
+        <p-button label="Guardar cambios" icon="pi pi-check" [loading]="busy()" (onClick)="doEdit()" />
       </ng-template>
     </p-dialog>
 
     <!-- Asignar a habitación -->
-    <p-dialog [(visible)]="assignVisible" [modal]="true" [style]="{ width: '30rem', maxWidth: '96vw' }" header="Asignar Credencial a Habitación">
+    <p-dialog [(visible)]="assignVisible" [modal]="true" [style]="{ width: '30rem', maxWidth: '96vw' }" header="Asignar credencial a habitación">
       <p class="muted sm">Selecciona una habitación ocupada con cliente activo. Si ya tiene WiFi, se reemplazará por esta credencial.</p>
       <div class="form">
         <p-select [options]="rooms()" optionLabel="label" optionValue="stayId" [(ngModel)]="assignStayId" [filter]="true" filterBy="label" placeholder="Seleccionar habitación…" appendTo="body" styleClass="w" [loading]="roomsLoading()" />
@@ -159,11 +166,30 @@ interface RoomOpt { stayId: string; label: string; }
     </p-dialog>
 
     <!-- Eliminar -->
-    <p-dialog [(visible)]="deleteVisible" [modal]="true" [style]="{ width: '24rem' }" header="Eliminar Credencial">
+    <p-dialog [(visible)]="deleteVisible" [modal]="true" [style]="{ width: '24rem' }" header="Eliminar credencial">
       <p class="muted">¿Eliminar esta credencial WiFi? Esta acción no se puede deshacer.</p>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="deleteVisible = false" />
         <p-button label="Confirmar" icon="pi pi-trash" severity="danger" [loading]="busy()" (onClick)="doDelete()" />
+      </ng-template>
+    </p-dialog>
+
+    <!-- Resumen de importación (antes de guardar) -->
+    <p-dialog [(visible)]="importVisible" [modal]="true" [style]="{ width: '28rem' }" [header]="'Importar CSV · ' + catLabel(category())">
+      <div class="lockcat"><i class="pi" [class]="catIcon(category())"></i> Se guardarán en: <strong>{{ catLabel(category()) }}</strong> <span class="lk"><i class="pi pi-lock"></i></span></div>
+      @if (importSum()) { @let s = importSum()!;
+        <div class="impgrid">
+          <div class="imp"><span>Detectados</span><strong>{{ s.detected }}</strong></div>
+          <div class="imp ok"><span>Nuevos</span><strong>{{ s.new }}</strong></div>
+          <div class="imp dup"><span>Duplicados</span><strong>{{ s.duplicates }}</strong></div>
+          <div class="imp inv"><span>Inválidos</span><strong>{{ s.invalid }}</strong></div>
+        </div>
+        @if (s.new === 0) { <p class="hint gr"><i class="pi pi-info-circle"></i> No hay vouchers nuevos para importar.</p> }
+        @else { <p class="muted sm">Se importarán <strong>{{ s.new }}</strong> voucher(s) a <strong>{{ catLabel(category()) }}</strong>. Los duplicados se omiten.</p> }
+      } @else { <p class="muted">Validando archivo…</p> }
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="importVisible = false" />
+        <p-button [label]="'Importar ' + (importSum()?.new ?? 0)" icon="pi pi-upload" [loading]="busy()" [disabled]="!importSum() || (importSum()?.new ?? 0) === 0" (onClick)="doImport()" />
       </ng-template>
     </p-dialog>
   `,
@@ -173,30 +199,36 @@ interface RoomOpt { stayId: string; label: string; }
       .muted { color: var(--p-text-muted-color, #64748b); } .muted.sm, .sm { font-size: 0.85rem; }
       .hero { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; background: linear-gradient(135deg, #10b981, #059669); color: #fff; border-radius: 14px; padding: 1.1rem 1.4rem; margin-bottom: 1.1rem; }
       .hl { display: flex; align-items: center; gap: 0.9rem; } .hicon { width: 46px; height: 46px; border-radius: 12px; background: rgba(255,255,255,0.2); display: grid; place-items: center; font-size: 1.4rem; }
-      .hero h1 { margin: 0; font-size: 1.35rem; } .hero p { margin: 0.2rem 0 0; font-size: 0.86rem; opacity: 0.9; }
+      .hero h1 { margin: 0; font-size: 1.35rem; } .hero p { margin: 0.2rem 0 0; font-size: 0.86rem; opacity: 0.9; max-width: 46ch; }
       .hr { display: flex; align-items: center; gap: 0.9rem; } .tgl { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; cursor: pointer; } .tgl input { width: auto; }
       .tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
       .tab { display: inline-flex; align-items: center; gap: 0.4rem; background: var(--p-content-background, #fff); border: 1px solid var(--p-content-border-color, #e2e8f0); color: var(--p-text-muted-color, #64748b); border-radius: 999px; padding: 0.45rem 0.9rem; font-weight: 600; font-size: 0.85rem; cursor: pointer; }
       .tab.active { background: #10b981; border-color: #10b981; color: #fff; } .tab .badge { background: rgba(0,0,0,0.12); border-radius: 999px; padding: 0.05rem 0.5rem; font-size: 0.72rem; } .tab.active .badge { background: rgba(255,255,255,0.25); }
-      .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.7rem; margin-bottom: 1.1rem; }
+      .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.7rem; margin-bottom: 1rem; }
       .card { text-align: left; border: 1px solid var(--p-content-border-color, #e2e8f0); border-radius: 12px; padding: 0.9rem 1rem; background: var(--p-content-background, #fff); cursor: pointer; }
       .card.on { border-color: #10b981; box-shadow: 0 0 0 2px rgba(16,185,129,0.15); }
       .card .ct { font-size: 0.78rem; color: var(--p-text-muted-color, #64748b); display: flex; align-items: center; gap: 0.35rem; }
       .card .cn { font-size: 1.6rem; font-weight: 800; color: #059669; } .card .cn small { font-size: 0.9rem; color: var(--p-text-muted-color, #94a3b8); font-weight: 600; }
       .card .cs { font-size: 0.74rem; color: var(--p-text-muted-color, #94a3b8); } .card .cu { font-size: 0.74rem; color: #3b82f6; margin-top: 0.15rem; }
+      .catbar { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; background: rgba(16,185,129,0.07); border: 1px solid rgba(16,185,129,0.25); border-radius: 10px; padding: 0.55rem 0.9rem; margin-bottom: 0.9rem; }
+      .catbar .cbl { font-size: 0.85rem; color: var(--p-text-color, #334155); } .catbar .cbl .pi { color: #10b981; } .catbar .cbr { display: flex; gap: 0.5rem; flex-wrap: wrap; }
       .selbar { display: flex; align-items: center; gap: 0.9rem; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.25); border-radius: 10px; padding: 0.5rem 0.9rem; margin-bottom: 0.8rem; font-size: 0.85rem; }
       .panel { border: 1px solid var(--p-content-border-color, #e2e8f0); border-radius: 12px; background: var(--p-content-background, #fff); padding: 0.5rem; }
       .tbl-wrap { overflow-x: auto; } .tbl { width: 100%; border-collapse: collapse; }
       .tbl th, .tbl td { padding: 0.6rem 0.7rem; border-bottom: 1px solid var(--p-content-border-color, #eef2f7); text-align: left; font-size: 0.85rem; } .tbl .c { text-align: center; } .tbl .ck { width: 2.2rem; text-align: center; } .tbl .nowrap { white-space: nowrap; }
       .tbl th { color: var(--p-text-muted-color, #64748b); font-weight: 600; font-size: 0.74rem; text-transform: uppercase; }
       .ssid { display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 700; } .ssid .pi { color: #10b981; }
-      .pw { font-family: monospace; letter-spacing: 1px; } .mono { font-family: monospace; }
+      .voucher { font-family: monospace; font-weight: 700; letter-spacing: 1px; font-size: 0.95rem; }
       .eye { background: none; border: 0; color: var(--p-text-muted-color, #94a3b8); cursor: pointer; }
       .ic { background: none; border: 0; cursor: pointer; color: var(--p-text-muted-color, #64748b); padding: 0 0.3rem; font-size: 0.95rem; } .ic.link { color: #f59e0b; } .ic.del { color: #ef4444; } .ic.prt { color: #10b981; }
       .empty { text-align: center; padding: 1.5rem; color: var(--p-text-muted-color, #94a3b8); }
       .form { display: flex; flex-direction: column; gap: 0.35rem; } .form label { font-size: 0.82rem; color: var(--p-text-muted-color, #64748b); margin-top: 0.5rem; }
-      .hint { font-size: 0.82rem; margin: 0 0 0.3rem; } .hint.gr { color: #d97706; }
+      .lockcat { display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.3); color: #047857; border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.82rem; margin-bottom: 0.4rem; } .lockcat .lk { color: #94a3b8; margin-left: 0.2rem; }
+      .hint { font-size: 0.82rem; margin: 0.5rem 0 0.3rem; } .hint.gr { color: #d97706; }
       .pwgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.3rem; } .pwf { display: flex; align-items: center; gap: 0.4rem; } .pwf span { font-size: 0.78rem; color: var(--p-text-muted-color, #94a3b8); width: 1.8rem; }
+      .impgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin: 0.6rem 0; }
+      .imp { border: 1px solid var(--p-content-border-color, #e2e8f0); border-radius: 10px; padding: 0.6rem 0.8rem; display: flex; flex-direction: column; gap: 0.1rem; } .imp span { font-size: 0.74rem; color: var(--p-text-muted-color, #94a3b8); text-transform: uppercase; } .imp strong { font-size: 1.3rem; }
+      .imp.ok strong { color: #059669; } .imp.dup strong { color: #d97706; } .imp.inv strong { color: #ef4444; }
       :host ::ng-deep .w, :host ::ng-deep .form input[pInputText], :host ::ng-deep .form .p-select, :host ::ng-deep .form .p-inputnumber { width: 100%; }
       @media (max-width: 640px) { .pwgrid { grid-template-columns: 1fr; } }
     `,
@@ -216,7 +248,6 @@ export class WifiPoolComponent implements OnInit {
   readonly creds = signal<WifiCred[]>([]);
   readonly sum = signal<Record<string, CatSummary>>({});
   readonly selected = signal<Set<string>>(new Set());
-  readonly shown = signal<Set<string>>(new Set());
 
   readonly cats: { key: Cat; label: string; icon: string }[] = [
     { key: 'PERNOCTACION', label: 'Pernoctación', icon: 'pi-moon' },
@@ -224,26 +255,29 @@ export class WifiPoolComponent implements OnInit {
     { key: 'PERSONALIZADA', label: 'Personalizada', icon: 'pi-cog' },
     { key: 'GRATIS', label: 'Gratis', icon: 'pi-gift' },
   ];
-  readonly catOpts = this.cats.map((c) => ({ label: c.label, value: c.key }));
-  readonly countOpts = [1, 5, 10, 15, 20, 25, 30, 50].map((n) => ({ label: `${n} credencial${n > 1 ? 'es' : ''}`, value: n }));
+  readonly countOpts = [1, 5, 10, 15, 20, 25, 30, 50].map((n) => ({ label: `${n} voucher${n > 1 ? 's' : ''}`, value: n }));
 
-  // Crear
-  createVisible = false; createCat: Cat = 'PERNOCTACION';
-  cSsid = ''; cCount = 10; cPasswords: string[] = []; cValid = 60; cMessage = '';
-  readonly pwIdx = () => Array.from({ length: this.cCount }, (_, i) => i);
+  // Crear (categoría = pestaña activa)
+  createVisible = false;
+  cSsid = ''; cCount = 10; cVouchers: string[] = []; cValid = 60; cMessage = '';
+  readonly vIdx = () => Array.from({ length: this.cCount }, (_, i) => i);
   // Editar
-  editVisible = false; editId = ''; eSsid = ''; ePassword = ''; eCode = '';
+  editVisible = false; editId = ''; eSsid = ''; eVoucher = '';
   // Asignar
   assignVisible = false; assignId = ''; assignStayId: string | null = null;
   readonly rooms = signal<RoomOpt[]>([]); readonly roomsLoading = signal(false);
   // Eliminar
   deleteVisible = false; deleteId = '';
+  // Importar
+  importVisible = false; importRows: ImportRow[] = [];
+  readonly importSum = signal<ImportSummary | null>(null);
 
   readonly allSelected = computed(() => { const c = this.creds(); return c.length > 0 && c.every((w) => this.selected().has(w.id)); });
 
   ngOnInit(): void { this.reload(); this.loadSummary(); }
 
   catLabel(c: string): string { return this.cats.find((x) => x.key === c)?.label ?? c; }
+  catIcon(c: string): string { return this.cats.find((x) => x.key === c)?.icon ?? 'pi-wifi'; }
   stateLabel(s: string): string { return ({ DISPONIBLE: 'Disponible', EN_USO: 'En Uso', USADA: 'Usada' } as Record<string, string>)[s] ?? s; }
   setCategory(c: Cat): void { this.category.set(c); this.selected.set(new Set()); this.reload(); }
 
@@ -260,38 +294,40 @@ export class WifiPoolComponent implements OnInit {
     this.http.get<ApiResponse<Record<string, CatSummary>>>(`${this.api}/wifi-credentials/summary`).subscribe((r) => this.sum.set(r.data ?? {}));
   }
 
-  toggleShow(id: string): void { const s = new Set(this.shown()); s.has(id) ? s.delete(id) : s.add(id); this.shown.set(s); }
+  copy(v: string): void {
+    if (!v) return;
+    navigator.clipboard?.writeText(v).then(() => this.toast.add({ severity: 'success', summary: 'Copiado', detail: v }), () => {});
+  }
   toggle(id: string): void { const s = new Set(this.selected()); s.has(id) ? s.delete(id) : s.add(id); this.selected.set(s); }
   toggleAll(): void { const c = this.creds(); this.selected.set(this.allSelected() ? new Set() : new Set(c.map((w) => w.id))); }
 
   // ── Crear ──
   openCreate(): void {
-    this.createCat = this.category() === 'GRATIS' ? 'GRATIS' : this.category();
-    this.cSsid = this.auth.activeBranch()?.name ?? '';
+    this.cSsid = this.auth.activeBranch()?.name ?? 'RIZZOS HOSPEDAJE';
     this.cCount = 10; this.cValid = 60; this.cMessage = '';
-    this.syncPw();
+    this.syncV();
     this.createVisible = true;
   }
-  onCreateCatChange(): void { /* mantiene contraseñas */ }
-  syncPw(): void { const n = this.cCount; const a = [...this.cPasswords]; a.length = n; this.cPasswords = Array.from({ length: n }, (_, i) => a[i] ?? ''); }
+  syncV(): void { const n = this.cCount; const a = [...this.cVouchers]; a.length = n; this.cVouchers = Array.from({ length: n }, (_, i) => a[i] ?? ''); }
   doCreate(): void {
     if (!this.cSsid.trim()) { this.toast.add({ severity: 'warn', summary: 'SSID', detail: 'Ingresa la red WiFi.' }); return; }
-    const passwords = this.cPasswords.map((p) => (p || '').trim()).filter(Boolean);
-    if (!passwords.length) { this.toast.add({ severity: 'warn', summary: 'Contraseñas', detail: 'Ingresa al menos una contraseña.' }); return; }
+    const vouchers = this.cVouchers.map((p) => (p || '').trim()).filter(Boolean);
+    if (!vouchers.length) { this.toast.add({ severity: 'warn', summary: 'Vouchers', detail: 'Ingresa al menos un voucher.' }); return; }
     this.busy.set(true);
-    const body: Record<string, unknown> = { ssid: this.cSsid.trim(), category: this.createCat, passwords };
-    if (this.createCat === 'GRATIS') { body['validMinutes'] = this.cValid; body['message'] = this.cMessage || undefined; }
-    this.http.post<ApiResponse<{ created: number }>>(`${this.api}/wifi-credentials/bulk`, body).subscribe({
-      next: (r) => { this.busy.set(false); this.createVisible = false; this.toast.add({ severity: 'success', summary: 'Creadas', detail: `${r.data?.created ?? passwords.length} credenciales.` }); this.afterChange(); },
+    const body: Record<string, unknown> = { ssid: this.cSsid.trim(), category: this.category(), vouchers };
+    if (this.category() === 'GRATIS') { body['validMinutes'] = this.cValid; body['message'] = this.cMessage || undefined; }
+    this.http.post<ApiResponse<{ created: number; duplicates?: number }>>(`${this.api}/wifi-credentials/bulk`, body).subscribe({
+      next: (r) => { this.busy.set(false); this.createVisible = false; const dup = r.data?.duplicates ? ` (${r.data.duplicates} duplicado(s) omitido(s))` : ''; this.toast.add({ severity: 'success', summary: 'Creadas', detail: `${r.data?.created ?? vouchers.length} vouchers${dup}.` }); this.afterChange(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo crear.' }); },
     });
   }
 
   // ── Editar ──
-  openEdit(w: WifiCred): void { this.editId = w.id; this.eSsid = w.ssid; this.ePassword = w.password; this.eCode = w.code ?? ''; this.editVisible = true; }
+  openEdit(w: WifiCred): void { this.editId = w.id; this.eSsid = w.ssid; this.eVoucher = w.voucher ?? ''; this.editVisible = true; }
   doEdit(): void {
+    if (!this.eVoucher.trim()) { this.toast.add({ severity: 'warn', summary: 'Voucher', detail: 'Ingresa el voucher.' }); return; }
     this.busy.set(true);
-    this.http.put<ApiResponse<unknown>>(`${this.api}/wifi-credentials/${this.editId}`, { ssid: this.eSsid.trim(), password: this.ePassword.trim(), code: this.eCode.trim() }).subscribe({
+    this.http.put<ApiResponse<unknown>>(`${this.api}/wifi-credentials/${this.editId}`, { ssid: this.eSsid.trim(), voucher: this.eVoucher.trim() }).subscribe({
       next: () => { this.busy.set(false); this.editVisible = false; this.toast.add({ severity: 'success', summary: 'Guardado', detail: '' }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo guardar.' }); },
     });
@@ -354,26 +390,24 @@ export class WifiPoolComponent implements OnInit {
     });
   }
 
-  /** Descarga una plantilla CSV lista para llenar (con el SSID de la sucursal y ejemplos). */
+  /** Descarga una plantilla CSV con las columnas del export de Omada que el sistema lee. */
   downloadTemplate(): void {
     const ssid = this.auth.activeBranch()?.name ?? 'RIZZOS HOSPEDAJE';
     const rows = [
-      'ssid,password,code,category',
-      `${ssid},contrasena01,,PERNOCTACION`,
-      `${ssid},contrasena02,,ESTADIA_CORTA`,
-      `${ssid},contrasena03,WIFI-010,PERSONALIZADA`,
-      `${ssid},contrasena04,,GRATIS`,
+      'Portals,Code,Notes,Duration',
+      `[${ssid}],123456,,60.0Minutes`,
+      `[${ssid}],951308,,60.0Minutes`,
+      `[${ssid}],743318,WIFI CORTESIA,30.0Minutes`,
     ];
-    // BOM para que Excel abra los acentos correctamente.
     const blob = new Blob(['﻿' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = 'plantilla-credenciales-wifi.csv';
+    a.href = url; a.download = 'plantilla-omada-wifi.csv';
     document.body.appendChild(a); a.click();
     document.body.removeChild(a); URL.revokeObjectURL(url);
   }
 
-  // ── Importar CSV ──
+  // ── Importar CSV (Omada) ──
   onImport(ev: Event): void {
     const input = ev.target as HTMLInputElement;
     const file = input.files?.[0];
@@ -381,15 +415,31 @@ export class WifiPoolComponent implements OnInit {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      const rows = parseCsv(String(reader.result));
-      if (!rows.length) { this.toast.add({ severity: 'warn', summary: 'CSV', detail: 'No se encontraron filas válidas (ssid, password).' }); return; }
-      this.busy.set(true);
-      this.http.post<ApiResponse<{ created: number }>>(`${this.api}/wifi-credentials/import`, { rows }).subscribe({
-        next: (r) => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Importadas', detail: `${r.data?.created ?? rows.length} credenciales.` }); this.afterChange(); },
-        error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo importar.' }); },
+      const rows = parseOmadaCsv(String(reader.result));
+      if (!rows.length) { this.toast.add({ severity: 'warn', summary: 'CSV', detail: 'No se encontró la columna Code (voucher) en el archivo.' }); return; }
+      this.importRows = rows;
+      this.importSum.set(null);
+      this.importVisible = true;
+      // Pide el resumen al backend (detecta duplicados ya existentes) sin guardar.
+      this.http.post<ApiResponse<ImportSummary>>(`${this.api}/wifi-credentials/import`, { category: this.category(), preview: true, rows }).subscribe({
+        next: (r) => this.importSum.set(r.data ?? null),
+        error: (e: HttpErrorResponse) => { this.importVisible = false; this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo validar el archivo.' }); },
       });
     };
     reader.readAsText(file);
+  }
+  doImport(): void {
+    if (!this.importRows.length) return;
+    this.busy.set(true);
+    this.http.post<ApiResponse<ImportSummary>>(`${this.api}/wifi-credentials/import`, { category: this.category(), rows: this.importRows }).subscribe({
+      next: (r) => {
+        this.busy.set(false); this.importVisible = false;
+        const s = r.data;
+        this.toast.add({ severity: 'success', summary: 'Importadas', detail: `${s?.created ?? 0} nuevas · ${s?.duplicates ?? 0} duplicadas · ${s?.invalid ?? 0} inválidas.` });
+        this.afterChange();
+      },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo importar.' }); },
+    });
   }
 }
 
@@ -399,26 +449,56 @@ interface WifiTicketData {
   stay: { room: string | null; rateLabel: string | null; adults: number; checkOutAt: string | null };
 }
 
-/** Parsea un CSV (coma o punto y coma). Cabecera con ssid,password,code,category o posicional. */
-function parseCsv(text: string): { ssid: string; password: string; code?: string; category?: string }[] {
+/** Divide una línea CSV respetando comillas dobles (Omada envuelve cada celda en comillas). */
+function splitCsvLine(line: string, delim: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQ && line[i + 1] === '"') { cur += '"'; i++; } else inQ = !inQ;
+    } else if (ch === delim && !inQ) { out.push(cur); cur = ''; } else cur += ch;
+  }
+  out.push(cur);
+  return out.map((c) => c.trim());
+}
+
+/**
+ * Parsea el CSV nativo de Omada. Lee `Code` → voucher, `Portals` → SSID (sin corchetes), y (para GRATIS)
+ * `Notes` → mensaje y `Duration` → minutos. La categoría NO se lee del CSV (la fija la pestaña). Columnas
+ * desconocidas se ignoran. Compatibilidad: acepta también cabeceras simples (voucher/code, ssid/red).
+ */
+function parseOmadaCsv(text: string): ImportRow[] {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (!lines.length) return [];
   const delim = lines[0].includes(';') && !lines[0].includes(',') ? ';' : ',';
-  const cells = (l: string) => l.split(delim).map((c) => c.trim().replace(/^"|"$/g, ''));
-  const head = cells(lines[0]).map((h) => h.toLowerCase());
-  const hasHeader = head.some((h) => ['ssid', 'red', 'password', 'contraseña', 'contrasena', 'code', 'codigo', 'category', 'categoria'].includes(h));
+  const head = splitCsvLine(lines[0], delim).map((h) => h.toLowerCase());
   const idx = (names: string[]) => head.findIndex((h) => names.includes(h));
-  const iS = hasHeader ? idx(['ssid', 'red']) : 0;
-  const iP = hasHeader ? idx(['password', 'contraseña', 'contrasena']) : 1;
-  const iC = hasHeader ? idx(['code', 'codigo']) : 2;
-  const iG = hasHeader ? idx(['category', 'categoria']) : 3;
-  const out: { ssid: string; password: string; code?: string; category?: string }[] = [];
-  for (const line of lines.slice(hasHeader ? 1 : 0)) {
-    const c = cells(line);
-    const ssid = (iS >= 0 ? c[iS] : '') || '';
-    const password = (iP >= 0 ? c[iP] : '') || '';
-    if (!ssid || !password) continue;
-    out.push({ ssid, password, code: iC >= 0 ? c[iC] : undefined, category: iG >= 0 ? c[iG] : undefined });
+  const iCode = idx(['code', 'voucher', 'cupon', 'cupón', 'codigo', 'código']);
+  const iPortal = idx(['portals', 'portal', 'ssid', 'red', 'red wifi']);
+  const iNotes = idx(['notes', 'note', 'notas', 'mensaje']);
+  const iDur = idx(['duration', 'duración', 'duracion', 'tiempo', 'validez']);
+  if (iCode < 0) return []; // sin columna de voucher no se puede importar
+  const stripBrackets = (s: string) => s.replace(/^\[|\]$/g, '').trim();
+  const parseMinutes = (s: string): number | undefined => {
+    const m = s.match(/([\d.]+)\s*(min|minute|minuto|h|hora|hour)?/i);
+    if (!m) return undefined;
+    const n = Math.round(parseFloat(m[1]));
+    if (!Number.isFinite(n) || n <= 0) return undefined;
+    return /h|hora|hour/i.test(m[2] ?? '') ? n * 60 : n;
+  };
+  const out: ImportRow[] = [];
+  for (const line of lines.slice(1)) {
+    const c = splitCsvLine(line, delim);
+    const voucher = (c[iCode] ?? '').trim();
+    if (!voucher) continue;
+    out.push({
+      voucher,
+      ssid: iPortal >= 0 ? stripBrackets(c[iPortal] ?? '') : undefined,
+      message: iNotes >= 0 ? (c[iNotes] ?? '').trim() || undefined : undefined,
+      validMinutes: iDur >= 0 ? parseMinutes(c[iDur] ?? '') : undefined,
+    });
   }
   return out;
 }
@@ -446,7 +526,7 @@ function buildWifiTicket(d: WifiTicketData): string {
   <div class="l"></div>
   <div style="font-weight:bold;font-size:15px;margin:6px 0">${catLabel}</div>
   <div>Red: <b>${esc(d.credential.ssid)}</b></div>
-  <div>Código: <b>${esc(d.credential.code || '—')}</b></div>
+  <div>Voucher: <b>${esc(d.credential.code || '—')}</b></div>
   ${msg ? `<div style="margin-top:4px">${msg}</div>` : ''}
   ${valid ? `<div style="font-size:11px">${valid}</div>` : ''}
   <div style="margin-top:6px">📺 Netflix &nbsp; ▶ Amazon Prime</div>
