@@ -192,7 +192,14 @@ export const dashboardService = {
       hospedaje: round(detail.cards.ventasHospedaje),
       productos: round(detail.cards.ventasProductos),
       serviciosPenalidades: round(detail.cards.serviciosOtros),
+      // Ingresos del turno que NO son ventas de este turno: deudas de turnos anteriores cobradas ahora
+      // (regularizaciones) e ingresos virtuales por movimiento. Se calcula como residuo para que el
+      // desglose reconcilie SIEMPRE con el Total recaudado (Hospedaje+Productos+Servicios+Otros = Total).
+      otrosCobros: 0,
     };
+    byConcepto.otrosCobros = round(
+      totalIncome - byConcepto.hospedaje - byConcepto.productos - byConcepto.serviciosPenalidades,
+    );
     const expectedCash = round(toNum(session.openingAmount) + (byMethod['CASH'] ?? 0) + detail.methodBar.ingresos - detail.methodBar.egresos);
 
     return {
@@ -214,7 +221,7 @@ export const dashboardService = {
         paymentsByMethod: byMethod,
         totalIncome,
         byConcepto,
-        conceptoTotal: round(byConcepto.hospedaje + byConcepto.productos + byConcepto.serviciosPenalidades),
+        conceptoTotal: round(byConcepto.hospedaje + byConcepto.productos + byConcepto.serviciosPenalidades + byConcepto.otrosCobros),
         expectedCash,
         movements: { in: round(detail.methodBar.ingresos), out: round(detail.methodBar.egresos) },
         openingAmount: toNum(session.openingAmount),

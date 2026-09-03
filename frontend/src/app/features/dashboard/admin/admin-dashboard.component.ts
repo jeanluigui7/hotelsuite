@@ -90,11 +90,17 @@ interface StatCard {
               </div>
             </div>
             <div class="total-row big">Total recaudado: <strong>S/.{{ c.totalIncome | number: '1.2-2' }}</strong></div>
-            <!-- Desglose por concepto (control: Hospedaje + Productos + Servicios/Penalidades = Total) -->
+            <!-- Desglose por concepto (control: Hospedaje + Productos + Servicios + Otros cobros = Total) -->
             <div class="concepto">
               <div class="cc"><span>Hospedaje</span><strong>S/.{{ c.byConcepto.hospedaje | number: '1.2-2' }}</strong></div>
               <div class="cc"><span>Productos</span><strong>S/.{{ c.byConcepto.productos | number: '1.2-2' }}</strong></div>
               <div class="cc"><span>Servicios y penalidades</span><strong>S/.{{ c.byConcepto.serviciosPenalidades | number: '1.2-2' }}</strong></div>
+              @if (c.byConcepto.otrosCobros >= 0.01 || c.byConcepto.otrosCobros <= -0.01) {
+                <div class="cc otros">
+                  <span>Regularizaciones / Otros cobros <i class="pi pi-info-circle" title="Deudas de turnos anteriores cobradas en este turno e ingresos que no son ventas de este turno."></i></span>
+                  <strong>S/.{{ c.byConcepto.otrosCobros | number: '1.2-2' }}</strong>
+                </div>
+              }
             </div>
           } @else {
             <p class="muted">Sin caja para este turno.</p>
@@ -165,6 +171,7 @@ interface StatCard {
       h2 .hint { font-size: 0.75rem; color: var(--p-text-muted-color, #8aa0bd); margin-left: auto; }
       .concepto { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-top: 0.7rem; }
       .cc { background: var(--p-content-hover-background, #142339); border-radius: 9px; padding: 0.5rem 0.6rem; display: flex; flex-direction: column; gap: 0.15rem; } .cc span { font-size: 0.7rem; color: var(--p-text-muted-color, #8aa0bd); } .cc strong { font-size: 0.95rem; }
+      .cc.otros { grid-column: 1 / -1; border: 1px dashed var(--p-primary-color, #3b82f6); background: transparent; } .cc.otros span { color: var(--p-primary-color, #3b82f6); } .cc.otros i { font-size: 0.7rem; }
       @media (max-width: 640px) { .concepto { grid-template-columns: 1fr; } }
       .ts { margin-top: 1rem; color: var(--p-text-muted-color, #8aa0bd); font-size: 0.78rem; text-transform: capitalize; }
     `,

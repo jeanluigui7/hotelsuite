@@ -52,7 +52,7 @@ export interface TurnoView {
   caja?: {
     paymentsByMethod: Record<string, number>;
     totalIncome: number;
-    byConcepto: { hospedaje: number; productos: number; serviciosPenalidades: number };
+    byConcepto: { hospedaje: number; productos: number; serviciosPenalidades: number; otrosCobros: number };
     conceptoTotal: number;
     expectedCash: number;
     movements: { in: number; out: number };
