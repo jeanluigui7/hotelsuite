@@ -3,13 +3,36 @@ import { ok } from '../../shared/response';
 import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { guestsService } from './guests.service';
-import { createGuestSchema, updateGuestSchema } from './guests.schema';
+import { createGuestSchema, updateGuestSchema, blacklistGuestSchema } from './guests.schema';
 
 export const guestsController = {
   async list(req: Request, res: Response): Promise<void> {
     const params = paginationSchema.parse(req.query);
     const { items, meta } = await guestsService.list(params);
     res.status(200).json(ok(items, meta));
+  },
+
+  async stats(_req: Request, res: Response): Promise<void> {
+    res.status(200).json(ok(await guestsService.stats()));
+  },
+
+  async blacklist(_req: Request, res: Response): Promise<void> {
+    res.status(200).json(ok(await guestsService.blacklist()));
+  },
+
+  async addToBlacklist(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = blacklistGuestSchema.parse(req.body);
+    res.status(200).json(ok(await guestsService.addToBlacklist(req.scope, req.params.id, dto)));
+  },
+
+  async removeFromBlacklist(req: Request, res: Response): Promise<void> {
+    res.status(200).json(ok(await guestsService.removeFromBlacklist(req.params.id)));
+  },
+
+  async exportRows(req: Request, res: Response): Promise<void> {
+    const params = paginationSchema.parse(req.query);
+    res.status(200).json(ok(await guestsService.enrichedRows(params)));
   },
 
   async lookup(req: Request, res: Response): Promise<void> {

@@ -82,12 +82,20 @@ export const routes: Routes = [
         loadChildren: () => import('./features/whatsapp/whatsapp.routes'),
       },
       {
-        // WiFi como módulo propio. Se gatea con 'settings' (config de nivel administración)
-        // hasta promoverlo a su propio módulo RBAC cuando se implemente la lógica.
+        // WiFi: la vista operativa del Pool la usa recepción (operations) y administración (settings).
+        // La sub-ruta de configuración queda restringida a administración dentro de wifi.routes.
         path: 'wifi',
         canActivate: [permissionGuard],
-        data: { permission: { module: 'settings', action: 'view' } },
+        data: { anyOf: [{ module: 'operations', action: 'view' }, { module: 'settings', action: 'view' }] },
         loadChildren: () => import('./features/wifi/wifi.routes'),
+      },
+      {
+        // Clientes accesible por recepción (consulta + lista negra) y administración. El backend y la
+        // UI restringen editar/eliminar/exportar/quitar-lista-negra a administración.
+        path: 'clientes',
+        canActivate: [permissionGuard],
+        data: { anyOf: [{ module: 'operations', action: 'view' }, { module: 'settings', action: 'view' }] },
+        loadComponent: () => import('./features/settings/clientes/guests.component').then((m) => m.GuestsComponent),
       },
       {
         path: 'settings',

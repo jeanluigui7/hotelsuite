@@ -17,15 +17,21 @@ function stateOf(c: { used: boolean; assignedStayId: string | null }): 'USADA' |
   return 'DISPONIBLE';
 }
 
-function serialize(c: WifiRow) {
+function serialize(c: WifiRow, admin: boolean) {
   // El VOUCHER (columna Code de Omada) es el único valor entregado al huésped. `password` queda
   // en la BD por compatibilidad, pero ya no se usa: siempre es igual al voucher.
+  // SEGURIDAD: recepción (no admin) NUNCA recibe el código; se enmascara en la API, no solo en el CSS.
   const voucher = c.code || c.password || '';
   return {
-    id: c.id, ssid: c.ssid, voucher, code: c.code, category: c.category,
-    used: c.used, state: stateOf(c), room: c.assignedRoom, guest: c.assignedGuest,
+    id: c.id, ssid: c.ssid, voucher: admin ? voucher : '', masked: !admin,
+    category: c.category, used: c.used, state: stateOf(c), room: c.assignedRoom, guest: c.assignedGuest,
     validMinutes: c.validMinutes, message: c.message,
   };
+}
+
+/** Un usuario con settings:view (Gerente/Admin/Super) puede ver el voucher; recepción NO. */
+function canRevealVoucher(scope: RequestScope): boolean {
+  return scope.isSuperAdmin || scope.permissions.includes('settings:view');
 }
 
 export const wifiService = {
@@ -37,7 +43,8 @@ export const wifiService = {
     if (!opts.showUsed) where.used = false;
     if (opts.search) where.ssid = { contains: opts.search };
     const rows = await prisma.wifiCredential.findMany({ where, orderBy: [{ used: 'asc' }, { createdAt: 'desc' }], take: 1000 });
-    return rows.map((c) => serialize(c as WifiRow));
+    const admin = canRevealVoucher(scope);
+    return rows.map((c) => serialize(c as WifiRow, admin));
   },
 
   /** Conteos por categoría para las tarjetas y las pestañas. */

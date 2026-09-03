@@ -292,6 +292,11 @@ model Guest {
   documentPhotoUrl String? @db.NVarChar(Max) // foto del documento físico (extranjeros)
   notes          String?
   status         String   @default("active")
+  // Lista Negra: cliente con acceso prohibido. Agregar = recepción/admin; quitar = solo admin.
+  blacklisted         Boolean   @default(false)
+  blacklistReason     String?
+  blacklistedAt       DateTime?
+  blacklistedByUserId String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -301,6 +306,7 @@ model Guest {
 
   @@unique([documentType, documentNumber])
   @@index([documentNumber])
+  @@index([blacklisted])
 }
 
 /// Tarifa base por tipo de habitación y duración (en minutos).

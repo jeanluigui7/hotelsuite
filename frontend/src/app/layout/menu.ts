@@ -54,6 +54,8 @@ export const RECEPCION_MENU: MenuItem[] = [
   { label: 'Folios Maestros', icon: 'pi pi-briefcase', route: '/operations/folios-maestros' },
   { label: 'Reservas', icon: 'pi pi-calendar', route: '/operations/reservas' },
   { label: 'Conserjería', icon: 'pi pi-bell', route: '/operations/conserjeria' },
+  { label: 'Clientes', icon: 'pi pi-users', route: '/clientes' },
+  { label: 'Pool WiFi', icon: 'pi pi-wifi', route: '/wifi/pool' },
   { label: 'Venta de Productos', icon: 'pi pi-shopping-cart', route: '/operations/frigobar' },
   { label: 'Cajas', icon: 'pi pi-wallet', route: '/operations/caja' },
   {

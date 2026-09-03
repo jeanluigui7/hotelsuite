@@ -14,7 +14,7 @@ import { AuthService } from '../../../core/auth/auth.service';
 
 type Cat = 'PERNOCTACION' | 'ESTADIA_CORTA' | 'PERSONALIZADA' | 'GRATIS';
 interface WifiCred {
-  id: string; ssid: string; voucher: string; code: string | null; category: Cat;
+  id: string; ssid: string; voucher: string; masked?: boolean; category: Cat;
   used: boolean; state: 'DISPONIBLE' | 'EN_USO' | 'USADA'; room: string | null; guest: string | null;
   validMinutes: number | null; message: string | null;
 }
@@ -61,8 +61,8 @@ interface ImportSummary { detected: number; new: number; duplicates: number; inv
         }
       </div>
 
-      <!-- Barra de acciones de la categoría activa -->
-      @if (canEdit) {
+      <!-- Barra de acciones administrativas de la categoría activa (SOLO administración) -->
+      @if (isAdmin) {
         <div class="catbar">
           <div class="cbl"><i class="pi" [class]="catIcon(category())"></i> <strong>{{ catLabel(category()) }}</strong> · acciones de esta categoría</div>
           <div class="cbr">
@@ -72,10 +72,12 @@ interface ImportSummary { detected: number; new: number; duplicates: number; inv
             <p-button label="Crear credenciales" icon="pi pi-plus" size="small" (onClick)="openCreate()" />
           </div>
         </div>
+      } @else {
+        <div class="catbar op"><div class="cbl"><i class="pi pi-info-circle"></i> Vista operativa: asigna e imprime vouchers. El código permanece oculto por seguridad.</div></div>
       }
 
       <!-- Barra de selección -->
-      @if (selected().size > 0 && canEdit) {
+      @if (selected().size > 0 && isAdmin) {
         <div class="selbar"><span>{{ selected().size }} seleccionada(s)</span>
           <p-button label="Eliminar seleccionadas" icon="pi pi-trash" severity="danger" size="small" (onClick)="deleteSelected()" />
         </div>
@@ -88,28 +90,36 @@ interface ImportSummary { detected: number; new: number; duplicates: number; inv
           <div class="tbl-wrap">
             <table class="tbl">
               <thead><tr>
-                @if (canEdit) { <th class="ck"><input type="checkbox" [checked]="allSelected()" (change)="toggleAll()" /></th> }
+                @if (isAdmin) { <th class="ck"><input type="checkbox" [checked]="allSelected()" (change)="toggleAll()" /></th> }
                 <th>Red WiFi</th><th>Voucher</th><th class="c">Estado</th><th>En Uso Por</th><th class="c">Hab.</th><th class="c">Acciones</th>
               </tr></thead>
               <tbody>
                 @for (w of creds(); track w.id) {
                   <tr>
-                    @if (canEdit) { <td class="ck"><input type="checkbox" [checked]="selected().has(w.id)" (change)="toggle(w.id)" /></td> }
+                    @if (isAdmin) { <td class="ck"><input type="checkbox" [checked]="selected().has(w.id)" (change)="toggle(w.id)" /></td> }
                     <td><span class="ssid"><i class="pi pi-wifi"></i> {{ w.ssid }}</span></td>
-                    <td><span class="voucher">{{ w.voucher || '—' }}</span> <button class="eye" (click)="copy(w.voucher)" title="Copiar voucher"><i class="pi pi-copy"></i></button></td>
+                    <td>
+                      @if (isAdmin) {
+                        <span class="voucher">{{ shown().has(w.id) ? (w.voucher || '—') : '••••••' }}</span>
+                        <button class="eye" (click)="toggleShow(w.id)" title="Mostrar / ocultar"><i class="pi" [class.pi-eye]="!shown().has(w.id)" [class.pi-eye-slash]="shown().has(w.id)"></i></button>
+                        @if (shown().has(w.id)) { <button class="eye" (click)="copy(w.voucher)" title="Copiar voucher"><i class="pi pi-copy"></i></button> }
+                      } @else {
+                        <span class="voucher mask" title="Solo administración puede ver el código">••••••</span>
+                      }
+                    </td>
                     <td class="c"><p-tag [value]="stateLabel(w.state)" [severity]="w.state === 'DISPONIBLE' ? 'success' : w.state === 'EN_USO' ? 'info' : 'secondary'" /></td>
                     <td>{{ w.guest || '—' }}</td>
                     <td class="c">{{ w.room || '—' }}</td>
                     <td class="c nowrap">
                       @if (w.state === 'EN_USO') { <button class="ic prt" (click)="printTicket(w)" title="Imprimir ticket"><i class="pi pi-print"></i></button> }
-                      @if (canEdit) {
-                        @if (w.state === 'DISPONIBLE') { <button class="ic link" (click)="openAssign(w)" title="Asignar a habitación"><i class="pi pi-link"></i></button> }
+                      @if (canAssign && w.state === 'DISPONIBLE') { <button class="ic link" (click)="openAssign(w)" title="Asignar a habitación"><i class="pi pi-link"></i></button> }
+                      @if (isAdmin) {
                         <button class="ic" (click)="openEdit(w)" title="Editar"><i class="pi pi-pencil"></i></button>
                         <button class="ic del" (click)="askDelete(w)" title="Eliminar"><i class="pi pi-trash"></i></button>
                       }
                     </td>
                   </tr>
-                } @empty { <tr><td [attr.colspan]="canEdit ? 7 : 6" class="empty">Sin credenciales en esta categoría.</td></tr> }
+                } @empty { <tr><td [attr.colspan]="isAdmin ? 7 : 6" class="empty">Sin credenciales en esta categoría.</td></tr> }
               </tbody>
             </table>
           </div>
@@ -212,6 +222,8 @@ interface ImportSummary { detected: number; new: number; duplicates: number; inv
       .card .cs { font-size: 0.74rem; color: var(--p-text-muted-color, #94a3b8); } .card .cu { font-size: 0.74rem; color: #3b82f6; margin-top: 0.15rem; }
       .catbar { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; background: rgba(16,185,129,0.07); border: 1px solid rgba(16,185,129,0.25); border-radius: 10px; padding: 0.55rem 0.9rem; margin-bottom: 0.9rem; }
       .catbar .cbl { font-size: 0.85rem; color: var(--p-text-color, #334155); } .catbar .cbl .pi { color: #10b981; } .catbar .cbr { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .catbar.op { background: rgba(59,130,246,0.07); border-color: rgba(59,130,246,0.25); } .catbar.op .cbl .pi { color: #3b82f6; }
+      .voucher.mask { letter-spacing: 3px; color: var(--p-text-muted-color, #94a3b8); }
       .selbar { display: flex; align-items: center; gap: 0.9rem; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.25); border-radius: 10px; padding: 0.5rem 0.9rem; margin-bottom: 0.8rem; font-size: 0.85rem; }
       .panel { border: 1px solid var(--p-content-border-color, #e2e8f0); border-radius: 12px; background: var(--p-content-background, #fff); padding: 0.5rem; }
       .tbl-wrap { overflow-x: auto; } .tbl { width: 100%; border-collapse: collapse; }
@@ -240,7 +252,10 @@ export class WifiPoolComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly toast = inject(MessageService);
 
-  readonly canEdit = this.auth.can('settings', 'edit');
+  // Administración del pool (crear/importar/editar/eliminar + revelar voucher).
+  readonly isAdmin = this.auth.can('settings', 'edit');
+  // Asignar voucher: recepción (operations) y administración.
+  readonly canAssign = this.auth.can('operations', 'edit') || this.auth.can('settings', 'edit');
   readonly loading = signal(true);
   readonly busy = signal(false);
   readonly category = signal<Cat>('PERNOCTACION');
@@ -248,6 +263,7 @@ export class WifiPoolComponent implements OnInit {
   readonly creds = signal<WifiCred[]>([]);
   readonly sum = signal<Record<string, CatSummary>>({});
   readonly selected = signal<Set<string>>(new Set());
+  readonly shown = signal<Set<string>>(new Set()); // voucher revelado (solo admin)
 
   readonly cats: { key: Cat; label: string; icon: string }[] = [
     { key: 'PERNOCTACION', label: 'Pernoctación', icon: 'pi-moon' },
@@ -300,6 +316,7 @@ export class WifiPoolComponent implements OnInit {
   }
   toggle(id: string): void { const s = new Set(this.selected()); s.has(id) ? s.delete(id) : s.add(id); this.selected.set(s); }
   toggleAll(): void { const c = this.creds(); this.selected.set(this.allSelected() ? new Set() : new Set(c.map((w) => w.id))); }
+  toggleShow(id: string): void { const s = new Set(this.shown()); s.has(id) ? s.delete(id) : s.add(id); this.shown.set(s); }
 
   // ── Crear ──
   openCreate(): void {
