@@ -77,19 +77,32 @@ function brand(id: ComandaIdentity): string {
   }</div>`;
 }
 
-function footer(id: ComandaIdentity): string {
+/** Bloque de identidad del pie: dirección + ciudad + teléfonos. */
+function footerIdentity(id: ComandaIdentity): string {
   const phones = [
     id.landline ? `&#9743; ${esc(id.landline)}` : '',
     id.mobile ? `&#128241; ${esc(id.mobile)}` : '',
   ].filter(Boolean).join(' &nbsp;|&nbsp; ');
   return `
-    <div class="center bold small">Servicios y productos no sujetos a devolución.</div>
-    <hr class="sep-dot">
     <div class="legal">${esc(id.address)}</div>
     ${id.cityLine ? `<div class="legal">${esc(id.cityLine)}</div>` : ''}
-    ${phones ? `<div class="legal" style="margin-top:4px">${phones}</div>` : ''}
+    ${phones ? `<div class="legal" style="margin-top:4px">${phones}</div>` : ''}`;
+}
+
+/** Aviso legal (no tributario). */
+function legalLine(): string {
+  return `
     <div class="legal bold" style="margin-top:8px">ESTE TICKET NO ES BOLETA NI FACTURA</div>
     <div class="legal">Solicítela en recepción.</div>`;
+}
+
+/** Pie completo de bienvenida: no-devolución + identidad + legal. */
+function footer(id: ComandaIdentity): string {
+  return `
+    <div class="center bold small">Servicios y productos no sujetos a devolución.</div>
+    <hr class="sep-dot">
+    ${footerIdentity(id)}
+    ${legalLine()}`;
 }
 
 function servicesBlock(): string {
@@ -112,14 +125,18 @@ function wifiBlock(d: ComandaData, gratis = true): string {
 
 /** Construye el HTML de una comanda según su tipo. */
 export function buildComandaTicket(kind: ComandaKind, id: ComandaIdentity, d: ComandaData): string {
-  // Voucher Wi-Fi: comanda reducida, solo identidad + bloque WiFi + legal breve.
+  // Voucher Wi-Fi: comanda reducida = marca + WIFI GRATIS (Red/Código/Tiempo) + identidad del pie.
   if (kind === 'VOUCHER_WIFI') {
     return frame(`
       ${brand(id)}
       <hr class="sep">
-      ${wifiBlock(d, true)}
+      <div class="big">WIFI GRATIS</div>
+      <div class="row" style="margin-top:10px">Red: <span class="bold">${esc(d.wifiSsid)}</span></div>
+      <div class="row" style="margin-top:8px">Código: <span class="code">${esc(d.wifiCode)}</span></div>
+      ${d.wifiValidity ? `<div class="row" style="margin-top:8px">Tiempo: <span class="bold">${esc(d.wifiValidity)}</span></div>` : ''}
       <hr class="sep">
-      <div class="legal bold">ESTE TICKET NO ES BOLETA NI FACTURA</div>`);
+      ${footerIdentity(id)}
+      ${legalLine()}`);
   }
 
   // Renovación y Tiempo extra: comanda COMPACTA = marca + badge + habitación + nueva hora límite +
@@ -207,7 +224,7 @@ export function sampleComandaData(kind: ComandaKind): ComandaData {
     };
   }
   if (kind === 'VOUCHER_WIFI') {
-    return { ...base, wifiCode: 'W3lc0m', wifiValidity: 'Tiempo: 3 h' };
+    return { ...base, wifiSsid: 'RIZZOS', wifiCode: '123456', wifiValidity: '5 minutos' };
   }
   return base;
 }
