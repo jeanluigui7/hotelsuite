@@ -68,11 +68,15 @@ function isAdmin(scope: RequestScope): boolean {
   return scope.isSuperAdmin || scope.permissions.includes('settings:edit');
 }
 
-// La diferencia del cierre se deriva (no se persiste): declarado − esperado.
-function diffOf(s: { closingAmount: unknown; expectedAmount: unknown }): number {
+// La diferencia del cierre se deriva (no se persiste): declarado − esperado A ENTREGAR.
+// El declarado (closingAmount) NO incluye la caja base; el esperado (expectedAmount) SÍ. Por eso se
+// resta la base al esperado (esperado a entregar = esperado del cajón − base). Igual que el ticket de
+// cuadre y el listado de cajas; de lo contrario aparece un falso faltante = caja base.
+function diffOf(s: { closingAmount: unknown; expectedAmount: unknown; openingAmount: unknown }): number {
   const declared = s.closingAmount != null ? Number(s.closingAmount) : 0;
   const expected = s.expectedAmount != null ? Number(s.expectedAmount) : 0;
-  return Math.round((declared - expected) * 100) / 100;
+  const base = s.openingAmount != null ? Number(s.openingAmount) : 0;
+  return Math.round((declared - (expected - base)) * 100) / 100;
 }
 
 export const reconciliationsService = {

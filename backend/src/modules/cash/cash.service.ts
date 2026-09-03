@@ -200,9 +200,11 @@ export const cashService = {
       movements,
       byItem: [...byItemMap.values()].sort((a, b) => b.total - a.total),
       countedAmount: session.closingAmount,
+      // Cuadre = contado − esperado A ENTREGAR (esperado del cajón − caja base). El contado NO incluye
+      // la base; el esperado sí. Igual que el ticket de cuadre y el listado de cajas.
       difference:
         session.closingAmount != null
-          ? Math.round((Number(session.closingAmount) - summary.expectedCash) * 100) / 100
+          ? Math.round((Number(session.closingAmount) - (summary.expectedCash - Number(session.openingAmount))) * 100) / 100
           : null,
     };
   },
