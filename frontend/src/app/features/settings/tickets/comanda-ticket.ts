@@ -44,27 +44,28 @@ function esc(v: unknown): string {
 function frame(inner: string): string {
   return `<!doctype html><html><head><meta charset="utf-8">
   <style>
+    @page { size: 80mm auto; margin: 0; }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; background: #fff; }
-    .t { width: 302px; margin: 0 auto; padding: 10px 12px 16px; color: #111;
-         font-family: "Consolas", "Menlo", "Courier New", monospace; font-size: 12px; line-height: 1.35; }
+    .t { width: 72mm; margin: 0 auto; padding: 2mm 3mm 3mm; color: #000;
+         font-family: "Consolas", "Menlo", "Courier New", monospace; font-size: 11px; line-height: 1.2; }
     .center { text-align: center; }
     .bold { font-weight: 700; }
-    .sep { border: 0; border-top: 1px dashed #444; margin: 8px 0; }
-    .sep-dot { border: 0; border-top: 2px dotted #333; margin: 8px 0; }
-    .brand { text-align: center; margin-bottom: 6px; }
-    .brand .logo { max-width: 120px; max-height: 60px; display: block; margin: 0 auto 4px; }
-    .brand .name { font-weight: 800; font-size: 20px; letter-spacing: 2px; }
-    .brand .sub { font-weight: 600; font-size: 12px; letter-spacing: 6px; color: #333; }
+    .sep { border: 0; border-top: 1px dashed #555; margin: 4px 0; }
+    .sep-dot { border: 0; border-top: 1px dotted #444; margin: 4px 0; }
+    .brand { text-align: center; margin-bottom: 3px; }
+    .brand .logo { max-width: 40mm; max-height: 14mm; display: block; margin: 0 auto 2px; }
+    .brand .name { font-weight: 800; font-size: 17px; letter-spacing: 1px; }
+    .brand .sub { font-weight: 600; font-size: 11px; letter-spacing: 4px; color: #222; }
     .hl { text-align: center; font-weight: 700; }
-    .muted { color: #333; }
-    .big { font-size: 14px; font-weight: 800; text-align: center; letter-spacing: 1px; }
+    .muted { color: #222; }
+    .big { font-size: 13px; font-weight: 800; text-align: center; letter-spacing: 1px; margin: 1px 0; }
     .row { text-align: center; }
-    .code { font-family: "Consolas", monospace; font-weight: 800; font-size: 15px; letter-spacing: 1px; }
-    .services { display: flex; justify-content: center; gap: 18px; font-weight: 600; }
-    .legal { text-align: center; font-size: 11px; color: #333; }
-    .badge { text-align: center; font-weight: 800; letter-spacing: 2px; border: 1px solid #111; border-radius: 4px; padding: 3px 0; margin: 0 0 6px; }
-    .small { font-size: 11px; }
+    .code { font-family: "Consolas", monospace; font-weight: 800; font-size: 14px; letter-spacing: 1px; }
+    .services { display: flex; justify-content: center; gap: 12px; font-weight: 600; }
+    .legal { text-align: center; font-size: 10px; color: #222; line-height: 1.15; }
+    .badge { text-align: center; font-weight: 800; letter-spacing: 2px; border: 1px solid #000; border-radius: 3px; padding: 2px 0; margin: 0 0 4px; }
+    .small { font-size: 10px; }
   </style></head><body><div class="t">${inner}</div></body></html>`;
 }
 
@@ -92,7 +93,7 @@ function footerIdentity(id: ComandaIdentity): string {
 /** Aviso legal (no tributario). */
 function legalLine(): string {
   return `
-    <div class="legal bold" style="margin-top:8px">ESTE TICKET NO ES BOLETA NI FACTURA</div>
+    <div class="legal bold" style="margin-top:4px">ESTE TICKET NO ES BOLETA NI FACTURA</div>
     <div class="legal">Solicítela en recepción.</div>`;
 }
 
@@ -118,7 +119,7 @@ function servicesBlock(): string {
 function wifiBlock(d: ComandaData, gratis = true): string {
   return `
     <div class="big">${gratis ? 'WIFI GRATIS' : 'WIFI'}</div>
-    <div class="row" style="margin-top:6px">Red: <span class="bold">${esc(d.wifiSsid)}</span></div>
+    <div class="row" style="margin-top:3px">Red: <span class="bold">${esc(d.wifiSsid)}</span></div>
     <div class="row" style="margin-top:4px">Código: <span class="code">${esc(d.wifiCode)}</span></div>
     ${d.wifiValidity ? `<div class="row muted small" style="margin-top:4px">${esc(d.wifiValidity)}</div>` : ''}`;
 }
@@ -131,9 +132,9 @@ export function buildComandaTicket(kind: ComandaKind, id: ComandaIdentity, d: Co
       ${brand(id)}
       <hr class="sep">
       <div class="big">WIFI GRATIS</div>
-      <div class="row" style="margin-top:10px">Red: <span class="bold">${esc(d.wifiSsid)}</span></div>
-      <div class="row" style="margin-top:8px">Código: <span class="code">${esc(d.wifiCode)}</span></div>
-      ${d.wifiValidity ? `<div class="row" style="margin-top:8px">Tiempo: <span class="bold">${esc(d.wifiValidity)}</span></div>` : ''}
+      <div class="row" style="margin-top:5px">Red: <span class="bold">${esc(d.wifiSsid)}</span></div>
+      <div class="row" style="margin-top:4px">Código: <span class="code">${esc(d.wifiCode)}</span></div>
+      ${d.wifiValidity ? `<div class="row" style="margin-top:4px">Tiempo: <span class="bold">${esc(d.wifiValidity)}</span></div>` : ''}
       <hr class="sep">
       ${footerIdentity(id)}
       ${legalLine()}`);

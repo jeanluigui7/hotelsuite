@@ -133,7 +133,10 @@ export class PrintingService {
       return;
     }
     doc.open();
-    doc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Impresión</title></head><body>${html}</body></html>`);
+    // Si el html ya es un documento completo (con su propio <head>/<style>/@page), se imprime tal cual
+    // para respetar el tamaño de papel térmico; si es un fragmento, se envuelve en un documento mínimo.
+    const isFullDoc = /^\s*<!doctype|^\s*<html/i.test(html);
+    doc.write(isFullDoc ? html : `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Impresión</title></head><body>${html}</body></html>`);
     doc.close();
   }
 }
