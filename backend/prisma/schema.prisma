@@ -309,6 +309,31 @@ model Guest {
   @@index([blacklisted])
 }
 
+/// Saldo de VUELTO pendiente asociado a una estancia (no a la caja): nace cuando el cliente entrega
+/// de más y el vuelto "queda pendiente"; sobrevive al cierre de caja. Se entrega, se consume como
+/// pago (método VUELTO) o se cierra como NO_RECLAMADO al terminar la estancia. Sin relaciones FK
+/// (tabla de saldo/auditoría) para mantener la migración simple en SQL Server.
+model ChangeCredit {
+  id              String    @id @default(uuid())
+  branchId        String
+  stayId          String
+  guestId         String?
+  room            String? // habitación (denormalizada para mostrar)
+  originSessionId String? // caja donde nació el vuelto
+  amount          Decimal   @db.Decimal(10, 2) // vuelto original
+  remaining       Decimal   @db.Decimal(10, 2) // saldo pendiente
+  status          String    @default("PENDIENTE") // PENDIENTE | ENTREGADO | CONSUMIDO | NO_RECLAMADO
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  closedAt        DateTime?
+  closedSessionId String? // caja donde se entregó / cerró
+  note            String?
+
+  @@index([branchId])
+  @@index([stayId])
+  @@index([status])
+}
+
 /// Tarifa base por tipo de habitación y duración (en minutos).
 model Rate {
   id              String   @id @default(uuid())

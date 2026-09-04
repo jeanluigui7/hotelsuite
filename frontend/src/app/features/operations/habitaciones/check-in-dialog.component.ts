@@ -339,6 +339,16 @@ const PAY_TYPES = [
       </ng-template>
     </p-dialog>
 
+    <!-- Vuelto del cliente: ¿se entregó o queda pendiente? -->
+    <p-dialog [(visible)]="vueltoVisible" [modal]="true" [style]="{ width: '400px' }" [closable]="false" header="💰 Vuelto del cliente">
+      <p class="vknote">El cliente debe recibir un vuelto. ¿Se le entregó el vuelto al cliente?</p>
+      <div class="vkbox"><span>Vuelto a entregar</span><strong>S/ {{ vueltoAmount | number: '1.2-2' }}</strong></div>
+      <ng-template pTemplate="footer">
+        <p-button label="Sí, ya se entregó" icon="pi pi-check" severity="success" (onClick)="vueltoDelivered()" />
+        <p-button label="Queda pendiente" icon="pi pi-clock" severity="warn" [loading]="savingVuelto()" (onClick)="vueltoPending()" />
+      </ng-template>
+    </p-dialog>
+
     <!-- Comanda de Bienvenida: vista previa tras el check-in (no imprime sola) -->
     <p-dialog [(visible)]="comandaVisible" [modal]="true" [style]="{ width: '360px' }" header="Comanda de Bienvenida" [dismissableMask]="true">
       <p class="cmnote">Vista previa. Entrégala al huésped con su acceso WiFi.</p>
@@ -353,6 +363,9 @@ const PAY_TYPES = [
   `,
   styles: [
     `
+      .vknote { font-size: 0.86rem; color: #cbd5e1; margin: 0 0 0.8rem; }
+      .vkbox { text-align: center; background: linear-gradient(180deg, rgba(120,53,15,0.35), rgba(69,26,3,0.35)); border: 1px solid rgba(217,119,6,0.5); border-radius: 12px; padding: 1rem; }
+      .vkbox span { display: block; font-size: 0.8rem; color: #fcd34d; letter-spacing: 0.5px; } .vkbox strong { display: block; font-size: 2rem; font-weight: 800; color: #fbbf24; margin-top: 0.2rem; }
       .cmnote { font-size: 0.8rem; color: #94a3b8; margin: 0 0 0.6rem; }
       .cmframe { display: flex; justify-content: center; background: #eef2f6; border-radius: 8px; padding: 10px; }
       .cmiframe { width: 322px; height: 560px; border: 0; background: #fff; border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.12); }
@@ -490,6 +503,11 @@ export class CheckInDialogComponent {
   comandaVisible = false;
   comandaHtml = '';
   readonly comandaUrl = signal<SafeResourceUrl | null>(null);
+  // Vuelto del cliente (tras el check-in, antes de la comanda)
+  vueltoVisible = false;
+  vueltoAmount = 0;
+  vueltoStayId = '';
+  readonly savingVuelto = signal(false);
   private readonly apiUrl = environment.apiUrl;
 
   private _room: RoomMapItem | null = null;
@@ -985,7 +1003,7 @@ export class CheckInDialogComponent {
         const payments = this.pays().filter((p) => (p.amount || 0) > 0).map((p) => ({ method: this.payMeta(p.type).backend, amount: Math.round(this.payNet(p) * 100) / 100, reference: p.reference?.trim() || undefined }));
         // Se registra SIEMPRE el cargo de la estancia (deja rastro en el folio), con o sin pago.
         if (stay?.id) {
-          this.showComanda(stay.id); // vista previa de la Comanda de Bienvenida (con el voucher asignado)
+          this.afterCheckin(stay.id); // modal de vuelto (si aplica) → vista previa de la Comanda de Bienvenida
           this.finance.createSale({ stayId: stay.id, items, payments, sourceArea: 'RECEPTION' }).subscribe({
             next: () => this.finish(payments.length ? 'Habitación ocupada. Pago registrado.' : 'Habitación ocupada. Cargo pendiente de cobro.'),
             error: (e: HttpErrorResponse) => {
@@ -1013,6 +1031,41 @@ export class CheckInDialogComponent {
    * Tras el check-in, obtiene el voucher WiFi asignado a la estancia (ruta de impresión autorizada) y
    * arma la Comanda de Bienvenida para mostrarla en vista previa. NO imprime automáticamente.
    */
+  /** Vuelto en EFECTIVO pendiente de entregar en el check-in (suma de con-cuánto-paga − cargo). */
+  cashVuelto(): number {
+    return Math.round(this.pays().filter((p) => this.payMeta(p.type).value === 'CASH').reduce((a, p) => a + this.vuelto(p), 0) * 100) / 100;
+  }
+
+  /** Tras el check-in: si hay vuelto en efectivo, pregunta si se entregó; luego muestra la comanda. */
+  private afterCheckin(stayId: string): void {
+    const v = this.cashVuelto();
+    if (v > 0) { this.vueltoStayId = stayId; this.vueltoAmount = v; this.vueltoVisible = true; }
+    else this.showComanda(stayId);
+  }
+
+  /** "Sí, ya se entregó": el vuelto salió del cajón (no queda saldo). Continúa a la comanda. */
+  vueltoDelivered(): void {
+    this.vueltoVisible = false;
+    this.showComanda(this.vueltoStayId);
+  }
+
+  /** "Queda pendiente": crea el saldo de vuelto (efectivo permanece como pasivo en la caja). */
+  vueltoPending(): void {
+    this.savingVuelto.set(true);
+    this.http.post<ApiResponse<unknown>>(`${environment.apiUrl}/change-credits`, { stayId: this.vueltoStayId, amount: this.vueltoAmount }).subscribe({
+      next: () => {
+        this.savingVuelto.set(false); this.vueltoVisible = false;
+        this.messages.add({ severity: 'info', summary: 'Vuelto pendiente', detail: `S/ ${this.vueltoAmount.toFixed(2)} quedó como saldo de la estancia.` });
+        this.done.emit();
+        this.showComanda(this.vueltoStayId);
+      },
+      error: (e: HttpErrorResponse) => {
+        this.savingVuelto.set(false);
+        this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo registrar el vuelto pendiente.' });
+      },
+    });
+  }
+
   private showComanda(stayId: string): void {
     this.http.get<ApiResponse<TicketByStay>>(`${environment.apiUrl}/wifi-credentials/by-stay/${stayId}/ticket`).subscribe({
       next: (r) => {

@@ -106,6 +106,7 @@ const MANT_CATS = [
                           <button (click)="act(r, 'folio')"><i class="pi pi-search"></i> Ver folio</button>
                           <button (click)="act(r, 'renovar')"><i class="pi pi-refresh"></i> Renovar</button>
                           <button (click)="act(r, 'ticket')"><i class="pi pi-dollar"></i> Ticket</button>
+                          @if (vueltoOf(r.activeStay?.id) > 0) { <button (click)="act(r, 'vuelto')"><i class="pi pi-wallet"></i> Entregar vuelto (S/ {{ vueltoOf(r.activeStay?.id) | number: '1.2-2' }})</button> }
                           <button (click)="act(r, 'checkout')"><i class="pi pi-sign-out"></i> Pre Checkout</button>
                         }
                         @if (isAdminProfile()) { <button (click)="act(r, 'edit')"><i class="pi pi-pencil"></i> Editar</button> }
@@ -134,6 +135,7 @@ const MANT_CATS = [
                   <span class="ob type">{{ r.roomType.name }}</span>
                   <span class="ob occ">● Ocupada</span>
                   @if (r.activeStay.renewed) { <span class="ob renov">↻ Renovada{{ (r.activeStay.renewalCount || 0) > 1 ? ' ×' + r.activeStay.renewalCount : '' }}</span> }
+                  @if (vueltoOf(r.activeStay.id) > 0) { <span class="ob vuelto" (click)="openDeliverVuelto(r)" title="Entregar vuelto pendiente">💰 Vuelto S/ {{ vueltoOf(r.activeStay.id) | number: '1.2-2' }}</span> }
                   @if (r.activeStay.renewalCleaningStatus === 'SOLICITADA') { <span class="ob limp">🧹 Limpieza solicitada</span> }
                   @if (r.activeStay.renewalCleaningStatus === 'EN_CURSO') { <span class="ob limp-curso">🧹 Limpieza en curso</span> }
                 </div>
@@ -205,6 +207,16 @@ const MANT_CATS = [
     </section>
 
     <app-check-in-dialog [(visible)]="checkInVisible" [room]="selectedRoom" (done)="reload()" />
+
+    <!-- Entregar vuelto pendiente (saldo de la estancia) -->
+    <p-dialog [(visible)]="vueltoDeliverVisible" [modal]="true" [style]="{ width: '380px' }" header="💰 Entregar vuelto">
+      <p class="vk-note">Entrega en efectivo el vuelto pendiente de la <strong>Hab. {{ vueltoDeliverRoom }}</strong>. Se registrará como egreso en la caja abierta.</p>
+      <div class="vk-box"><span>Vuelto a entregar</span><strong>S/ {{ vueltoDeliverAmount | number: '1.2-2' }}</strong></div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="vueltoDeliverVisible = false" />
+        <p-button label="Confirmar entrega" icon="pi pi-check" severity="success" [loading]="deliveringVuelto()" (onClick)="confirmDeliverVuelto()" />
+      </ng-template>
+    </p-dialog>
     <app-venta-productos [(visible)]="ventaVisible" (done)="reload()" />
     <app-servicios-penalidades [(visible)]="serviciosVisible" (done)="reload()" />
 
@@ -696,6 +708,10 @@ const MANT_CATS = [
       .ob { font-size: 0.72rem; font-weight: 700; padding: 0.25rem 0.6rem; border-radius: 999px; background: rgba(0,0,0,0.25); }
       .ob.type { background: rgba(124,58,237,0.55); }
       .ob.renov { background: rgba(16,185,129,0.85); color: #04130d; }
+      .ob.vuelto { background: rgba(251,191,36,0.9); color: #3a2a05; cursor: pointer; }
+      .vk-note { font-size: 0.86rem; color: #cbd5e1; margin: 0 0 0.8rem; }
+      .vk-box { text-align: center; background: linear-gradient(180deg, rgba(120,53,15,0.35), rgba(69,26,3,0.35)); border: 1px solid rgba(217,119,6,0.5); border-radius: 12px; padding: 1rem; }
+      .vk-box span { display: block; font-size: 0.8rem; color: #fcd34d; } .vk-box strong { display: block; font-size: 2rem; font-weight: 800; color: #fbbf24; margin-top: 0.2rem; }
       .ob.limp { background: rgba(245,158,11,0.85); color: #2a1a04; }
       .ob.limp-curso { background: rgba(59,130,246,0.85); color: #fff; }
       .oc-cleaninfo { border-radius: 10px; padding: 0.55rem 0.7rem; font-size: 0.8rem; font-weight: 700; display: flex; align-items: center; gap: 0.45rem; }
@@ -1115,7 +1131,7 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   }
 
   /** Acciones del menú (⋮) de la tarjeta compacta. */
-  act(r: RoomMapItem, action: 'checkin' | 'folio' | 'renovar' | 'ticket' | 'checkout' | 'edit' | 'delete'): void {
+  act(r: RoomMapItem, action: 'checkin' | 'folio' | 'renovar' | 'ticket' | 'checkout' | 'edit' | 'delete' | 'vuelto'): void {
     this.menuRoomId.set(null);
     switch (action) {
       case 'checkin': this.openCheckIn(r); break;
@@ -1125,6 +1141,7 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
       case 'checkout': this.confirmCheckout(r); break;
       case 'edit': this.openEdit(r); break;
       case 'delete': this.deleteRoom(r); break;
+      case 'vuelto': this.openDeliverVuelto(r); break;
     }
   }
 
@@ -1518,6 +1535,41 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   reload(): void {
     this.ops.map().subscribe((res) => this.rooms.set(res.data ?? []));
     this.ops.receptionPermissions().subscribe((res) => { if (res.data) this.receptionPerms.set(res.data); });
+    this.http.get<ApiResponse<{ stayId: string; room: string | null; remaining: number }[]>>(`${this.apiUrl}/change-credits/pending`).subscribe({
+      next: (res) => { const m: Record<string, number> = {}; for (const c of res.data ?? []) m[c.stayId] = c.remaining; this.vueltoByStay.set(m); },
+      error: () => {/* sin caja/permiso: no pinta vueltos */},
+    });
+  }
+
+  // ── Vuelto pendiente (saldo de la estancia) ──
+  readonly vueltoByStay = signal<Record<string, number>>({});
+  vueltoDeliverVisible = false;
+  vueltoDeliverStayId = '';
+  vueltoDeliverRoom = '';
+  vueltoDeliverAmount = 0;
+  readonly deliveringVuelto = signal(false);
+
+  vueltoOf(stayId: string | undefined | null): number { return stayId ? (this.vueltoByStay()[stayId] ?? 0) : 0; }
+
+  openDeliverVuelto(r: RoomMapItem): void {
+    const stayId = r.activeStay?.id;
+    if (!stayId) return;
+    this.vueltoDeliverStayId = stayId;
+    this.vueltoDeliverRoom = r.number;
+    this.vueltoDeliverAmount = this.vueltoOf(stayId);
+    this.vueltoDeliverVisible = true;
+  }
+
+  confirmDeliverVuelto(): void {
+    this.deliveringVuelto.set(true);
+    this.http.post<ApiResponse<{ delivered: number }>>(`${this.apiUrl}/change-credits/by-stay/${this.vueltoDeliverStayId}/deliver`, {}).subscribe({
+      next: (res) => {
+        this.deliveringVuelto.set(false); this.vueltoDeliverVisible = false;
+        this.toast.add({ severity: 'success', summary: 'Vuelto entregado', detail: `S/ ${(res.data?.delivered ?? this.vueltoDeliverAmount).toFixed(2)} entregado(s).` });
+        this.reload();
+      },
+      error: (e: HttpErrorResponse) => { this.deliveringVuelto.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo entregar el vuelto.' }); },
+    });
   }
 
   openCheckIn(r: RoomMapItem): void {
