@@ -126,6 +126,35 @@ export const changeCreditsService = {
     });
   },
 
+  /**
+   * Cierra el vuelto pendiente de una estancia como NO_RECLAMADO (al hacer check-out sin entregarlo).
+   * Reclasificación PASIVO → INGRESO: registra un IN con método VUELTO (NO efectivo) en la caja abierta
+   * → suma a los ingresos por método (byMethod), pero NO al efectivo esperado (el dinero ya estaba en
+   * el cajón). Sin nueva entrada física. Devuelve {closed:0} si no había pendiente.
+   */
+  async closeUnclaimedByStay(scope: RequestScope, stayId: string) {
+    const branchId = requireActiveBranch(scope);
+    const credits = await prisma.changeCredit.findMany({ where: { branchId, stayId, status: 'PENDIENTE' } });
+    if (!credits.length) return { closed: 0, amount: 0 };
+    const session = await cashRepository.findOpen(branchId);
+    if (!session) throw new ConflictError('Abre una caja para cerrar el vuelto no reclamado.');
+    const total = round2(credits.reduce((a, c) => a + Number(c.remaining), 0));
+    const room = credits[0].room;
+    return prisma.$transaction(async (tx) => {
+      await tx.cashMovement.create({
+        data: {
+          cashSessionId: session.id, branchId, type: 'IN', amount: total, method: 'VUELTO', category: 'MOVEMENT',
+          concept: `Vuelto no reclamado - Hab. ${room ?? '?'}`, note: `changeCredit:stay:${stayId}`, createdByUserId: scope.userId,
+        },
+      });
+      await tx.changeCredit.updateMany({
+        where: { id: { in: credits.map((c) => c.id) } },
+        data: { status: 'NO_RECLAMADO', remaining: 0, closedAt: new Date(), closedSessionId: session.id },
+      });
+      return { closed: credits.length, amount: total };
+    });
+  },
+
   /** Entrega el vuelto pendiente: EGRESO de efectivo en la caja ABIERTA actual y cierra el crédito. */
   async deliver(scope: RequestScope, id: string) {
     const branchId = requireActiveBranch(scope);

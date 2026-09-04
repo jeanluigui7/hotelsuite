@@ -228,6 +228,13 @@ const MANT_CATS = [
             <p>La habitación tiene pagos pendientes por un total de <strong class="amt">S/ {{ d.totalWithLate | number: '1.2-2' }}</strong>.</p>
           </div>
         }
+        @if (vueltoOf(checkoutRoom?.activeStay?.id) > 0) {
+          <div class="co-vuelto">
+            <h3><i class="pi pi-wallet"></i> Vuelto sin entregar</h3>
+            <p>Esta estancia tiene <strong class="amt">S/ {{ vueltoOf(checkoutRoom?.activeStay?.id) | number: '1.2-2' }}</strong> de vuelto pendiente. Si continúas sin entregarlo, se cerrará como <b>NO RECLAMADO</b> (ingreso del hotel).</p>
+            <p-button label="Entregar vuelto ahora" icon="pi pi-wallet" severity="warn" size="small" [loading]="deliveringVuelto()" (onClick)="deliverFromCheckout()" />
+          </div>
+        }
         <div class="co-guest">
           <span class="lbl">Detalles del huésped</span>
           <strong>{{ checkoutRoom?.activeStay?.guestName }}</strong>
@@ -709,6 +716,7 @@ const MANT_CATS = [
       .ob.type { background: rgba(124,58,237,0.55); }
       .ob.renov { background: rgba(16,185,129,0.85); color: #04130d; }
       .ob.vuelto { background: rgba(251,191,36,0.9); color: #3a2a05; cursor: pointer; }
+      .co-vuelto { background: rgba(251,191,36,0.1); border: 1px solid rgba(217,119,6,0.5); border-radius: 10px; padding: 0.7rem 0.9rem; margin-bottom: 0.8rem; } .co-vuelto h3 { margin: 0 0 0.3rem; font-size: 0.95rem; color: #f59e0b; display: flex; align-items: center; gap: 0.4rem; } .co-vuelto p { margin: 0 0 0.6rem; font-size: 0.83rem; color: #cbd5e1; } .co-vuelto .amt { color: #fbbf24; }
       .vk-note { font-size: 0.86rem; color: #cbd5e1; margin: 0 0 0.8rem; }
       .vk-box { text-align: center; background: linear-gradient(180deg, rgba(120,53,15,0.35), rgba(69,26,3,0.35)); border: 1px solid rgba(217,119,6,0.5); border-radius: 12px; padding: 1rem; }
       .vk-box span { display: block; font-size: 0.8rem; color: #fcd34d; } .vk-box strong { display: block; font-size: 2rem; font-weight: 800; color: #fbbf24; margin-top: 0.2rem; }
@@ -1558,6 +1566,17 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     this.vueltoDeliverRoom = r.number;
     this.vueltoDeliverAmount = this.vueltoOf(stayId);
     this.vueltoDeliverVisible = true;
+  }
+
+  /** Entrega el vuelto pendiente desde el diálogo de check-out (antes de cerrar la estancia). */
+  deliverFromCheckout(): void {
+    const stayId = this.checkoutRoom?.activeStay?.id;
+    if (!stayId) return;
+    this.deliveringVuelto.set(true);
+    this.http.post<ApiResponse<{ delivered: number }>>(`${this.apiUrl}/change-credits/by-stay/${stayId}/deliver`, {}).subscribe({
+      next: (res) => { this.deliveringVuelto.set(false); this.toast.add({ severity: 'success', summary: 'Vuelto entregado', detail: `S/ ${(res.data?.delivered ?? 0).toFixed(2)}` }); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.deliveringVuelto.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo entregar el vuelto.' }); },
+    });
   }
 
   confirmDeliverVuelto(): void {
