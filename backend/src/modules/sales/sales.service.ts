@@ -11,6 +11,7 @@ import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { cashRepository } from '../cash/cash.repository';
 import { productsRepository } from '../products/products.repository';
+import { changeCreditsService } from '../change-credits/change-credits.service';
 import {
   salesRepository,
   type SaleLineInput,
@@ -130,6 +131,15 @@ export const salesService = {
     if (paid > total) throw new ValidationError('El pago excede el total de la venta');
     const status = total > 0 && paid >= total ? 'PAID' : 'OPEN';
 
+    // Pago con VUELTO (saldo de vuelto de la estancia): no ingresa efectivo nuevo. Se valida contra el
+    // saldo pendiente ANTES de crear la venta, y se consume DESPUÉS (marca CONSUMIDO al llegar a 0).
+    const vueltoUsed = round(payments.filter((p) => p.method === 'VUELTO').reduce((a, p) => a + p.amount, 0));
+    if (vueltoUsed > 0) {
+      if (!dto.stayId) throw new ValidationError('El pago con Vuelto requiere una estancia.');
+      const remaining = await changeCreditsService.remainingForStay(branchId, dto.stayId);
+      if (vueltoUsed > remaining + 0.001) throw new ValidationError(`El vuelto disponible (S/ ${remaining.toFixed(2)}) no cubre el monto (S/ ${vueltoUsed.toFixed(2)}).`);
+    }
+
     try {
       const sale = await salesRepository.create({
         branchId,
@@ -144,6 +154,7 @@ export const salesService = {
         payments,
         stockDecrements,
       });
+      if (vueltoUsed > 0 && dto.stayId) await changeCreditsService.consumeForStay(branchId, dto.stayId, vueltoUsed);
       return serialize(sale);
     } catch (err) {
       if (err instanceof Error && err.message.startsWith('STOCK_INSUFFICIENT')) {

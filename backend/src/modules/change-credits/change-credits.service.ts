@@ -51,6 +51,34 @@ export const changeCreditsService = {
     });
   },
 
+  /** Saldo de vuelto pendiente (suma) de una estancia. Para validar pagos con método VUELTO. */
+  async remainingForStay(branchId: string, stayId: string): Promise<number> {
+    const credits = await prisma.changeCredit.findMany({ where: { branchId, stayId, status: 'PENDIENTE' }, select: { remaining: true } });
+    return round2(credits.reduce((a, c) => a + Number(c.remaining), 0));
+  },
+
+  /**
+   * Consume `amount` del saldo de vuelto de una estancia (FIFO por antigüedad). Marca CONSUMIDO el
+   * crédito que llega a 0. NO mueve caja (el efectivo ya estaba en el cajón; la venta VUELTO es el
+   * ingreso por concepto). Se llama tras crear una venta pagada con método VUELTO.
+   */
+  async consumeForStay(branchId: string, stayId: string, amount: number): Promise<void> {
+    let left = round2(amount);
+    const credits = await prisma.changeCredit.findMany({ where: { branchId, stayId, status: 'PENDIENTE' }, orderBy: { createdAt: 'asc' } });
+    for (const c of credits) {
+      if (left <= 0) break;
+      const rem = Number(c.remaining);
+      const take = Math.min(rem, left);
+      const newRem = round2(rem - take);
+      await prisma.changeCredit.update({
+        where: { id: c.id },
+        data: { remaining: newRem, status: newRem <= 0.001 ? 'CONSUMIDO' : 'PENDIENTE', closedAt: newRem <= 0.001 ? new Date() : null },
+      });
+      left = round2(left - take);
+    }
+    if (left > 0.001) throw new ConflictError('Saldo de vuelto insuficiente para cubrir el pago.');
+  },
+
   /** Vuelto pendiente de una estancia (para la card): saldo total + créditos individuales. */
   async pendingByStay(scope: RequestScope, stayId: string) {
     const branchId = requireActiveBranch(scope);

@@ -20,7 +20,7 @@ import type { Product } from '../../inventory/services/inventory.models';
 import { OperationsApiService } from '../services/operations-api.service';
 import type { Stay } from '../services/operations.models';
 
-interface Pay { method: 'CASH' | 'CARD' | 'TRANSFER' | 'YAPE' | 'PLIN' | 'WALLET'; amount: number; reference?: string; }
+interface Pay { method: 'CASH' | 'CARD' | 'TRANSFER' | 'YAPE' | 'PLIN' | 'WALLET' | 'VUELTO'; amount: number; reference?: string; }
 
 const METHODS = [
   { label: 'Efectivo', value: 'CASH' },
@@ -53,7 +53,7 @@ const DOC_TYPES = [
           @if (clientType === 'ROOM') {
             <div class="field">
               <label>Habitación ocupada</label>
-              <p-select [options]="stays()" [(ngModel)]="stayId" optionValue="id" [filter]="true" filterBy="room.number" placeholder="Selecciona habitación" styleClass="w">
+              <p-select [options]="stays()" [(ngModel)]="stayId" (onChange)="onStayChange()" optionValue="id" [filter]="true" filterBy="room.number" placeholder="Selecciona habitación" styleClass="w">
                 <ng-template let-s pTemplate="item">Hab. {{ s.room.number }} · {{ s.guest.firstName }} {{ s.guest.lastName }}</ng-template>
                 <ng-template let-s pTemplate="selectedItem">Hab. {{ s.room.number }} · {{ s.guest.firstName }} {{ s.guest.lastName }}</ng-template>
               </p-select>
@@ -96,7 +96,7 @@ const DOC_TYPES = [
               <div class="pays-head"><span>{{ cobro === 'PARCIAL' ? 'Pago inicial' : 'Método de pago' }}</span><button class="addpay" (click)="addPay()"><i class="pi pi-plus"></i> Añadir</button></div>
               @for (p of pays(); track $index; let i = $index) {
                 <div class="payrow">
-                  <p-select [options]="methods" [(ngModel)]="p.method" (onChange)="onMethodChange(p)" optionLabel="label" optionValue="value" styleClass="w sm" />
+                  <p-select [options]="methodOptions()" [(ngModel)]="p.method" (onChange)="onMethodChange(p)" optionLabel="label" optionValue="value" styleClass="w sm" />
                   <p-inputNumber [(ngModel)]="p.amount" mode="decimal" [minFractionDigits]="2" [min]="0" placeholder="Monto" inputStyleClass="amt" [class.err]="!(p.amount > 0)" />
                   <button class="del" (click)="removePay(i)"><i class="pi pi-times"></i></button>
                 </div>
@@ -285,6 +285,22 @@ export class VentaProductosComponent {
   readonly saving = signal(false);
 
   readonly methods = METHODS;
+  readonly vueltoAvailable = signal(0); // saldo de vuelto pendiente de la estancia seleccionada
+
+  /** Opciones de método: agrega "Vuelto (S/X)" solo si la estancia tiene saldo de vuelto pendiente. */
+  methodOptions(): { label: string; value: string }[] {
+    const v = this.vueltoAvailable();
+    return v > 0 ? [...METHODS, { label: `Vuelto (S/ ${v.toFixed(2)})`, value: 'VUELTO' }] : METHODS;
+  }
+
+  /** Al elegir habitación, consulta su saldo de vuelto pendiente para ofrecerlo como pago. */
+  onStayChange(): void {
+    if (!this.stayId) { this.vueltoAvailable.set(0); return; }
+    this.http.get<ApiResponse<{ remaining: number }>>(`${this.api}/change-credits/by-stay/${this.stayId}`).subscribe({
+      next: (r) => this.vueltoAvailable.set(r.data?.remaining ?? 0),
+      error: () => this.vueltoAvailable.set(0),
+    });
+  }
   readonly docTypes = DOC_TYPES;
   clientType: 'EXTERNAL' | 'ROOM' = 'ROOM';
   idMode: 'DOC' | 'PLATE' = 'DOC';
@@ -338,7 +354,7 @@ export class VentaProductosComponent {
   }
 
   load(): void {
-    this.pays.set([]); this.customerName = ''; this.stayId = null; this.clientType = 'ROOM';
+    this.pays.set([]); this.customerName = ''; this.stayId = null; this.clientType = 'ROOM'; this.vueltoAvailable.set(0);
     this.idMode = 'DOC'; this.docType = 'DNI'; this.docNumber = ''; this.plate = '';
     this.cobro = 'TOTAL'; this.genComp = false; this.compUseGuest = true; this.compDocType = 'DNI'; this.compDocNumber = ''; this.compName = ''; this.compAddress = '';
     this.search = ''; this.categoryFilter = null; this.lowStockOnly = false; this.qty = {};
@@ -375,9 +391,16 @@ export class VentaProductosComponent {
   }
 
   /** Los pagos virtuales (no efectivo) requieren código/referencia para su rastreo. */
-  needsRef(method: string): boolean { return method !== 'CASH'; }
-  /** Al pasar a Efectivo se limpia la referencia (no aplica). */
-  onMethodChange(p: Pay): void { if (p.method === 'CASH') p.reference = ''; this.pays.set([...this.pays()]); }
+  needsRef(method: string): boolean { return method !== 'CASH' && method !== 'VUELTO'; }
+  /** Al pasar a Efectivo/Vuelto se limpia la referencia; el Vuelto se topa al saldo disponible. */
+  onMethodChange(p: Pay): void {
+    if (p.method === 'CASH' || p.method === 'VUELTO') p.reference = '';
+    if (p.method === 'VUELTO') {
+      const cap = Math.min(this.vueltoAvailable(), Math.max(0, this.remaining() + (p.amount || 0)));
+      p.amount = Math.round(cap * 100) / 100;
+    }
+    this.pays.set([...this.pays()]);
+  }
 
   /** Saldo que quedaría como deuda (parcial). */
   saldo(): number { return Math.max(0, Math.round((this.total() - this.paid()) * 100) / 100); }
