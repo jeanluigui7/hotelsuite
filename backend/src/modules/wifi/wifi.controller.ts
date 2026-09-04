@@ -53,6 +53,10 @@ export const wifiController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await wifiService.ticketData(req.scope, req.params.id)));
   },
+  async ticketByStay(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await wifiService.ticketDataByStay(req.scope, req.params.stayId)));
+  },
   async importRows(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const dto = importWifiSchema.parse(req.body);

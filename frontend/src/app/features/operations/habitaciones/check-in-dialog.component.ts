@@ -2,9 +2,12 @@ import { Component, ElementRef, EventEmitter, Input, Output, ViewChild, computed
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { forkJoin, of } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
+import { PrintingService } from '../../../core/printing/printing.service';
+import { buildComandaTicket, type ComandaIdentity, type ComandaData } from '../../settings/tickets/comanda-ticket';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
@@ -21,6 +24,11 @@ import { OperationsApiService } from '../services/operations-api.service';
 import type { CheckInInput, RoomMapItem, Stay } from '../services/operations.models';
 
 type Tab = 'huesped' | 'adicionales' | 'venta' | 'pago';
+interface TicketByStay {
+  branch: { name: string; address: string; phone: string; logoUrl: string | null };
+  credential: { ssid: string; code: string | null; category: string; message: string | null; validMinutes: number | null } | null;
+  stay: { room: string | null; rateLabel: string | null; adults: number; checkOutAt: string | null; guest: string };
+}
 interface AddGuest { documentType: string; documentNumber: string; name: string; phone: string; notes: string; }
 interface PayRow { type: string; amount: number; received: number | null; reference: string; notes: string; }
 interface DebtItem { type: string; label: string; amount: number; date: string; }
@@ -330,9 +338,24 @@ const PAY_TYPES = [
         <p-button label="Confirmar Check-in" icon="pi pi-check" [loading]="saving()" (onClick)="confirm()" />
       </ng-template>
     </p-dialog>
+
+    <!-- Comanda de Bienvenida: vista previa tras el check-in (no imprime sola) -->
+    <p-dialog [(visible)]="comandaVisible" [modal]="true" [style]="{ width: '360px' }" header="Comanda de Bienvenida" [dismissableMask]="true">
+      <p class="cmnote">Vista previa. Entrégala al huésped con su acceso WiFi.</p>
+      <div class="cmframe">
+        @if (comandaUrl()) { <iframe [src]="comandaUrl()!" title="Comanda de Bienvenida" class="cmiframe"></iframe> }
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cerrar" severity="secondary" [text]="true" (onClick)="comandaVisible = false" />
+        <p-button label="Imprimir" icon="pi pi-print" (onClick)="printComanda()" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
+      .cmnote { font-size: 0.8rem; color: #94a3b8; margin: 0 0 0.6rem; }
+      .cmframe { display: flex; justify-content: center; background: #eef2f6; border-radius: 8px; padding: 10px; }
+      .cmiframe { width: 322px; height: 560px; border: 0; background: #fff; border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.12); }
       :host ::ng-deep .ci-dialog .p-dialog-content, :host ::ng-deep .ci-dialog .p-dialog-header, :host ::ng-deep .ci-dialog .p-dialog-footer { background: #0b1220; color: #e6edf5; }
       .sub { color: #8aa0bd; margin: 0 0 1rem; font-size: 0.85rem; }
       .room-card { display: flex; justify-content: space-between; align-items: center; gap: 1rem; background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1rem; flex-wrap: wrap; }
@@ -460,6 +483,13 @@ export class CheckInDialogComponent {
   private readonly finance = inject(FinanceApiService);
   private readonly messages = inject(MessageService);
   private readonly http = inject(HttpClient);
+  private readonly sanitizer = inject(DomSanitizer);
+  private readonly printing = inject(PrintingService);
+
+  // Comanda de bienvenida (vista previa tras el check-in)
+  comandaVisible = false;
+  comandaHtml = '';
+  readonly comandaUrl = signal<SafeResourceUrl | null>(null);
   private readonly apiUrl = environment.apiUrl;
 
   private _room: RoomMapItem | null = null;
@@ -955,6 +985,7 @@ export class CheckInDialogComponent {
         const payments = this.pays().filter((p) => (p.amount || 0) > 0).map((p) => ({ method: this.payMeta(p.type).backend, amount: Math.round(this.payNet(p) * 100) / 100, reference: p.reference?.trim() || undefined }));
         // Se registra SIEMPRE el cargo de la estancia (deja rastro en el folio), con o sin pago.
         if (stay?.id) {
+          this.showComanda(stay.id); // vista previa de la Comanda de Bienvenida (con el voucher asignado)
           this.finance.createSale({ stayId: stay.id, items, payments, sourceArea: 'RECEPTION' }).subscribe({
             next: () => this.finish(payments.length ? 'Habitación ocupada. Pago registrado.' : 'Habitación ocupada. Cargo pendiente de cobro.'),
             error: (e: HttpErrorResponse) => {
@@ -976,6 +1007,41 @@ export class CheckInDialogComponent {
         this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo registrar el check-in.' });
       },
     });
+  }
+
+  /**
+   * Tras el check-in, obtiene el voucher WiFi asignado a la estancia (ruta de impresión autorizada) y
+   * arma la Comanda de Bienvenida para mostrarla en vista previa. NO imprime automáticamente.
+   */
+  private showComanda(stayId: string): void {
+    this.http.get<ApiResponse<TicketByStay>>(`${environment.apiUrl}/wifi-credentials/by-stay/${stayId}/ticket`).subscribe({
+      next: (r) => {
+        const d = r.data;
+        if (!d) return;
+        const pad = (n: number): string => String(n).padStart(2, '0');
+        const fmt = (dt: Date): string => `${pad(dt.getDate())}/${pad(dt.getMonth() + 1)}/${dt.getFullYear()} ${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+        const co = d.stay.checkOutAt ? new Date(d.stay.checkOutAt) : null;
+        const identity: ComandaIdentity = { tradeName: d.branch.name || 'RIZZOS', address: d.branch.address, landline: d.branch.phone || undefined, logoUrl: d.branch.logoUrl };
+        const data: ComandaData = {
+          room: d.stay.room ?? '—',
+          stayLabel: (d.stay.rateLabel ?? 'ESTADÍA').toUpperCase(),
+          persons: d.stay.adults || undefined,
+          checkinAt: fmt(new Date()),
+          checkoutNote: co ? `HORA LÍMITE DE SALIDA: ${pad(co.getDate())}/${pad(co.getMonth() + 1)} ${pad(co.getHours())}:${pad(co.getMinutes())}` : '',
+          wifiSsid: d.credential?.ssid ?? (d.branch.name || 'RIZZOS'),
+          wifiCode: d.credential?.code ?? '—',
+        };
+        const html = buildComandaTicket('BIENVENIDA', identity, data);
+        this.comandaHtml = html;
+        this.comandaUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl('data:text/html;charset=utf-8,' + encodeURIComponent(html)));
+        this.comandaVisible = true;
+      },
+      error: () => {/* si falla, el check-in ya quedó hecho; solo no se muestra la comanda */},
+    });
+  }
+
+  printComanda(): void {
+    if (this.comandaHtml) this.printing.printViaBrowser(this.comandaHtml);
   }
 
   private finish(detail: string): void {

@@ -208,6 +208,34 @@ export const wifiService = {
   },
 
   /**
+   * Datos de la comanda de Bienvenida para una ESTANCIA (ruta de impresión autorizada para recepción):
+   * identidad de la sucursal + datos de la estancia + voucher WiFi asignado. El código del voucher se
+   * entrega SOLO aquí (para imprimir la comanda), no en la lista del pool (que lo enmascara). Si el pool
+   * está vacío, `credential` es null y la comanda se imprime sin bloque WiFi.
+   */
+  async ticketDataByStay(scope: RequestScope, stayId: string) {
+    const branchId = requireActiveBranch(scope);
+    const [cred, branch, s] = await Promise.all([
+      prisma.wifiCredential.findFirst({ where: { branchId, assignedStayId: stayId }, orderBy: { assignedAt: 'desc' } }),
+      prisma.branch.findUnique({ where: { id: branchId }, select: { name: true, address: true, landline: true, mobile: true, whatsapp: true, logoUrl: true } }),
+      prisma.stay.findUnique({ where: { id: stayId }, include: { room: { select: { number: true } }, rate: { select: { label: true } }, guest: { select: { firstName: true, lastName: true } } } }),
+    ]);
+    if (!s || s.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
+    return {
+      branch: {
+        name: branch?.name ?? '', address: branch?.address ?? '',
+        phone: branch?.landline || branch?.mobile || branch?.whatsapp || '', logoUrl: branch?.logoUrl ?? null,
+      },
+      credential: cred ? { ssid: cred.ssid, code: cred.code, category: cred.category, message: cred.message, validMinutes: cred.validMinutes } : null,
+      stay: {
+        room: s.room?.number ?? null, rateLabel: s.rate?.label ?? 'Tarifa personalizada', adults: s.adults,
+        checkOutAt: s.plannedCheckoutAt,
+        guest: `${s.guest?.firstName ?? ''} ${s.guest?.lastName ?? ''}`.trim(),
+      },
+    };
+  },
+
+  /**
    * Importa el CSV nativo de Omada en la categoría indicada (la de la pestaña activa). El identificador
    * es el `voucher` (columna Code). Ignora columnas no usadas, salta duplicados (voucher ya existente en
    * RIZZOS o repetido en el archivo) y marca inválidas las filas sin voucher. Con `preview` solo valida.
