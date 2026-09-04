@@ -12,8 +12,9 @@ export const guestsController = {
     res.status(200).json(ok(items, meta));
   },
 
-  async stats(_req: Request, res: Response): Promise<void> {
-    res.status(200).json(ok(await guestsService.stats()));
+  async stats(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await guestsService.stats(req.scope)));
   },
 
   async blacklist(_req: Request, res: Response): Promise<void> {

@@ -135,10 +135,13 @@ const MANT_CATS = [
                   <span class="ob type">{{ r.roomType.name }}</span>
                   <span class="ob occ">● Ocupada</span>
                   @if (r.activeStay.renewed) { <span class="ob renov">↻ Renovada{{ (r.activeStay.renewalCount || 0) > 1 ? ' ×' + r.activeStay.renewalCount : '' }}</span> }
-                  @if (vueltoOf(r.activeStay.id) > 0) { <span class="ob vuelto" (click)="openDeliverVuelto(r)" title="Entregar vuelto pendiente">💰 Vuelto S/ {{ vueltoOf(r.activeStay.id) | number: '1.2-2' }}</span> }
                   @if (r.activeStay.renewalCleaningStatus === 'SOLICITADA') { <span class="ob limp">🧹 Limpieza solicitada</span> }
                   @if (r.activeStay.renewalCleaningStatus === 'EN_CURSO') { <span class="ob limp-curso">🧹 Limpieza en curso</span> }
                 </div>
+              }
+              <!-- Vuelto pendiente: visible para TODOS los roles (recepción incluida). -->
+              @if (vueltoOf(r.activeStay.id) > 0) {
+                <div class="oc-badges vrow"><span class="ob vuelto" (click)="openDeliverVuelto(r)" title="Entregar vuelto pendiente">💰 Vuelto pendiente S/ {{ vueltoOf(r.activeStay.id) | number: '1.2-2' }}</span></div>
               }
               <div class="oc-timer">
                 <span class="t" [class.red]="isExpired(r.activeStay)"><i class="pi pi-clock"></i> {{ remainingLabel(r.activeStay) }}</span>
@@ -716,6 +719,7 @@ const MANT_CATS = [
       .ob.type { background: rgba(124,58,237,0.55); }
       .ob.renov { background: rgba(16,185,129,0.85); color: #04130d; }
       .ob.vuelto { background: rgba(251,191,36,0.9); color: #3a2a05; cursor: pointer; }
+      .oc-badges.vrow { margin: 0.35rem 0 0; }
       .co-vuelto { background: rgba(251,191,36,0.1); border: 1px solid rgba(217,119,6,0.5); border-radius: 10px; padding: 0.7rem 0.9rem; margin-bottom: 0.8rem; } .co-vuelto h3 { margin: 0 0 0.3rem; font-size: 0.95rem; color: #f59e0b; display: flex; align-items: center; gap: 0.4rem; } .co-vuelto p { margin: 0 0 0.6rem; font-size: 0.83rem; color: #cbd5e1; } .co-vuelto .amt { color: #fbbf24; }
       .vk-note { font-size: 0.86rem; color: #cbd5e1; margin: 0 0 0.8rem; }
       .vk-box { text-align: center; background: linear-gradient(180deg, rgba(120,53,15,0.35), rgba(69,26,3,0.35)); border: 1px solid rgba(217,119,6,0.5); border-radius: 12px; padding: 1rem; }

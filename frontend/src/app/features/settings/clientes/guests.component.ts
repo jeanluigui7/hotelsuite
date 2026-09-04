@@ -43,11 +43,15 @@ const EMPTY: Form = { documentType: 'DNI', documentNumber: '', firstName: '', la
         </div>
       </header>
 
-      <!-- Cards -->
+      <!-- Cards (Total Clientes e Ingresos Totales solo para administración) -->
       <div class="cards">
-        <div class="card"><div class="ci"><span>Total Clientes</span><i class="pi pi-users"></i></div><div class="cv">{{ stats()?.totalClientes ?? 0 | number }}</div><div class="cf">{{ stats()?.activosMes ?? 0 }} activos este mes</div></div>
+        @if (canSeeGlobals) {
+          <div class="card"><div class="ci"><span>Total Clientes</span><i class="pi pi-users"></i></div><div class="cv">{{ stats()?.totalClientes ?? 0 | number }}</div><div class="cf">{{ stats()?.activosMes ?? 0 }} activos este mes</div></div>
+        }
         <div class="card"><div class="ci"><span>Puntos Distribuidos</span><i class="pi pi-sparkles"></i></div><div class="cv gr">{{ stats()?.puntosDistribuidos ?? 0 | number }}</div><div class="cf">Puntos de lealtad</div></div>
-        <div class="card"><div class="ci"><span>Ingresos Totales</span><i class="pi pi-dollar"></i></div><div class="cv">S/ {{ stats()?.ingresosTotales ?? 0 | number: '1.2-2' }}</div><div class="cf">De todos los clientes</div></div>
+        @if (canSeeGlobals) {
+          <div class="card"><div class="ci"><span>Ingresos Totales</span><i class="pi pi-dollar"></i></div><div class="cv">S/ {{ stats()?.ingresosTotales ?? 0 | number: '1.2-2' }}</div><div class="cf">De todos los clientes</div></div>
+        }
         <div class="card"><div class="ci"><span>Promedio por Cliente</span><i class="pi pi-chart-line"></i></div><div class="cv">S/ {{ stats()?.promedioPorCliente ?? 0 | number: '1.2-2' }}</div><div class="cf">Gasto promedio</div></div>
       </div>
 
@@ -241,6 +245,8 @@ export class GuestsComponent implements OnInit {
   readonly canExport = this.auth.can('settings', 'view');
   readonly canBlacklistAdd = this.auth.can('operations', 'edit') || this.auth.can('settings', 'edit');
   readonly canUnblacklist = this.auth.can('settings', 'edit');
+  // Total de clientes e ingresos totales: solo administración (recepción no ve estos globales).
+  readonly canSeeGlobals = this.auth.can('settings', 'view');
 
   readonly sortOpts = [
     { label: 'Gasto Total', value: 'spend' }, { label: 'Nombre', value: 'name' },

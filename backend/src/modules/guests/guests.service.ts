@@ -95,8 +95,12 @@ export const guestsService = {
     return { items: rows.slice(skip, skip + pageSize), meta: pageMeta({ page, pageSize } as Parameters<typeof pageMeta>[0], total) };
   },
 
-  /** Cards del módulo Clientes con datos reales (total, puntos distribuidos, ingresos, promedio). */
-  async stats() {
+  /**
+   * Cards del módulo Clientes con datos reales. Total de clientes e ingresos totales son globales
+   * sensibles: solo para administración (settings:view). Recepción recibe null en esos dos campos.
+   */
+  async stats(scope: RequestScope) {
+    const admin = scope.isSuperAdmin || scope.permissions.includes('settings:view');
     const [totalClientes, agg] = await Promise.all([
       prisma.guest.count(),
       prisma.stay.aggregate({ where: { status: { not: 'CANCELLED' } }, _sum: { priceAgreed: true } }),
@@ -106,11 +110,11 @@ export const guestsService = {
     startMonth.setDate(1); startMonth.setHours(0, 0, 0, 0);
     const activosMesRows = await prisma.stay.findMany({ where: { checkInAt: { gte: startMonth } }, distinct: ['guestId'], select: { guestId: true } });
     return {
-      totalClientes,
+      totalClientes: admin ? totalClientes : null,
       puntosDistribuidos: Math.floor(ingresosTotales),
-      ingresosTotales,
+      ingresosTotales: admin ? ingresosTotales : null,
       promedioPorCliente: totalClientes ? round2(ingresosTotales / totalClientes) : 0,
-      activosMes: activosMesRows.length,
+      activosMes: admin ? activosMesRows.length : null,
     };
   },
 

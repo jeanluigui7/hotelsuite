@@ -99,12 +99,9 @@ export class PrintingService {
   printViaBrowser(html: string): void {
     const iframe = document.createElement('iframe');
     iframe.setAttribute('aria-hidden', 'true');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
+    // Fuera de pantalla PERO con ancho real, para que el contenido tome su tamaño natural y podamos
+    // medir su altura (con width:0 no se puede medir bien).
+    iframe.style.cssText = 'position:fixed; left:-10000px; top:0; width:420px; height:1200px; border:0;';
     document.body.appendChild(iframe);
 
     const cleanup = (): void => {
@@ -117,6 +114,18 @@ export class PrintingService {
         cleanup();
         return;
       }
+      // Ticketera térmica de 80 mm: fijamos el tamaño de PÁGINA a 80 mm de ancho × la ALTURA REAL del
+      // contenido, para que el papel se corte al final del ticket y no salga una hoja A4 con espacio en
+      // blanco. (Chrome no encoge la altura con `size: 80mm auto`, por eso se calcula en px.)
+      try {
+        const doc2 = win.document;
+        const h = Math.ceil((doc2.body?.scrollHeight ?? 0)) + 6;
+        if (h > 6) {
+          const st = doc2.createElement('style');
+          st.textContent = `@page { size: 80mm ${h}px; margin: 0; }`;
+          (doc2.head ?? doc2.body ?? doc2.documentElement).appendChild(st);
+        }
+      } catch { /* si no se puede medir, se imprime con el @page del propio documento */ }
       // Remove the iframe shortly after the print dialog is dismissed.
       win.onafterprint = (): void => {
         setTimeout(cleanup, 100);
