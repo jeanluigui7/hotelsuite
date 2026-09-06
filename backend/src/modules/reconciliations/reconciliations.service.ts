@@ -195,8 +195,10 @@ export const reconciliationsService = {
         data: {
           branchId, stayId: dto.stayId ?? null, cashSessionId: session.id,
           total, status: cobrada ? 'PAID' : 'OPEN',
-          unregistered: true, verifyStatus, customerName: noteBase, createdByUserId: scope.userId,
-          items: { create: [{ productId: dto.productId, description: noteBase, quantity: dto.quantity, unitPrice: dto.unitPrice, unitCost, subtotal: total }] },
+          // El item lleva el NOMBRE del producto (para que el detalle/kardex sea legible); el marcador
+          // "Venta no registrada" queda en el badge (unregistered/verifyStatus) y en la nota opcional.
+          unregistered: true, verifyStatus, customerName: dto.note?.trim() || null, createdByUserId: scope.userId,
+          items: { create: [{ productId: dto.productId, description: product.name, quantity: dto.quantity, unitPrice: dto.unitPrice, unitCost, subtotal: total }] },
           // COBRADA: registra el pago con su medio y código (si es virtual) en el turno de origen.
           ...(cobrada && dto.method
             ? { payments: { create: [{ branchId, method: dto.method, amount: total, reference: dto.reference?.trim() || null, cashSessionId: session.id, createdByUserId: scope.userId, commissionPct: snap?.commissionPct ?? null, commissionAmount: snap?.commissionAmount ?? null, grossCharged: snap?.grossCharged ?? null }] } }

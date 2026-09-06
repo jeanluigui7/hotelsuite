@@ -162,10 +162,15 @@ export const cashService = {
     ]);
     // Recaudación (total real del turno) por caja, para la columna del listado.
     const recaudacion = await cashRepository.recaudacionBySessions(rows.map((s) => s.id));
-    const items = rows.map((s) => {
+    const items = await Promise.all(rows.map(async (s) => {
       const closing = s.closingAmount != null ? Number(s.closingAmount) : null;
-      const expected = s.expectedAmount != null ? Number(s.expectedAmount) : null;
       const base = Number(s.openingAmount);
+      // Cajas AJUSTADAS (con correcciones posteriores al cierre): el esperado guardado quedó
+      // desactualizado → se recalcula en vivo para que el cuadre del listado coincida con el detalle.
+      let expected = s.expectedAmount != null ? Number(s.expectedAmount) : null;
+      if (s.status === 'AJUSTADA' && closing != null) {
+        expected = (await sessionSummary(s.id, base)).expectedCash;
+      }
       return {
         id: s.id,
         number: s.number,
@@ -183,7 +188,7 @@ export const cashService = {
         // (closingAmount) NO incluye la base; el esperado sí. Igual que el ticket de cuadre.
         difference: closing != null && expected != null ? Math.round((closing - (expected - base)) * 100) / 100 : null,
       };
-    });
+    }));
     return { items, meta: pageMeta(params, total) };
   },
 
@@ -556,6 +561,9 @@ export const cashService = {
       if (!cancelled && sale.unregistered) {
         const amount = Number(sale.total);
         const vs = sale.verifyStatus ?? 'POR_VERIFICAR';
+        // Descripción legible = nombre(s) del producto de la venta no registrada (antes salía el genérico
+        // "Venta no registrada"); la naturaleza no-registrada la marcan el badge y el estado de verificación.
+        const prodName = sale.items.map((it) => it.description).filter(Boolean).join(', ') || sale.customerName || 'Venta no registrada';
         // COBRADA/REGULARIZADA sí tiene Payment(s) real(es) con su medio → su detalle muestra el medio
         // real (no "PENDIENTE") y se distribuye por método en el desglose por categoría, para que el
         // ticket administrable y el cuadro por método la sumen igual que el card "Ventas Productos".
@@ -566,9 +574,9 @@ export const cashService = {
           rowMethod = method;
           for (const p of sale.payments) addCat('PRODUCTO', p.method, round(Number(p.amount)));
         }
-        else if (vs === 'NO_COBRADA') { regs.noCobradas.count++; regs.noCobradas.amount = round(regs.noCobradas.amount + amount); cards.deudasPendientes = round(cards.deudasPendientes + amount); debts.push({ saleId: sale.id, concepto: sale.customerName || 'Venta no registrada', tipo: 'VENTA_NO_COBRADA', room: info?.room || null, importe: amount, time: sale.createdAt, estado: 'NO_COBRADA', folio }); }
+        else if (vs === 'NO_COBRADA') { regs.noCobradas.count++; regs.noCobradas.amount = round(regs.noCobradas.amount + amount); cards.deudasPendientes = round(cards.deudasPendientes + amount); debts.push({ saleId: sale.id, concepto: prodName, tipo: 'VENTA_NO_COBRADA', room: info?.room || null, importe: amount, time: sale.createdAt, estado: 'NO_COBRADA', folio }); }
         else { regs.porVerificar.count++; regs.porVerificar.amount = round(regs.porVerificar.amount + amount); }
-        feed.push({ id: sale.id, saleId: sale.id, time: sale.createdAt, type: 'PRODUCTO', description: ((sale.customerName || 'Venta no registrada') + suffix).trim(), amount, method: rowMethod, status: 'NORMAL', verify: vs, unregistered: true, room: info?.room ?? null, stayId: sale.stayId ?? null });
+        feed.push({ id: sale.id, saleId: sale.id, time: sale.createdAt, type: 'PRODUCTO', description: (prodName + suffix).trim(), amount, method: rowMethod, status: 'NORMAL', verify: vs, unregistered: true, room: info?.room ?? null, stayId: sale.stayId ?? null });
         continue;
       }
 

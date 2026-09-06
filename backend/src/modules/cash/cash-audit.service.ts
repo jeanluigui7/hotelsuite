@@ -107,9 +107,10 @@ export const cashAuditService = {
       const key = code ? `${p.method}|${code}` : `${p.method}|__nocode__|${p.id}`;
       const ctx = p.sale.stayId ? stayMap.get(p.sale.stayId) : undefined;
       const gctx = p.sale.guestId ? guestMap.get(p.sale.guestId) : undefined;
-      const client = ctx?.client || gctx?.client || p.sale.customerName || 'Venta';
-      const clientShort = ctx?.clientShort || gctx?.clientShort || shortName(p.sale.customerName || 'Venta', null);
       const concept = conceptOf(p.sale.items);
+      // Sin estancia/huésped/cliente (p. ej. venta no registrada), el nombre cae al producto (concepto).
+      const client = ctx?.client || gctx?.client || p.sale.customerName || concept;
+      const clientShort = ctx?.clientShort || gctx?.clientShort || (p.sale.customerName ? shortName(p.sale.customerName, null) : concept);
       let g = groupsMap.get(key);
       if (!g) { g = { method: p.method, code, amount: 0, grossAmount: 0, commissionAmount: 0, ops: 0, room: ctx?.room ?? null, client, clientShort, concept, state: 'PENDIENTE', duplicate: false, lastTime: p.createdAt, states: new Set(), items: [] }; groupsMap.set(key, g); }
       g.amount = round(g.amount + Number(p.amount));
