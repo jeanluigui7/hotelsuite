@@ -31,3 +31,6 @@ cashRouter.post('/cash/sessions/:id/regularize-debt', requirePermission('finance
 
 // Cuadro de Turno (reporte) — bajo el módulo de reportes.
 cashRouter.get('/cash/sessions/:id/report', requirePermission('reports', 'view'), asyncHandler(cashController.report));
+// Auditoría de medios virtuales del turno (conciliación + verificación por código).
+cashRouter.get('/cash/sessions/:id/virtual-audit', requirePermission('finance', 'view'), asyncHandler(cashController.virtualAudit));
+cashRouter.post('/cash/sessions/:id/virtual-audit/verify', requirePermission('finance', 'edit'), asyncHandler(cashController.verifyVirtual));

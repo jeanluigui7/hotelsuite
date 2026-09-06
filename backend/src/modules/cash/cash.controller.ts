@@ -3,9 +3,19 @@ import { ok } from '../../shared/response';
 import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { cashService } from './cash.service';
+import { cashAuditService } from './cash-audit.service';
 import { closeCashSchema, frequentConceptsSchema, movementSchema, openCashSchema, regularizeDebtSchema, updateMovementSchema, voidMovementSchema } from './cash.schema';
 
 export const cashController = {
+  async virtualAudit(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await cashAuditService.virtualAudit(req.scope, req.params.id)));
+  },
+  async verifyVirtual(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const b = req.body as { paymentIds?: string[]; method?: string; code?: string; action: 'VERIFY' | 'SET_CODE' | 'REVIEW'; newCode?: string };
+    res.status(200).json(ok(await cashAuditService.verifyVirtual(req.scope, req.params.id, b)));
+  },
   async current(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await cashService.current(req.scope)));

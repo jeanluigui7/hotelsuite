@@ -1571,11 +1571,15 @@ model Payment {
   branchId        String
   saleId          String
   cashSessionId   String?
-  method          String // CASH | CARD | TRANSFER | WALLET
+  method          String // CASH | CARD | TRANSFER | WALLET | YAPE | PLIN | VUELTO
   amount          Decimal  @db.Decimal(10, 2)
-  reference       String?
+  reference       String? // código de operación/verificación del pago virtual
   createdByUserId String?
   createdAt       DateTime @default(now())
+  // Auditoría de medios virtuales: estado de verificación del código de operación.
+  verifyState     String? // PENDIENTE | VERIFICADO | EN_REVISION (SIN_CODIGO se deriva cuando no hay reference)
+  verifiedByUserId String?
+  verifiedAt      DateTime?
 
   sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
 

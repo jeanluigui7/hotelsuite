@@ -20,6 +20,9 @@ import { downloadCsv } from '../../../core/utils/export';
 
 interface ReconItem { id: string; at: string; type: string; amount: number; affectsCash: boolean; quantity: number | null; note: string | null; by: string | null; approvedBy: string | null; }
 interface ReconSummary { expected: number | null; declared: number | null; originalDifference: number; pendingDifference: number; reconciliations: ReconItem[]; }
+interface VAuditItem { paymentId: string; saleId: string; concept: string; amount: number; time: string; }
+interface VAuditGroup { method: string; code: string | null; amount: number; ops: number; state: 'VERIFICADO' | 'PENDIENTE' | 'SIN_CODIGO' | 'EN_REVISION'; duplicate: boolean; items: VAuditItem[]; }
+interface VAudit { esperado: { byMethod: Record<string, number>; total: number }; groups: VAuditGroup[]; summary: { verifiedAmount: number; verifiedOps: number; pendingAmount: number; sinCodigoCount: number; duplicateCount: number; enRevisionCount: number; difference: number }; }
 
 const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera', MIXTO: 'Mixto', PENDIENTE: 'Pendiente' };
 const TYPE_LABEL: Record<string, string> = { HOSPEDAJE: 'Hospedaje', RENOVACION: 'Pago Renovación', PRODUCTO: 'Venta Producto', SERVICIO: 'Servicio', INGRESO: 'Ingreso', EGRESO: 'Egreso', DEUDA: 'Deuda' };
@@ -110,6 +113,33 @@ const TYPE_COLOR: Record<string, [string, string]> = {
             @if (canEdit && recon() && recon()!.pendingDifference > 0) { <button class="mini" style="margin-top:.5rem" (click)="openVnr()"><i class="pi pi-plus"></i> Regularizar venta no registrada</button> }
           </section>
         </div>
+
+        <!-- Conciliación de medios virtuales -->
+        @if (vaudit(); as va) {
+          @if (va.esperado.total > 0) {
+            <section class="ablock virt">
+              <h3><i class="pi pi-qrcode"></i> Conciliación de medios virtuales
+                <button class="mini" style="margin-left:auto" (click)="openAudit()"><i class="pi pi-verified"></i> Auditar medios de pago virtuales</button>
+              </h3>
+              <div class="mcards">
+                @for (mm of methodCards; track mm.key) {
+                  @if (mm.key !== 'CASH' && (va.esperado.byMethod[mm.key] || 0) > 0) {
+                    <div class="mcard"><span>{{ mm.label }}</span><strong [style.color]="mm.color">S/ {{ va.esperado.byMethod[mm.key] | number: '1.2-2' }}</strong></div>
+                  }
+                }
+                <div class="mcard"><span>Total virtual esperado</span><strong>S/ {{ va.esperado.total | number: '1.2-2' }}</strong></div>
+              </div>
+              <div class="vsum">
+                <span class="ok">Verificado: S/ {{ va.summary.verifiedAmount | number: '1.2-2' }} ({{ va.summary.verifiedOps }} ops)</span>
+                <span class="pend">Pendiente: S/ {{ va.summary.pendingAmount | number: '1.2-2' }}</span>
+                @if (va.summary.sinCodigoCount > 0) { <span class="warn">Sin código: {{ va.summary.sinCodigoCount }}</span> }
+                @if (va.summary.duplicateCount > 0) { <span class="warn">Duplicados: {{ va.summary.duplicateCount }}</span> }
+                <span class="diff" [class.ok]="va.summary.difference === 0">Diferencia: {{ vDiffLabel(va.summary.difference) }}</span>
+              </div>
+              <p class="note"><i class="pi pi-info-circle"></i> Los pagos virtuales no afectan el arqueo físico de efectivo.</p>
+            </section>
+          }
+        }
 
         <div class="filters">
           <label>Tipo: <p-select [options]="typeFilterOpts" optionLabel="label" optionValue="value" [ngModel]="typeFilter()" (ngModelChange)="onTypeFilter($event)" styleClass="flt-sm" /></label>
@@ -324,6 +354,45 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       }
       <ng-template pTemplate="footer"><p-button label="Cerrar" severity="secondary" [text]="true" (onClick)="ajustesVisible = false" /></ng-template>
     </p-dialog>
+
+    <!-- Auditar medios de pago virtuales -->
+    <p-dialog [(visible)]="auditVisible" [modal]="true" [style]="{ width: '52rem', maxWidth: '97vw' }" header="Auditar medios de pago virtuales">
+      @if (vaudit(); as va) {
+        <div class="vsum" style="margin-bottom:.7rem">
+          <span>Total esperado: <b>S/ {{ va.esperado.total | number: '1.2-2' }}</b></span>
+          <span class="ok">Verificado: S/ {{ va.summary.verifiedAmount | number: '1.2-2' }}</span>
+          <span class="pend">Pendiente: S/ {{ va.summary.pendingAmount | number: '1.2-2' }}</span>
+          <span class="diff" [class.ok]="va.summary.difference === 0">{{ vDiffLabel(va.summary.difference) }}</span>
+        </div>
+        <p class="muted sm">Operaciones agrupadas por método + código. Si un mismo código cubre varias líneas, aparecen juntas (un solo pago).</p>
+        <div class="agroups">
+          @for (g of va.groups; track vAuditKey(g)) {
+            <div class="agroup" [class.dup]="g.duplicate">
+              <div class="ag-head">
+                <span class="ag-code">{{ methodLabel(g.method) }} — <b>{{ g.code || 'SIN CÓDIGO' }}</b>@if (g.duplicate) { <span class="dupt">duplicado</span> }</span>
+                <span class="ag-amt">S/ {{ g.amount | number: '1.2-2' }} · {{ g.ops }} op(s)</span>
+                <span class="est {{ vStateClass(g.state) }}">{{ vStateLabel(g.state) }}</span>
+              </div>
+              <div class="ag-items">
+                @for (it of g.items; track it.paymentId) { <div class="ag-it"><span>{{ it.time | date: 'HH:mm' }} · {{ it.concept }}</span><b>S/ {{ it.amount | number: '1.2-2' }}</b></div> }
+              </div>
+              @if (canEdit && g.state !== 'VERIFICADO') {
+                @if (auditingCode() === vAuditKey(g)) {
+                  <div class="ag-edit"><input pInputText [(ngModel)]="auditCodeInput" placeholder="Código de operación" /><p-button label="Guardar" size="small" [loading]="busy()" (onClick)="confirmSetCode(g)" /><button class="lnk" (click)="auditingCode.set('')">Cancelar</button></div>
+                } @else {
+                  <div class="ag-actions">
+                    <button class="lnk green" (click)="verifyGroup(g)">✓ Marcar OK</button>
+                    <button class="lnk" (click)="startSetCode(g)">Editar código</button>
+                    <button class="lnk red" (click)="reviewGroup(g)">Marcar en revisión</button>
+                  </div>
+                }
+              } @else if (g.state === 'VERIFICADO') { <div class="ag-ok">✓ OK</div> }
+            </div>
+          } @empty { <p class="empty">Sin operaciones virtuales en este turno.</p> }
+        </div>
+      }
+      <ng-template pTemplate="footer"><p-button label="Finalizar auditoría" icon="pi pi-check" (onClick)="finalizeAudit()" /></ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -351,6 +420,14 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .ablock .kv.diff { border-top: 1px solid #1c2c44; margin-top: 0.2rem; padding-top: 0.4rem; } .ablock .kv.diff.pos b { color: #34d399; } .ablock .kv.diff.neg b { color: #f87171; } .ablock .kv.diff.ok b { color: #34d399; }
       .ablock .note { font-size: 0.74rem; color: #8aa0bd; margin: 0.5rem 0 0; display: flex; gap: 0.4rem; }
       @media (max-width: 720px) { .audit2 { grid-template-columns: 1fr; } }
+      .ablock.virt { margin-bottom: 1rem; } .ablock.virt h3 { display: flex; align-items: center; gap: 0.4rem; }
+      .vsum { display: flex; flex-wrap: wrap; gap: 0.9rem; font-size: 0.82rem; margin: 0.5rem 0; } .vsum .ok { color: #34d399; } .vsum .pend { color: #60a5fa; } .vsum .warn { color: #f59e0b; } .vsum .diff { font-weight: 700; color: #f59e0b; } .vsum .diff.ok { color: #34d399; }
+      .agroups { display: flex; flex-direction: column; gap: 0.6rem; max-height: 55vh; overflow-y: auto; }
+      .agroup { border: 1px solid #243245; border-radius: 9px; padding: 0.6rem 0.8rem; background: #131d2b; } .agroup.dup { border-color: #b45309; }
+      .ag-head { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; } .ag-code { font-size: 0.9rem; } .ag-code .dupt { color: #f59e0b; font-size: 0.7rem; margin-left: 0.4rem; } .ag-amt { color: #8aa0bd; font-size: 0.82rem; margin-left: auto; }
+      .ag-items { margin: 0.4rem 0; border-top: 1px dashed #1c2c44; padding-top: 0.35rem; } .ag-it { display: flex; justify-content: space-between; font-size: 0.8rem; padding: 0.1rem 0; color: #cbd5e1; } .ag-it span { color: #8aa0bd; }
+      .ag-actions { display: flex; gap: 0.9rem; } .ag-edit { display: flex; gap: 0.5rem; align-items: center; } .ag-ok { color: #34d399; font-weight: 700; font-size: 0.85rem; }
+      :host ::ng-deep .ag-edit input[pInputText] { flex: 1; }
       .vdet { display: flex; flex-direction: column; gap: 0.3rem; } .vrow { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.85rem; padding: 0.15rem 0; } .vrow span { color: #8aa0bd; }
       .vsub { margin-top: 0.6rem; font-size: 0.72rem; text-transform: uppercase; color: #8aa0bd; border-top: 1px dashed #1c2c44; padding-top: 0.45rem; }
       .vtbl { width: 100%; border-collapse: collapse; margin-top: 0.3rem; } .vtbl th, .vtbl td { padding: 0.35rem 0.5rem; border-bottom: 1px solid #16233a; font-size: 0.8rem; text-align: left; } .vtbl .r { text-align: right; } .vtbl .c { text-align: center; } .vtbl th { color: #8aa0bd; font-weight: 600; font-size: 0.7rem; } .vtbl tfoot td { border-bottom: 0; }
@@ -421,6 +498,11 @@ export class CashMovementsPageComponent implements OnInit {
     { key: 'PLIN', label: 'Plin', color: '#34d399' }, { key: 'OTROS', label: 'Otros', color: '#fbbf24' },
   ];
   ajustesVisible = false; // modal de composición de ajustes
+  // Auditoría de medios virtuales
+  readonly vaudit = signal<VAudit | null>(null);
+  auditVisible = false;
+  readonly auditingCode = signal<string>(''); // grupo en edición de código (method|code)
+  auditCodeInput = '';
 
   // VER detalle
   detailModalVisible = false;
@@ -468,9 +550,12 @@ export class CashMovementsPageComponent implements OnInit {
     if (!this.sessionId) { this.loading.set(false); return; }
     this.loading.set(true);
     this.finance.sessionDetail(this.sessionId).subscribe({
-      next: (r) => { this.detail.set(r.data); this.loading.set(false); if (r.data?.session?.status && r.data.session.status !== 'OPEN') this.loadRecon(this.sessionId); },
+      next: (r) => { this.detail.set(r.data); this.loading.set(false); if (r.data?.session?.status && r.data.session.status !== 'OPEN') this.loadRecon(this.sessionId); this.loadVAudit(); },
       error: () => { this.loading.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar la caja.' }); },
     });
+  }
+  private loadVAudit(): void {
+    this.http.get<ApiResponse<VAudit>>(`${this.api}/cash/sessions/${this.sessionId}/virtual-audit`).subscribe({ next: (r) => this.vaudit.set(r.data), error: () => this.vaudit.set(null) });
   }
   private loadRecon(id: string): void { this.http.get<ApiResponse<ReconSummary>>(`${this.api}/cash/${id}/reconciliation`).subscribe({ next: (r) => this.recon.set(r.data), error: () => {} }); }
 
@@ -540,6 +625,30 @@ export class CashMovementsPageComponent implements OnInit {
     ]);
     downloadCsv(`caja-${d.session.number ?? 'mov'}-movimientos`, ['Hora', 'Habitación', 'Tipo', 'Descripción', 'Monto', 'Método', 'Estado'], rows);
   }
+
+  // ── Auditoría de medios virtuales (Etapa 2 display + Etapa 3 acciones) ──
+  openAudit(): void { this.auditingCode.set(''); this.auditCodeInput = ''; this.auditVisible = true; }
+  vAuditKey(g: VAuditGroup): string { return `${g.method}|${g.code ?? ''}`; }
+  vStateLabel(s: string): string { return ({ VERIFICADO: '✓ OK', PENDIENTE: 'Pendiente', SIN_CODIGO: 'Sin código', EN_REVISION: 'En revisión' } as Record<string, string>)[s] ?? s; }
+  vStateClass(s: string): string { return ({ VERIFICADO: 'ok', PENDIENTE: 'pend', SIN_CODIGO: 'warn', EN_REVISION: 'warn' } as Record<string, string>)[s] ?? ''; }
+  vDiffLabel(diff: number): string { return diff === 0 ? '✓ CUADRADO' : `S/ ${diff.toFixed(2)} DIFERENCIA`; }
+  private auditAction(body: { paymentIds?: string[]; method?: string; code?: string; action: 'VERIFY' | 'SET_CODE' | 'REVIEW'; newCode?: string }): void {
+    this.busy.set(true);
+    this.http.post<ApiResponse<VAudit>>(`${this.api}/cash/sessions/${this.sessionId}/virtual-audit/verify`, body).subscribe({
+      next: (r) => { this.busy.set(false); this.vaudit.set(r.data); this.auditingCode.set(''); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo auditar.' }); },
+    });
+  }
+  verifyGroup(g: VAuditGroup): void { this.auditAction({ method: g.method, code: g.code ?? undefined, action: 'VERIFY' }); }
+  reviewGroup(g: VAuditGroup): void { this.auditAction({ method: g.method, code: g.code ?? undefined, action: 'REVIEW' }); }
+  startSetCode(g: VAuditGroup): void { this.auditingCode.set(this.vAuditKey(g)); this.auditCodeInput = g.code ?? ''; }
+  confirmSetCode(g: VAuditGroup): void {
+    if (!this.auditCodeInput.trim()) { this.messages.add({ severity: 'warn', summary: 'Código', detail: 'Ingresa el código.' }); return; }
+    // Para grupos sin código, corregimos por los ids de sus pagos; con código, por método+código.
+    if (g.code) this.auditAction({ method: g.method, code: g.code, action: 'SET_CODE', newCode: this.auditCodeInput.trim() });
+    else this.auditAction({ paymentIds: g.items.map((i) => i.paymentId), action: 'SET_CODE', newCode: this.auditCodeInput.trim() });
+  }
+  finalizeAudit(): void { this.loadVAudit(); this.auditVisible = false; this.messages.add({ severity: 'success', summary: 'Auditoría', detail: 'Auditoría actualizada.' }); }
 
   // ── Etapa 3/4 — ventas no registradas y regularizaciones ──
   verifyLabel(v: string): string { return ({ REGULARIZADA: 'Regularizada', POR_VERIFICAR: 'Por verificar', NO_COBRADA: 'No cobrada' } as Record<string, string>)[v] ?? v; }
