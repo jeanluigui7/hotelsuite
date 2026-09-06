@@ -598,7 +598,7 @@ export class CashMovementsPageComponent implements OnInit {
   // ── Cabecera / resumen ──
   private readonly DIAS = ['DOM', 'LUN', 'MAR', 'MIE', 'JUE', 'VIE', 'SAB'];
   private readonly MESES = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
-  diaTurno(v: string): string { const d = new Date(v); const h = d.getHours() * 60 + d.getMinutes(); const t = h >= 22 * 60 + 30 || h < 6 * 60 + 30 ? 'NOCHE' : h < 14 * 60 ? 'MAÑANA' : 'TARDE'; return `${this.DIAS[d.getDay()]} ${String(d.getDate()).padStart(2, '0')} ${this.MESES[d.getMonth()]} · ${t}`; }
+  diaTurno(v: string): string { const d = new Date(v); const h = d.getHours() * 60 + d.getMinutes(); const t = h >= 22 * 60 + 30 || h < 6 * 60 ? 'NOCHE' : h < 14 * 60 ? 'MAÑANA' : 'TARDE'; return `${this.DIAS[d.getDay()]} ${String(d.getDate()).padStart(2, '0')} ${this.MESES[d.getMonth()]} · ${t}`; }
   estadoLabel(s: string): string { return ({ OPEN: 'Abierta', CLOSED: 'Cerrada', AJUSTADA: 'Ajustada' } as Record<string, string>)[s] ?? s; }
   methodAmount(d: CashDetail, key: string): number {
     const bm = d.methodBar.byMethod;

@@ -16,7 +16,7 @@ import { shiftOf } from '../services/cuadre-ticket';
 type Registro = 'MOVEMENT' | 'EXTRAORDINARY';
 type Metodo = 'CASH' | 'CARD' | 'TRANSFER' | 'YAPE' | 'PLIN' | 'WALLET';
 
-const TURNO_RANGE: Record<string, string> = { 'MAÑANA': '06:30 - 14:00', TARDE: '14:00 - 22:30', NOCHE: '22:30 - 06:30' };
+const TURNO_RANGE: Record<string, string> = { 'MAÑANA': '06:00 - 14:00', TARDE: '14:00 - 22:30', NOCHE: '22:30 - 06:00' };
 
 @Component({
   selector: 'app-movement-dialog',

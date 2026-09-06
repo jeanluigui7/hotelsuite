@@ -26,13 +26,15 @@ const ticketMedio = (m: string): string =>
   ({ CASH: 'EFEC', CARD: 'TARJ', TRANSFER: 'TRAN', YAPE: 'YAPE', PLIN: 'PLIN', WALLET: 'BILL' } as Record<string, string>)[m] ?? m.slice(0, 4);
 
 /**
- * Turno según el horario operativo. NOCHE: 22:30 → 06:30 del día siguiente; MAÑANA: 06:30 → 14:00;
+ * Turno según el horario operativo. NOCHE: 22:30 → 06:00 del día siguiente; MAÑANA: 06:00 → 14:00;
  * TARDE: 14:00 → 22:30. El día del ticket corresponde SIEMPRE a la hora de apertura del turno.
+ * El corte MAÑANA arranca a las 06:00 para que una apertura de mañana temprano (p. ej. 06:29) no
+ * quede clasificada como NOCHE por abrir unos minutos antes del relevo.
  */
 export function shiftOf(openedAt: string | Date): 'MAÑANA' | 'TARDE' | 'NOCHE' {
   const d = new Date(openedAt);
   const mins = d.getHours() * 60 + d.getMinutes();
-  if (mins >= 22 * 60 + 30 || mins < 6 * 60 + 30) return 'NOCHE';
+  if (mins >= 22 * 60 + 30 || mins < 6 * 60) return 'NOCHE';
   if (mins < 14 * 60) return 'MAÑANA';
   return 'TARDE';
 }
