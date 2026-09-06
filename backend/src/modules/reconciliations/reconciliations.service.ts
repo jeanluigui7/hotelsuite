@@ -5,6 +5,7 @@ import { ValidationError, NotFoundError, ConflictError } from '../../shared/erro
 import { prisma } from '../../config/prisma';
 import { applyStockTx, createMovementTx } from '../movements/movements.repository';
 import { cashRepository } from '../cash/cash.repository';
+import { operationsConfigService, commissionSnapshot } from '../operations-config/operations-config.service';
 import { requiresReference, PAYMENT_REFERENCE_REQUIRED } from '../../shared/payments';
 
 /**
@@ -177,6 +178,9 @@ export const reconciliationsService = {
     const unitCost = product.cost != null ? Number(product.cost) : null;
     const verifyStatus = VERIFY_STATUS[dto.classification];
     const noteBase = dto.note?.trim() || 'Venta no registrada';
+    // Snapshot de comisión POS congelado al cobrar (solo si es COBRADA con medio).
+    const opsCfg = await operationsConfigService.get(scope);
+    const snap = dto.classification === 'COBRADA' && dto.method ? commissionSnapshot(opsCfg, dto.method, total) : null;
 
     const result = await prisma.$transaction(async (tx) => {
       await applyStockTx(tx, dto.productId, wh.id, -dto.quantity);
@@ -195,7 +199,7 @@ export const reconciliationsService = {
           items: { create: [{ productId: dto.productId, description: noteBase, quantity: dto.quantity, unitPrice: dto.unitPrice, unitCost, subtotal: total }] },
           // COBRADA: registra el pago con su medio y código (si es virtual) en el turno de origen.
           ...(cobrada && dto.method
-            ? { payments: { create: [{ branchId, method: dto.method, amount: total, reference: dto.reference?.trim() || null, cashSessionId: session.id, createdByUserId: scope.userId }] } }
+            ? { payments: { create: [{ branchId, method: dto.method, amount: total, reference: dto.reference?.trim() || null, cashSessionId: session.id, createdByUserId: scope.userId, commissionPct: snap?.commissionPct ?? null, commissionAmount: snap?.commissionAmount ?? null, grossCharged: snap?.grossCharged ?? null }] } }
             : {}),
         },
       });

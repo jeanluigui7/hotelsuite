@@ -12,6 +12,7 @@ import { prisma } from '../../config/prisma';
 import { cashRepository } from '../cash/cash.repository';
 import { productsRepository } from '../products/products.repository';
 import { changeCreditsService } from '../change-credits/change-credits.service';
+import { operationsConfigService, commissionSnapshot } from '../operations-config/operations-config.service';
 import {
   salesRepository,
   type SaleLineInput,
@@ -121,10 +122,16 @@ export const salesService = {
 
     const goodsTotal = round(lines.reduce((acc, l) => acc + l.subtotal, 0));
 
-    // La comisión POS (5% de tarjeta) NO es ingreso del negocio: la retiene el proveedor. Solo se
-    // muestra en pantalla al cobrar (para saber cuánto cargar en el POS). El sistema registra el
-    // pago NETO tal como lo envía el frontend, sin sumar la comisión ni crear una línea "Comisión POS".
-    const payments: SalePaymentInput[] = dto.payments.map((p) => ({ method: p.method, amount: round(p.amount), reference: p.reference || null }));
+    // La comisión POS (5% de tarjeta) NO es ingreso del negocio: la retiene el proveedor. El sistema
+    // registra el pago NETO, pero congela en cada pago un SNAPSHOT de la comisión vigente al cobrar
+    // (%, monto y total cobrado en POS) para auditoría/conciliación histórica que no dependa de la
+    // tasa futura de Configuración Operativa.
+    const opsCfg = await operationsConfigService.get(scope);
+    const payments: SalePaymentInput[] = dto.payments.map((p) => {
+      const amount = round(p.amount);
+      const snap = commissionSnapshot(opsCfg, p.method, amount);
+      return { method: p.method, amount, reference: p.reference || null, commissionPct: snap.commissionPct, commissionAmount: snap.commissionAmount, grossCharged: snap.grossCharged };
+    });
 
     const total = round(goodsTotal);
     const paid = round(payments.reduce((acc, p) => acc + p.amount, 0));

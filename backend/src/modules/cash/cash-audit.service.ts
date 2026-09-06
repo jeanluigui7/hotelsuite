@@ -12,9 +12,9 @@ import { prisma } from '../../config/prisma';
 const VIRTUAL = ['CARD', 'TRANSFER', 'YAPE', 'PLIN', 'WALLET'];
 const round = (n: number): number => Math.round(n * 100) / 100;
 
-interface AuditItem { paymentId: string; saleId: string; concept: string; amount: number; time: Date; }
+interface AuditItem { paymentId: string; saleId: string; concept: string; amount: number; gross: number; commission: number; time: Date; }
 interface AuditGroup {
-  method: string; code: string | null; amount: number; ops: number;
+  method: string; code: string | null; amount: number; grossAmount: number; commissionAmount: number; ops: number;
   state: 'VERIFICADO' | 'PENDIENTE' | 'SIN_CODIGO' | 'EN_REVISION'; duplicate: boolean;
   lastTime: Date; states: Set<string>; items: AuditItem[];
 }
@@ -41,9 +41,18 @@ export const cashAuditService = {
     const pays = await loadVirtualPayments(branchId, sessionId);
 
     // Esperado virtual por método (= byMethod de virtuales; no incluye efectivo ni vuelto).
+    // Neto = lo que registra el sistema; Bruto = lo realmente cobrado en POS (snapshot histórico
+    // neto + comisión). Sin snapshot, el bruto cae al neto (no se reconstruye con la tasa vigente).
     const esperadoByMethod: Record<string, number> = {};
-    for (const p of pays) esperadoByMethod[p.method] = round((esperadoByMethod[p.method] ?? 0) + Number(p.amount));
+    const grossByMethod: Record<string, number> = {};
+    const grossOf = (p: (typeof pays)[number]): number => (p.grossCharged != null ? Number(p.grossCharged) : Number(p.amount));
+    const commOf = (p: (typeof pays)[number]): number => (p.commissionAmount != null ? Number(p.commissionAmount) : 0);
+    for (const p of pays) {
+      esperadoByMethod[p.method] = round((esperadoByMethod[p.method] ?? 0) + Number(p.amount));
+      grossByMethod[p.method] = round((grossByMethod[p.method] ?? 0) + grossOf(p));
+    }
     const esperadoTotal = round(Object.values(esperadoByMethod).reduce((a, b) => a + b, 0));
+    const grossTotal = round(Object.values(grossByMethod).reduce((a, b) => a + b, 0));
 
     // Agrupar por método + código (código vacío = SIN_CODIGO, cada pago en su propio grupo).
     const groupsMap = new Map<string, AuditGroup>();
@@ -51,12 +60,14 @@ export const cashAuditService = {
       const code = (p.reference ?? '').trim() || null;
       const key = code ? `${p.method}|${code}` : `${p.method}|__nocode__|${p.id}`;
       let g = groupsMap.get(key);
-      if (!g) { g = { method: p.method, code, amount: 0, ops: 0, state: 'PENDIENTE', duplicate: false, lastTime: p.createdAt, states: new Set(), items: [] }; groupsMap.set(key, g); }
+      if (!g) { g = { method: p.method, code, amount: 0, grossAmount: 0, commissionAmount: 0, ops: 0, state: 'PENDIENTE', duplicate: false, lastTime: p.createdAt, states: new Set(), items: [] }; groupsMap.set(key, g); }
       g.amount = round(g.amount + Number(p.amount));
+      g.grossAmount = round(g.grossAmount + grossOf(p));
+      g.commissionAmount = round(g.commissionAmount + commOf(p));
       g.ops += 1;
       g.states.add(p.verifyState ?? 'PENDIENTE');
       if (p.createdAt > g.lastTime) g.lastTime = p.createdAt;
-      g.items.push({ paymentId: p.id, saleId: p.saleId, concept: conceptOf(p.sale.items), amount: Number(p.amount), time: p.createdAt });
+      g.items.push({ paymentId: p.id, saleId: p.saleId, concept: conceptOf(p.sale.items), amount: Number(p.amount), gross: grossOf(p), commission: commOf(p), time: p.createdAt });
     }
     // Estado derivado por grupo.
     for (const g of groupsMap.values()) {
@@ -80,12 +91,14 @@ export const cashAuditService = {
     const enRevisionCount = groups.filter((g) => g.state === 'EN_REVISION').length;
     const difference = round(esperadoTotal - verifiedAmount);
 
+    const commissionTotal = round(grossTotal - esperadoTotal);
+
     return {
-      esperado: { byMethod: esperadoByMethod, total: esperadoTotal },
+      esperado: { byMethod: esperadoByMethod, total: esperadoTotal, grossByMethod, grossTotal, commissionTotal },
       groups: groups
         .sort((a, b) => b.lastTime.getTime() - a.lastTime.getTime())
         .map((g) => ({
-          method: g.method, code: g.code, amount: g.amount, ops: g.ops, state: g.state, duplicate: g.duplicate,
+          method: g.method, code: g.code, amount: g.amount, grossAmount: g.grossAmount, commissionAmount: g.commissionAmount, ops: g.ops, state: g.state, duplicate: g.duplicate,
           items: g.items.sort((x, y) => y.time.getTime() - x.time.getTime()),
         })),
       summary: { verifiedAmount, verifiedOps, pendingAmount, sinCodigoCount, duplicateCount, enRevisionCount, difference },

@@ -8,7 +8,7 @@ import {
   type PaginationParams,
 } from '../../shared/pagination';
 import { requireActiveBranch } from '../../shared/scope';
-import { operationsConfigService, requireReceptionFlag } from '../operations-config/operations-config.service';
+import { operationsConfigService, requireReceptionFlag, commissionSnapshot } from '../operations-config/operations-config.service';
 import { prisma } from '../../config/prisma';
 import { guestsRepository } from '../guests/guests.repository';
 import { pernoctaService } from '../pernocta/pernocta.service';
@@ -455,8 +455,9 @@ export const staysService = {
     const sessionId: string | null = session.id;
     const ref = dto.mode === 'HOURS' ? 'Tiempo extra (horas)' : 'Renovación de estadía';
 
-    // La comisión POS (5% tarjeta) NO es ingreso del negocio (la retiene el proveedor): solo se
-    // muestra al cobrar. Se registra el pago NETO tal cual, sin línea "Comisión POS".
+    // La comisión POS (5% tarjeta) NO es ingreso del negocio (la retiene el proveedor): se registra el
+    // pago NETO, congelando en cada pago el snapshot de comisión vigente al cobrar (auditoría histórica).
+    const renewCfg = await operationsConfigService.get(scope);
     const adjPayments = payments;
     const saleTotal = round2(price);
     const paidWithComm = round2(adjPayments.reduce((a, p) => a + p.amount, 0));
@@ -483,7 +484,7 @@ export const staysService = {
           // PAID solo si se cubrió todo; parcial o diferido quedan OPEN (el saldo es deuda).
           status: saleTotal > 0 && paidWithComm >= saleTotal ? 'PAID' : 'OPEN', cashSessionId: sessionId, createdByUserId: scope.userId,
           items: { create: saleItems },
-          ...(adjPayments.length ? { payments: { create: adjPayments.map((p) => ({ branchId, method: p.method, amount: round2(p.amount), reference: p.reference || null, cashSessionId: sessionId, createdByUserId: scope.userId })) } } : {}),
+          ...(adjPayments.length ? { payments: { create: adjPayments.map((p) => { const amt = round2(p.amount); const snap = commissionSnapshot(renewCfg, p.method, amt); return { branchId, method: p.method, amount: amt, reference: p.reference || null, cashSessionId: sessionId, createdByUserId: scope.userId, commissionPct: snap.commissionPct, commissionAmount: snap.commissionAmount, grossCharged: snap.grossCharged }; }) } } : {}),
         },
       }),
     ]);
@@ -518,7 +519,9 @@ export const staysService = {
     if (pending <= 0) throw new ValidationError('Esta estancia no tiene pendiente por cobrar.');
     if (amount > pending + 0.001) throw new ValidationError(`El cobro (S/ ${amount.toFixed(2)}) excede el pendiente (S/ ${pending.toFixed(2)}).`);
 
-    // La comisión POS NO es ingreso del negocio: se muestra solo al cobrar, no se registra.
+    // La comisión POS NO es ingreso del negocio: se registra el pago NETO, congelando el snapshot de
+    // comisión vigente al cobrar en cada pago (auditoría histórica independiente de la tasa futura).
+    const settleCfg = await operationsConfigService.get(scope);
     let remaining = amount;
     await prisma.$transaction(async (tx) => {
       for (const s of openSales) {
@@ -527,7 +530,8 @@ export const staysService = {
         const saldo = round2(Number(s.total) - paid);
         if (saldo <= 0) continue;
         const pay = round2(Math.min(saldo, remaining));
-        await tx.payment.create({ data: { branchId, saleId: s.id, method: dto.method, amount: pay, reference: dto.reference || null, cashSessionId: session.id, createdByUserId: scope.userId } });
+        const snap = commissionSnapshot(settleCfg, dto.method, pay);
+        await tx.payment.create({ data: { branchId, saleId: s.id, method: dto.method, amount: pay, reference: dto.reference || null, cashSessionId: session.id, createdByUserId: scope.userId, commissionPct: snap.commissionPct, commissionAmount: snap.commissionAmount, grossCharged: snap.grossCharged } });
         if (paid + pay >= Number(s.total) - 0.001) await tx.sale.update({ where: { id: s.id }, data: { status: 'PAID' } });
         remaining = round2(remaining - pay);
       }

@@ -173,6 +173,22 @@ export function posRateOf(cfg: OperationsConfig, method: string): number {
   return m && m.enabled ? m.pct : 0;
 }
 
+/**
+ * Snapshot de comisión POS a CONGELAR en el Payment al momento de cobrar. Usa la tasa vigente de la
+ * Configuración Operativa (solo para pagos NUEVOS). `netAmount` = monto neto que recibe el negocio.
+ * Devuelve el % aplicado, el monto de comisión y el total cobrado al cliente (neto + comisión).
+ */
+export function commissionSnapshot(
+  cfg: OperationsConfig,
+  method: string,
+  netAmount: number,
+): { commissionPct: number; commissionAmount: number; grossCharged: number } {
+  const pct = posRateOf(cfg, method);
+  const commissionAmount = Math.round(netAmount * pct) / 100; // netAmount * (pct/100), redondeado a céntimos
+  const grossCharged = Math.round((netAmount + commissionAmount) * 100) / 100;
+  return { commissionPct: pct, commissionAmount, grossCharged };
+}
+
 /** Administración (CEO/Gerente/Admin) conserva acceso independientemente de los switches. */
 function isAdminScope(scope: RequestScope): boolean {
   return scope.isSuperAdmin || scope.permissions.includes('settings:edit');

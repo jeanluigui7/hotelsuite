@@ -5,7 +5,7 @@ import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { cashRepository } from './cash.repository';
 import { PAYMENT_METHODS, requiresReference, PAYMENT_REFERENCE_REQUIRED } from '../../shared/payments';
-import { operationsConfigService, posRateOf } from '../operations-config/operations-config.service';
+import { operationsConfigService, commissionSnapshot } from '../operations-config/operations-config.service';
 import type { CloseCashDto, MovementDto, OpenCashDto } from './cash.schema';
 
 interface RegularizeDebtDto {
@@ -233,15 +233,18 @@ export const cashService = {
       const names = await cashRepository.userNames([sale.createdByUserId].filter((x): x is string => !!x));
       const session = sale.cashSessionId ? await cashRepository.findById(sale.cashSessionId) : null;
       const history = await this.buildHistory(sale.id);
-      // Comisión POS: el sistema guarda el pago NETO (lo que recibe el negocio), pero al cobrar en el
-      // POS al cliente se le carga NETO + comisión. La comisión no se persiste; se recalcula con la tasa
-      // vigente de la Configuración Operativa para mostrar, como referencia, el cobro original.
-      const cfg = await operationsConfigService.get(scope);
+      // Comisión POS: se muestra el SNAPSHOT congelado al cobrar (neto + comisión = total cobrado en
+      // POS). NO se recalcula con la tasa vigente: los pagos históricos sin snapshot muestran solo el
+      // neto (dato de comisión desconocido, no se reconstruye con la configuración actual).
       const payments = sale.payments.map((p) => {
         const amount = Number(p.amount);
-        const pct = posRateOf(cfg, p.method);
-        const commission = round((amount * pct) / 100);
-        return { method: p.method, amount, code: p.reference ?? null, time: p.createdAt, commissionPct: pct, commission, grossCharged: round(amount + commission) };
+        const hasSnap = p.grossCharged != null;
+        return {
+          method: p.method, amount, code: p.reference ?? null, time: p.createdAt,
+          commissionPct: hasSnap ? Number(p.commissionPct ?? 0) : null,
+          commission: hasSnap ? Number(p.commissionAmount ?? 0) : null,
+          grossCharged: hasSnap ? Number(p.grossCharged) : null,
+        };
       });
       return {
         kind: 'SALE' as const,
@@ -334,6 +337,8 @@ export const cashService = {
       if (!target) throw new ConflictError('No hay caja abierta para cobrar ahora. Abre caja o marca "ya fue pagado en el turno original".');
     }
     const when = mode === 'HISTORICAL' ? (dto.paidAt ? new Date(dto.paidAt) : target.openedAt) : new Date();
+    // Snapshot de comisión POS congelado al cobrar (misma tasa vigente que usaría el POS).
+    const opsCfg = await operationsConfigService.get(scope);
 
     const result = await prisma.$transaction(async (tx) => {
       if (dto.saleId) {
@@ -343,7 +348,8 @@ export const cashService = {
         const saldo = Math.round((Number(sale.total) - paid) * 100) / 100;
         if (saldo <= 0) throw new ConflictError('La venta ya está pagada');
         const pay = Math.min(dto.amount, saldo);
-        await tx.payment.create({ data: { branchId, saleId: sale.id, method: dto.method, amount: pay, reference: ref, cashSessionId: target.id, createdByUserId: scope.userId, createdAt: when } });
+        const snap = commissionSnapshot(opsCfg, dto.method, pay);
+        await tx.payment.create({ data: { branchId, saleId: sale.id, method: dto.method, amount: pay, reference: ref, cashSessionId: target.id, createdByUserId: scope.userId, createdAt: when, commissionPct: snap.commissionPct, commissionAmount: snap.commissionAmount, grossCharged: snap.grossCharged } });
         if (paid + pay >= Number(sale.total) - 0.001) await tx.sale.update({ where: { id: sale.id }, data: { status: 'PAID' } });
         return { saleId: sale.id, amount: pay };
       }
@@ -355,12 +361,13 @@ export const cashService = {
       const price = Math.round(Number(stay.priceAgreed) * 100) / 100;
       const pay = Math.min(dto.amount, price);
       const desc = `Tarifa: ${stay.rate?.label || 'Hospedaje'}`;
+      const snap = commissionSnapshot(opsCfg, dto.method, pay);
       const sale = await tx.sale.create({
         data: {
           branchId, stayId: stay.id, cashSessionId: target.id, total: price, createdAt: when,
           status: pay >= price - 0.001 ? 'PAID' : 'OPEN', createdByUserId: scope.userId,
           items: { create: [{ description: desc, quantity: 1, unitPrice: price, subtotal: price }] },
-          payments: { create: [{ branchId, method: dto.method, amount: pay, reference: ref, cashSessionId: target.id, createdByUserId: scope.userId, createdAt: when }] },
+          payments: { create: [{ branchId, method: dto.method, amount: pay, reference: ref, cashSessionId: target.id, createdByUserId: scope.userId, createdAt: when, commissionPct: snap.commissionPct, commissionAmount: snap.commissionAmount, grossCharged: snap.grossCharged }] },
         },
       });
       return { saleId: sale.id, amount: pay };
@@ -658,7 +665,7 @@ export const cashService = {
     // Detalle de pagos virtuales (para el ticket físico: MEDIO/HORA/MONTO/CLI/CONC/COD y marca de pago mixto).
     const VIRTUAL = new Set(['CARD', 'TRANSFER', 'YAPE', 'PLIN', 'WALLET']);
     const virtualPayments: {
-      method: string; time: Date; amount: number; client: string; concept: string; code: string; mixed: boolean;
+      method: string; time: Date; amount: number; commission: number; gross: number; client: string; concept: string; code: string; mixed: boolean;
     }[] = [];
     for (const sale of sales) {
       if (sale.status === 'CANCELLED') continue;
@@ -670,10 +677,13 @@ export const cashService = {
       const client = (info?.guest || sale.customerName || 'Venta').trim();
       for (const p of sale.payments) {
         if (!VIRTUAL.has(p.method)) continue;
+        const pAmount = Number(p.amount);
         virtualPayments.push({
           method: p.method,
           time: p.createdAt,
-          amount: Number(p.amount),
+          amount: pAmount,
+          commission: p.commissionAmount != null ? Number(p.commissionAmount) : 0,
+          gross: p.grossCharged != null ? Number(p.grossCharged) : pAmount,
           client,
           concept,
           code: p.reference ?? '',

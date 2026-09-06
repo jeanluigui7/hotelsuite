@@ -20,9 +20,9 @@ import { downloadCsv } from '../../../core/utils/export';
 
 interface ReconItem { id: string; at: string; type: string; amount: number; affectsCash: boolean; quantity: number | null; note: string | null; by: string | null; approvedBy: string | null; }
 interface ReconSummary { expected: number | null; declared: number | null; originalDifference: number; pendingDifference: number; reconciliations: ReconItem[]; }
-interface VAuditItem { paymentId: string; saleId: string; concept: string; amount: number; time: string; }
-interface VAuditGroup { method: string; code: string | null; amount: number; ops: number; state: 'VERIFICADO' | 'PENDIENTE' | 'SIN_CODIGO' | 'EN_REVISION'; duplicate: boolean; items: VAuditItem[]; }
-interface VAudit { esperado: { byMethod: Record<string, number>; total: number }; groups: VAuditGroup[]; summary: { verifiedAmount: number; verifiedOps: number; pendingAmount: number; sinCodigoCount: number; duplicateCount: number; enRevisionCount: number; difference: number }; }
+interface VAuditItem { paymentId: string; saleId: string; concept: string; amount: number; gross: number; commission: number; time: string; }
+interface VAuditGroup { method: string; code: string | null; amount: number; grossAmount: number; commissionAmount: number; ops: number; state: 'VERIFICADO' | 'PENDIENTE' | 'SIN_CODIGO' | 'EN_REVISION'; duplicate: boolean; items: VAuditItem[]; }
+interface VAudit { esperado: { byMethod: Record<string, number>; total: number; grossByMethod?: Record<string, number>; grossTotal?: number; commissionTotal?: number }; groups: VAuditGroup[]; summary: { verifiedAmount: number; verifiedOps: number; pendingAmount: number; sinCodigoCount: number; duplicateCount: number; enRevisionCount: number; difference: number }; }
 
 const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera', MIXTO: 'Mixto', PENDIENTE: 'Pendiente' };
 const TYPE_LABEL: Record<string, string> = { HOSPEDAJE: 'Hospedaje', RENOVACION: 'Pago Renovación', PRODUCTO: 'Venta Producto', SERVICIO: 'Servicio', INGRESO: 'Ingreso', EGRESO: 'Egreso', DEUDA: 'Deuda' };
@@ -362,22 +362,25 @@ const TYPE_COLOR: Record<string, [string, string]> = {
     <p-dialog [(visible)]="auditVisible" [modal]="true" [style]="{ width: '52rem', maxWidth: '97vw' }" header="Auditar medios de pago virtuales">
       @if (vaudit(); as va) {
         <div class="vsum" style="margin-bottom:.7rem">
-          <span>Total esperado: <b>S/ {{ va.esperado.total | number: '1.2-2' }}</b></span>
+          <span>Total esperado (neto): <b>S/ {{ va.esperado.total | number: '1.2-2' }}</b></span>
           <span class="ok">Verificado: S/ {{ va.summary.verifiedAmount | number: '1.2-2' }}</span>
           <span class="pend">Pendiente: S/ {{ va.summary.pendingAmount | number: '1.2-2' }}</span>
           <span class="diff" [class.ok]="va.summary.difference === 0">{{ vDiffLabel(va.summary.difference) }}</span>
         </div>
-        <p class="muted sm">Operaciones agrupadas por método + código. Si un mismo código cubre varias líneas, aparecen juntas (un solo pago).</p>
+        @if (va.esperado.commissionTotal) {
+          <div class="vsum posbar" style="margin-bottom:.7rem"><span>Cobrado en POS (neto + comisión): <b>S/ {{ va.esperado.grossTotal | number: '1.2-2' }}</b></span><span class="muted">Comisión POS retenida: S/ {{ va.esperado.commissionTotal | number: '1.2-2' }}</span></div>
+        }
+        <p class="muted sm">Operaciones agrupadas por método + código. Si un mismo código cubre varias líneas, aparecen juntas (un solo pago). El neto es lo que recibe el negocio; "POS" es lo realmente cargado al cliente (snapshot al cobrar).</p>
         <div class="agroups">
           @for (g of va.groups; track vAuditKey(g)) {
             <div class="agroup" [class.dup]="g.duplicate">
               <div class="ag-head">
                 <span class="ag-code">{{ methodLabel(g.method) }} — <b>{{ g.code || 'SIN CÓDIGO' }}</b>@if (g.duplicate) { <span class="dupt">duplicado</span> }</span>
-                <span class="ag-amt">S/ {{ g.amount | number: '1.2-2' }} · {{ g.ops }} op(s)</span>
+                <span class="ag-amt">S/ {{ g.amount | number: '1.2-2' }}@if (g.commissionAmount) { <span class="posit">· POS S/ {{ g.grossAmount | number: '1.2-2' }}</span> } · {{ g.ops }} op(s)</span>
                 <span class="est {{ vStateClass(g.state) }}">{{ vStateLabel(g.state) }}</span>
               </div>
               <div class="ag-items">
-                @for (it of g.items; track it.paymentId) { <div class="ag-it"><span>{{ it.time | date: 'HH:mm' }} · {{ it.concept }}</span><b>S/ {{ it.amount | number: '1.2-2' }}</b></div> }
+                @for (it of g.items; track it.paymentId) { <div class="ag-it"><span>{{ it.time | date: 'HH:mm' }} · {{ it.concept }}</span><b>S/ {{ it.amount | number: '1.2-2' }}@if (it.commission) { <em class="posit"> · POS S/ {{ it.gross | number: '1.2-2' }}</em> }</b></div> }
               </div>
               @if (canEdit && g.state !== 'VERIFICADO') {
                 @if (auditingCode() === vAuditKey(g)) {
@@ -425,6 +428,8 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       @media (max-width: 720px) { .audit2 { grid-template-columns: 1fr; } }
       .ablock.virt { margin-bottom: 1rem; } .ablock.virt h3 { display: flex; align-items: center; gap: 0.4rem; }
       .vsum { display: flex; flex-wrap: wrap; gap: 0.9rem; font-size: 0.82rem; margin: 0.5rem 0; } .vsum .ok { color: #34d399; } .vsum .pend { color: #60a5fa; } .vsum .warn { color: #f59e0b; } .vsum .diff { font-weight: 700; color: #f59e0b; } .vsum .diff.ok { color: #34d399; }
+      .vsum.posbar { padding: 0.45rem 0.7rem; background: rgba(96,165,250,0.08); border: 1px solid rgba(96,165,250,0.25); border-radius: 8px; } .vsum.posbar b { color: #93c5fd; }
+      .posit { color: #93c5fd; font-style: normal; font-weight: 600; }
       .agroups { display: flex; flex-direction: column; gap: 0.6rem; max-height: 55vh; overflow-y: auto; }
       .agroup { border: 1px solid #243245; border-radius: 9px; padding: 0.6rem 0.8rem; background: #131d2b; } .agroup.dup { border-color: #b45309; }
       .ag-head { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; } .ag-code { font-size: 0.9rem; } .ag-code .dupt { color: #f59e0b; font-size: 0.7rem; margin-left: 0.4rem; } .ag-amt { color: #8aa0bd; font-size: 0.82rem; margin-left: auto; }

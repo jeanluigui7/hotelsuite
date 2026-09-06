@@ -23,6 +23,10 @@ export interface SalePaymentInput {
   method: string;
   amount: number;
   reference: string | null;
+  // Snapshot de comisión POS congelado al cobrar (opcional; solo si el medio tiene comisión).
+  commissionPct?: number | null;
+  commissionAmount?: number | null;
+  grossCharged?: number | null;
 }
 
 export const salesRepository = {
@@ -89,6 +93,9 @@ export const salesRepository = {
               method: p.method,
               amount: p.amount,
               reference: p.reference,
+              commissionPct: p.commissionPct ?? null,
+              commissionAmount: p.commissionAmount ?? null,
+              grossCharged: p.grossCharged ?? null,
               createdByUserId: data.createdByUserId,
             })),
           },

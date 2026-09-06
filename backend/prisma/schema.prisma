@@ -1572,10 +1572,15 @@ model Payment {
   saleId          String
   cashSessionId   String?
   method          String // CASH | CARD | TRANSFER | WALLET | YAPE | PLIN | VUELTO
-  amount          Decimal  @db.Decimal(10, 2)
+  amount          Decimal  @db.Decimal(10, 2) // monto NETO que recibe el negocio (sin comisión)
   reference       String? // código de operación/verificación del pago virtual
   createdByUserId String?
   createdAt       DateTime @default(now())
+  // Snapshot histórico de comisión POS congelado AL COBRAR (no se recalcula con la config vigente).
+  // null = pago sin este dato (histórico anterior a la persistencia) → no se reconstruye con la tasa actual.
+  commissionPct    Decimal? @db.Decimal(6, 3) // % de comisión aplicado en ese momento
+  commissionAmount Decimal? @db.Decimal(10, 2) // monto de comisión de este pago
+  grossCharged     Decimal? @db.Decimal(10, 2) // total cobrado al cliente/POS = amount + commissionAmount
   // Auditoría de medios virtuales: estado de verificación del código de operación.
   verifyState     String? // PENDIENTE | VERIFICADO | EN_REVISION (SIN_CODIGO se deriva cuando no hay reference)
   verifiedByUserId String?
