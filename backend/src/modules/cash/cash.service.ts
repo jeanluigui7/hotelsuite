@@ -153,6 +153,8 @@ export const cashService = {
     const names = await cashRepository.userNames([
       ...new Set(rows.flatMap((s) => [s.openedByUserId, s.closedByUserId].filter((x): x is string => !!x))),
     ]);
+    // Recaudación (total real del turno) por caja, para la columna del listado.
+    const recaudacion = await cashRepository.recaudacionBySessions(rows.map((s) => s.id));
     const items = rows.map((s) => {
       const closing = s.closingAmount != null ? Number(s.closingAmount) : null;
       const expected = s.expectedAmount != null ? Number(s.expectedAmount) : null;
@@ -168,6 +170,8 @@ export const cashService = {
         closedAt: s.closedAt,
         openedByName: names.get(s.openedByUserId) ?? '—',
         closedByName: s.closedByUserId ? (names.get(s.closedByUserId) ?? '—') : null,
+        // Recaudación = total económico real del turno (todos los conceptos y métodos, sin la base).
+        recaudacion: Math.round((recaudacion.get(s.id) ?? 0) * 100) / 100,
         // Cuadre = contado − esperado A ENTREGAR (esperado del cajón − caja base). El contado
         // (closingAmount) NO incluye la base; el esperado sí. Igual que el ticket de cuadre.
         difference: closing != null && expected != null ? Math.round((closing - (expected - base)) * 100) / 100 : null,

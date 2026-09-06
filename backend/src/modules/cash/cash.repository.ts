@@ -53,6 +53,33 @@ export const cashRepository = {
     return prisma.sale.count({ where: { cashSessionId, status: { not: 'CANCELLED' } } });
   },
 
+  /**
+   * Recaudación (total económico real) por turno para el listado: pagos de ventas no anuladas (todos
+   * los métodos) + ingresos VIRTUALES por movimiento (no efectivo, ej. Yape/VUELTO). Equivale al total
+   * por método del detalle. No incluye la caja base ni los ingresos de efectivo por movimiento
+   * (esos son ajustes del cajón, no recaudación por concepto). Sin doble conteo (pagos ≠ movimientos).
+   */
+  async recaudacionBySessions(sessionIds: string[]): Promise<Map<string, number>> {
+    const map = new Map<string, number>();
+    if (!sessionIds.length) return map;
+    const round = (n: number): number => Math.round(n * 100) / 100;
+    const [pays, movs] = await Promise.all([
+      prisma.payment.groupBy({
+        by: ['cashSessionId'],
+        where: { cashSessionId: { in: sessionIds }, sale: { status: { not: 'CANCELLED' } } },
+        _sum: { amount: true },
+      }),
+      prisma.cashMovement.groupBy({
+        by: ['cashSessionId'],
+        where: { cashSessionId: { in: sessionIds }, type: 'IN', voided: false, method: { notIn: ['CASH'] }, NOT: { method: null } },
+        _sum: { amount: true },
+      }),
+    ]);
+    for (const p of pays) if (p.cashSessionId) map.set(p.cashSessionId, round(Number(p._sum.amount ?? 0)));
+    for (const m of movs) if (m.cashSessionId) map.set(m.cashSessionId, round((map.get(m.cashSessionId) ?? 0) + Number(m._sum.amount ?? 0)));
+    return map;
+  },
+
   addMovement(data: {
     cashSessionId: string;
     branchId: string;

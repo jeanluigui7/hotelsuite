@@ -88,20 +88,17 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       <div class="tbl-wrap">
         <table class="tbl">
           <thead>
-            <tr><th>ID</th><th>APERTURA</th><th>CIERRE</th><th class="r">MONTO INICIAL</th><th class="r">MONTO FINAL</th><th class="c">ESTADO</th><th class="c">CUADRE</th><th class="ac">ACCIONES</th></tr>
+            <tr><th>ID</th><th>DÍA / TURNO</th><th>APERTURA</th><th>CIERRE</th><th class="r">RECAUDACIÓN</th><th class="r">ENTREGA EFECTIVO</th><th class="c">CUADRE</th><th class="c">ESTADO</th><th class="ac">ACCIONES</th></tr>
           </thead>
           <tbody>
             @for (s of rows(); track s.id) {
               <tr>
                 <td class="id">{{ s.number ?? '—' }}</td>
-                <td><div class="dt">{{ s.openedAt | date: 'dd/MM/yyyy HH:mm' }}</div><div class="usr"><i class="pi pi-user"></i> {{ s.openedByName }}</div></td>
-                <td>
-                  @if (s.closedAt) { <div class="dt">{{ s.closedAt | date: 'dd/MM/yyyy HH:mm' }}</div><div class="usr"><i class="pi pi-user"></i> {{ s.closedByName }}</div> }
-                  @else { <span class="muted">—</span> }
-                </td>
-                <td class="r">S/ {{ s.openingAmount | number: '1.2-2' }}</td>
+                <td><div class="dt">{{ diaLabel(s.openedAt) }}</div><div class="turno">{{ turnoLabel(s.openedAt) }}</div><div class="usr"><i class="pi pi-user"></i> {{ s.openedByName }}</div></td>
+                <td>{{ hora(s.openedAt) }}</td>
+                <td>{{ s.closedAt ? hora(s.closedAt) : '—' }}</td>
+                <td class="r">{{ s.recaudacion != null ? ('S/ ' + (s.recaudacion | number: '1.2-2')) : '—' }}</td>
                 <td class="r">{{ s.closingAmount != null ? ('S/ ' + (s.closingAmount | number: '1.2-2')) : '—' }}</td>
-                <td class="c"><span class="pill" [class.open]="s.status === 'OPEN'" [class.closed]="s.status === 'CLOSED'" [class.adjusted]="s.status === 'AJUSTADA'"><i class="pi" [class.pi-lock-open]="s.status==='OPEN'" [class.pi-lock]="s.status==='CLOSED'" [class.pi-pencil]="s.status==='AJUSTADA'"></i> {{ s.status === 'OPEN' ? 'Abierta' : (s.status === 'AJUSTADA' ? 'Ajustada' : 'Cerrada') }}</span></td>
                 <td class="c">
                   @if (!canSeeCuadre()) { <span class="muted" title="Cierre ciego: el cuadre lo audita administración"><i class="pi pi-lock"></i></span> }
                   @else if (s.status === 'OPEN' || s.difference == null) { <span class="muted">—</span> }
@@ -109,6 +106,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
                   @else if (s.difference < 0) { <span class="cuadre fal">S/ {{ -s.difference | number: '1.2-2' }} Faltante</span> }
                   @else { <span class="cuadre ok"><i class="pi pi-check"></i> OK</span> }
                 </td>
+                <td class="c"><span class="pill" [class.open]="s.status === 'OPEN'" [class.closed]="s.status === 'CLOSED'" [class.adjusted]="s.status === 'AJUSTADA'"><i class="pi" [class.pi-lock-open]="s.status==='OPEN'" [class.pi-lock]="s.status==='CLOSED'" [class.pi-pencil]="s.status==='AJUSTADA'"></i> {{ s.status === 'OPEN' ? 'Abierta' : (s.status === 'AJUSTADA' ? 'Ajustada' : 'Cerrada') }}</span></td>
                 <td class="ac">
                   <button class="mini" (click)="viewCuadre(s)"><i class="pi pi-print"></i> Ver</button>
                   @if (s.status !== 'OPEN' && canSeeCuadre()) { <button class="mini" (click)="reprintBlind(s)"><i class="pi pi-inbox"></i> Entrega</button> }
@@ -116,7 +114,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
                   @if (s.status === 'OPEN' && canEdit) { <button class="mini close" (click)="openCloseDialog(s)">Cerrar</button> }
                 </td>
               </tr>
-            } @empty { <tr><td colspan="8" class="empty">Sin cajas registradas.</td></tr> }
+            } @empty { <tr><td colspan="9" class="empty">Sin cajas registradas.</td></tr> }
           </tbody>
         </table>
       </div>
@@ -343,6 +341,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .tbl .r { text-align: right; } .tbl .c { text-align: center; } .tbl .ac { text-align: right; white-space: nowrap; }
       .id { font-weight: 800; color: #93c5fd; }
       .dt { font-weight: 600; } .usr { color: #8aa0bd; font-size: 0.78rem; display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.15rem; }
+      .turno { font-size: 0.74rem; font-weight: 700; letter-spacing: 0.5px; color: var(--p-primary-color, #3b82f6); }
       .pill { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.74rem; font-weight: 700; padding: 0.18rem 0.7rem; border-radius: 999px; }
       .pill.open { background: rgba(16,185,129,0.16); color: #34d399; } .pill.closed { background: rgba(148,163,184,0.16); color: #94a3b8; }
       .pill.adjusted { background: rgba(245,158,11,0.16); color: #f59e0b; }
@@ -450,6 +449,14 @@ export class CashComponent implements OnInit {
   readonly blindClose = computed(() => !this.adminPresent());
   // ¿Puede ver el cuadre (esperado/sobrante/faltante)? Siempre con admin presente; en modo ciego, solo administración.
   readonly canSeeCuadre = computed(() => this.adminPresent() || this.isAdmin);
+
+  // Etiquetas para la columna DÍA / TURNO (día de apertura, turno y colaborador).
+  private readonly DIAS = ['DOM', 'LUN', 'MAR', 'MIE', 'JUE', 'VIE', 'SAB'];
+  private readonly MESES = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
+  diaLabel(v: string): string { const d = new Date(v); return `${this.DIAS[d.getDay()]} ${String(d.getDate()).padStart(2, '0')} ${this.MESES[d.getMonth()]}`; }
+  turnoLabel(v: string): string { return shiftOf(v); }
+  /** Solo la hora HH:mm (el día va en la columna DÍA/TURNO; en turno noche el cierre solo muestra la hora). */
+  hora(v: string | null): string { if (!v) return '—'; const d = new Date(v); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; }
 
   // Diálogos
   openVisible = false;

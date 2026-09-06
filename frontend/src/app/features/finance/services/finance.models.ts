@@ -24,6 +24,7 @@ export interface CashSessionRow {
   closedAt: string | null;
   openedByName: string;
   closedByName: string | null;
+  recaudacion?: number; // total económico real del turno (todos los conceptos y métodos)
   difference: number | null;
 }
 
