@@ -125,6 +125,19 @@ export const cleaningService = {
   },
 
   /** Inicia la limpieza: crea la tarea con la inspección de ropa y deja la habitación EN CURSO. */
+  /**
+   * RECHAZAR una limpieza SOLICITADA de renovación (el huésped renovó pero no quiso la limpieza).
+   * Solo antes de iniciarla. NO anula la estadía ni la renovación: solo limpia la solicitud de limpieza
+   * (renewalCleaningStatus → NONE, cleaningRequested → false). La habitación sigue OCUPADA.
+   */
+  async rejectRenewalCleaning(scope: RequestScope, roomId: string) {
+    const branchId = requireActiveBranch(scope);
+    const stay = await prisma.stay.findFirst({ where: { branchId, roomId, status: 'OPEN', renewalCleaningStatus: 'SOLICITADA' } });
+    if (!stay) throw new ValidationError('No hay una limpieza solicitada para rechazar (solo antes de iniciarla).');
+    await prisma.stay.update({ where: { id: stay.id }, data: { renewalCleaningStatus: 'NONE', renewalCleaningStep: 0, cleaningRequested: false } });
+    return { success: true };
+  },
+
   async start(scope: RequestScope, roomId: string, dto: StartDto) {
     const branchId = requireActiveBranch(scope);
     const room = await prisma.room.findUnique({ where: { id: roomId } });

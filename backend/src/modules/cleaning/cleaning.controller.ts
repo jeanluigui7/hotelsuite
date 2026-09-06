@@ -22,6 +22,10 @@ export const cleaningController = {
     const dto = finishSchema.parse(req.body ?? {});
     res.status(200).json(ok(await cleaningService.finish(req.scope, req.params.roomId, dto)));
   },
+  async rejectRenewalCleaning(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await cleaningService.rejectRenewalCleaning(req.scope, req.params.roomId)));
+  },
   async linenInventory(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await cleaningService.linenInventory(req.scope)));

@@ -126,6 +126,7 @@ const ACCIONES_PERIODICAS = [
             } @else {
               <div class="st">Limpieza en espera</div>
               <button class="cta" (click)="openIniciar(r)"><i class="pi pi-play"></i> Iniciar Limpieza</button>
+              @if (r.renewal) { <button class="cta reject" [disabled]="busy()" (click)="rechazar(r)"><i class="pi pi-times"></i> Rechazar limpieza</button> }
             }
           </article>
         } @empty { <p class="muted">No hay habitaciones pendientes de limpieza.</p> }
@@ -406,6 +407,7 @@ const ACCIONES_PERIODICAS = [
       .overalert { display: flex; align-items: center; gap: 0.5rem; margin: 0.4rem 0 0.9rem; padding: 0.6rem 0.9rem; background: rgba(245,158,11,0.14); border: 1px solid #b45309; border-radius: 10px; color: #fbbf24; font-weight: 700; font-size: 0.9rem; }
       .cta { margin-top: 0.6rem; width: 100%; background: #ec4899; color: #fff; border: 0; border-radius: 10px; padding: 0.6rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; justify-content: center; }
       .cta.done { background: #10b981; }
+      .cta.reject { margin-top: 0.4rem; background: transparent; border: 1px solid rgba(248,113,113,0.6); color: #fecaca; } .cta.reject:hover { background: rgba(248,113,113,0.12); } .cta.reject:disabled { opacity: 0.5; cursor: not-allowed; }
       .hint { background: #0e241c; border: 1px solid #1f3a2c; color: #9fe7c4; padding: 0.55rem 0.8rem; border-radius: 8px; font-size: 0.82rem; }
       .insp { width: 100%; border-collapse: collapse; margin-top: 0.6rem; }
       .insp th { text-align: left; padding: 0.5rem; color: #8aa499; font-size: 0.8rem; border-bottom: 1px solid #1f3a2c; } .insp th.ck, .insp td.ck { text-align: center; width: 5rem; }
@@ -601,6 +603,16 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     this.http.get<ApiResponse<Supply[]>>(`${this.api}/services/supplies?status=PENDING`).subscribe((r) => this.supplies.set(r.data ?? []));
     this.http.get<ApiResponse<{ cleaningTimeLimitMin?: number }>>(`${this.api}/operations-config`)
       .subscribe((r) => { if (r.data?.cleaningTimeLimitMin != null) this.cleaningLimitMin.set(r.data.cleaningTimeLimitMin); });
+  }
+
+  /** Rechaza una limpieza SOLICITADA de renovación (el cliente no la quiso). No anula estadía ni renovación. */
+  rechazar(r: CleanRoom): void {
+    if (!confirm(`¿Rechazar la limpieza solicitada de la Hab. ${r.number}? La estadía y la renovación se conservan; solo se retira la solicitud de limpieza.`)) return;
+    this.busy.set(true);
+    this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/${r.id}/reject-renewal`, {}).subscribe({
+      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Limpieza rechazada', detail: `Hab. ${r.number}: solicitud retirada.` }); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo rechazar.' }); },
+    });
   }
 
   groupQty(g: SupplyGroup): number { return g.items.reduce((n, it) => n + (it.quantity || 0), 0); }
