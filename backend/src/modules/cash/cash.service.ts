@@ -5,6 +5,7 @@ import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { cashRepository } from './cash.repository';
 import { PAYMENT_METHODS, requiresReference, PAYMENT_REFERENCE_REQUIRED } from '../../shared/payments';
+import { operationsConfigService, posRateOf } from '../operations-config/operations-config.service';
 import type { CloseCashDto, MovementDto, OpenCashDto } from './cash.schema';
 
 interface RegularizeDebtDto {
@@ -232,6 +233,16 @@ export const cashService = {
       const names = await cashRepository.userNames([sale.createdByUserId].filter((x): x is string => !!x));
       const session = sale.cashSessionId ? await cashRepository.findById(sale.cashSessionId) : null;
       const history = await this.buildHistory(sale.id);
+      // Comisión POS: el sistema guarda el pago NETO (lo que recibe el negocio), pero al cobrar en el
+      // POS al cliente se le carga NETO + comisión. La comisión no se persiste; se recalcula con la tasa
+      // vigente de la Configuración Operativa para mostrar, como referencia, el cobro original.
+      const cfg = await operationsConfigService.get(scope);
+      const payments = sale.payments.map((p) => {
+        const amount = Number(p.amount);
+        const pct = posRateOf(cfg, p.method);
+        const commission = round((amount * pct) / 100);
+        return { method: p.method, amount, code: p.reference ?? null, time: p.createdAt, commissionPct: pct, commission, grossCharged: round(amount + commission) };
+      });
       return {
         kind: 'SALE' as const,
         id: sale.id,
@@ -247,7 +258,7 @@ export const cashService = {
         sessionId: sale.cashSessionId,
         sessionNumber: session?.number ?? null,
         items: sale.items.map((it) => ({ description: it.description, quantity: it.quantity, unitPrice: Number(it.unitPrice), subtotal: Number(it.subtotal) })),
-        payments: sale.payments.map((p) => ({ method: p.method, amount: Number(p.amount), code: p.reference ?? null, time: p.createdAt })),
+        payments,
         history,
       };
     }

@@ -172,7 +172,7 @@ export interface MovementDetail {
   guest?: string | null;
   folio?: string | null;
   items?: { description: string; quantity: number; unitPrice: number; subtotal: number }[];
-  payments?: { method: string; amount: number; code: string | null; time: string }[];
+  payments?: { method: string; amount: number; code: string | null; time: string; commissionPct?: number; commission?: number; grossCharged?: number }[];
   // MOVEMENT
   type?: string;
   concept?: string;

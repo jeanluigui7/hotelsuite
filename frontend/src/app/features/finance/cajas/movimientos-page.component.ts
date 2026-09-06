@@ -242,7 +242,10 @@ const TYPE_COLOR: Record<string, [string, string]> = {
             </table>
             @if (x.payments?.length) {
               <div class="vsub">Pagos</div>
-              @for (p of x.payments!; track $index) { <div class="vrow"><span>{{ methodLabel(p.method) }} @if (p.code) { · cód. {{ p.code }} }</span><b>S/ {{ p.amount | number:'1.2-2' }}</b></div> }
+              @for (p of x.payments!; track $index) {
+                <div class="vrow"><span>{{ methodLabel(p.method) }} @if (p.code) { · cód. {{ p.code }} }</span><b>S/ {{ p.amount | number:'1.2-2' }}</b></div>
+                @if (p.commission) { <div class="vrow sub"><span>↳ Cobrado en POS (neto + comisión {{ p.commissionPct }}%)</span><b>S/ {{ p.grossCharged | number:'1.2-2' }}</b></div> }
+              }
             }
           } @else {
             <div class="vrow"><span>Tipo</span><b>{{ x.type === 'IN' ? 'Ingreso' : 'Egreso' }}</b></div>
@@ -429,6 +432,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .ag-actions { display: flex; gap: 0.9rem; } .ag-edit { display: flex; gap: 0.5rem; align-items: center; } .ag-ok { color: #34d399; font-weight: 700; font-size: 0.85rem; }
       :host ::ng-deep .ag-edit input[pInputText] { flex: 1; }
       .vdet { display: flex; flex-direction: column; gap: 0.3rem; } .vrow { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.85rem; padding: 0.15rem 0; } .vrow span { color: #8aa0bd; }
+      .vrow.sub { font-size: 0.78rem; padding: 0 0 0.15rem 0; margin-top: -0.1rem; } .vrow.sub span, .vrow.sub b { color: #6b7f9c; font-weight: 500; }
       .vsub { margin-top: 0.6rem; font-size: 0.72rem; text-transform: uppercase; color: #8aa0bd; border-top: 1px dashed #1c2c44; padding-top: 0.45rem; }
       .vtbl { width: 100%; border-collapse: collapse; margin-top: 0.3rem; } .vtbl th, .vtbl td { padding: 0.35rem 0.5rem; border-bottom: 1px solid #16233a; font-size: 0.8rem; text-align: left; } .vtbl .r { text-align: right; } .vtbl .c { text-align: center; } .vtbl th { color: #8aa0bd; font-weight: 600; font-size: 0.7rem; } .vtbl tfoot td { border-bottom: 0; }
       .vhist { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: baseline; font-size: 0.8rem; padding: 0.3rem 0; border-bottom: 1px dashed #16233a; } .vhist .ht { font-weight: 700; color: #c4b5fd; } .vhist .hd { color: #8aa0bd; font-size: 0.74rem; } .vhist .hr { color: #cbd5e1; } .vhist .hj { color: #8aa0bd; font-size: 0.74rem; width: 100%; }
