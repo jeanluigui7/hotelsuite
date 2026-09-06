@@ -98,6 +98,8 @@ export const cashService = {
       notes: dto.notes || null,
       closedByUserId: scope.userId,
       closingDenominations: dto.denominations && dto.denominations.length ? JSON.stringify(dto.denominations) : null,
+      // Caja chica declarada al cierre (si no se envía, por defecto la base de apertura).
+      pettyCashLeft: dto.pettyCashLeft != null ? dto.pettyCashLeft : Number(session.openingAmount),
     });
     return {
       session: closed,

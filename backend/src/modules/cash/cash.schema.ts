@@ -10,6 +10,9 @@ export const closeCashSchema = z.object({
   notes: z.string().max(300).optional().or(z.literal('')),
   // Conteo por denominaciones del cierre (se persiste para reimprimir el ticket de caja ciega).
   denominations: z.array(z.object({ value: z.coerce.number().positive(), qty: z.coerce.number().int().min(0) })).optional(),
+  // Caja chica que el recepcionista declara dejar físicamente en recepción (editable, puede diferir de
+  // la base de apertura). Efectivo a bolsa = closingAmount − pettyCashLeft. No altera el cuadre.
+  pettyCashLeft: z.coerce.number().min(0).optional(),
 });
 
 const methodEnum = z.enum(['CASH', 'CARD', 'TRANSFER', 'YAPE', 'PLIN', 'WALLET']);

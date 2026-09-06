@@ -202,7 +202,7 @@ export interface BlindTicketData {
   openedAt: string;
   closedAt: string;
   closedByName: string;
-  base: number;                 // caja base que debe quedar (= apertura del turno)
+  base: number;                 // caja chica declarada que queda al cierre (editable; default = apertura)
   denominations: DenominationCount[];
   ingresos: number;
   egresos: number;
@@ -237,12 +237,14 @@ export function buildBlindTicket(t: BlindTicketData): string {
   L.push(kv2('FIN DE TURNO', `${dm(close)} ${hhmm(close)}`));
   L.push(kv2('CERRADO POR', t.closedByName));
   L.push(line('='), '');
+  const toBag = Math.round((total - t.base) * 100) / 100; // efectivo que va a la bolsa
   L.push('RESUMEN DEL CONTEO', '-'.repeat(20), '');
-  L.push(lr('Caja base que debe quedar', money(t.base)));
+  L.push(lr('Efectivo contado', money(total)));
+  L.push(lr('Caja chica declarada', money(t.base)));
+  L.push(lr('Efectivo enviado a bolsa', money(toBag)));
   L.push(lr('Ingresos registrados', money(t.ingresos)));
   L.push(lr('Egresos registrados', money(t.egresos)));
   L.push(lr('Ajuste neto', money(ajusteNeto)));
-  L.push(lr('Efectivo contado para entregar', money(total)));
   L.push(line('='), '');
   L.push('CONTEO POR DENOMINACIONES', '-'.repeat(26), '');
   // Solo se imprimen las denominaciones con cantidad > 0 (la interfaz sigue mostrando todas para el

@@ -164,7 +164,8 @@ const TYPE_COLOR: Record<string, [string, string]> = {
         <div class="dtot"><span>Total efectivo contado</span><strong>S/ {{ countedTotal() | number: '1.2-2' }}</strong></div>
       </div>
       <div class="csum">
-        <div class="kv"><span>Caja base que debe quedar</span><strong>S/ {{ baseAmount() | number: '1.2-2' }}</strong></div>
+        <div class="kv"><span>Total efectivo contado</span><strong>S/ {{ countedTotal() | number: '1.2-2' }}</strong></div>
+        <div class="kv edit"><span>Monto que queda para caja chica</span><p-inputNumber [(ngModel)]="pettyCash" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="pc" /></div>
         <div class="kv strong"><span>Efectivo que va a la bolsa</span><strong>S/ {{ toBag() | number: '1.2-2' }}</strong></div>
         @if (canSeeCuadre()) {
           <div class="kv"><span>Efectivo esperado</span><strong>S/ {{ expectedCash() | number: '1.2-2' }}</strong></div>
@@ -364,7 +365,8 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .denoms .drow .dv { font-size: 0.85rem; color: #cbd5e1; } .denoms .drow .ds { text-align: right; font-weight: 700; color: #34d399; }
       .denoms .dtot { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #1c2c44; margin-top: 0.4rem; padding-top: 0.5rem; } .denoms .dtot strong { color: #34d399; font-size: 1.1rem; }
       .csum { display: flex; flex-direction: column; gap: 0.1rem; margin-bottom: 0.6rem; }
-      .csum .kv { display: flex; justify-content: space-between; padding: 0.2rem 0; }
+      .csum .kv { display: flex; justify-content: space-between; align-items: center; padding: 0.2rem 0; }
+      .csum .kv.edit :host ::ng-deep .pc, .csum .kv.edit .pc { max-width: 9rem; } :host ::ng-deep .csum .kv.edit .p-inputnumber-input { text-align: right; padding: 0.25rem 0.5rem; }
       .csum .kv.strong { border-top: 1px dashed #1c2c44; margin-top: 0.2rem; padding-top: 0.4rem; } .csum .kv.strong strong { color: #fbbf24; font-size: 1.05rem; }
       .csum .kv.cdiff { border-top: 1px solid #1c2c44; margin-top: 0.2rem; padding-top: 0.4rem; } .csum .kv.cdiff.neg strong { color: #f87171; }
       :host ::ng-deep .denoms .drow .p-inputnumber { width: 9rem; } :host ::ng-deep .denoms .drow .qin { text-align: center; width: 100%; }
@@ -471,11 +473,13 @@ export class CashComponent implements OnInit {
   closeNotes = '';
   // Conteo de cierre por denominaciones (igual que Operaciones › Caja).
   denoms: { value: number; qty: number }[] = DENOMS.map((value) => ({ value, qty: 0 }));
+  pettyCash = 0; // caja chica que queda (editable; default = base de apertura)
   bagRef = '';
   readonly countedTotal = signal(0);
   onQty(): void { this.countedTotal.set(Math.round(this.denoms.reduce((a, d) => a + d.value * (d.qty || 0), 0) * 100) / 100); }
   baseAmount(): number { return Number(this.closeTarget?.openingAmount ?? this.openSession()?.openingAmount ?? 0); }
-  toBag(): number { return Math.round((this.countedTotal() - this.baseAmount()) * 100) / 100; }
+  // Efectivo a bolsa = total contado − caja chica declarada (editable).
+  toBag(): number { return Math.round((this.countedTotal() - (this.pettyCash || 0)) * 100) / 100; }
   readonly closeDiff = computed(() => Math.round((this.countedTotal() - this.expectedCash()) * 100) / 100);
 
   detailVisible = false;
@@ -559,6 +563,8 @@ export class CashComponent implements OnInit {
     this.closeNotes = '';
     this.denoms = DENOMS.map((value) => ({ value, qty: 0 }));
     this.countedTotal.set(0);
+    // Caja chica que queda: por defecto la base de apertura, pero el recepcionista puede editarla.
+    this.pettyCash = Number(row.openingAmount ?? 0);
     const turno = shiftOf(row.openedAt);
     this.bagRef = row.number != null ? `Bolsa ${String(row.number).padStart(2, '0')} - Turno ${turno}` : `Turno ${turno}`;
     this.closeVisible = true;
@@ -569,7 +575,7 @@ export class CashComponent implements OnInit {
     if (total <= 0) { this.messages.add({ severity: 'warn', summary: 'Conteo vacío', detail: 'Registra la cantidad de billetes y monedas contados.' }); return; }
     const blind = this.blindClose();
     const row = this.closeTarget;
-    const base = this.baseAmount();
+    const pettyCash = Math.round((this.pettyCash || 0) * 100) / 100;
     const denomsSnapshot = this.denoms.map((d) => ({ value: d.value, qty: d.qty || 0 }));
     const ingresos = this.adjIn();
     const egresos = this.adjOut();
@@ -577,15 +583,15 @@ export class CashComponent implements OnInit {
     const brand = this.auth.activeBranch()?.name ?? 'HotelSuite';
     const closedByName = this.auth.user()?.name ?? row?.openedByName ?? 'Recepción';
     this.busy.set(true);
-    this.finance.closeCash({ closingAmount: total, notes: bagRef || this.closeNotes || undefined, denominations: denomsSnapshot }).subscribe({
+    this.finance.closeCash({ closingAmount: total, notes: bagRef || this.closeNotes || undefined, denominations: denomsSnapshot, pettyCashLeft: pettyCash }).subscribe({
       next: (res) => {
         this.busy.set(false); this.closeVisible = false;
         const closedAt = res.data?.session?.closedAt ?? new Date().toISOString();
         if (blind) {
-          this.messages.add({ severity: 'success', summary: 'Caja cerrada (ciega)', detail: `Efectivo a la bolsa: S/ ${(total - base).toFixed(2)}` });
+          this.messages.add({ severity: 'success', summary: 'Caja cerrada (ciega)', detail: `Efectivo a la bolsa: S/ ${(total - pettyCash).toFixed(2)}` });
           if (row) this.openTicketWindow(buildBlindTicket({
             brand, sessionNumber: row.number ?? null, openedAt: row.openedAt, closedAt,
-            closedByName, base, denominations: denomsSnapshot, ingresos, egresos, bagRef,
+            closedByName, base: pettyCash, denominations: denomsSnapshot, ingresos, egresos, bagRef,
           }));
         } else {
           this.messages.add({ severity: res.data.difference === 0 ? 'success' : 'warn', summary: 'Turno cerrado', detail: `Diferencia: ${res.data.difference.toFixed(2)}` });

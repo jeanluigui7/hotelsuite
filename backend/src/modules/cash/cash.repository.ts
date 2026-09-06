@@ -23,7 +23,7 @@ export const cashRepository = {
 
   close(
     id: string,
-    data: { closingAmount: number; expectedAmount: number; notes: string | null; closedByUserId: string; closingDenominations: string | null },
+    data: { closingAmount: number; expectedAmount: number; notes: string | null; closedByUserId: string; closingDenominations: string | null; pettyCashLeft: number | null },
   ) {
     return prisma.cashSession.update({
       where: { id },
@@ -34,6 +34,7 @@ export const cashRepository = {
         expectedAmount: data.expectedAmount,
         closedByUserId: data.closedByUserId,
         closingDenominations: data.closingDenominations,
+        pettyCashLeft: data.pettyCashLeft,
         notes: data.notes ?? undefined,
       },
     });
