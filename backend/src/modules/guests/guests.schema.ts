@@ -13,11 +13,18 @@ export const createGuestSchema = z.object({
 
 export const updateGuestSchema = createGuestSchema.partial();
 
-/** Agregar a Lista Negra: motivo obligatorio. */
+/** Agregar a Lista Negra: motivo obligatorio. Modo opcional (por defecto AVISO). */
 export const blacklistGuestSchema = z.object({
   reason: z.string().min(3, 'Indica el motivo del bloqueo').max(500),
+  mode: z.enum(['AVISO', 'BLOQUEO']).default('AVISO'),
+});
+
+/** Cambiar solo el modo de la lista negra de un cliente (administración). */
+export const blacklistModeSchema = z.object({
+  mode: z.enum(['AVISO', 'BLOQUEO']),
 });
 
 export type CreateGuestDto = z.infer<typeof createGuestSchema>;
 export type UpdateGuestDto = z.infer<typeof updateGuestSchema>;
 export type BlacklistGuestDto = z.infer<typeof blacklistGuestSchema>;
+export type BlacklistModeDto = z.infer<typeof blacklistModeSchema>;

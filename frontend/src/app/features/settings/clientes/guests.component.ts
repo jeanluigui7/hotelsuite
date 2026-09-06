@@ -24,7 +24,7 @@ interface GuestRow {
   blacklisted: boolean; blacklistReason: string | null; blacklistedAt: string | null; blacklistedBy: string | null;
 }
 interface Stats { totalClientes: number; puntosDistribuidos: number; ingresosTotales: number; promedioPorCliente: number; activosMes: number; }
-interface BlacklistRow { id: string; documentNumber: string; firstName: string; lastName: string | null; reason: string | null; at: string | null; by: string | null; }
+interface BlacklistRow { id: string; documentNumber: string; firstName: string; lastName: string | null; reason: string | null; mode: string; at: string | null; by: string | null; }
 interface Form { id?: string; documentType: DocumentType; documentNumber: string; firstName: string; lastName: string; phone: string; email: string; notes: string; status: 'active' | 'inactive'; }
 const EMPTY: Form = { documentType: 'DNI', documentNumber: '', firstName: '', lastName: '', phone: '', email: '', notes: '', status: 'active' };
 
@@ -134,6 +134,14 @@ const EMPTY: Form = { documentType: 'DNI', documentNumber: '', firstName: '', la
         <label>Motivo del bloqueo *</label>
         <textarea [(ngModel)]="banReason" rows="4" placeholder="Ej: Daño a propiedad del hotel, comportamiento inapropiado, incumplimiento de normas, etc."></textarea>
       </div>
+      <div class="form">
+        <label>Modo en el check-in</label>
+        <div class="modesel">
+          <button type="button" [class.on]="banMode === 'AVISO'" (click)="banMode = 'AVISO'"><i class="pi pi-exclamation-triangle"></i> Solo aviso</button>
+          <button type="button" class="blk" [class.on]="banMode === 'BLOQUEO'" (click)="banMode = 'BLOQUEO'"><i class="pi pi-ban"></i> Bloqueo total</button>
+        </div>
+        <p class="muted sm">Aviso: muestra la alerta al digitar el documento pero permite continuar. Bloqueo: impide el check-in por completo.</p>
+      </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" icon="pi pi-times" (onClick)="banVisible = false" />
         <p-button label="Agregar a Lista Negra" icon="pi pi-ban" severity="danger" [loading]="saving()" (onClick)="doAddBlacklist()" />
@@ -147,11 +155,17 @@ const EMPTY: Form = { documentType: 'DNI', documentNumber: '', firstName: '', la
       @for (b of blacklist(); track b.id) {
         <div class="blrow">
           <div><strong>{{ b.firstName }} {{ b.lastName }}</strong>
+            <span class="bmode" [class.block]="b.mode === 'BLOQUEO'">{{ b.mode === 'BLOQUEO' ? '⛔ Bloqueo total' : '⚠️ Solo aviso' }}</span>
             <span class="sub">DNI: {{ b.documentNumber }}</span>
             <span class="bmot"><i class="pi pi-exclamation-triangle"></i> {{ b.reason }}</span>
             <span class="sub">Bloqueado: {{ b.at ? (b.at | date: 'd/M/y') : '—' }}{{ b.by ? ' · ' + b.by : '' }}</span>
           </div>
-          @if (canUnblacklist) { <p-button label="Quitar" icon="pi pi-check-circle" severity="success" [outlined]="true" size="small" [loading]="saving()" (onClick)="doRemoveBlacklist(b)" /> }
+          <div class="blact">
+            @if (canUnblacklist) {
+              <button class="modetgl" [disabled]="saving()" (click)="toggleMode(b)">{{ b.mode === 'BLOQUEO' ? 'Cambiar a aviso' : 'Cambiar a bloqueo' }}</button>
+              <p-button label="Quitar" icon="pi pi-check-circle" severity="success" [outlined]="true" size="small" [loading]="saving()" (onClick)="doRemoveBlacklist(b)" />
+            }
+          </div>
         </div>
       }
       <ng-template pTemplate="footer"><p-button label="Cerrar" severity="secondary" [text]="true" (onClick)="blacklistVisible = false" /></ng-template>
@@ -204,6 +218,11 @@ const EMPTY: Form = { documentType: 'DNI', documentNumber: '', firstName: '', la
       .dban { display: flex; gap: 0.6rem; align-items: flex-start; margin-top: 0.9rem; background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.3); border-radius: 8px; padding: 0.7rem; color: #ef4444; } .dban span { display: block; color: inherit; }
       .blrow { display: flex; justify-content: space-between; align-items: center; gap: 1rem; border: 1px solid rgba(239,68,68,0.3); border-radius: 10px; padding: 0.8rem 1rem; margin-bottom: 0.6rem; }
       .blrow strong { display: block; color: #ef4444; } .bmot { display: block; font-size: 0.8rem; margin: 0.2rem 0; }
+      .bmode { display: inline-block; font-size: 0.72rem; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: 999px; margin: 0.15rem 0; background: rgba(245,158,11,0.18); color: #fbbf24; } .bmode.block { background: rgba(239,68,68,0.2); color: #fca5a5; }
+      .blact { display: flex; flex-direction: column; gap: 0.4rem; align-items: flex-end; }
+      .modetgl { background: transparent; border: 1px solid rgba(148,163,184,0.4); color: #cbd5e1; border-radius: 7px; padding: 0.3rem 0.6rem; font-size: 0.75rem; cursor: pointer; white-space: nowrap; } .modetgl:hover:not(:disabled) { border-color: #64748b; } .modetgl:disabled { opacity: 0.5; cursor: not-allowed; }
+      .modesel { display: flex; gap: 0.5rem; } .modesel button { flex: 1; background: transparent; border: 1px solid rgba(148,163,184,0.35); color: #94a3b8; border-radius: 8px; padding: 0.5rem; font-size: 0.82rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.35rem; }
+      .modesel button.on { border-color: #f59e0b; background: rgba(245,158,11,0.14); color: #fbbf24; } .modesel button.blk.on { border-color: #ef4444; background: rgba(239,68,68,0.16); color: #fca5a5; }
       :host ::ng-deep .w, :host ::ng-deep .form input[pInputText], :host ::ng-deep .form .p-select { width: 100%; }
       :host ::ng-deep .gt .p-datatable-tbody > tr > td { font-size: 0.85rem; }
       @media (max-width: 820px) { .filters .frow { grid-template-columns: 1fr; } .form.g2 { grid-template-columns: 1fr; } }
@@ -235,7 +254,7 @@ export class GuestsComponent implements OnInit {
   private firstRow = 0;
 
   detailVisible = false;
-  banVisible = false; banReason = '';
+  banVisible = false; banReason = ''; banMode: 'AVISO' | 'BLOQUEO' = 'AVISO';
   blacklistVisible = false;
   dialogVisible = false;
   form: Form = { ...EMPTY };
@@ -291,15 +310,24 @@ export class GuestsComponent implements OnInit {
     this.blacklistVisible = true;
     this.http.get<ApiResponse<BlacklistRow[]>>(`${this.apiUrl}/guests/blacklist`).subscribe((r) => this.blacklist.set(r.data ?? []));
   }
-  openAddBlacklist(r: GuestRow): void { this.banTarget.set(r); this.banReason = ''; this.banVisible = true; }
+  openAddBlacklist(r: GuestRow): void { this.banTarget.set(r); this.banReason = ''; this.banMode = 'AVISO'; this.banVisible = true; }
   doAddBlacklist(): void {
     const t = this.banTarget();
     if (!t) return;
     if (this.banReason.trim().length < 3) { this.toast.add({ severity: 'warn', summary: 'Motivo', detail: 'Indica el motivo del bloqueo.' }); return; }
     this.saving.set(true);
-    this.http.post<ApiResponse<unknown>>(`${this.apiUrl}/guests/${t.id}/blacklist`, { reason: this.banReason.trim() }).subscribe({
+    this.http.post<ApiResponse<unknown>>(`${this.apiUrl}/guests/${t.id}/blacklist`, { reason: this.banReason.trim(), mode: this.banMode }).subscribe({
       next: () => { this.saving.set(false); this.banVisible = false; this.toast.add({ severity: 'success', summary: 'Bloqueado', detail: 'Cliente agregado a Lista Negra.' }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo bloquear.' }); },
+    });
+  }
+  /** Admin: cambia el modo AVISO/BLOQUEO de un cliente ya en lista negra. */
+  toggleMode(b: BlacklistRow): void {
+    const mode = b.mode === 'BLOQUEO' ? 'AVISO' : 'BLOQUEO';
+    this.saving.set(true);
+    this.http.patch<ApiResponse<unknown>>(`${this.apiUrl}/guests/${b.id}/blacklist-mode`, { mode }).subscribe({
+      next: () => { this.saving.set(false); this.blacklist.set(this.blacklist().map((x) => x.id === b.id ? { ...x, mode } : x)); this.toast.add({ severity: 'success', summary: 'Modo actualizado', detail: mode === 'BLOQUEO' ? 'Ahora bloquea el check-in.' : 'Ahora solo avisa.' }); },
+      error: (e: HttpErrorResponse) => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo cambiar el modo.' }); },
     });
   }
   doRemoveBlacklist(b: BlacklistRow): void {

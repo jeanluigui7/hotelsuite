@@ -335,7 +335,32 @@ const PAY_TYPES = [
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="onVisibleChange(false)" />
         @if (tab() !== 'pago') { <p-button label="Siguiente" icon="pi pi-arrow-right" iconPos="right" severity="secondary" (onClick)="nextTab()" /> }
-        <p-button label="Confirmar Check-in" icon="pi pi-check" [loading]="saving()" (onClick)="confirm()" />
+        <p-button label="Confirmar Check-in" icon="pi pi-check" [loading]="saving()" [disabled]="blacklistInfo()?.mode === 'BLOQUEO'" (onClick)="confirm()" />
+      </ng-template>
+    </p-dialog>
+
+    <!-- Alerta de LISTA NEGRA: salta al terminar de digitar el documento de un cliente bloqueado. -->
+    <p-dialog [visible]="!!blacklistInfo()" (visibleChange)="blacklistInfo.set(null)" [modal]="true" [style]="{ width: '460px', maxWidth: '95vw' }" [closable]="false" styleClass="bl-dialog">
+      @if (blacklistInfo(); as bl) {
+        <div class="bl-wrap" [class.block]="bl.mode === 'BLOQUEO'">
+          <div class="bl-icon"><i class="pi pi-ban"></i></div>
+          <h3>{{ bl.mode === 'BLOQUEO' ? 'CLIENTE BLOQUEADO' : 'CLIENTE EN LISTA NEGRA' }}</h3>
+          <p class="bl-name">{{ bl.name }}</p>
+          <div class="bl-reason"><i class="pi pi-exclamation-triangle"></i> {{ bl.reason }}</div>
+          @if (bl.mode === 'BLOQUEO') {
+            <p class="bl-msg block">Este cliente tiene <b>bloqueo total</b>. No se permite realizar el check-in.</p>
+          } @else {
+            <p class="bl-msg">Este cliente está marcado en lista negra (solo aviso). Puedes continuar bajo tu criterio y responsabilidad.</p>
+          }
+        </div>
+      }
+      <ng-template pTemplate="footer">
+        @if (blacklistInfo()?.mode === 'BLOQUEO') {
+          <p-button label="Entendido, no continuar" icon="pi pi-times" severity="danger" (onClick)="onVisibleChange(false)" />
+        } @else {
+          <p-button label="Cancelar check-in" severity="secondary" [text]="true" (onClick)="onVisibleChange(false)" />
+          <p-button label="Entendido, continuar" icon="pi pi-check" severity="warn" (onClick)="blacklistInfo.set(null)" />
+        }
       </ng-template>
     </p-dialog>
 
@@ -363,6 +388,14 @@ const PAY_TYPES = [
   `,
   styles: [
     `
+      .bl-wrap { text-align: center; padding: 0.5rem 0.3rem; }
+      .bl-icon { width: 58px; height: 58px; margin: 0 auto 0.6rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(245,158,11,0.15); color: #fbbf24; font-size: 1.7rem; }
+      .bl-wrap.block .bl-icon { background: rgba(248,113,113,0.16); color: #f87171; }
+      .bl-wrap h3 { margin: 0 0 0.2rem; font-size: 1.1rem; letter-spacing: 0.5px; color: #fbbf24; }
+      .bl-wrap.block h3 { color: #f87171; }
+      .bl-name { margin: 0 0 0.7rem; font-weight: 700; font-size: 1.05rem; color: #e5e7eb; text-transform: uppercase; }
+      .bl-reason { display: flex; gap: 0.5rem; align-items: flex-start; text-align: left; background: rgba(148,163,184,0.08); border: 1px solid rgba(148,163,184,0.2); border-radius: 10px; padding: 0.6rem 0.75rem; font-size: 0.85rem; color: #cbd5e1; } .bl-reason i { color: #fbbf24; margin-top: 0.1rem; }
+      .bl-msg { margin: 0.8rem 0 0; font-size: 0.82rem; color: #94a3b8; } .bl-msg.block { color: #fca5a5; font-weight: 600; }
       .vknote { font-size: 0.86rem; color: #cbd5e1; margin: 0 0 0.8rem; }
       .vkbox { text-align: center; background: linear-gradient(180deg, rgba(120,53,15,0.35), rgba(69,26,3,0.35)); border: 1px solid rgba(217,119,6,0.5); border-radius: 12px; padding: 1rem; }
       .vkbox span { display: block; font-size: 0.8rem; color: #fcd34d; letter-spacing: 0.5px; } .vkbox strong { display: block; font-size: 2rem; font-weight: 800; color: #fbbf24; margin-top: 0.2rem; }
@@ -539,6 +572,8 @@ export class CheckInDialogComponent {
   readonly debts = signal<Debts>({ items: [], total: 0 });
   readonly reniecBusy = signal(false);
   readonly saving = signal(false);
+  // Lista negra del titular (si aplica): dispara el modal de alerta y, en modo BLOQUEO, impide el check-in.
+  readonly blacklistInfo = signal<{ name: string; reason: string; mode: string } | null>(null);
   private foundGuestId: string | null = null;
 
   targetRoomId: string | null = null;
@@ -591,7 +626,7 @@ export class CheckInDialogComponent {
     this.earlyAmount = null; this.earlyCortesia = false;
     this.prodSearch = ''; this.categoryFilter = null; this.comprobante = false;
     this.nights = 1; this.manualNights = false; this.finalPrice = null;
-    this.lines.set([]); this.addGuests.set([]); this.pays.set([]); this.debts.set({ items: [], total: 0 }); this.foundGuestId = null;
+    this.lines.set([]); this.addGuests.set([]); this.pays.set([]); this.debts.set({ items: [], total: 0 }); this.foundGuestId = null; this.blacklistInfo.set(null);
 
     this.loadCommissions();
     this.catalog.rates.list({ roomTypeId: room.roomType.id }).subscribe((res) => this.rates.set(res.data ?? []));
@@ -621,8 +656,8 @@ export class CheckInDialogComponent {
   /** Busca el huésped por documento: autocompleta nombre/teléfono y carga deudas. */
   lookupDoc(): void {
     const doc = this.docNumber.trim();
-    if (!doc) { this.debts.set({ items: [], total: 0 }); this.foundGuestId = null; return; }
-    this.http.get<ApiResponse<{ guest: { id: string; firstName: string; lastName?: string | null; phone?: string | null } | null; debts: Debts }>>(
+    if (!doc) { this.debts.set({ items: [], total: 0 }); this.foundGuestId = null; this.blacklistInfo.set(null); return; }
+    this.http.get<ApiResponse<{ guest: { id: string; firstName: string; lastName?: string | null; phone?: string | null; blacklisted?: boolean; blacklistReason?: string | null; blacklistMode?: string } | null; debts: Debts }>>(
       `${this.apiUrl}/guests-lookup`, { params: { documentNumber: doc } },
     ).subscribe((res) => {
       const g = res.data?.guest;
@@ -630,6 +665,11 @@ export class CheckInDialogComponent {
       if (g) {
         if (!this.guestName) this.guestName = `${g.firstName} ${g.lastName ?? ''}`.trim();
         if (!this.phone && g.phone) this.phone = g.phone;
+        // Lista negra: al reconocer al cliente por su documento, salta el modal de alerta.
+        if (g.blacklisted) this.blacklistInfo.set({ name: `${g.firstName} ${g.lastName ?? ''}`.trim(), reason: g.blacklistReason || 'Sin motivo registrado', mode: g.blacklistMode || 'AVISO' });
+        else this.blacklistInfo.set(null);
+      } else {
+        this.blacklistInfo.set(null);
       }
       this.debts.set(res.data?.debts ?? { items: [], total: 0 });
     });
@@ -920,6 +960,12 @@ export class CheckInDialogComponent {
     if (!this.selectedRateId) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Falta tarifa', detail: 'Selecciona una tarifa.' }); return; }
     if (this.isCustom() && (!this.checkoutAt || this.customPrice == null)) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Tarifa personalizada', detail: 'Indica la fecha de salida y el precio a cobrar.' }); return; }
     if (!this.docNumber || !this.guestName) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Datos incompletos', detail: 'Completa documento y nombre del huésped.' }); return; }
+    // Lista negra con BLOQUEO total: no se permite el check-in (el backend también lo impide).
+    if (this.blacklistInfo()?.mode === 'BLOQUEO') {
+      this.tab.set('huesped');
+      this.messages.add({ severity: 'error', summary: 'Cliente bloqueado', detail: 'Este cliente está en lista negra con bloqueo total. No se permite el check-in.' });
+      return;
+    }
     // Extranjeros: nacionalidad obligatoria. La foto del documento físico es OPCIONAL.
     if (this.isForeign() && !this.nationality.trim()) {
       this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Falta nacionalidad', detail: 'Ingresa la nacionalidad del huésped extranjero.' }); return;

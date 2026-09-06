@@ -3,7 +3,7 @@ import { ok } from '../../shared/response';
 import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { guestsService } from './guests.service';
-import { createGuestSchema, updateGuestSchema, blacklistGuestSchema } from './guests.schema';
+import { createGuestSchema, updateGuestSchema, blacklistGuestSchema, blacklistModeSchema } from './guests.schema';
 
 export const guestsController = {
   async list(req: Request, res: Response): Promise<void> {
@@ -29,6 +29,11 @@ export const guestsController = {
 
   async removeFromBlacklist(req: Request, res: Response): Promise<void> {
     res.status(200).json(ok(await guestsService.removeFromBlacklist(req.params.id)));
+  },
+
+  async setBlacklistMode(req: Request, res: Response): Promise<void> {
+    const dto = blacklistModeSchema.parse(req.body);
+    res.status(200).json(ok(await guestsService.setBlacklistMode(req.params.id, dto.mode)));
   },
 
   async exportRows(req: Request, res: Response): Promise<void> {

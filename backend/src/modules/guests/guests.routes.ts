@@ -24,3 +24,5 @@ guestsRouter.delete('/guests/:id', requirePermission('settings', 'delete'), asyn
 // Lista Negra: agregar = recepción + administración; quitar = SOLO administración.
 guestsRouter.post('/guests/:id/blacklist', requireAnyPermission(['settings', 'edit'], ['operations', 'edit']), asyncHandler(guestsController.addToBlacklist));
 guestsRouter.delete('/guests/:id/blacklist', requirePermission('settings', 'edit'), asyncHandler(guestsController.removeFromBlacklist));
+// Cambiar el modo (AVISO/BLOQUEO) de un cliente en lista negra: SOLO administración.
+guestsRouter.patch('/guests/:id/blacklist-mode', requirePermission('settings', 'edit'), asyncHandler(guestsController.setBlacklistMode));

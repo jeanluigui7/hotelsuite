@@ -162,6 +162,13 @@ export const staysService = {
     }
     if (!guestId) throw new ValidationError('Huésped requerido');
 
+    // Lista Negra: si el titular está bloqueado con modo BLOQUEO, se impide el check-in por completo
+    // (server-side, no bypasseable). Modo AVISO no bloquea: solo alerta en el frontend.
+    const mainGuest = await guestsRepository.findById(guestId);
+    if (mainGuest?.blacklisted && mainGuest.blacklistMode === 'BLOQUEO') {
+      throw new ConflictError(`Cliente en LISTA NEGRA (bloqueo total): ${mainGuest.blacklistReason || 'sin motivo registrado'}. No se permite el check-in.`);
+    }
+
     // REGLA (lineamiento de turismo): un huésped no puede tener OTRA estadía activa.
     // Aplica al titular y a los acompañantes (por documento, principal o acompañante).
     const involvedIds = [guestId, ...dto.additionalGuestIds].filter((x): x is string => !!x);

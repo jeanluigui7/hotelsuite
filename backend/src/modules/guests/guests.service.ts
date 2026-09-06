@@ -14,7 +14,7 @@ export interface GuestRow {
   id: string; documentType: string; documentNumber: string; firstName: string; lastName: string | null;
   phone: string | null; email: string | null; nationality: string | null; status: string;
   reservas: number; gastoTotal: number; promedio: number; points: number; lastStay: Date | null;
-  blacklisted: boolean; blacklistReason: string | null; blacklistedAt: Date | null; blacklistedBy: string | null;
+  blacklisted: boolean; blacklistReason: string | null; blacklistMode: string; blacklistedAt: Date | null; blacklistedBy: string | null;
 }
 
 interface ListGuestParams {
@@ -67,7 +67,7 @@ export const guestsService = {
         nationality: g.nationality, status: g.status,
         reservas: a.reservas, gastoTotal: round2(a.gasto), promedio: a.reservas ? round2(a.gasto / a.reservas) : 0,
         points: Math.floor(a.gasto), lastStay: a.lastStay, // puntos = 1 por sol de gasto histórico
-        blacklisted: g.blacklisted, blacklistReason: g.blacklistReason, blacklistedAt: g.blacklistedAt,
+        blacklisted: g.blacklisted, blacklistReason: g.blacklistReason, blacklistMode: g.blacklistMode, blacklistedAt: g.blacklistedAt,
         blacklistedBy: g.blacklistedByUserId ? (blockerMap.get(g.blacklistedByUserId) ?? null) : null,
       };
     });
@@ -123,16 +123,23 @@ export const guestsService = {
     const rows = await this.enrichedRows({ blacklisted: true, sortBy: 'lastStay', sortDir: 'desc' });
     return rows.map((r) => ({
       id: r.id, documentNumber: r.documentNumber, firstName: r.firstName, lastName: r.lastName,
-      reason: r.blacklistReason, at: r.blacklistedAt, by: r.blacklistedBy,
+      reason: r.blacklistReason, mode: r.blacklistMode, at: r.blacklistedAt, by: r.blacklistedBy,
     }));
   },
 
-  /** Agrega un cliente a la Lista Negra (recepción + admin). Motivo obligatorio. */
+  /** Agrega un cliente a la Lista Negra (recepción + admin). Motivo obligatorio; modo AVISO/BLOQUEO. */
   async addToBlacklist(scope: RequestScope, id: string, dto: BlacklistGuestDto) {
     await this.getById(id);
     return guestsRepository.update(id, {
-      blacklisted: true, blacklistReason: dto.reason, blacklistedAt: new Date(), blacklistedByUserId: scope.userId,
+      blacklisted: true, blacklistReason: dto.reason, blacklistMode: dto.mode, blacklistedAt: new Date(), blacklistedByUserId: scope.userId,
     });
+  },
+
+  /** Cambia SOLO el modo (AVISO/BLOQUEO) de un cliente ya en lista negra (administración). */
+  async setBlacklistMode(id: string, mode: 'AVISO' | 'BLOQUEO') {
+    const guest = await this.getById(id);
+    if (!guest.blacklisted) throw new NotFoundError('El cliente no está en lista negra.');
+    return guestsRepository.update(id, { blacklistMode: mode });
   },
 
   /** Quita a un cliente de la Lista Negra (SOLO administración). */
@@ -181,7 +188,11 @@ export const guestsService = {
     }
     const total = round2(items.reduce((a, i) => a + i.amount, 0));
     return {
-      guest: { id: guest.id, documentType: guest.documentType, documentNumber: guest.documentNumber, firstName: guest.firstName, lastName: guest.lastName, phone: guest.phone },
+      guest: {
+        id: guest.id, documentType: guest.documentType, documentNumber: guest.documentNumber,
+        firstName: guest.firstName, lastName: guest.lastName, phone: guest.phone,
+        blacklisted: guest.blacklisted, blacklistReason: guest.blacklistReason, blacklistMode: guest.blacklistMode,
+      },
       debts: { items, total },
     };
   },

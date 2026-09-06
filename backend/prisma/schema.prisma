@@ -297,6 +297,9 @@ model Guest {
   blacklistReason     String?
   blacklistedAt       DateTime?
   blacklistedByUserId String?
+  // Modo de la lista negra por cliente: AVISO = solo alerta en el check-in (no bloquea);
+  // BLOQUEO = impide el check-in por completo. Configurable por administración.
+  blacklistMode       String    @default("AVISO") // AVISO | BLOQUEO
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
