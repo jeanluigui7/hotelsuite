@@ -16,6 +16,8 @@ wifiRouter.get('/wifi-credentials/summary', requireAnyPermission(['settings', 'v
 wifiRouter.get('/wifi-credentials/:id/ticket', requireAnyPermission(['settings', 'view'], ['operations', 'view']), asyncHandler(wifiController.ticket));
 // Comanda de bienvenida por estancia (check-in): ruta de impresión autorizada para recepción.
 wifiRouter.get('/wifi-credentials/by-stay/:stayId/ticket', requireAnyPermission(['settings', 'view'], ['operations', 'view']), asyncHandler(wifiController.ticketByStay));
+// Asignación automática (recepción y admin): el sistema elige la credencial y consume la anterior.
+wifiRouter.post('/wifi-credentials/assign-auto', requireAnyPermission(['settings', 'edit'], ['operations', 'edit']), asyncHandler(wifiController.assignAuto));
 wifiRouter.post('/wifi-credentials/:id/assign', requireAnyPermission(['settings', 'edit'], ['operations', 'edit']), asyncHandler(wifiController.assign));
 // Administración del pool (SOLO administración): revelar por id, crear, importar, editar, eliminar.
 wifiRouter.get('/wifi-credentials/:id', requirePermission('settings', 'view'), asyncHandler(wifiController.getById));

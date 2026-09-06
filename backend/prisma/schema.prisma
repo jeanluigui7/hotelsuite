@@ -1608,6 +1608,10 @@ model WifiCredential {
   // Solo GRATIS: validez del ticket y mensaje promocional impreso.
   validMinutes Int?
   message      String?
+  // Trazabilidad de asignación/consumo (auditoría; una credencial consumida NO vuelve al pool).
+  usedAt           DateTime? // cuándo se consumió (reemplazo/checkout)
+  assignReason     String? // CHECKIN | RENEWAL | MANUAL
+  assignedByUserId String? // usuario que ejecutó la asignación
   status    String   @default("active") // active | inactive (legado)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

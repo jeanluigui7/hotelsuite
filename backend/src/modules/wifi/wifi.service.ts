@@ -132,11 +132,61 @@ export const wifiService = {
     return { deleted: res.count };
   },
 
-  /** Asigna una credencial a la estancia activa de una habitación (reemplaza la anterior de esa estancia). */
+  /**
+   * LÓGICA CENTRAL de asignación/reemplazo de credencial WiFi para una estancia (reutilizable desde
+   * check-in, renovación, asignación manual y —a futuro— WhatsApp). Regla: una estancia solo puede tener
+   * UNA credencial vigente. Asignar una nueva CONSUME la anterior (used=true, sale del pool, NO vuelve a
+   * Disponible ni se reasigna; queda como trazabilidad). Transaccional: no hace reemplazos parciales.
+   *  - credentialId: asigna esa credencial específica (admin).
+   *  - sin credentialId: toma la primera DISPONIBLE de la categoría. Si no hay:
+   *      requireAvailable=true → lanza error (no consume la anterior); false → devuelve null sin tocar nada.
+   */
+  async assignToStay(opts: {
+    branchId: string; stayId: string; room: string | null; guest: string | null;
+    category?: string; credentialId?: string; userId?: string | null;
+    reason: 'CHECKIN' | 'RENEWAL' | 'MANUAL'; requireAvailable?: boolean;
+  }) {
+    const { branchId, stayId, room, guest, userId, reason } = opts;
+    let target;
+    if (opts.credentialId) {
+      target = await prisma.wifiCredential.findUnique({ where: { id: opts.credentialId } });
+      if (!target || target.branchId !== branchId) throw new NotFoundError('Credencial WiFi no encontrada');
+      if (target.used || target.assignedStayId) throw new ConflictError('La credencial ya no está disponible');
+    } else {
+      target = await prisma.wifiCredential.findFirst({
+        where: { branchId, category: opts.category, used: false, assignedStayId: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (!target) {
+        if (opts.requireAvailable) throw new ConflictError(`No hay credenciales WiFi disponibles en la categoría ${opts.category}. Repón el pool para poder asignar.`);
+        return null; // check-in/renovación sin pool: no se toca la credencial anterior
+      }
+    }
+    return prisma.$transaction(async (tx) => {
+      // CONSUME (no libera) la credencial vigente anterior de la estancia → used=true, fuera del pool.
+      await tx.wifiCredential.updateMany({
+        where: { branchId, assignedStayId: stayId, used: false, id: { not: target.id } },
+        data: { used: true, usedAt: new Date() },
+      });
+      return tx.wifiCredential.update({
+        where: { id: target.id },
+        data: { assignedStayId: stayId, assignedRoom: room, assignedGuest: guest, assignedAt: new Date(), assignReason: reason, assignedByUserId: userId ?? null },
+      });
+    });
+  },
+
+  /** Categoría WiFi que corresponde a una estancia según su tarifa (igual criterio que el check-in). */
+  async categoryForStay(stayId: string): Promise<string> {
+    const stay = await prisma.stay.findUnique({ where: { id: stayId }, include: { rate: { select: { label: true, pernocta: true } } } });
+    if (!stay) return 'PERSONALIZADA';
+    const rate = stay.rate;
+    if (!rate) return 'PERSONALIZADA';
+    return rate.pernocta || /hotelero|pernocta|pernoctaci/i.test(rate.label) || stay.durationMinutes >= 1440 ? 'PERNOCTACION' : 'ESTADIA_CORTA';
+  },
+
+  /** Asignación manual de una credencial ESPECÍFICA (admin elige la fila). Consume la anterior. */
   async assign(scope: RequestScope, id: string, dto: AssignWifiDto) {
     const branchId = requireActiveBranch(scope);
-    const cred = await this.getById(scope, id);
-    if (cred.used) throw new ConflictError('La credencial ya fue usada');
     const stay = await prisma.stay.findUnique({
       where: { id: dto.stayId },
       include: { room: { select: { number: true } }, guest: { select: { firstName: true, lastName: true } } },
@@ -144,41 +194,44 @@ export const wifiService = {
     if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
     if (stay.status !== 'OPEN') throw new ConflictError('La estancia no está activa');
     const guest = `${stay.guest?.firstName ?? ''} ${stay.guest?.lastName ?? ''}`.trim();
-    return prisma.$transaction(async (tx) => {
-      // Libera cualquier credencial no usada previamente asignada a esta estancia (reemplazo).
-      await tx.wifiCredential.updateMany({
-        where: { branchId, assignedStayId: stay.id, used: false, id: { not: id } },
-        data: { assignedStayId: null, assignedRoom: null, assignedGuest: null, assignedAt: null },
-      });
-      return tx.wifiCredential.update({
-        where: { id },
-        data: { assignedStayId: stay.id, assignedRoom: stay.room?.number ?? null, assignedGuest: guest || null, assignedAt: new Date() },
-      });
+    return this.assignToStay({ branchId, stayId: stay.id, room: stay.room?.number ?? null, guest: guest || null, credentialId: id, userId: scope.userId, reason: 'MANUAL' });
+  },
+
+  /** Asignación AUTOMÁTICA a una habitación (recepción y admin): el sistema toma la siguiente disponible
+   * de la categoría de la estancia y consume la anterior. No requiere ver el código del voucher. */
+  async assignAutoToStay(scope: RequestScope, stayId: string) {
+    const branchId = requireActiveBranch(scope);
+    const stay = await prisma.stay.findUnique({
+      where: { id: stayId },
+      include: { room: { select: { number: true } }, guest: { select: { firstName: true, lastName: true } } },
     });
+    if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
+    if (stay.status !== 'OPEN') throw new ConflictError('La estancia no está activa');
+    const guest = `${stay.guest?.firstName ?? ''} ${stay.guest?.lastName ?? ''}`.trim();
+    const category = await this.categoryForStay(stayId);
+    return this.assignToStay({ branchId, stayId, room: stay.room?.number ?? null, guest: guest || null, category, userId: scope.userId, reason: 'MANUAL', requireAvailable: true });
   },
 
   /** Al checkout: la credencial asignada a la estancia se consume ("Usada"). */
   async releaseByStay(stayId: string) {
     await prisma.wifiCredential.updateMany({
       where: { assignedStayId: stayId, used: false },
-      data: { used: true },
+      data: { used: true, usedAt: new Date() },
     });
   },
 
   /**
-   * Auto-asigna una credencial DISPONIBLE de la categoría a una estancia (usado en el check-in y en
-   * la rotación diaria de pernoctación). Devuelve la credencial asignada, o null si el pool está vacío.
+   * Auto-asigna una credencial DISPONIBLE de la categoría a una estancia (check-in y rotación diaria).
+   * Consume la anterior si la hubiera. Devuelve la credencial, o null si el pool está vacío.
    */
   async assignAvailableToStay(branchId: string, stayId: string, category: string, room: string | null, guest: string | null) {
-    const cred = await prisma.wifiCredential.findFirst({
-      where: { branchId, category, used: false, assignedStayId: null },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (!cred) return null;
-    return prisma.wifiCredential.update({
-      where: { id: cred.id },
-      data: { assignedStayId: stayId, assignedRoom: room, assignedGuest: guest, assignedAt: new Date() },
-    });
+    return this.assignToStay({ branchId, stayId, room, guest, category, reason: 'CHECKIN', requireAvailable: false });
+  },
+
+  /** Reasigna WiFi al renovar: consume el voucher anterior y toma uno nuevo de la categoría (si hay). */
+  async reassignOnRenewal(branchId: string, stayId: string, room: string | null, guest: string | null) {
+    const category = await this.categoryForStay(stayId);
+    return this.assignToStay({ branchId, stayId, room, guest, category, reason: 'RENEWAL', requireAvailable: false });
   },
 
   /** Datos para imprimir el ticket WiFi de una credencial (identidad de la sucursal + estancia). */

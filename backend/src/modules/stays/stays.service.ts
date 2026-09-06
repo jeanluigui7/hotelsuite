@@ -488,7 +488,12 @@ export const staysService = {
       }),
     ]);
     const updated = await staysRepository.findById(id);
-    return serialize(updated as StayWithRelations);
+    // Reasignación de WiFi al renovar: consume el voucher anterior y toma uno nuevo de la categoría.
+    // Best-effort: si el pool está vacío se conserva el anterior (no rompe la renovación).
+    const u = updated as StayWithRelations;
+    const rGuest = `${u.guest?.firstName ?? ''} ${u.guest?.lastName ?? ''}`.trim();
+    await wifiService.reassignOnRenewal(branchId, id, u.room?.number ?? null, rGuest || null).catch(() => undefined);
+    return serialize(u);
   },
 
   /**

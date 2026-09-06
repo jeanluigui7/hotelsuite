@@ -61,19 +61,23 @@ interface ImportSummary { detected: number; new: number; duplicates: number; inv
         }
       </div>
 
-      <!-- Barra de acciones administrativas de la categoría activa (SOLO administración) -->
+      <!-- Barra de acciones de la categoría activa -->
       @if (isAdmin) {
         <div class="catbar">
           <div class="cbl"><i class="pi" [class]="catIcon(category())"></i> <strong>{{ catLabel(category()) }}</strong> · acciones de esta categoría</div>
           <div class="cbr">
             <input #imp type="file" accept=".csv,.txt" hidden (change)="onImport($event)" />
+            @if (canAssign) { <p-button label="Asignar a habitación" icon="pi pi-link" severity="secondary" size="small" (onClick)="openAssignAuto()" /> }
             <p-button label="Plantilla CSV" icon="pi pi-download" severity="secondary" [text]="true" size="small" (onClick)="downloadTemplate()" />
             <p-button label="Importar CSV" icon="pi pi-upload" severity="secondary" size="small" (onClick)="imp.click()" />
             <p-button label="Crear credenciales" icon="pi pi-plus" size="small" (onClick)="openCreate()" />
           </div>
         </div>
       } @else {
-        <div class="catbar op"><div class="cbl"><i class="pi pi-info-circle"></i> Vista operativa: asigna e imprime vouchers. El código permanece oculto por seguridad.</div></div>
+        <div class="catbar op">
+          <div class="cbl"><i class="pi pi-info-circle"></i> Vista operativa: asigna e imprime vouchers. El código permanece oculto por seguridad.</div>
+          @if (canAssign) { <p-button label="Asignar a habitación" icon="pi pi-link" size="small" (onClick)="openAssignAuto()" /> }
+        </div>
       }
 
       <!-- Barra de selección -->
@@ -112,7 +116,7 @@ interface ImportSummary { detected: number; new: number; duplicates: number; inv
                     <td class="c">{{ w.room || '—' }}</td>
                     <td class="c nowrap">
                       @if (w.state === 'EN_USO') { <button class="ic prt" (click)="printTicket(w)" title="Imprimir ticket"><i class="pi pi-print"></i></button> }
-                      @if (canAssign && w.state === 'DISPONIBLE') { <button class="ic link" (click)="openAssign(w)" title="Asignar a habitación"><i class="pi pi-link"></i></button> }
+                      @if (isAdmin && w.state === 'DISPONIBLE') { <button class="ic link" (click)="openAssign(w)" title="Asignar esta credencial a una habitación"><i class="pi pi-link"></i></button> }
                       @if (isAdmin) {
                         <button class="ic" (click)="openEdit(w)" title="Editar"><i class="pi pi-pencil"></i></button>
                         <button class="ic del" (click)="askDelete(w)" title="Eliminar"><i class="pi pi-trash"></i></button>
@@ -165,7 +169,7 @@ interface ImportSummary { detected: number; new: number; duplicates: number; inv
 
     <!-- Asignar a habitación -->
     <p-dialog [(visible)]="assignVisible" [modal]="true" [style]="{ width: '30rem', maxWidth: '96vw' }" header="Asignar credencial a habitación">
-      <p class="muted sm">Selecciona una habitación ocupada con cliente activo. Si ya tiene WiFi, se reemplazará por esta credencial.</p>
+      <p class="muted sm">Selecciona una habitación ocupada con cliente activo. Si ya tiene WiFi, la credencial anterior se <b>consume</b> (no vuelve al pool) y se asigna {{ assignAuto ? 'una nueva credencial disponible de su categoría' : 'la credencial seleccionada' }}.</p>
       <div class="form">
         <p-select [options]="rooms()" optionLabel="label" optionValue="stayId" [(ngModel)]="assignStayId" [filter]="true" filterBy="label" placeholder="Seleccionar habitación…" appendTo="body" styleClass="w" [loading]="roomsLoading()" />
       </div>
@@ -280,7 +284,7 @@ export class WifiPoolComponent implements OnInit {
   // Editar
   editVisible = false; editId = ''; eSsid = ''; eVoucher = '';
   // Asignar
-  assignVisible = false; assignId = ''; assignStayId: string | null = null;
+  assignVisible = false; assignId = ''; assignStayId: string | null = null; assignAuto = false;
   readonly rooms = signal<RoomOpt[]>([]); readonly roomsLoading = signal(false);
   // Eliminar
   deleteVisible = false; deleteId = '';
@@ -351,24 +355,29 @@ export class WifiPoolComponent implements OnInit {
   }
 
   // ── Asignar ──
-  openAssign(w: WifiCred): void {
-    this.assignId = w.id; this.assignStayId = null; this.assignVisible = true;
-    if (!this.rooms().length) {
-      this.roomsLoading.set(true);
-      this.http.get<ApiResponse<{ activeStay?: { id: string; guestName: string } | null; number: string }[]>>(`${this.api}/rooms/map`).subscribe({
-        next: (r) => {
-          const occ = (r.data ?? []).filter((x) => x.activeStay).map((x) => ({ stayId: x.activeStay!.id, label: `Hab. ${x.number} — ${x.activeStay!.guestName}` }));
-          this.rooms.set(occ); this.roomsLoading.set(false);
-        },
-        error: () => this.roomsLoading.set(false),
-      });
-    }
+  private loadRooms(): void {
+    if (this.rooms().length) return;
+    this.roomsLoading.set(true);
+    this.http.get<ApiResponse<{ activeStay?: { id: string; guestName: string } | null; number: string }[]>>(`${this.api}/rooms/map`).subscribe({
+      next: (r) => {
+        const occ = (r.data ?? []).filter((x) => x.activeStay).map((x) => ({ stayId: x.activeStay!.id, label: `Hab. ${x.number} — ${x.activeStay!.guestName}` }));
+        this.rooms.set(occ); this.roomsLoading.set(false);
+      },
+      error: () => this.roomsLoading.set(false),
+    });
   }
+  /** Asignar una credencial ESPECÍFICA (admin elige la fila). */
+  openAssign(w: WifiCred): void { this.assignAuto = false; this.assignId = w.id; this.assignStayId = null; this.assignVisible = true; this.loadRooms(); }
+  /** Asignar AUTOMÁTICO: el sistema elige la credencial disponible de la categoría de la estancia. */
+  openAssignAuto(): void { this.assignAuto = true; this.assignId = ''; this.assignStayId = null; this.assignVisible = true; this.loadRooms(); }
   doAssign(): void {
     if (!this.assignStayId) return;
     this.busy.set(true);
-    this.http.post<ApiResponse<unknown>>(`${this.api}/wifi-credentials/${this.assignId}/assign`, { stayId: this.assignStayId }).subscribe({
-      next: () => { this.busy.set(false); this.assignVisible = false; this.toast.add({ severity: 'success', summary: 'Asignada', detail: '' }); this.afterChange(); },
+    // Auto: el backend elige la credencial de la categoría de la estancia y consume la anterior.
+    // Específico: asigna la credencial elegida (admin) y consume la anterior.
+    const url = this.assignAuto ? `${this.api}/wifi-credentials/assign-auto` : `${this.api}/wifi-credentials/${this.assignId}/assign`;
+    this.http.post<ApiResponse<unknown>>(url, { stayId: this.assignStayId }).subscribe({
+      next: () => { this.busy.set(false); this.assignVisible = false; this.toast.add({ severity: 'success', summary: 'Asignada', detail: 'Credencial vinculada a la habitación.' }); this.afterChange(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo asignar.' }); },
     });
   }
