@@ -62,6 +62,10 @@ function ticketHeader(s: HeaderSession): string[] {
 function ticketPage(title: string, text: string): string {
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${esc(title)}</title>
 <style>
+  /* @page margin:0 elimina el encabezado/pie del navegador (fecha, URL, 1/1). El ancho es 80mm y la
+     altura se ajusta al contenido (se fija en px justo antes de imprimir para que el papel se corte
+     al final del ticket y no salga una hoja A4 con espacio en blanco). */
+  @page { size: 80mm auto; margin: 0; }
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
   body { margin: 0; background: #e5e7eb; color: #000; font-family: 'Courier New', ui-monospace, monospace; }
@@ -70,15 +74,27 @@ function ticketPage(title: string, text: string): string {
   .toolbar .print { background: #10b981; color: #04130d; }
   .toolbar .close { background: #334155; color: #e2e8f0; }
   .sheet { width: 80mm; max-width: 96vw; margin: 12px auto; background: #fff; padding: 6mm 4mm; box-shadow: 0 2px 14px rgba(0,0,0,.18); }
-  pre.ticket { margin: 0; font-family: 'Courier New', ui-monospace, monospace; font-size: 12px; line-height: 1.28; white-space: pre; color: #000; font-weight: 700; }
-  @media print { .toolbar { display: none; } body { background: #fff; } .sheet { box-shadow: none; margin: 0; width: auto; padding: 0; } }
+  pre.ticket { margin: 0; font-family: 'Courier New', ui-monospace, monospace; font-size: 12px; line-height: 1.25; white-space: pre; color: #000; font-weight: 700; }
+  @media print { .toolbar { display: none; } body { background: #fff; } .sheet { box-shadow: none; margin: 0; width: auto; padding: 1mm 2mm; } }
 </style></head>
 <body>
   <div class="toolbar">
-    <button class="print" onclick="window.print()">Imprimir</button>
+    <button class="print" onclick="doPrint()">Imprimir</button>
     <button class="close" onclick="window.close()">Cerrar</button>
   </div>
   <div class="sheet"><pre class="ticket">${esc(text)}</pre></div>
+  <script>
+    function doPrint(){
+      try{
+        var pre=document.querySelector('.ticket');
+        var h=Math.ceil(pre.getBoundingClientRect().height)+12; // + margen técnico para el corte
+        var st=document.createElement('style');
+        st.textContent='@page{size:80mm '+h+'px;margin:0}';
+        document.head.appendChild(st);
+      }catch(e){}
+      window.print();
+    }
+  </script>
 </body></html>`;
 }
 
@@ -229,10 +245,14 @@ export function buildBlindTicket(t: BlindTicketData): string {
   L.push(lr('Efectivo contado para entregar', money(total)));
   L.push(line('='), '');
   L.push('CONTEO POR DENOMINACIONES', '-'.repeat(26), '');
-  for (const d of t.denominations) {
+  // Solo se imprimen las denominaciones con cantidad > 0 (la interfaz sigue mostrando todas para el
+  // conteo). El total no cambia: las de cantidad 0 aportan 0.
+  const usadas = t.denominations.filter((d) => d.qty > 0);
+  for (const d of usadas) {
     const left = denomLbl(d.value).padEnd(13) + 'x ' + String(d.qty).padStart(2);
     L.push(left + '   = ' + ('S/ ' + (d.value * d.qty).toFixed(2)).padStart(9));
   }
+  if (!usadas.length) L.push(center('(Sin efectivo contado)'));
   L.push(line('-'));
   L.push(lr('TOTAL', money(total)), '');
   L.push(center('Documento sin valor tributario'));
