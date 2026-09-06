@@ -21,8 +21,8 @@ import { downloadCsv } from '../../../core/utils/export';
 interface ReconItem { id: string; at: string; type: string; amount: number; affectsCash: boolean; quantity: number | null; note: string | null; by: string | null; approvedBy: string | null; }
 interface ReconSummary { expected: number | null; declared: number | null; originalDifference: number; pendingDifference: number; reconciliations: ReconItem[]; }
 interface VAuditItem { paymentId: string; saleId: string; concept: string; amount: number; gross: number; commission: number; time: string; }
-interface VAuditGroup { method: string; code: string | null; amount: number; grossAmount: number; commissionAmount: number; ops: number; state: 'VERIFICADO' | 'PENDIENTE' | 'SIN_CODIGO' | 'EN_REVISION'; duplicate: boolean; items: VAuditItem[]; }
-interface VAudit { esperado: { byMethod: Record<string, number>; total: number; grossByMethod?: Record<string, number>; grossTotal?: number; commissionTotal?: number }; groups: VAuditGroup[]; summary: { verifiedAmount: number; verifiedOps: number; pendingAmount: number; sinCodigoCount: number; duplicateCount: number; enRevisionCount: number; difference: number }; }
+interface VAuditGroup { method: string; code: string | null; amount: number; grossAmount: number; commissionAmount: number; ops: number; room: string | null; client: string; clientShort: string; concept: string; time: string; state: 'VERIFICADO' | 'PENDIENTE' | 'SIN_CODIGO' | 'EN_REVISION' | 'NO_EXISTE'; duplicate: boolean; items: VAuditItem[]; }
+interface VAudit { esperado: { byMethod: Record<string, number>; total: number; grossByMethod?: Record<string, number>; grossTotal?: number; commissionTotal?: number }; groups: VAuditGroup[]; summary: { verifiedAmount: number; verifiedOps: number; pendingAmount: number; sinCodigoCount: number; duplicateCount: number; enRevisionCount: number; noExisteCount?: number; difference: number }; }
 
 const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera', MIXTO: 'Mixto', PENDIENTE: 'Pendiente' };
 const TYPE_LABEL: Record<string, string> = { HOSPEDAJE: 'Hospedaje', RENOVACION: 'Pago Renovación', PRODUCTO: 'Venta Producto', SERVICIO: 'Servicio', INGRESO: 'Ingreso', EGRESO: 'Egreso', DEUDA: 'Deuda' };
@@ -359,42 +359,83 @@ const TYPE_COLOR: Record<string, [string, string]> = {
     </p-dialog>
 
     <!-- Auditar medios de pago virtuales -->
-    <p-dialog [(visible)]="auditVisible" [modal]="true" [style]="{ width: '52rem', maxWidth: '97vw' }" header="Auditar medios de pago virtuales">
+    <p-dialog [(visible)]="auditVisible" [modal]="true" [style]="{ width: '70rem', maxWidth: '98vw' }" header="Auditar medios de pago virtuales">
       @if (vaudit(); as va) {
-        <div class="vsum" style="margin-bottom:.7rem">
-          <span>Total esperado (neto): <b>S/ {{ va.esperado.total | number: '1.2-2' }}</b></span>
+        <div class="vsum" style="margin-bottom:.5rem">
+          <span>Total esperado: <b>S/ {{ va.esperado.total | number: '1.2-2' }}</b></span>
           <span class="ok">Verificado: S/ {{ va.summary.verifiedAmount | number: '1.2-2' }}</span>
           <span class="pend">Pendiente: S/ {{ va.summary.pendingAmount | number: '1.2-2' }}</span>
           <span class="diff" [class.ok]="va.summary.difference === 0">{{ vDiffLabel(va.summary.difference) }}</span>
         </div>
         @if (va.esperado.commissionTotal) {
-          <div class="vsum posbar" style="margin-bottom:.7rem"><span>Cobrado en POS (neto + comisión): <b>S/ {{ va.esperado.grossTotal | number: '1.2-2' }}</b></span><span class="muted">Comisión POS retenida: S/ {{ va.esperado.commissionTotal | number: '1.2-2' }}</span></div>
+          <div class="vsum posbar" style="margin-bottom:.5rem"><span>Cobrado en POS (neto + comisión): <b>S/ {{ va.esperado.grossTotal | number: '1.2-2' }}</b></span><span class="muted">Comisión POS retenida: S/ {{ va.esperado.commissionTotal | number: '1.2-2' }}</span></div>
         }
-        <p class="muted sm">Operaciones agrupadas por método + código. Si un mismo código cubre varias líneas, aparecen juntas (un solo pago). El neto es lo que recibe el negocio; "POS" es lo realmente cargado al cliente (snapshot al cobrar).</p>
-        <div class="agroups">
-          @for (g of va.groups; track vAuditKey(g)) {
-            <div class="agroup" [class.dup]="g.duplicate">
-              <div class="ag-head">
-                <span class="ag-code">{{ methodLabel(g.method) }} — <b>{{ g.code || 'SIN CÓDIGO' }}</b>@if (g.duplicate) { <span class="dupt">duplicado</span> }</span>
-                <span class="ag-amt">S/ {{ g.amount | number: '1.2-2' }}@if (g.commissionAmount) { <span class="posit">· POS S/ {{ g.grossAmount | number: '1.2-2' }}</span> } · {{ g.ops }} op(s)</span>
-                <span class="est {{ vStateClass(g.state) }}">{{ vStateLabel(g.state) }}</span>
-              </div>
-              <div class="ag-items">
-                @for (it of g.items; track it.paymentId) { <div class="ag-it"><span>{{ it.time | date: 'HH:mm' }} · {{ it.concept }}</span><b>S/ {{ it.amount | number: '1.2-2' }}@if (it.commission) { <em class="posit"> · POS S/ {{ it.gross | number: '1.2-2' }}</em> }</b></div> }
-              </div>
-              @if (canEdit && g.state !== 'VERIFICADO') {
-                @if (auditingCode() === vAuditKey(g)) {
-                  <div class="ag-edit"><input pInputText [(ngModel)]="auditCodeInput" placeholder="Código de operación" /><p-button label="Guardar" size="small" [loading]="busy()" (onClick)="confirmSetCode(g)" /><button class="lnk" (click)="auditingCode.set('')">Cancelar</button></div>
-                } @else {
-                  <div class="ag-actions">
-                    <button class="lnk green" (click)="verifyGroup(g)">✓ Marcar OK</button>
-                    <button class="lnk" (click)="startSetCode(g)">Editar código</button>
-                    <button class="lnk red" (click)="reviewGroup(g)">Marcar en revisión</button>
-                  </div>
-                }
-              } @else if (g.state === 'VERIFICADO') { <div class="ag-ok">✓ OK</div> }
+        <p class="muted sm" style="margin:.2rem 0 .6rem">Operaciones agrupadas por método + código. Si un mismo código cubre varias líneas, aparecen juntas (un solo pago).</p>
+
+        <!-- Filtros por método + buscador -->
+        <div class="afilters">
+          <div class="fchips">
+            @for (f of methodChips(); track f.key) {
+              <button class="fchip" [class.on]="auditMethod() === f.key" (click)="setAuditMethod(f.key)">
+                <span class="flbl">{{ f.label }} ({{ f.count }})</span>
+                @if (f.key !== 'ALL') { <span class="fver">Verificados: {{ f.verified }}</span> }
+              </button>
+            }
+          </div>
+          <div class="asearch"><i class="pi pi-search"></i><input pInputText [ngModel]="auditSearch()" (ngModelChange)="onAuditSearch($event)" placeholder="Buscar nombre, código o hab…" /></div>
+        </div>
+
+        <!-- Tabla compacta -->
+        <div class="atbl-wrap">
+          <table class="atbl">
+            <thead>
+              <tr>
+                <th>Hab.</th><th>Método</th><th>Nombre</th>
+                <th class="srt" (click)="toggleHoraSort()">Hora {{ horaSortAsc() ? '↑' : '↓' }}</th>
+                <th class="r">Monto</th><th>Código</th><th>Estado</th><th class="r">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (g of pagedAudit(); track vAuditKey(g)) {
+                <tr [class.dup]="g.duplicate">
+                  <td class="hab">{{ g.room || '—' }}</td>
+                  <td><span class="mtag {{ methodClass(g.method) }}">{{ methodLabel(g.method) }}</span></td>
+                  <td class="nm"><span [title]="g.client">{{ g.clientShort || g.client }}</span>@if (g.concept) { <em>{{ g.concept }}</em> }</td>
+                  <td class="hr">{{ g.time | date: 'HH:mm' }}</td>
+                  <td class="r amt"><b>S/ {{ g.amount | number: '1.2-2' }}</b>@if (g.commissionAmount) { <em class="posit">POS {{ g.grossAmount | number: '1.2-2' }}</em> }</td>
+                  <td class="cod">{{ g.code || '—' }}@if (g.duplicate) { <span class="dupt">dup</span> }</td>
+                  <td><span class="est {{ vStateClass(g.state) }}">{{ vStateLabel(g.state) }}</span></td>
+                  <td class="acts">
+                    @if (!canEdit) { <span class="muted sm">—</span> }
+                    @else if (auditingCode() === vAuditKey(g)) {
+                      <input pInputText class="codein" [(ngModel)]="auditCodeInput" placeholder="Código" />
+                      <button class="ab save" [disabled]="busy()" (click)="confirmSetCode(g)">Guardar</button>
+                      <button class="ab x" (click)="auditingCode.set('')" title="Cancelar"><i class="pi pi-times"></i></button>
+                    } @else {
+                      <button class="ab ok" [disabled]="busy() || g.state === 'VERIFICADO'" (click)="verifyGroup(g)"><i class="pi pi-check"></i> Verificar</button>
+                      <button class="ab edit" [disabled]="busy()" (click)="startSetCode(g)"><i class="pi pi-pencil"></i> Editar código</button>
+                      <button class="ab no" [disabled]="busy() || g.state === 'NO_EXISTE'" (click)="markNotFound(g)"><i class="pi pi-times"></i> No existente</button>
+                    }
+                  </td>
+                </tr>
+              } @empty { <tr><td colspan="8" class="empty">Sin operaciones para este filtro.</td></tr> }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Paginación -->
+        <div class="apag">
+          <span>Mostrar
+            <select [ngModel]="auditPageSize()" (ngModelChange)="auditPageSize.set(+$event); auditPage.set(0)"><option [ngValue]="10">10</option><option [ngValue]="20">20</option><option [ngValue]="50">50</option></select>
+            de {{ filteredAudit().length }} movimientos
+          </span>
+          @if (auditPages().length > 1) {
+            <div class="apag-nav">
+              <button [disabled]="auditPage() === 0" (click)="auditPage.set(auditPage() - 1)">‹</button>
+              @for (p of auditPages(); track p) { <button [class.on]="p === auditPage()" (click)="auditPage.set(p)">{{ p + 1 }}</button> }
+              <button [disabled]="auditPage() >= auditPages().length - 1" (click)="auditPage.set(auditPage() + 1)">›</button>
             </div>
-          } @empty { <p class="empty">Sin operaciones virtuales en este turno.</p> }
+          }
         </div>
       }
       <ng-template pTemplate="footer"><p-button label="Finalizar auditoría" icon="pi pi-check" (onClick)="finalizeAudit()" /></ng-template>
@@ -436,6 +477,36 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .ag-items { margin: 0.4rem 0; border-top: 1px dashed #1c2c44; padding-top: 0.35rem; } .ag-it { display: flex; justify-content: space-between; font-size: 0.8rem; padding: 0.1rem 0; color: #cbd5e1; } .ag-it span { color: #8aa0bd; }
       .ag-actions { display: flex; gap: 0.9rem; } .ag-edit { display: flex; gap: 0.5rem; align-items: center; } .ag-ok { color: #34d399; font-weight: 700; font-size: 0.85rem; }
       :host ::ng-deep .ag-edit input[pInputText] { flex: 1; }
+      /* Tabla compacta de auditoría virtual */
+      .afilters { display: flex; gap: 0.8rem; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 0.6rem; }
+      .fchips { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+      .fchip { display: flex; flex-direction: column; align-items: flex-start; gap: 0.05rem; background: #131d2b; border: 1px solid #243245; border-radius: 9px; padding: 0.35rem 0.7rem; cursor: pointer; color: #cbd5e1; min-width: 4.5rem; }
+      .fchip:hover { border-color: #3b5a86; } .fchip.on { border-color: #60a5fa; background: rgba(96,165,250,0.12); }
+      .fchip .flbl { font-size: 0.82rem; font-weight: 700; } .fchip .fver { font-size: 0.68rem; color: #8aa0bd; }
+      .asearch { position: relative; display: flex; align-items: center; } .asearch i { position: absolute; left: 0.6rem; color: #8aa0bd; font-size: 0.8rem; }
+      :host ::ng-deep .asearch input[pInputText] { padding-left: 1.9rem; min-width: 15rem; font-size: 0.82rem; }
+      .atbl-wrap { max-height: 52vh; overflow-y: auto; border: 1px solid #1c2c44; border-radius: 9px; }
+      .atbl { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+      .atbl thead th { position: sticky; top: 0; background: #0f1928; color: #8aa0bd; font-weight: 600; text-align: left; padding: 0.5rem 0.6rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.3px; border-bottom: 1px solid #1c2c44; z-index: 1; }
+      .atbl th.r, .atbl td.r { text-align: right; } .atbl th.srt { cursor: pointer; user-select: none; } .atbl th.srt:hover { color: #cbd5e1; }
+      .atbl tbody td { padding: 0.45rem 0.6rem; border-bottom: 1px solid #16233649; color: #e2e8f0; vertical-align: middle; }
+      .atbl tbody tr:hover { background: rgba(96,165,250,0.05); } .atbl tbody tr.dup { background: rgba(180,83,9,0.08); }
+      .atbl td.hab { font-weight: 700; color: #cbd5e1; } .atbl td.hr { color: #cbd5e1; font-variant-numeric: tabular-nums; }
+      .atbl td.nm span { display: block; font-weight: 600; } .atbl td.nm em { display: block; font-size: 0.72rem; color: #8aa0bd; font-style: normal; }
+      .atbl td.amt b { font-variant-numeric: tabular-nums; } .atbl td.amt em { display: block; font-size: 0.68rem; }
+      .atbl td.cod { font-variant-numeric: tabular-nums; letter-spacing: 0.4px; } .atbl td.cod .dupt { color: #f59e0b; font-size: 0.62rem; margin-left: 0.25rem; }
+      .mtag { display: inline-flex; align-items: center; font-size: 0.72rem; font-weight: 700; padding: 0.12rem 0.5rem; border-radius: 999px; }
+      .mtag.yape { background: rgba(168,85,247,0.18); color: #c4b5fd; } .mtag.plin { background: rgba(20,184,166,0.18); color: #2dd4bf; } .mtag.card { background: rgba(96,165,250,0.18); color: #93c5fd; } .mtag.transfer { background: rgba(245,158,11,0.18); color: #fbbf24; } .mtag.other { background: rgba(148,163,184,0.18); color: #cbd5e1; }
+      .est.no { color: #f87171; }
+      .atbl td.acts { white-space: nowrap; text-align: right; } .atbl td.acts .ab { border: 1px solid transparent; border-radius: 6px; padding: 0.25rem 0.5rem; font-size: 0.72rem; font-weight: 600; cursor: pointer; margin-left: 0.3rem; background: #13243a; color: #cbd5e1; }
+      .ab.ok { border-color: rgba(52,211,153,0.5); color: #6ee7b7; } .ab.ok:hover:not(:disabled) { background: rgba(52,211,153,0.14); }
+      .ab.edit { border-color: rgba(96,165,250,0.5); color: #93c5fd; } .ab.edit:hover:not(:disabled) { background: rgba(96,165,250,0.14); }
+      .ab.no { border-color: rgba(248,113,113,0.5); color: #fca5a5; } .ab.no:hover:not(:disabled) { background: rgba(248,113,113,0.14); }
+      .ab.save { border-color: rgba(52,211,153,0.5); color: #6ee7b7; } .ab.x { color: #94a3b8; } .ab:disabled { opacity: 0.4; cursor: not-allowed; }
+      :host ::ng-deep .atbl td.acts input.codein { width: 6.5rem; padding: 0.25rem 0.4rem; font-size: 0.75rem; }
+      .apag { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 0.6rem; font-size: 0.8rem; color: #8aa0bd; flex-wrap: wrap; }
+      .apag select { background: #13243a; border: 1px solid #274468; color: #cbd5e1; border-radius: 6px; padding: 0.2rem 0.4rem; margin: 0 0.2rem; }
+      .apag-nav { display: flex; gap: 0.25rem; } .apag-nav button { background: #13243a; border: 1px solid #274468; color: #cbd5e1; border-radius: 6px; min-width: 1.9rem; padding: 0.25rem 0.4rem; cursor: pointer; } .apag-nav button.on { border-color: #60a5fa; background: rgba(96,165,250,0.16); color: #93c5fd; } .apag-nav button:disabled { opacity: 0.4; cursor: not-allowed; }
       .vdet { display: flex; flex-direction: column; gap: 0.3rem; } .vrow { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.85rem; padding: 0.15rem 0; } .vrow span { color: #8aa0bd; }
       .vrow.sub { font-size: 0.78rem; padding: 0 0 0.15rem 0; margin-top: -0.1rem; } .vrow.sub span, .vrow.sub b { color: #6b7f9c; font-weight: 500; }
       .vsub { margin-top: 0.6rem; font-size: 0.72rem; text-transform: uppercase; color: #8aa0bd; border-top: 1px dashed #1c2c44; padding-top: 0.45rem; }
@@ -512,6 +583,44 @@ export class CashMovementsPageComponent implements OnInit {
   auditVisible = false;
   readonly auditingCode = signal<string>(''); // grupo en edición de código (method|code)
   auditCodeInput = '';
+  // Filtros/orden/paginación de la tabla de auditoría (persisten entre acciones).
+  readonly auditMethod = signal<'ALL' | 'YAPE' | 'PLIN' | 'CARD' | 'TRANSFER'>('ALL');
+  readonly auditSearch = signal('');
+  readonly horaSortAsc = signal(false); // por defecto: más reciente primero (desc)
+  readonly auditPage = signal(0);
+  readonly auditPageSize = signal(10);
+  // Chips de método con conteo total y verificados (derivados de los grupos).
+  readonly methodChips = computed(() => {
+    const groups = this.vaudit()?.groups ?? [];
+    const defs: { key: 'ALL' | 'YAPE' | 'PLIN' | 'CARD' | 'TRANSFER'; label: string }[] = [
+      { key: 'ALL', label: 'Todos' }, { key: 'YAPE', label: 'Yape' }, { key: 'PLIN', label: 'Plin' },
+      { key: 'CARD', label: 'Tarjeta' }, { key: 'TRANSFER', label: 'Transferencia' },
+    ];
+    return defs.map((d) => {
+      const rows = d.key === 'ALL' ? groups : groups.filter((g) => g.method === d.key);
+      return { ...d, count: rows.length, verified: rows.filter((g) => g.state === 'VERIFICADO').length };
+    });
+  });
+  // Grupos filtrados por método + búsqueda, ordenados por hora.
+  readonly filteredAudit = computed(() => {
+    const groups = this.vaudit()?.groups ?? [];
+    const m = this.auditMethod();
+    const q = this.auditSearch().trim().toLowerCase();
+    const asc = this.horaSortAsc();
+    let rows = m === 'ALL' ? groups.slice() : groups.filter((g) => g.method === m);
+    if (q) rows = rows.filter((g) => (g.client || '').toLowerCase().includes(q) || (g.code || '').toLowerCase().includes(q) || (g.room || '').toLowerCase().includes(q));
+    rows.sort((a, b) => asc ? a.time.localeCompare(b.time) : b.time.localeCompare(a.time));
+    return rows;
+  });
+  readonly auditPages = computed(() => {
+    const n = Math.ceil(this.filteredAudit().length / this.auditPageSize());
+    return Array.from({ length: Math.max(1, n) }, (_, i) => i);
+  });
+  readonly pagedAudit = computed(() => {
+    const size = this.auditPageSize();
+    const start = this.auditPage() * size;
+    return this.filteredAudit().slice(start, start + size);
+  });
 
   // VER detalle
   detailModalVisible = false;
@@ -635,21 +744,31 @@ export class CashMovementsPageComponent implements OnInit {
     downloadCsv(`caja-${d.session.number ?? 'mov'}-movimientos`, ['Hora', 'Habitación', 'Tipo', 'Descripción', 'Monto', 'Método', 'Estado'], rows);
   }
 
-  // ── Auditoría de medios virtuales (Etapa 2 display + Etapa 3 acciones) ──
-  openAudit(): void { this.auditingCode.set(''); this.auditCodeInput = ''; this.auditVisible = true; }
+  // ── Auditoría de medios virtuales (tabla compacta + filtros + orden por hora) ──
+  openAudit(): void { this.auditingCode.set(''); this.auditCodeInput = ''; this.auditMethod.set('ALL'); this.auditSearch.set(''); this.horaSortAsc.set(false); this.auditPage.set(0); this.auditVisible = true; }
+  setAuditMethod(m: 'ALL' | 'YAPE' | 'PLIN' | 'CARD' | 'TRANSFER'): void { this.auditMethod.set(m); this.auditPage.set(0); }
+  onAuditSearch(v: string): void { this.auditSearch.set(v); this.auditPage.set(0); }
+  toggleHoraSort(): void { this.horaSortAsc.set(!this.horaSortAsc()); }
+  methodClass(m: string): string { return ({ YAPE: 'yape', PLIN: 'plin', CARD: 'card', TRANSFER: 'transfer' } as Record<string, string>)[m] ?? 'other'; }
   vAuditKey(g: VAuditGroup): string { return `${g.method}|${g.code ?? ''}`; }
-  vStateLabel(s: string): string { return ({ VERIFICADO: '✓ OK', PENDIENTE: 'Pendiente', SIN_CODIGO: 'Sin código', EN_REVISION: 'En revisión' } as Record<string, string>)[s] ?? s; }
-  vStateClass(s: string): string { return ({ VERIFICADO: 'ok', PENDIENTE: 'pend', SIN_CODIGO: 'warn', EN_REVISION: 'warn' } as Record<string, string>)[s] ?? ''; }
+  vStateLabel(s: string): string { return ({ VERIFICADO: 'Verificado', PENDIENTE: 'Pendiente', SIN_CODIGO: 'Sin código', EN_REVISION: 'En revisión', NO_EXISTE: 'No existente' } as Record<string, string>)[s] ?? s; }
+  vStateClass(s: string): string { return ({ VERIFICADO: 'ok', PENDIENTE: 'pend', SIN_CODIGO: 'warn', EN_REVISION: 'warn', NO_EXISTE: 'no' } as Record<string, string>)[s] ?? ''; }
   vDiffLabel(diff: number): string { return diff === 0 ? '✓ CUADRADO' : `S/ ${diff.toFixed(2)} DIFERENCIA`; }
-  private auditAction(body: { paymentIds?: string[]; method?: string; code?: string; action: 'VERIFY' | 'SET_CODE' | 'REVIEW'; newCode?: string }): void {
+  private auditAction(body: { paymentIds?: string[]; method?: string; code?: string; action: 'VERIFY' | 'SET_CODE' | 'REVIEW' | 'NOT_FOUND'; newCode?: string }): void {
     this.busy.set(true);
     this.http.post<ApiResponse<VAudit>>(`${this.api}/cash/sessions/${this.sessionId}/virtual-audit/verify`, body).subscribe({
-      next: (r) => { this.busy.set(false); this.vaudit.set(r.data); this.auditingCode.set(''); },
+      next: (r) => { this.busy.set(false); this.vaudit.set(r.data); this.auditingCode.set(''); }, // el filtro/orden/página se conservan
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo auditar.' }); },
     });
   }
-  verifyGroup(g: VAuditGroup): void { this.auditAction({ method: g.method, code: g.code ?? undefined, action: 'VERIFY' }); }
-  reviewGroup(g: VAuditGroup): void { this.auditAction({ method: g.method, code: g.code ?? undefined, action: 'REVIEW' }); }
+  private targetOf(g: VAuditGroup): { paymentIds?: string[]; method?: string; code?: string } {
+    return g.code ? { method: g.method, code: g.code } : { paymentIds: g.items.map((i) => i.paymentId) };
+  }
+  verifyGroup(g: VAuditGroup): void { this.auditAction({ ...this.targetOf(g), action: 'VERIFY' }); }
+  markNotFound(g: VAuditGroup): void {
+    if (!confirm(`¿Confirmas que esta operación NO existe en el medio de pago correspondiente?\n\n${this.methodLabel(g.method)} · ${g.code || 'sin código'} · S/ ${g.amount.toFixed(2)}`)) return;
+    this.auditAction({ ...this.targetOf(g), action: 'NOT_FOUND' });
+  }
   startSetCode(g: VAuditGroup): void { this.auditingCode.set(this.vAuditKey(g)); this.auditCodeInput = g.code ?? ''; }
   confirmSetCode(g: VAuditGroup): void {
     if (!this.auditCodeInput.trim()) { this.messages.add({ severity: 'warn', summary: 'Código', detail: 'Ingresa el código.' }); return; }
