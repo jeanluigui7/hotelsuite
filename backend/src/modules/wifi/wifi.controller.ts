@@ -54,6 +54,10 @@ export const wifiController = {
     const dto = assignWifiSchema.parse(req.body); // { stayId }
     res.status(200).json(ok(await wifiService.assignAutoToStay(req.scope, dto.stayId)));
   },
+  async rotateOvernight(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await wifiService.rotateOvernightVouchers()));
+  },
   async ticket(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await wifiService.ticketData(req.scope, req.params.id)));

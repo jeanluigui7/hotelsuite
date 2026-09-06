@@ -144,7 +144,7 @@ export const wifiService = {
   async assignToStay(opts: {
     branchId: string; stayId: string; room: string | null; guest: string | null;
     category?: string; credentialId?: string; userId?: string | null;
-    reason: 'CHECKIN' | 'RENEWAL' | 'MANUAL'; requireAvailable?: boolean;
+    reason: 'CHECKIN' | 'RENEWAL' | 'MANUAL' | 'ROTATION'; requireAvailable?: boolean;
   }) {
     const { branchId, stayId, room, guest, userId, reason } = opts;
     let target;
@@ -232,6 +232,40 @@ export const wifiService = {
   async reassignOnRenewal(branchId: string, stayId: string, room: string | null, guest: string | null) {
     const category = await this.categoryForStay(stayId);
     return this.assignToStay({ branchId, stayId, room, guest, category, reason: 'RENEWAL', requireAvailable: false });
+  },
+
+  /**
+   * ROTACIÓN DIARIA de PERNOCTACIÓN multi-día: al pasar el corte del día hotelero (la hora de salida
+   * prevista), consume el voucher vigente y asigna uno nuevo de PERNOCTACION. Un cupón por día hotelero.
+   * No rota en el último día (checkout ese día lo consume) ni antes del primer corte tras el check-in.
+   * Best-effort: si el pool está vacío, conserva el voucher (no falla). Lo llama el scheduler.
+   */
+  async rotateOvernightVouchers(): Promise<{ rotated: number }> {
+    const now = new Date();
+    const creds = await prisma.wifiCredential.findMany({
+      where: { category: 'PERNOCTACION', used: false, assignedStayId: { not: null } },
+      take: 1000,
+    });
+    let rotated = 0;
+    for (const c of creds) {
+      if (!c.assignedStayId || !c.assignedAt) continue;
+      const stay = await prisma.stay.findUnique({
+        where: { id: c.assignedStayId },
+        include: { room: { select: { number: true } }, guest: { select: { firstName: true, lastName: true } } },
+      });
+      if (!stay || stay.status !== 'OPEN') continue;
+      const checkout = new Date(stay.plannedCheckoutAt);
+      if (now >= checkout) continue; // último día / en checkout: el checkout consume el voucher
+      // Corte diario a la hora de salida del día hotelero. Toma el último corte que ya pasó.
+      const lastCutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate(), checkout.getHours(), checkout.getMinutes(), 0, 0);
+      if (lastCutoff > now) lastCutoff.setDate(lastCutoff.getDate() - 1);
+      if (lastCutoff <= new Date(stay.checkInAt)) continue; // aún no pasó el primer corte tras el ingreso
+      if (new Date(c.assignedAt) >= lastCutoff) continue; // el voucher ya es de este día hotelero
+      const guest = `${stay.guest?.firstName ?? ''} ${stay.guest?.lastName ?? ''}`.trim();
+      const res = await this.assignToStay({ branchId: c.branchId, stayId: stay.id, room: stay.room?.number ?? null, guest: guest || null, category: 'PERNOCTACION', reason: 'ROTATION', requireAvailable: false }).catch(() => null);
+      if (res) rotated++;
+    }
+    return { rotated };
   },
 
   /** Datos para imprimir el ticket WiFi de una credencial (identidad de la sucursal + estancia). */
