@@ -2,8 +2,10 @@ import type { CookieOptions, Request, Response } from 'express';
 import { env, isProduction } from '../../config/env';
 import { ok } from '../../shared/response';
 import { UnauthorizedError } from '../../shared/errors';
-import { ttlToMs } from '../../shared/tokens';
+import { ttlToMs, verifyAccessToken } from '../../shared/tokens';
+import { ConflictError } from '../../shared/errors';
 import { authService } from './auth.service';
+import { workShiftsService } from '../work-shifts/work-shifts.service';
 import { loginSchema, updateProfileSchema, changePasswordSchema } from './auth.schema';
 
 function refreshCookieOptions(): CookieOptions {
@@ -42,6 +44,18 @@ export const authController = {
   },
 
   async logout(req: Request, res: Response): Promise<void> {
+    // Logout VOLUNTARIO: si el usuario (token válido en la petición) tiene un turno activo, se bloquea
+    // con el motivo correspondiente. Si el token no es válido/está expirado (cierre natural, navegador
+    // cerrado, sesión caída), no se bloquea: se limpia la sesión con normalidad.
+    const header = req.headers.authorization;
+    if (header?.startsWith('Bearer ')) {
+      let userId: string | undefined;
+      try { userId = verifyAccessToken(header.slice('Bearer '.length).trim()).sub; } catch { userId = undefined; }
+      if (userId) {
+        const reason = await workShiftsService.logoutBlockReason(userId);
+        if (reason) throw new ConflictError(reason);
+      }
+    }
     const token = req.cookies?.[env.REFRESH_COOKIE_NAME] as string | undefined;
     await authService.logout(token);
     clearRefreshCookie(res);

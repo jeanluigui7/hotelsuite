@@ -5,6 +5,7 @@ import { filter } from 'rxjs';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
 import { TooltipModule } from 'primeng/tooltip';
+import { MessageService } from 'primeng/api';
 import { AuthService } from '../../core/auth/auth.service';
 import { LayoutService } from '../layout.service';
 import { ThemeService } from '../../core/theme/theme.service';
@@ -174,6 +175,7 @@ export class TopbarComponent {
   readonly layout = inject(LayoutService);
   readonly theme = inject(ThemeService);
   private readonly router = inject(Router);
+  private readonly messages = inject(MessageService);
 
   readonly themeOpen = signal(false);
 
@@ -209,7 +211,10 @@ export class TopbarComponent {
   logout(): void {
     this.auth.logout().subscribe({
       next: () => this.router.navigateByUrl('/login'),
-      error: () => this.router.navigateByUrl('/login'),
+      error: (e: import('@angular/common/http').HttpErrorResponse) => {
+        if (e.status === 409) this.messages.add({ severity: 'warn', summary: 'Turno activo', detail: e.error?.error?.message ?? 'Finaliza tu turno antes de cerrar sesión.' });
+        else this.router.navigateByUrl('/login');
+      },
     });
   }
 }

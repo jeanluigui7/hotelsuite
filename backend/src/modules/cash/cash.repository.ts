@@ -9,7 +9,7 @@ export const cashRepository = {
     return prisma.cashSession.findUnique({ where: { id } });
   },
 
-  async open(data: { branchId: string; openedByUserId: string; openingAmount: number; notes: string | null }) {
+  async open(data: { branchId: string; openedByUserId: string; openingAmount: number; notes: string | null; workShiftId?: string | null }) {
     // Correlativo visible por sucursal: siguiente al mayor existente.
     const last = await prisma.cashSession.aggregate({
       where: { branchId: data.branchId },

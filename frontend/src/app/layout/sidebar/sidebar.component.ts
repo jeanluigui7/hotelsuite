@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterModule } from '@angular/router';
+import { MessageService } from 'primeng/api';
 import { ADMIN_MENU, menuForProfile, profileForRole, type MenuItem } from '../menu';
 import { AuthService } from '../../core/auth/auth.service';
 import { LayoutService } from '../layout.service';
@@ -213,6 +214,7 @@ export class SidebarComponent {
   readonly auth = inject(AuthService);
   readonly layout = inject(LayoutService);
   private readonly router = inject(Router);
+  private readonly messages = inject(MessageService);
   private readonly openGroups = signal<Set<string>>(new Set(['/dashboard', '/operations']));
 
   readonly query = signal('');
@@ -281,7 +283,11 @@ export class SidebarComponent {
     this.userMenuOpen.set(false);
     this.auth.logout().subscribe({
       next: () => this.router.navigateByUrl('/login'),
-      error: () => this.router.navigateByUrl('/login'),
+      error: (e: import('@angular/common/http').HttpErrorResponse) => {
+        // 409 = turno activo: no se cierra sesión, se muestra el motivo. Otros errores → salir igual.
+        if (e.status === 409) this.messages.add({ severity: 'warn', summary: 'Turno activo', detail: e.error?.error?.message ?? 'Finaliza tu turno antes de cerrar sesión.' });
+        else this.router.navigateByUrl('/login');
+      },
     });
   }
 

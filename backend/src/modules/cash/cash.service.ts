@@ -75,11 +75,15 @@ export const cashService = {
     const branchId = requireActiveBranch(scope);
     const existing = await cashRepository.findOpen(branchId);
     if (existing) throw new ConflictError('Ya hay un turno de caja abierto en la sucursal');
+    // La caja pertenece al TURNO: exige un turno activo del usuario (el super admin puede operar sin turno).
+    const shift = await prisma.workShift.findFirst({ where: { branchId, userId: scope.userId, status: 'ACTIVE' } });
+    if (!shift && !scope.isSuperAdmin) throw new ConflictError('Inicia tu turno antes de abrir la caja.');
     return cashRepository.open({
       branchId,
       openedByUserId: scope.userId,
       openingAmount: dto.openingAmount,
       notes: dto.notes || null,
+      workShiftId: shift?.id ?? null,
     });
   },
 

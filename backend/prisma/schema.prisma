@@ -309,6 +309,23 @@ model Guest {
   @@index([blacklisted])
 }
 
+/// Turno de trabajo PERSONAL de un usuario (jornada de recepción). Distinto de la caja: un turno
+/// puede abrir/cerrar caja sin finalizar el turno. Flujo: iniciar turno → abrir caja → cerrar caja →
+/// finalizar turno. No implementa aún tolerancia/puntualidad (solo registra inicio/fin reales).
+model WorkShift {
+  id        String    @id @default(uuid())
+  branchId  String
+  userId    String
+  shift     String // MANANA | TARDE | NOCHE (derivado al iniciar)
+  status    String    @default("ACTIVE") // ACTIVE | CLOSED
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([branchId])
+  @@index([userId, status])
+}
+
 /// Saldo de VUELTO pendiente asociado a una estancia (no a la caja): nace cuando el cliente entrega
 /// de más y el vuelto "queda pendiente"; sobrevive al cierre de caja. Se entrega, se consume como
 /// pago (método VUELTO) o se cierra como NO_RECLAMADO al terminar la estancia. Sin relaciones FK
@@ -922,6 +939,8 @@ model CashSession {
   expectedAmount Decimal?  @db.Decimal(10, 2)
   roomsAvailableAtOpen Int? // fotografía: habitaciones disponibles al abrir el turno (histórico)
   closingDenominations String? @db.NVarChar(Max) // JSON del conteo por denominaciones al cerrar (reimpresión del ticket ciego)
+  workShiftId    String? // turno (WorkShift) al que pertenece la caja (USUARIO → TURNO → CAJA)
+  pettyCashLeft  Decimal?  @db.Decimal(10, 2) // caja chica realmente declarada al cierre (editable, puede diferir de la base)
   notes          String?
   openedAt       DateTime  @default(now())
   closedAt       DateTime?
