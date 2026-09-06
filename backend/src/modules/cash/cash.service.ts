@@ -538,10 +538,19 @@ export const cashService = {
       if (!cancelled && sale.unregistered) {
         const amount = Number(sale.total);
         const vs = sale.verifyStatus ?? 'POR_VERIFICAR';
-        if (vs === 'REGULARIZADA') { regs.cobradas.count++; regs.cobradas.amount = round(regs.cobradas.amount + amount); cards.ventasProductos = round(cards.ventasProductos + amount); }
+        // COBRADA/REGULARIZADA sí tiene Payment(s) real(es) con su medio → su detalle muestra el medio
+        // real (no "PENDIENTE") y se distribuye por método en el desglose por categoría, para que el
+        // ticket administrable y el cuadro por método la sumen igual que el card "Ventas Productos".
+        let rowMethod = 'PENDIENTE';
+        if (vs === 'REGULARIZADA') {
+          regs.cobradas.count++; regs.cobradas.amount = round(regs.cobradas.amount + amount);
+          cards.ventasProductos = round(cards.ventasProductos + amount);
+          rowMethod = method;
+          for (const p of sale.payments) addCat('PRODUCTO', p.method, round(Number(p.amount)));
+        }
         else if (vs === 'NO_COBRADA') { regs.noCobradas.count++; regs.noCobradas.amount = round(regs.noCobradas.amount + amount); cards.deudasPendientes = round(cards.deudasPendientes + amount); debts.push({ saleId: sale.id, concepto: sale.customerName || 'Venta no registrada', tipo: 'VENTA_NO_COBRADA', room: info?.room || null, importe: amount, time: sale.createdAt, estado: 'NO_COBRADA', folio }); }
         else { regs.porVerificar.count++; regs.porVerificar.amount = round(regs.porVerificar.amount + amount); }
-        feed.push({ id: sale.id, saleId: sale.id, time: sale.createdAt, type: 'PRODUCTO', description: ((sale.customerName || 'Venta no registrada') + suffix).trim(), amount, method: 'PENDIENTE', status: 'NORMAL', verify: vs, unregistered: true, room: info?.room ?? null, stayId: sale.stayId ?? null });
+        feed.push({ id: sale.id, saleId: sale.id, time: sale.createdAt, type: 'PRODUCTO', description: ((sale.customerName || 'Venta no registrada') + suffix).trim(), amount, method: rowMethod, status: 'NORMAL', verify: vs, unregistered: true, room: info?.room ?? null, stayId: sale.stayId ?? null });
         continue;
       }
 
