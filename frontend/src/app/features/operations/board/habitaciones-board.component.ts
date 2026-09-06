@@ -1158,6 +1158,13 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    // El perfil de LIMPIEZA no opera el board general (check-in/checkout/ventas): se redirige a su
+    // pantalla de Gestión de Limpieza aunque llegue por URL.
+    const u = this.auth.user();
+    if (profileForRole(u?.roleName, u?.isSuperAdmin ?? false) === 'limpieza') {
+      this.router.navigate(['/operations/gestion-limpieza']);
+      return;
+    }
     // Filtros iniciales desde la URL (p.ej. redirección desde el Dashboard).
     const qp = this.route.snapshot.queryParamMap;
     const estado = qp.get('estado');

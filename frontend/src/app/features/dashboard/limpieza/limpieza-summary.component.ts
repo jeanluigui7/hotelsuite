@@ -169,9 +169,10 @@ export class LimpiezaSummaryComponent implements OnInit, OnDestroy {
   private readonly toast = inject(MessageService);
   private readonly router = inject(Router);
 
-  /** Navega al mapa de habitaciones con el filtro de estado aplicado. */
-  go(estado: string): void {
-    this.router.navigate(['/operations/habitaciones'], { queryParams: { estado } });
+  /** Las cards del dashboard de limpieza van a Gestión de Limpieza (NO al board general de habitaciones,
+   * donde limpieza no debe hacer check-in/checkout/ventas). */
+  go(_estado: string): void {
+    this.router.navigate(['/operations/gestion-limpieza']);
   }
   /** "Limpiezas realizadas" → Historial de Limpiezas (NO al panel de habitaciones / check-in). */
   goHistorial(): void {
