@@ -129,6 +129,7 @@ export interface CashDetail {
     closedByName: string | null;
     openingAmount: number;
     closingAmount: number | null;
+    pettyCashLeft?: number | null;
     denominations?: { value: number; qty: number }[] | null;
   };
   cards: {

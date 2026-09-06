@@ -16,6 +16,7 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { FinanceApiService } from '../services/finance-api.service';
 import type { CashDetail, CashDetailMovement, MovementDetail, MovementHistoryEntry } from '../services/finance.models';
 import { buildCuadreTicket } from '../services/cuadre-ticket';
+import { downloadCsv } from '../../../core/utils/export';
 
 interface ReconItem { id: string; at: string; type: string; amount: number; affectsCash: boolean; quantity: number | null; note: string | null; by: string | null; approvedBy: string | null; }
 interface ReconSummary { expected: number | null; declared: number | null; originalDifference: number; pendingDifference: number; reconciliations: ReconItem[]; }
@@ -39,74 +40,82 @@ const TYPE_COLOR: Record<string, [string, string]> = {
         @let d = detail()!;
         <header class="head">
           <div>
-            <h1>Movimientos — Caja #{{ d.session.number ?? '—' }}</h1>
-            <p class="turno">Turno: {{ d.session.openedAt | date: 'dd/MM/yyyy HH:mm' }} — {{ d.session.closedAt ? (d.session.closedAt | date: 'dd/MM/yyyy HH:mm') : 'En curso' }} · {{ d.session.openedByName }}</p>
+            <h1>Movimientos — Caja #{{ d.session.number ?? '—' }} <span class="audit-badge"><i class="pi pi-shield"></i> Vista de auditoría</span></h1>
+            <p class="turno">{{ diaTurno(d.session.openedAt) }} · {{ d.session.openedAt | date: 'dd/MM HH:mm' }} — {{ d.session.closedAt ? (d.session.closedAt | date: 'HH:mm') : 'En curso' }} · {{ d.session.openedByName }}
+              <span class="stpill" [class.open]="d.session.status === 'OPEN'" [class.adj]="d.session.status === 'AJUSTADA'">{{ estadoLabel(d.session.status) }}</span>
+            </p>
           </div>
           <div class="dactions">
-            <button class="mini" (click)="verCuadre(d)"><i class="pi pi-print"></i> Ver</button>
+            <button class="mini" (click)="verCuadre(d)"><i class="pi pi-print"></i> Ver ticket</button>
+            <button class="mini" (click)="exportMovs(d, 'xlsx')"><i class="pi pi-file-excel"></i> XLSX</button>
+            <button class="mini" (click)="exportMovs(d, 'csv')"><i class="pi pi-file"></i> CSV</button>
             @if (d.session.status !== 'OPEN' && canReopen) { <button class="mini warn" (click)="reopen(d.session.id)"><i class="pi pi-replay"></i> Reabrir</button> }
           </div>
         </header>
 
+        <!-- Resumen del turno -->
         <div class="cards">
-          <div class="mc blue"><span>Total Ventas Hospedaje</span><strong>S/ {{ d.cards.ventasHospedaje | number: '1.2-2' }}</strong></div>
-          <div class="mc brown"><span>Ventas Productos</span><strong>S/ {{ d.cards.ventasProductos | number: '1.2-2' }}</strong></div>
-          <div class="mc teal"><span>Servicios y Otros</span><strong>S/ {{ d.cards.serviciosOtros | number: '1.2-2' }}</strong></div>
-          <button class="mc brown clickable" (click)="deudasVisible = true" [disabled]="!(d.deudas?.length)">
-            <span>Deudas Pendientes @if (d.deudas?.length) { <i class="pi pi-external-link"></i> }</span>
+          <div class="mc total"><span>TOTAL RECAUDADO</span><strong>S/ {{ d.methodBar.total | number: '1.2-2' }}</strong></div>
+          <div class="mc blue"><span>Hospedaje</span><strong>S/ {{ d.cards.ventasHospedaje | number: '1.2-2' }}</strong></div>
+          <div class="mc brown"><span>Productos</span><strong>S/ {{ d.cards.ventasProductos | number: '1.2-2' }}</strong></div>
+          <div class="mc teal"><span>Servicios / Penalidades</span><strong>S/ {{ d.cards.serviciosOtros | number: '1.2-2' }}</strong></div>
+          <button class="mc red clickable" (click)="deudasVisible = true" [disabled]="!(d.deudas?.length)">
+            <span>Deudas pendientes @if (d.deudas?.length) { <i class="pi pi-external-link"></i> }</span>
             <strong>S/ {{ d.cards.deudasPendientes | number: '1.2-2' }}</strong>
-            @if (d.deudas?.length) { <em>{{ d.deudas!.length }} obligación(es) al cierre</em> }
+            @if (d.deudas?.length) { <em>{{ d.deudas!.length }} obligación(es)</em> }
           </button>
-          <div class="mc green"><span>Efectivo</span><strong>S/ {{ d.cards.efectivo | number: '1.2-2' }}</strong></div>
-          <div class="mc purple"><span>Ajustes (+/-)</span><strong>{{ d.cards.ajustes >= 0 ? '+' : '' }}S/ {{ d.cards.ajustes | number: '1.2-2' }}</strong></div>
+          <button class="mc purple clickable" (click)="ajustesVisible = true">
+            <span>Ajustes de caja <i class="pi pi-external-link"></i></span>
+            <strong>{{ d.cards.ajustes >= 0 ? '+' : '' }}S/ {{ d.cards.ajustes | number: '1.2-2' }}</strong>
+            <em>Ver composición</em>
+          </button>
           @if (regsTotal(d) > 0) {
-            <button class="mc amber clickable" (click)="toggleRegsFilter()" [class.active]="typeFilter() === '__REG__'">
+            <button class="mc amber clickable" (click)="setAjustesFilter('REG')">
               <span>Regularizaciones <i class="pi pi-filter"></i></span>
               <strong>S/ {{ (d.regularizaciones!.cobradas.amount + d.regularizaciones!.noCobradas.amount + d.regularizaciones!.porVerificar.amount) | number: '1.2-2' }}</strong>
-              <em>
-                <b class="ok">{{ d.regularizaciones!.cobradas.count }} cobr.</b> ·
-                <b class="warn">{{ d.regularizaciones!.noCobradas.count }} no cobr.</b> ·
-                <b class="pend">{{ d.regularizaciones!.porVerificar.count }} x verif.</b>
-              </em>
+              <em><b class="ok">{{ d.regularizaciones!.cobradas.count }} cobr.</b> · <b class="warn">{{ d.regularizaciones!.noCobradas.count }} no cobr.</b> · <b class="pend">{{ d.regularizaciones!.porVerificar.count }} x verif.</b></em>
             </button>
           }
         </div>
 
-        @if (recon(); as rc) {
-          <div class="recon">
-            <div class="recon-h"><span><i class="pi pi-balance-scale"></i> Conciliación de caja</span>
-              @if (canEdit && rc.pendingDifference > 0) { <button class="mini" (click)="openVnr()"><i class="pi pi-plus"></i> Regularizar venta no registrada</button> }
-            </div>
-            <div class="recon-grid">
-              <div><span>Esperado original</span><strong>S/ {{ rc.expected ?? 0 | number: '1.2-2' }}</strong></div>
-              <div><span>Declarado / Entregado</span><strong>S/ {{ rc.declared ?? 0 | number: '1.2-2' }}</strong></div>
-              <div><span>Diferencia original</span><strong [class.pos]="rc.originalDifference > 0" [class.neg]="rc.originalDifference < 0">{{ rc.originalDifference > 0 ? '+' : '' }}S/ {{ rc.originalDifference | number: '1.2-2' }}</strong></div>
-              <div><span>Diferencia pendiente</span><strong [class.pos]="rc.pendingDifference > 0" [class.neg]="rc.pendingDifference < 0" [class.ok]="rc.pendingDifference === 0">{{ rc.pendingDifference > 0 ? '+' : '' }}S/ {{ rc.pendingDifference | number: '1.2-2' }}</strong></div>
-            </div>
-            @if (rc.reconciliations.length) {
-              <div class="recon-list"><div class="rl-t">Regularizaciones posteriores</div>
-                @for (r of rc.reconciliations; track r.id) {
-                  <div class="rl"><span>{{ r.at | date: 'dd/MM HH:mm' }}</span><span class="rt">{{ reconType(r.type) }}</span><span>{{ r.note || '—' }}</span><span class="ra">−S/ {{ r.amount | number: '1.2-2' }}</span><span class="rb">{{ r.approvedBy || r.by || '' }}</span></div>
-                }
-              </div>
+        <!-- Cobros por método -->
+        <section class="mblock">
+          <h3><i class="pi pi-wallet"></i> Cobros por método</h3>
+          <div class="mcards">
+            @for (mm of methodCards; track mm.key) {
+              <div class="mcard"><span>{{ mm.label }}</span><strong [style.color]="mm.color">S/ {{ methodAmount(d, mm.key) | number: '1.2-2' }}</strong></div>
             }
           </div>
-        }
+        </section>
 
-        <div class="bar">
-          <span>Total Turno Parcial: <b>S/ {{ d.methodBar.total | number: '1.2-2' }}</b></span>
-          <span>Efectivo: <b class="pos">S/ {{ (d.methodBar.byMethod['CASH'] || 0) | number: '1.2-2' }}</b></span>
-          <span>Transferencia: <b>S/ {{ (d.methodBar.byMethod['TRANSFER'] || 0) | number: '1.2-2' }}</b></span>
-          <span>Yape: <b style="color:#a855f7">S/ {{ (d.methodBar.byMethod['YAPE'] || 0) | number: '1.2-2' }}</b></span>
-          <span>Plin: <b style="color:#34d399">S/ {{ (d.methodBar.byMethod['PLIN'] || 0) | number: '1.2-2' }}</b></span>
-          <span>Tarjeta: <b style="color:#60a5fa">S/ {{ (d.methodBar.byMethod['CARD'] || 0) | number: '1.2-2' }}</b></span>
-          <span>Ingresos: <b class="pos">+S/ {{ d.methodBar.ingresos | number: '1.2-2' }}</b></span>
-          <span>Egresos: <b class="neg">-S/ {{ d.methodBar.egresos | number: '1.2-2' }}</b></span>
-          <span>Anulaciones: <b class="neg">S/ {{ d.methodBar.anulaciones | number: '1.2-2' }}</b></span>
+        <!-- Auditoría de efectivo: caja chica + conciliación -->
+        <div class="audit2">
+          <section class="ablock">
+            <h3><i class="pi pi-briefcase"></i> Caja chica</h3>
+            <div class="kv"><span>Recibida al abrir</span><b>S/ {{ d.session.openingAmount | number: '1.2-2' }}</b></div>
+            <div class="kv"><span>Dejada al cerrar</span><b>{{ d.session.pettyCashLeft != null ? ('S/ ' + (d.session.pettyCashLeft | number: '1.2-2')) : '—' }}</b></div>
+            <p class="note"><i class="pi pi-info-circle"></i> La caja chica no es recaudación ni afecta el efectivo esperado a entregar. Se separa antes del conteo por denominaciones.</p>
+          </section>
+          <section class="ablock">
+            <h3><i class="pi pi-balance-scale"></i> Conciliación de efectivo</h3>
+            <div class="kv"><span>Efectivo por ventas</span><b>S/ {{ efectivoVentas(d) | number: '1.2-2' }}</b></div>
+            <div class="kv"><span>Ajustes que afectan efectivo <button class="lnk" (click)="ajustesVisible = true">Ver detalle</button></span><b [class.pos]="ajusteEfectivo(d) > 0" [class.neg]="ajusteEfectivo(d) < 0">{{ ajusteEfectivo(d) >= 0 ? '+' : '' }}S/ {{ ajusteEfectivo(d) | number: '1.2-2' }}</b></div>
+            <div class="kv strong"><span>Efectivo esperado</span><b>S/ {{ esperadoEntregar(d) | number: '1.2-2' }}</b></div>
+            <div class="kv"><span>Efectivo contado / declarado</span><b>{{ d.session.closingAmount != null ? ('S/ ' + (d.session.closingAmount | number: '1.2-2')) : '— (en curso)' }}</b></div>
+            @if (diferencia(d) !== null) {
+              <div class="kv diff" [class.pos]="diferencia(d)! > 0" [class.neg]="diferencia(d)! < 0" [class.ok]="diferencia(d) === 0">
+                <span>Diferencia vs esperado</span><b>{{ cuadreLabel(diferencia(d)!) }}</b>
+              </div>
+            }
+            @if (canEdit && recon() && recon()!.pendingDifference > 0) { <button class="mini" style="margin-top:.5rem" (click)="openVnr()"><i class="pi pi-plus"></i> Regularizar venta no registrada</button> }
+          </section>
         </div>
 
         <div class="filters">
-          <label>Tipo: <p-select [options]="typeFilterOpts" optionLabel="label" optionValue="value" [ngModel]="typeFilter()" (ngModelChange)="typeFilter.set($event)" styleClass="flt-sm" /></label>
+          <label>Tipo: <p-select [options]="typeFilterOpts" optionLabel="label" optionValue="value" [ngModel]="typeFilter()" (ngModelChange)="onTypeFilter($event)" styleClass="flt-sm" /></label>
+          @if (typeFilter() === 'AJUSTES') {
+            <label>Subtipo: <p-select [options]="ajusteSubOpts" optionLabel="label" optionValue="value" [ngModel]="ajusteSub()" (ngModelChange)="ajusteSub.set($event)" styleClass="flt-sm" /></label>
+          }
           <label>Método: <p-select [options]="methodFilterOpts" optionLabel="label" optionValue="value" [ngModel]="methodFilter()" (ngModelChange)="methodFilter.set($event)" styleClass="flt-sm" /></label>
           <span class="count">Mostrando {{ filteredMovements().length }} de {{ d.movements.length }} movimientos</span>
         </div>
@@ -294,6 +303,27 @@ const TYPE_COLOR: Record<string, [string, string]> = {
         <p-button [label]="regMode === 'HISTORICAL' ? 'Regularizar pago histórico' : 'Registrar cobro'" icon="pi pi-check" [loading]="busy()" [disabled]="!regCanSave()" (onClick)="doRegularize()" />
       </ng-template>
     </p-dialog>
+
+    <!-- Composición de Ajustes de caja -->
+    <p-dialog [(visible)]="ajustesVisible" [modal]="true" [style]="{ width: '42rem', maxWidth: '97vw' }" header="Ajustes de caja — composición">
+      @if (detail(); as d) {
+        <div class="recon-grid" style="margin-bottom:.7rem">
+          <div><span>Ingresos</span><strong class="pos">+S/ {{ d.methodBar.ingresos | number: '1.2-2' }}</strong></div>
+          <div><span>Egresos</span><strong class="neg">-S/ {{ d.methodBar.egresos | number: '1.2-2' }}</strong></div>
+          <div><span>Neto (afecta efectivo)</span><strong>{{ ajusteEfectivo(d) >= 0 ? '+' : '' }}S/ {{ ajusteEfectivo(d) | number: '1.2-2' }}</strong></div>
+        </div>
+        <p class="muted sm">Los ajustes son movimientos económicos del turno (ingresos, egresos, vuelto, regularización). Los ingresos de efectivo suman al esperado; los virtuales no.</p>
+        <table class="vtbl">
+          <thead><tr><th>Hora</th><th>Tipo</th><th>Descripción</th><th class="c">Método</th><th class="r">Monto</th></tr></thead>
+          <tbody>
+            @for (m of ajusteMovs(); track m.id) {
+              <tr><td>{{ m.time | date: 'HH:mm' }}</td><td>{{ ajusteTipo(m) }}</td><td>{{ m.description }}</td><td class="c">{{ methodLabel(m.method) }}</td><td class="r">S/ {{ m.amount | number: '1.2-2' }}</td></tr>
+            } @empty { <tr><td colspan="5" class="empty">Sin ajustes en este turno.</td></tr> }
+          </tbody>
+        </table>
+      }
+      <ng-template pTemplate="footer"><p-button label="Cerrar" severity="secondary" [text]="true" (onClick)="ajustesVisible = false" /></ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -308,6 +338,19 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .mc.blue strong { color: #60a5fa; } .mc.brown strong { color: #fbbf24; } .mc.teal strong { color: #2dd4bf; } .mc.green strong { color: #34d399; } .mc.purple strong { color: #c4b5fd; } .mc.amber strong { color: #f59e0b; }
       .mc.clickable { cursor: pointer; text-align: left; font: inherit; transition: border-color .15s; } .mc.clickable:hover:not([disabled]) { border-color: #3b5a86; } .mc.clickable[disabled] { cursor: default; opacity: 0.75; } .mc.clickable.active { border-color: #f59e0b; }
       .mc em { font-size: 0.68rem; color: #8aa0bd; font-style: normal; } .mc em .ok { color: #34d399; } .mc em .warn { color: #f59e0b; } .mc em .pend { color: #60a5fa; }
+      .mc.total { background: linear-gradient(135deg, rgba(16,185,129,0.18), rgba(15,26,43,0.4)); border-color: rgba(16,185,129,0.5); } .mc.total span { color: #6ee7b7; font-weight: 700; letter-spacing: 0.5px; } .mc.total strong { color: #34d399; font-size: 1.5rem; }
+      .mc.red strong { color: #f87171; }
+      .audit-badge { font-size: 0.68rem; font-weight: 700; color: #a5b4fc; background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.35); border-radius: 999px; padding: 0.15rem 0.6rem; vertical-align: middle; margin-left: 0.5rem; }
+      .stpill { font-size: 0.7rem; font-weight: 700; border-radius: 999px; padding: 0.1rem 0.55rem; background: rgba(148,163,184,0.2); color: #cbd5e1; margin-left: 0.4rem; } .stpill.open { background: rgba(16,185,129,0.2); color: #34d399; } .stpill.adj { background: rgba(245,158,11,0.2); color: #fbbf24; }
+      .mblock { margin-bottom: 1rem; } .mblock h3, .ablock h3 { margin: 0 0 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; color: #cbd5e1; }
+      .mcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px,1fr)); gap: 0.6rem; }
+      .mcard { border: 1px solid #243245; border-radius: 9px; padding: 0.55rem 0.7rem; background: #131d2b; display: flex; flex-direction: column; gap: 0.15rem; } .mcard span { font-size: 0.72rem; color: #8aa0bd; } .mcard strong { font-size: 1.02rem; }
+      .audit2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; margin-bottom: 1rem; }
+      .ablock { border: 1px solid #1c2c44; border-radius: 10px; padding: 0.8rem 0.9rem; background: #131d2b; }
+      .ablock .kv { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.25rem 0; font-size: 0.86rem; } .ablock .kv span { color: #8aa0bd; } .ablock .kv.strong { border-top: 1px dashed #1c2c44; margin-top: 0.2rem; padding-top: 0.4rem; } .ablock .kv.strong b { font-size: 1.05rem; }
+      .ablock .kv.diff { border-top: 1px solid #1c2c44; margin-top: 0.2rem; padding-top: 0.4rem; } .ablock .kv.diff.pos b { color: #34d399; } .ablock .kv.diff.neg b { color: #f87171; } .ablock .kv.diff.ok b { color: #34d399; }
+      .ablock .note { font-size: 0.74rem; color: #8aa0bd; margin: 0.5rem 0 0; display: flex; gap: 0.4rem; }
+      @media (max-width: 720px) { .audit2 { grid-template-columns: 1fr; } }
       .vdet { display: flex; flex-direction: column; gap: 0.3rem; } .vrow { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.85rem; padding: 0.15rem 0; } .vrow span { color: #8aa0bd; }
       .vsub { margin-top: 0.6rem; font-size: 0.72rem; text-transform: uppercase; color: #8aa0bd; border-top: 1px dashed #1c2c44; padding-top: 0.45rem; }
       .vtbl { width: 100%; border-collapse: collapse; margin-top: 0.3rem; } .vtbl th, .vtbl td { padding: 0.35rem 0.5rem; border-bottom: 1px solid #16233a; font-size: 0.8rem; text-align: left; } .vtbl .r { text-align: right; } .vtbl .c { text-align: center; } .vtbl th { color: #8aa0bd; font-weight: 600; font-size: 0.7rem; } .vtbl tfoot td { border-bottom: 0; }
@@ -357,16 +400,27 @@ export class CashMovementsPageComponent implements OnInit {
 
   // Signals para que el computed filteredMovements reaccione al cambiar los filtros.
   readonly typeFilter = signal('');
+  readonly ajusteSub = signal(''); // subtipo dentro de "Ajustes": '' | INGRESO | EGRESO | VUELTO | REG
   readonly methodFilter = signal('');
   readonly typeFilterOpts = [
-    { label: 'Todos', value: '' }, { label: 'Hospedaje', value: 'HOSPEDAJE' }, { label: 'Pago Renovación', value: 'RENOVACION' },
-    { label: 'Venta Producto', value: 'PRODUCTO' }, { label: 'Servicio', value: 'SERVICIO' }, { label: 'Ingreso', value: 'INGRESO' }, { label: 'Egreso', value: 'EGRESO' },
-    { label: 'Deuda', value: 'DEUDA' }, { label: 'Regularizaciones', value: '__REG__' },
+    { label: 'Todos', value: '' }, { label: 'Hospedaje', value: 'HOSPEDAJE' },
+    { label: 'Venta producto', value: 'PRODUCTO' }, { label: 'Servicio', value: 'SERVICIO' }, { label: 'Ajustes', value: 'AJUSTES' },
+  ];
+  readonly ajusteSubOpts = [
+    { label: 'Todos', value: '' }, { label: 'Ingreso', value: 'INGRESO' }, { label: 'Egreso', value: 'EGRESO' },
+    { label: 'Vuelto', value: 'VUELTO' }, { label: 'Regularización', value: 'REG' },
   ];
   readonly methodFilterOpts = [
     { label: 'Todos', value: '' }, { label: 'Efectivo', value: 'CASH' }, { label: 'Transferencia', value: 'TRANSFER' },
-    { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' }, { label: 'Tarjeta', value: 'CARD' },
+    { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Vuelto', value: 'VUELTO' },
   ];
+  // Cobros por método (cards compactas).
+  readonly methodCards = [
+    { key: 'CASH', label: 'Efectivo', color: '#34d399' }, { key: 'YAPE', label: 'Yape', color: '#a855f7' },
+    { key: 'CARD', label: 'Tarjeta', color: '#60a5fa' }, { key: 'TRANSFER', label: 'Transferencia', color: '#cbd5e1' },
+    { key: 'PLIN', label: 'Plin', color: '#34d399' }, { key: 'OTROS', label: 'Otros', color: '#fbbf24' },
+  ];
+  ajustesVisible = false; // modal de composición de ajustes
 
   // VER detalle
   detailModalVisible = false;
@@ -425,21 +479,72 @@ export class CashMovementsPageComponent implements OnInit {
   typeBg(k: string): string { return (TYPE_COLOR[k] ?? ['rgba(148,163,184,0.18)', '#94a3b8'])[0]; }
   typeFg(k: string): string { return (TYPE_COLOR[k] ?? ['rgba(148,163,184,0.18)', '#94a3b8'])[1]; }
   reconType(t: string): string { return ({ VENTA_NO_REGISTRADA: 'Venta no registrada', PERDIDA_COLABORADOR: 'Pérdida atribuida' } as Record<string, string>)[t] ?? t; }
+  private isVuelto(m: CashDetailMovement): boolean { return m.method === 'VUELTO' || /vuelto/i.test(m.description || ''); }
+  private isAjuste(m: CashDetailMovement): boolean { return m.type === 'INGRESO' || m.type === 'EGRESO' || !!m.unregistered || this.isVuelto(m); }
   readonly filteredMovements = computed<CashDetailMovement[]>(() => {
     const all = this.detail()?.movements ?? [];
     const type = this.typeFilter();
+    const sub = this.ajusteSub();
     const method = this.methodFilter();
     return all.filter((m) => {
-      if (type === '__REG__') return !!m.unregistered;
-      return (!type || m.type === type) && (!method || m.method === method);
+      if (method && m.method !== method) return false;
+      if (!type) return true;
+      if (type === 'HOSPEDAJE') return m.type === 'HOSPEDAJE' || m.type === 'RENOVACION';
+      if (type === 'PRODUCTO') return m.type === 'PRODUCTO' && !m.unregistered;
+      if (type === 'SERVICIO') return m.type === 'SERVICIO';
+      if (type === 'AJUSTES') {
+        if (!this.isAjuste(m)) return false;
+        if (sub === 'INGRESO') return m.type === 'INGRESO' && !this.isVuelto(m);
+        if (sub === 'EGRESO') return m.type === 'EGRESO' && !this.isVuelto(m);
+        if (sub === 'VUELTO') return this.isVuelto(m);
+        if (sub === 'REG') return !!m.unregistered;
+        return true;
+      }
+      return false;
     });
   });
+  onTypeFilter(v: string): void { this.typeFilter.set(v); if (v !== 'AJUSTES') this.ajusteSub.set(''); }
+  setAjustesFilter(sub: string): void { this.typeFilter.set('AJUSTES'); this.ajusteSub.set(sub); }
+
+  // ── Cabecera / resumen ──
+  private readonly DIAS = ['DOM', 'LUN', 'MAR', 'MIE', 'JUE', 'VIE', 'SAB'];
+  private readonly MESES = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
+  diaTurno(v: string): string { const d = new Date(v); const h = d.getHours() * 60 + d.getMinutes(); const t = h >= 22 * 60 + 30 || h < 6 * 60 + 30 ? 'NOCHE' : h < 14 * 60 ? 'MAÑANA' : 'TARDE'; return `${this.DIAS[d.getDay()]} ${String(d.getDate()).padStart(2, '0')} ${this.MESES[d.getMonth()]} · ${t}`; }
+  estadoLabel(s: string): string { return ({ OPEN: 'Abierta', CLOSED: 'Cerrada', AJUSTADA: 'Ajustada' } as Record<string, string>)[s] ?? s; }
+  methodAmount(d: CashDetail, key: string): number {
+    const bm = d.methodBar.byMethod;
+    if (key === 'OTROS') { const known = ['CASH', 'YAPE', 'CARD', 'TRANSFER', 'PLIN']; return Math.round(Object.entries(bm).filter(([k]) => !known.includes(k)).reduce((a, [, v]) => a + Number(v), 0) * 100) / 100; }
+    return bm[key] || 0;
+  }
+
+  // ── Conciliación de efectivo (sin depender de recon; la base no infla el esperado) ──
+  efectivoVentas(d: CashDetail): number { return d.methodBar.byMethod['CASH'] || 0; }
+  ajusteEfectivo(d: CashDetail): number { return Math.round((d.methodBar.ingresos - d.methodBar.egresos) * 100) / 100; }
+  esperadoEntregar(d: CashDetail): number { return Math.round((this.efectivoVentas(d) + this.ajusteEfectivo(d)) * 100) / 100; }
+  diferencia(d: CashDetail): number | null { return d.session.closingAmount != null ? Math.round((d.session.closingAmount - this.esperadoEntregar(d)) * 100) / 100 : null; }
+  cuadreLabel(diff: number): string { return diff === 0 ? '✓ CUADRADO' : diff > 0 ? `+S/ ${diff.toFixed(2)} SOBRANTE` : `S/ ${(-diff).toFixed(2)} FALTANTE`; }
+  ajusteMovs(): CashDetailMovement[] { return (this.detail()?.movements ?? []).filter((m) => this.isAjuste(m)); }
+  ajusteTipo(m: CashDetailMovement): string {
+    if (this.isVuelto(m)) return 'Vuelto';
+    if (m.unregistered) return 'Regularización';
+    if (m.type === 'INGRESO') return 'Ingreso';
+    if (m.type === 'EGRESO') return 'Egreso';
+    return this.typeLabel(m.type);
+  }
+
+  // ── Exportar movimientos ──
+  exportMovs(d: CashDetail, _fmt: 'xlsx' | 'csv'): void {
+    const rows = d.movements.map((m) => [
+      new Date(m.time).toLocaleString('es-PE'), m.room || '', this.typeLabel(m.type), m.description,
+      m.amount.toFixed(2), this.methodLabel(m.method), m.status,
+    ]);
+    downloadCsv(`caja-${d.session.number ?? 'mov'}-movimientos`, ['Hora', 'Habitación', 'Tipo', 'Descripción', 'Monto', 'Método', 'Estado'], rows);
+  }
 
   // ── Etapa 3/4 — ventas no registradas y regularizaciones ──
   verifyLabel(v: string): string { return ({ REGULARIZADA: 'Regularizada', POR_VERIFICAR: 'Por verificar', NO_COBRADA: 'No cobrada' } as Record<string, string>)[v] ?? v; }
   verifyClass(v: string): string { return v === 'REGULARIZADA' ? 'ok' : v === 'NO_COBRADA' ? 'warn' : 'pend'; }
   regsTotal(d: CashDetail): number { const r = d.regularizaciones; return r ? r.cobradas.count + r.noCobradas.count + r.porVerificar.count : 0; }
-  toggleRegsFilter(): void { this.typeFilter.set(this.typeFilter() === '__REG__' ? '' : '__REG__'); }
 
   // ── Etapa 5 — deudas ──
   deudaTipo(t: string): string { return ({ RENOVACION: 'Renovación', HOSPEDAJE: 'Hospedaje', PRODUCTO: 'Producto', SERVICIO: 'Servicio', VENTA_NO_COBRADA: 'Venta no cobrada' } as Record<string, string>)[t] ?? t; }

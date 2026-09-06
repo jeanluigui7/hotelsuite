@@ -738,6 +738,7 @@ export const cashService = {
         closedByName: session.closedByUserId ? (names.get(session.closedByUserId) ?? '—') : null,
         openingAmount: Number(session.openingAmount),
         closingAmount: session.closingAmount != null ? Number(session.closingAmount) : null,
+        pettyCashLeft: session.pettyCashLeft != null ? Number(session.pettyCashLeft) : null,
         denominations: parseDenoms(session.closingDenominations),
       },
       cards,
