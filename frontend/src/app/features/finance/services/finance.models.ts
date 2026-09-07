@@ -32,6 +32,7 @@ export interface CashSummary {
   byMethod: Record<string, number>;
   totalCollected: number;
   movementsIn?: number;
+  movementsCashIn?: number; // ingresos SOLO en efectivo (Yape/virtuales excluidos)
   movementsOut?: number;
   expectedCash: number;
   salesCount: number;

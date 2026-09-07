@@ -59,7 +59,9 @@ async function sessionSummary(id: string, opening: number) {
   const movementsCashIn = await cashRepository.movementsCashInTotal(id);
   const expectedCash = Math.round((opening + cash + movementsCashIn - movementsOut) * 100) / 100;
   const salesCount = await cashRepository.salesCount(id);
-  return { byMethod, totalCollected, movementsIn, movementsOut, expectedCash, salesCount };
+  // movementsCashIn = SOLO ingresos en efectivo (los virtuales tipo Yape no tocan el cajón). El ticket
+  // de cierre usa este (no movementsIn) para "Ingresos en efectivo".
+  return { byMethod, totalCollected, movementsIn, movementsCashIn, movementsOut, expectedCash, salesCount };
 }
 
 export const cashService = {

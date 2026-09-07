@@ -148,11 +148,19 @@ const TYPE_COLOR: Record<string, [string, string]> = {
     <!-- Cerrar caja: conteo por denominaciones (ambos modos) -->
     <p-dialog [(visible)]="closeVisible" [modal]="true" header="Cerrar caja — conteo de efectivo" [style]="{ width: '34rem', maxWidth: '96vw' }">
       @if (blindClose()) {
-        <p class="blind-note"><i class="pi pi-info-circle"></i> Cuenta físicamente el efectivo del cajón por denominación. En caja ciega no se muestra el esperado ni la diferencia.</p>
+        <p class="blind-note"><i class="pi pi-info-circle"></i> Separa primero la caja chica. Luego cuenta por denominación SOLO el efectivo que entregas (bolsa). En caja ciega no se muestra el esperado ni la diferencia.</p>
       } @else {
-        <p class="blind-note supervised"><i class="pi pi-shield"></i> Modo supervisado: cuenta por denominación; el sistema calcula el cuadre contra el efectivo esperado.</p>
+        <p class="blind-note supervised"><i class="pi pi-shield"></i> Modo supervisado: separa la caja chica y cuenta la bolsa por denominación; el sistema calcula el cuadre contra el efectivo esperado.</p>
       }
+      <!-- 1) Caja chica: se SEPARA antes de contar; no entra al conteo de denominaciones. -->
+      <div class="pcbox">
+        <div class="pcrow"><span><i class="pi pi-wallet"></i> Caja chica que queda en el cajón</span>
+          <p-inputNumber [(ngModel)]="pettyCash" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="pc" (onInput)="onQty()" (onBlur)="onQty()" /></div>
+        <p class="pcnote">Se separa antes de contar — no entra al conteo por denominaciones.</p>
+      </div>
+      <!-- 2) Conteo por denominaciones = efectivo a entregar (bolsa). -->
       <div class="denoms">
+        <div class="dhx"><i class="pi pi-money-bill"></i> Cuenta el <b>efectivo a entregar</b> (bolsa), sin la caja chica:</div>
         <div class="dh"><span>Denominación</span><span class="c">Cantidad</span><span class="r">Subtotal</span></div>
         @for (d of denoms; track d.value) {
           <div class="drow">
@@ -161,14 +169,14 @@ const TYPE_COLOR: Record<string, [string, string]> = {
             <span class="ds">{{ d.value * (d.qty || 0) | number: '1.2-2' }}</span>
           </div>
         }
-        <div class="dtot"><span>Total efectivo contado</span><strong>S/ {{ countedTotal() | number: '1.2-2' }}</strong></div>
+        <div class="dtot"><span>Efectivo contado (a entregar)</span><strong>S/ {{ countedTotal() | number: '1.2-2' }}</strong></div>
       </div>
       <div class="csum">
-        <div class="kv"><span>Total efectivo contado</span><strong>S/ {{ countedTotal() | number: '1.2-2' }}</strong></div>
-        <div class="kv edit"><span>Monto que queda para caja chica</span><p-inputNumber [(ngModel)]="pettyCash" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="pc" /></div>
-        <div class="kv strong"><span>Efectivo que va a la bolsa</span><strong>S/ {{ toBag() | number: '1.2-2' }}</strong></div>
+        <div class="kv"><span>Efectivo contado (bolsa)</span><strong>S/ {{ countedTotal() | number: '1.2-2' }}</strong></div>
+        <div class="kv"><span>+ Caja chica que queda</span><strong>S/ {{ pettyCash | number: '1.2-2' }}</strong></div>
+        <div class="kv strong"><span>Total en el cajón al cierre</span><strong>S/ {{ totalEnCaja() | number: '1.2-2' }}</strong></div>
         @if (canSeeCuadre()) {
-          <div class="kv"><span>Efectivo esperado</span><strong>S/ {{ expectedCash() | number: '1.2-2' }}</strong></div>
+          <div class="kv"><span>Efectivo esperado (a entregar)</span><strong>S/ {{ esperadoEntregar() | number: '1.2-2' }}</strong></div>
           <div class="kv cdiff" [class.neg]="closeDiff() < 0"><span>Diferencia</span><strong>{{ closeDiff() > 0 ? '+' : '' }}{{ closeDiff() | number: '1.2-2' }}</strong></div>
         }
       </div>
@@ -358,6 +366,10 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .diff { margin-top: 0.5rem; } .diff.neg strong { color: #f87171; }
       .blind-note { display: flex; align-items: flex-start; gap: 0.4rem; margin: 0 0 0.6rem; padding: 0.55rem 0.7rem; border-radius: 8px; background: rgba(59,130,246,0.12); color: #93c5fd; font-size: 0.82rem; }
       .blind-note.supervised { background: rgba(16,185,129,0.12); color: #6ee7b7; }
+      .pcbox { border: 1px solid rgba(245,158,11,0.35); background: rgba(245,158,11,0.08); border-radius: 10px; padding: 0.55rem 0.7rem; margin-bottom: 0.7rem; }
+      .pcbox .pcrow { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; } .pcbox .pcrow span { font-size: 0.9rem; font-weight: 600; color: #fcd34d; display: flex; align-items: center; gap: 0.4rem; }
+      .pcbox .pcnote { margin: 0.35rem 0 0; font-size: 0.74rem; color: #b58a3a; }
+      .denoms .dhx { font-size: 0.82rem; color: #93c5fd; margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.4rem; }
       .denoms { border: 1px solid #1c2c44; border-radius: 10px; padding: 0.5rem 0.7rem; margin-bottom: 0.7rem; }
       .denoms .dh { display: grid; grid-template-columns: 1fr 9rem 5.5rem; gap: 0.5rem; font-size: 0.72rem; color: #8aa0bd; text-transform: uppercase; letter-spacing: 0.03em; padding-bottom: 0.3rem; border-bottom: 1px solid #1c2c44; }
       .denoms .dh .c { text-align: center; } .denoms .dh .r { text-align: right; }
@@ -473,14 +485,21 @@ export class CashComponent implements OnInit {
   closeNotes = '';
   // Conteo de cierre por denominaciones (igual que Operaciones › Caja).
   denoms: { value: number; qty: number }[] = DENOMS.map((value) => ({ value, qty: 0 }));
-  pettyCash = 0; // caja chica que queda (editable; default = base de apertura)
+  pettyCash = 0; // caja chica que queda (editable; default = base de apertura). Se SEPARA antes de contar.
   bagRef = '';
-  readonly countedTotal = signal(0);
+  readonly countedTotal = signal(0); // conteo por denominaciones = SOLO el efectivo a entregar (bolsa)
   onQty(): void { this.countedTotal.set(Math.round(this.denoms.reduce((a, d) => a + d.value * (d.qty || 0), 0) * 100) / 100); }
   baseAmount(): number { return Number(this.closeTarget?.openingAmount ?? this.openSession()?.openingAmount ?? 0); }
-  // Efectivo a bolsa = total contado − caja chica declarada (editable).
-  toBag(): number { return Math.round((this.countedTotal() - (this.pettyCash || 0)) * 100) / 100; }
-  readonly closeDiff = computed(() => Math.round((this.countedTotal() - this.expectedCash()) * 100) / 100);
+  // Ingresos SOLO en efectivo (los virtuales tipo Yape no tocan el cajón) para el ticket de cierre.
+  readonly adjCashIn = computed(() => Number(this.current()?.summary?.movementsCashIn ?? this.current()?.summary?.movementsIn ?? 0));
+  // Las denominaciones YA son el efectivo a entregar (la caja chica se separó antes de contar).
+  toBag(): number { return this.countedTotal(); }
+  // Total físico en el cajón al cierre = bolsa (contado) + caja chica que queda.
+  totalEnCaja(): number { return Math.round((this.countedTotal() + (this.pettyCash || 0)) * 100) / 100; }
+  // Esperado A ENTREGAR = efectivo esperado del cajón − base de apertura (caja chica).
+  esperadoEntregar(): number { return Math.round((this.expectedCash() - this.baseAmount()) * 100) / 100; }
+  // Cuadre = total contado (bolsa + caja chica) − esperado a entregar (igual fórmula que el backend).
+  closeDiff(): number { return Math.round((this.totalEnCaja() - this.esperadoEntregar()) * 100) / 100; }
 
   detailVisible = false;
   readonly detailLoading = signal(false);
@@ -571,24 +590,27 @@ export class CashComponent implements OnInit {
   }
 
   doClose(): void {
-    const total = this.countedTotal();
-    if (total <= 0) { this.messages.add({ severity: 'warn', summary: 'Conteo vacío', detail: 'Registra la cantidad de billetes y monedas contados.' }); return; }
+    const bag = this.countedTotal(); // denominaciones = efectivo a entregar (la caja chica va aparte)
+    const pettyCash = Math.round((this.pettyCash || 0) * 100) / 100;
+    if (bag <= 0 && pettyCash <= 0) { this.messages.add({ severity: 'warn', summary: 'Conteo vacío', detail: 'Registra el efectivo a entregar (denominaciones) o la caja chica.' }); return; }
     const blind = this.blindClose();
     const row = this.closeTarget;
-    const pettyCash = Math.round((this.pettyCash || 0) * 100) / 100;
     const denomsSnapshot = this.denoms.map((d) => ({ value: d.value, qty: d.qty || 0 }));
-    const ingresos = this.adjIn();
+    // Ingresos SOLO en efectivo (Yape/virtuales no entran a esta ficha de conteo).
+    const ingresos = this.adjCashIn();
     const egresos = this.adjOut();
     const bagRef = this.bagRef;
     const brand = this.auth.activeBranch()?.name ?? 'HotelSuite';
     const closedByName = this.auth.user()?.name ?? row?.openedByName ?? 'Recepción';
+    // closingAmount = total en el cajón (bolsa + caja chica): NO cambia la fórmula del cuadre existente.
+    const closingAmount = Math.round((bag + pettyCash) * 100) / 100;
     this.busy.set(true);
-    this.finance.closeCash({ closingAmount: total, notes: bagRef || this.closeNotes || undefined, denominations: denomsSnapshot, pettyCashLeft: pettyCash }).subscribe({
+    this.finance.closeCash({ closingAmount, notes: bagRef || this.closeNotes || undefined, denominations: denomsSnapshot, pettyCashLeft: pettyCash }).subscribe({
       next: (res) => {
         this.busy.set(false); this.closeVisible = false;
         const closedAt = res.data?.session?.closedAt ?? new Date().toISOString();
         if (blind) {
-          this.messages.add({ severity: 'success', summary: 'Caja cerrada (ciega)', detail: `Efectivo a la bolsa: S/ ${(total - pettyCash).toFixed(2)}` });
+          this.messages.add({ severity: 'success', summary: 'Caja cerrada (ciega)', detail: `Efectivo a la bolsa: S/ ${bag.toFixed(2)}` });
           if (row) this.openTicketWindow(buildBlindTicket({
             brand, sessionNumber: row.number ?? null, openedAt: row.openedAt, closedAt,
             closedByName, base: pettyCash, denominations: denomsSnapshot, ingresos, egresos, bagRef,
@@ -619,9 +641,9 @@ export class CashComponent implements OnInit {
           openedAt: d.session.openedAt,
           closedAt: d.session.closedAt ?? new Date().toISOString(),
           closedByName: d.session.closedByName ?? d.session.openedByName,
-          base: d.session.openingAmount,
+          base: d.session.pettyCashLeft ?? d.session.openingAmount, // caja chica real declarada al cierre
           denominations: denoms,
-          ingresos: d.methodBar.ingresos,
+          ingresos: d.methodBar.ingresos, // methodBar.ingresos = ingresos SOLO en efectivo
           egresos: d.methodBar.egresos,
           bagRef: '',
         }));

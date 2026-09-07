@@ -239,14 +239,18 @@ export function buildBlindTicket(t: BlindTicketData): string {
   L.push(kv2('FIN DE TURNO', `${dm(close)} ${hhmm(close)}`));
   L.push(kv2('CERRADO POR', t.closedByName));
   L.push(line('='), '');
-  const toBag = Math.round((total - t.base) * 100) / 100; // efectivo que va a la bolsa
+  // Orden: primero la caja chica (queda en el cajón, NO se cuenta por denominaciones), luego los
+  // movimientos en EFECTIVO (los virtuales tipo Yape no entran), y al final el efectivo contado que
+  // es el resultado del conteo por denominaciones (la bolsa a entregar).
   L.push('RESUMEN DEL CONTEO', '-'.repeat(20), '');
-  L.push(lr('Efectivo contado', money(total)));
-  L.push(lr('Caja chica declarada', money(t.base)));
-  L.push(lr('Efectivo enviado a bolsa', money(toBag)));
-  L.push(lr('Ingresos registrados', money(t.ingresos)));
-  L.push(lr('Egresos registrados', money(t.egresos)));
+  L.push(lr('Caja chica (queda en caja)', money(t.base)));
+  L.push('  no entra al conteo de denominaciones');
+  L.push(lr('Ingresos en efectivo', money(t.ingresos)));
+  L.push(lr('Egresos en efectivo', money(t.egresos)));
   L.push(lr('Ajuste neto', money(ajusteNeto)));
+  L.push('-'.repeat(TW));
+  L.push(lr('Efectivo contado (bolsa)', money(total)));
+  L.push('  resultado del conteo por denominaciones');
   L.push(line('='), '');
   L.push('CONTEO POR DENOMINACIONES', '-'.repeat(26), '');
   // Solo se imprimen las denominaciones con cantidad > 0 (la interfaz sigue mostrando todas para el
