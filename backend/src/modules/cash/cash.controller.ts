@@ -13,7 +13,7 @@ export const cashController = {
   },
   async verifyVirtual(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
-    const b = req.body as { paymentIds?: string[]; method?: string; code?: string; action: 'VERIFY' | 'SET_CODE' | 'REVIEW' | 'NOT_FOUND'; newCode?: string };
+    const b = req.body as { paymentIds?: string[]; movementIds?: string[]; method?: string; code?: string; action: 'VERIFY' | 'SET_CODE' | 'REVIEW' | 'NOT_FOUND'; newCode?: string };
     res.status(200).json(ok(await cashAuditService.verifyVirtual(req.scope, req.params.id, b)));
   },
   async current(req: Request, res: Response): Promise<void> {

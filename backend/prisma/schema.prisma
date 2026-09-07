@@ -974,6 +974,10 @@ model CashMovement {
   voidReason      String?
   createdByUserId String?
   createdAt       DateTime @default(now())
+  // Auditoría de medios virtuales: un INGRESO por Yape/Plin/etc. también se concilia por código.
+  verifyState     String? // PENDIENTE | VERIFICADO | EN_REVISION | NO_EXISTE (SIN_CODIGO se deriva sin reference)
+  verifiedByUserId String?
+  verifiedAt      DateTime?
 
   session CashSession @relation(fields: [cashSessionId], references: [id], onDelete: Cascade)
 

@@ -13,7 +13,13 @@ const VIRTUAL = ['CARD', 'TRANSFER', 'YAPE', 'PLIN', 'WALLET'];
 const round = (n: number): number => Math.round(n * 100) / 100;
 
 type AuditState = 'VERIFICADO' | 'PENDIENTE' | 'SIN_CODIGO' | 'EN_REVISION' | 'NO_EXISTE';
-interface AuditItem { paymentId: string; saleId: string; concept: string; amount: number; gross: number; commission: number; time: Date; }
+type EntryKind = 'PAYMENT' | 'MOVEMENT';
+// Entrada unificada de auditoría: un pago de venta O un ingreso de caja virtual (Yape/Plin/etc.).
+interface VEntry {
+  kind: EntryKind; id: string; method: string; code: string | null; amount: number; gross: number; commission: number;
+  concept: string; room: string | null; client: string; clientShort: string; verifyState: string | null; createdAt: Date;
+}
+interface AuditItem { kind: EntryKind; paymentId: string; saleId: string; concept: string; amount: number; gross: number; commission: number; time: Date; }
 interface AuditGroup {
   method: string; code: string | null; amount: number; grossAmount: number; commissionAmount: number; ops: number;
   room: string | null; client: string; clientShort: string; concept: string;
@@ -77,6 +83,14 @@ async function loadContext(pays: Awaited<ReturnType<typeof loadVirtualPayments>>
   return { stayMap, guestMap };
 }
 
+/** Ingresos de caja por medio VIRTUAL (Yape/Plin/etc.): también se concilian por código. Sin anular. */
+async function loadVirtualMovements(sessionId: string) {
+  return prisma.cashMovement.findMany({
+    where: { cashSessionId: sessionId, type: 'IN', method: { in: VIRTUAL }, voided: false },
+    orderBy: { createdAt: 'asc' },
+  });
+}
+
 export const cashAuditService = {
   /** Conciliación + agrupación por código de los medios virtuales del turno. */
   async virtualAudit(scope: RequestScope, sessionId: string) {
@@ -84,42 +98,57 @@ export const cashAuditService = {
     const session = await prisma.cashSession.findUnique({ where: { id: sessionId } });
     if (!session || session.branchId !== branchId) throw new NotFoundError('Turno no encontrado');
     const pays = await loadVirtualPayments(branchId, sessionId);
+    const movs = await loadVirtualMovements(sessionId);
     const { stayMap, guestMap } = await loadContext(pays);
+
+    // Lista UNIFICADA: pagos de ventas + ingresos de caja virtuales (Yape/Plin/etc.). Ambos se
+    // concilian por método+código; los ingresos de caja no tienen comisión ni cliente (usan su concepto).
+    const entries: VEntry[] = [];
+    for (const p of pays) {
+      const ctx = p.sale.stayId ? stayMap.get(p.sale.stayId) : undefined;
+      const gctx = p.sale.guestId ? guestMap.get(p.sale.guestId) : undefined;
+      const concept = conceptOf(p.sale.items);
+      const client = ctx?.client || gctx?.client || p.sale.customerName || concept;
+      const clientShort = ctx?.clientShort || gctx?.clientShort || (p.sale.customerName ? shortName(p.sale.customerName, null) : concept);
+      entries.push({
+        kind: 'PAYMENT', id: p.id, method: p.method, code: (p.reference ?? '').trim() || null, amount: Number(p.amount),
+        gross: p.grossCharged != null ? Number(p.grossCharged) : Number(p.amount), commission: p.commissionAmount != null ? Number(p.commissionAmount) : 0,
+        concept, room: ctx?.room ?? null, client, clientShort, verifyState: p.verifyState, createdAt: p.createdAt,
+      });
+    }
+    for (const m of movs) {
+      const concept = m.concept || 'Ingreso';
+      entries.push({
+        kind: 'MOVEMENT', id: m.id, method: m.method as string, code: (m.reference ?? '').trim() || null, amount: Number(m.amount),
+        gross: Number(m.amount), commission: 0, concept, room: null, client: concept, clientShort: concept, verifyState: m.verifyState, createdAt: m.createdAt,
+      });
+    }
 
     // Esperado virtual por método (= byMethod de virtuales; no incluye efectivo ni vuelto).
     // Neto = lo que registra el sistema; Bruto = lo realmente cobrado en POS (snapshot histórico
     // neto + comisión). Sin snapshot, el bruto cae al neto (no se reconstruye con la tasa vigente).
     const esperadoByMethod: Record<string, number> = {};
     const grossByMethod: Record<string, number> = {};
-    const grossOf = (p: (typeof pays)[number]): number => (p.grossCharged != null ? Number(p.grossCharged) : Number(p.amount));
-    const commOf = (p: (typeof pays)[number]): number => (p.commissionAmount != null ? Number(p.commissionAmount) : 0);
-    for (const p of pays) {
-      esperadoByMethod[p.method] = round((esperadoByMethod[p.method] ?? 0) + Number(p.amount));
-      grossByMethod[p.method] = round((grossByMethod[p.method] ?? 0) + grossOf(p));
+    for (const e of entries) {
+      esperadoByMethod[e.method] = round((esperadoByMethod[e.method] ?? 0) + e.amount);
+      grossByMethod[e.method] = round((grossByMethod[e.method] ?? 0) + e.gross);
     }
     const esperadoTotal = round(Object.values(esperadoByMethod).reduce((a, b) => a + b, 0));
     const grossTotal = round(Object.values(grossByMethod).reduce((a, b) => a + b, 0));
 
-    // Agrupar por método + código (código vacío = SIN_CODIGO, cada pago en su propio grupo).
+    // Agrupar por método + código (código vacío = SIN_CODIGO, cada operación en su propio grupo).
     const groupsMap = new Map<string, AuditGroup>();
-    for (const p of pays) {
-      const code = (p.reference ?? '').trim() || null;
-      const key = code ? `${p.method}|${code}` : `${p.method}|__nocode__|${p.id}`;
-      const ctx = p.sale.stayId ? stayMap.get(p.sale.stayId) : undefined;
-      const gctx = p.sale.guestId ? guestMap.get(p.sale.guestId) : undefined;
-      const concept = conceptOf(p.sale.items);
-      // Sin estancia/huésped/cliente (p. ej. venta no registrada), el nombre cae al producto (concepto).
-      const client = ctx?.client || gctx?.client || p.sale.customerName || concept;
-      const clientShort = ctx?.clientShort || gctx?.clientShort || (p.sale.customerName ? shortName(p.sale.customerName, null) : concept);
+    for (const e of entries) {
+      const key = e.code ? `${e.method}|${e.code}` : `${e.method}|__nocode__|${e.kind}|${e.id}`;
       let g = groupsMap.get(key);
-      if (!g) { g = { method: p.method, code, amount: 0, grossAmount: 0, commissionAmount: 0, ops: 0, room: ctx?.room ?? null, client, clientShort, concept, state: 'PENDIENTE', duplicate: false, lastTime: p.createdAt, states: new Set(), items: [] }; groupsMap.set(key, g); }
-      g.amount = round(g.amount + Number(p.amount));
-      g.grossAmount = round(g.grossAmount + grossOf(p));
-      g.commissionAmount = round(g.commissionAmount + commOf(p));
+      if (!g) { g = { method: e.method, code: e.code, amount: 0, grossAmount: 0, commissionAmount: 0, ops: 0, room: e.room, client: e.client, clientShort: e.clientShort, concept: e.concept, state: 'PENDIENTE', duplicate: false, lastTime: e.createdAt, states: new Set(), items: [] }; groupsMap.set(key, g); }
+      g.amount = round(g.amount + e.amount);
+      g.grossAmount = round(g.grossAmount + e.gross);
+      g.commissionAmount = round(g.commissionAmount + e.commission);
       g.ops += 1;
-      g.states.add(p.verifyState ?? 'PENDIENTE');
-      if (p.createdAt >= g.lastTime) { g.lastTime = p.createdAt; g.room = ctx?.room ?? null; g.client = client; g.clientShort = clientShort; g.concept = concept; } // representante = el más reciente del grupo
-      g.items.push({ paymentId: p.id, saleId: p.saleId, concept, amount: Number(p.amount), gross: grossOf(p), commission: commOf(p), time: p.createdAt });
+      g.states.add(e.verifyState ?? 'PENDIENTE');
+      if (e.createdAt >= g.lastTime) { g.lastTime = e.createdAt; g.room = e.room; g.client = e.client; g.clientShort = e.clientShort; g.concept = e.concept; } // representante = el más reciente del grupo
+      g.items.push({ kind: e.kind, paymentId: e.id, saleId: e.id, concept: e.concept, amount: e.amount, gross: e.gross, commission: e.commission, time: e.createdAt });
     }
     // Estado derivado por grupo. NO_EXISTE (auditado como inexistente) tiene prioridad.
     for (const g of groupsMap.values()) {
@@ -161,29 +190,40 @@ export const cashAuditService = {
     };
   },
 
-  /** Acción de auditoría sobre un grupo (método+código) o un pago: verificar, corregir código, en revisión, inexistente. */
-  async verifyVirtual(scope: RequestScope, sessionId: string, dto: { paymentIds?: string[]; method?: string; code?: string; action: 'VERIFY' | 'SET_CODE' | 'REVIEW' | 'NOT_FOUND'; newCode?: string }) {
+  /**
+   * Acción de auditoría sobre un grupo (método+código) o entradas explícitas: verificar, corregir
+   * código, en revisión, inexistente. Aplica a PAGOS de venta y a INGRESOS de caja virtuales.
+   */
+  async verifyVirtual(
+    scope: RequestScope,
+    sessionId: string,
+    dto: { paymentIds?: string[]; movementIds?: string[]; method?: string; code?: string; action: 'VERIFY' | 'SET_CODE' | 'REVIEW' | 'NOT_FOUND'; newCode?: string },
+  ) {
     const branchId = requireActiveBranch(scope);
     const session = await prisma.cashSession.findUnique({ where: { id: sessionId } });
     if (!session || session.branchId !== branchId) throw new NotFoundError('Turno no encontrado');
 
-    // Determinar los pagos objetivo: por ids explícitos, o por método+código del grupo.
-    let where: Record<string, unknown>;
-    if (dto.paymentIds?.length) where = { id: { in: dto.paymentIds }, cashSessionId: sessionId };
-    else if (dto.method && dto.code) where = { cashSessionId: sessionId, method: dto.method, reference: dto.code };
-    else throw new ValidationError('Indica el grupo (método+código) o los pagos a auditar.');
-
+    // Datos a aplicar según la acción. Editar código NO verifica (queda PENDIENTE con el nuevo código).
+    const stamp = { verifiedByUserId: scope.userId, verifiedAt: new Date() };
+    let data: Record<string, unknown>;
     if (dto.action === 'SET_CODE') {
       if (!dto.newCode || !dto.newCode.trim()) throw new ValidationError('Ingresa el código de operación.');
-      // Editar código NO verifica: deja el pago PENDIENTE con el nuevo código para revisarlo aparte.
-      await prisma.payment.updateMany({ where, data: { reference: dto.newCode.trim(), verifyState: 'PENDIENTE', verifiedByUserId: scope.userId, verifiedAt: new Date() } });
-    } else if (dto.action === 'REVIEW') {
-      await prisma.payment.updateMany({ where, data: { verifyState: 'EN_REVISION', verifiedByUserId: scope.userId, verifiedAt: new Date() } });
-    } else if (dto.action === 'NOT_FOUND') {
-      // El pago está registrado pero no se encontró en el medio (Yape/Plin/etc.). No cuenta como verificado.
-      await prisma.payment.updateMany({ where, data: { verifyState: 'NO_EXISTE', verifiedByUserId: scope.userId, verifiedAt: new Date() } });
+      data = { reference: dto.newCode.trim(), verifyState: 'PENDIENTE', ...stamp };
+    } else if (dto.action === 'REVIEW') data = { verifyState: 'EN_REVISION', ...stamp };
+    else if (dto.action === 'NOT_FOUND') data = { verifyState: 'NO_EXISTE', ...stamp };
+    else data = { verifyState: 'VERIFICADO', ...stamp };
+
+    if (dto.method && dto.code) {
+      // Grupo por método+código: afecta pagos e ingresos de caja con ese método y código.
+      const base = { cashSessionId: sessionId, method: dto.method, reference: dto.code };
+      await prisma.payment.updateMany({ where: base, data });
+      await prisma.cashMovement.updateMany({ where: { ...base, type: 'IN' }, data });
+    } else if (dto.paymentIds?.length || dto.movementIds?.length) {
+      // Entradas explícitas (grupos SIN CÓDIGO): cada pago/ingreso por su id.
+      if (dto.paymentIds?.length) await prisma.payment.updateMany({ where: { id: { in: dto.paymentIds }, cashSessionId: sessionId }, data });
+      if (dto.movementIds?.length) await prisma.cashMovement.updateMany({ where: { id: { in: dto.movementIds }, cashSessionId: sessionId }, data });
     } else {
-      await prisma.payment.updateMany({ where, data: { verifyState: 'VERIFICADO', verifiedByUserId: scope.userId, verifiedAt: new Date() } });
+      throw new ValidationError('Indica el grupo (método+código) o las operaciones a auditar.');
     }
     return this.virtualAudit(scope, sessionId);
   },

@@ -20,7 +20,7 @@ import { downloadCsv } from '../../../core/utils/export';
 
 interface ReconItem { id: string; at: string; type: string; amount: number; affectsCash: boolean; quantity: number | null; note: string | null; by: string | null; approvedBy: string | null; }
 interface ReconSummary { expected: number | null; declared: number | null; originalDifference: number; pendingDifference: number; reconciliations: ReconItem[]; }
-interface VAuditItem { paymentId: string; saleId: string; concept: string; amount: number; gross: number; commission: number; time: string; }
+interface VAuditItem { kind?: 'PAYMENT' | 'MOVEMENT'; paymentId: string; saleId: string; concept: string; amount: number; gross: number; commission: number; time: string; }
 interface VAuditGroup { method: string; code: string | null; amount: number; grossAmount: number; commissionAmount: number; ops: number; room: string | null; client: string; clientShort: string; concept: string; time: string; state: 'VERIFICADO' | 'PENDIENTE' | 'SIN_CODIGO' | 'EN_REVISION' | 'NO_EXISTE'; duplicate: boolean; items: VAuditItem[]; }
 interface VAudit { esperado: { byMethod: Record<string, number>; total: number; grossByMethod?: Record<string, number>; grossTotal?: number; commissionTotal?: number }; groups: VAuditGroup[]; summary: { verifiedAmount: number; verifiedOps: number; pendingAmount: number; sinCodigoCount: number; duplicateCount: number; enRevisionCount: number; noExisteCount?: number; difference: number }; }
 
@@ -426,7 +426,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
         <!-- Paginación -->
         <div class="apag">
           <span>Mostrar
-            <select [ngModel]="auditPageSize()" (ngModelChange)="auditPageSize.set(+$event); auditPage.set(0)"><option [ngValue]="10">10</option><option [ngValue]="20">20</option><option [ngValue]="50">50</option></select>
+            <select [ngModel]="auditPageSize()" (ngModelChange)="auditPageSize.set(+$event); auditPage.set(0)"><option [ngValue]="0">Todos</option><option [ngValue]="10">10</option><option [ngValue]="20">20</option><option [ngValue]="50">50</option></select>
             de {{ filteredAudit().length }} movimientos
           </span>
           @if (auditPages().length > 1) {
@@ -588,7 +588,7 @@ export class CashMovementsPageComponent implements OnInit {
   readonly auditSearch = signal('');
   readonly horaSortAsc = signal(false); // por defecto: más reciente primero (desc)
   readonly auditPage = signal(0);
-  readonly auditPageSize = signal(10);
+  readonly auditPageSize = signal(0); // 0 = "Todos" (por defecto muestra todos los movimientos)
   // Chips de método con conteo total y verificados (derivados de los grupos).
   readonly methodChips = computed(() => {
     const groups = this.vaudit()?.groups ?? [];
@@ -613,13 +613,17 @@ export class CashMovementsPageComponent implements OnInit {
     return rows;
   });
   readonly auditPages = computed(() => {
-    const n = Math.ceil(this.filteredAudit().length / this.auditPageSize());
+    const size = this.auditPageSize();
+    if (!size) return [0]; // "Todos" → una sola página
+    const n = Math.ceil(this.filteredAudit().length / size);
     return Array.from({ length: Math.max(1, n) }, (_, i) => i);
   });
   readonly pagedAudit = computed(() => {
     const size = this.auditPageSize();
+    const rows = this.filteredAudit();
+    if (!size) return rows; // "Todos": sin recorte
     const start = this.auditPage() * size;
-    return this.filteredAudit().slice(start, start + size);
+    return rows.slice(start, start + size);
   });
 
   // VER detalle
@@ -754,15 +758,19 @@ export class CashMovementsPageComponent implements OnInit {
   vStateLabel(s: string): string { return ({ VERIFICADO: 'Verificado', PENDIENTE: 'Pendiente', SIN_CODIGO: 'Sin código', EN_REVISION: 'En revisión', NO_EXISTE: 'No existente' } as Record<string, string>)[s] ?? s; }
   vStateClass(s: string): string { return ({ VERIFICADO: 'ok', PENDIENTE: 'pend', SIN_CODIGO: 'warn', EN_REVISION: 'warn', NO_EXISTE: 'no' } as Record<string, string>)[s] ?? ''; }
   vDiffLabel(diff: number): string { return diff === 0 ? '✓ CUADRADO' : `S/ ${diff.toFixed(2)} DIFERENCIA`; }
-  private auditAction(body: { paymentIds?: string[]; method?: string; code?: string; action: 'VERIFY' | 'SET_CODE' | 'REVIEW' | 'NOT_FOUND'; newCode?: string }): void {
+  private auditAction(body: { paymentIds?: string[]; movementIds?: string[]; method?: string; code?: string; action: 'VERIFY' | 'SET_CODE' | 'REVIEW' | 'NOT_FOUND'; newCode?: string }): void {
     this.busy.set(true);
     this.http.post<ApiResponse<VAudit>>(`${this.api}/cash/sessions/${this.sessionId}/virtual-audit/verify`, body).subscribe({
       next: (r) => { this.busy.set(false); this.vaudit.set(r.data); this.auditingCode.set(''); }, // el filtro/orden/página se conservan
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo auditar.' }); },
     });
   }
-  private targetOf(g: VAuditGroup): { paymentIds?: string[]; method?: string; code?: string } {
-    return g.code ? { method: g.method, code: g.code } : { paymentIds: g.items.map((i) => i.paymentId) };
+  private targetOf(g: VAuditGroup): { paymentIds?: string[]; movementIds?: string[]; method?: string; code?: string } {
+    if (g.code) return { method: g.method, code: g.code };
+    // Grupo sin código: separa pagos de venta e ingresos de caja por su tipo (kind).
+    const paymentIds = g.items.filter((i) => (i.kind ?? 'PAYMENT') === 'PAYMENT').map((i) => i.paymentId);
+    const movementIds = g.items.filter((i) => i.kind === 'MOVEMENT').map((i) => i.paymentId);
+    return { paymentIds: paymentIds.length ? paymentIds : undefined, movementIds: movementIds.length ? movementIds : undefined };
   }
   verifyGroup(g: VAuditGroup): void { this.auditAction({ ...this.targetOf(g), action: 'VERIFY' }); }
   markNotFound(g: VAuditGroup): void {
@@ -772,9 +780,8 @@ export class CashMovementsPageComponent implements OnInit {
   startSetCode(g: VAuditGroup): void { this.auditingCode.set(this.vAuditKey(g)); this.auditCodeInput = g.code ?? ''; }
   confirmSetCode(g: VAuditGroup): void {
     if (!this.auditCodeInput.trim()) { this.messages.add({ severity: 'warn', summary: 'Código', detail: 'Ingresa el código.' }); return; }
-    // Para grupos sin código, corregimos por los ids de sus pagos; con código, por método+código.
-    if (g.code) this.auditAction({ method: g.method, code: g.code, action: 'SET_CODE', newCode: this.auditCodeInput.trim() });
-    else this.auditAction({ paymentIds: g.items.map((i) => i.paymentId), action: 'SET_CODE', newCode: this.auditCodeInput.trim() });
+    // Para grupos sin código, corregimos por los ids (pagos e ingresos); con código, por método+código.
+    this.auditAction({ ...this.targetOf(g), action: 'SET_CODE', newCode: this.auditCodeInput.trim() });
   }
   finalizeAudit(): void { this.loadVAudit(); this.auditVisible = false; this.messages.add({ severity: 'success', summary: 'Auditoría', detail: 'Auditoría actualizada.' }); }
 
