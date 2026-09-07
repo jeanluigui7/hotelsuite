@@ -211,9 +211,9 @@ const TYPE_COLOR: Record<string, [string, string]> = {
     <p-dialog [(visible)]="vnrVisible" [modal]="true" header="Regularizar venta no registrada" [style]="{ width: '30rem', maxWidth: '96vw' }">
       <div class="form">
         <p class="muted">Reclasifica parte del sobrante del turno como una venta que no se registró. No duplica efectivo ni modifica el cierre.</p>
-        <label>Producto</label><p-select [options]="vnrProducts()" optionLabel="name" optionValue="id" [(ngModel)]="vnrForm.productId" [filter]="true" filterBy="name" placeholder="Elegir producto" appendTo="body" styleClass="w" />
-        <label>Cantidad</label><p-inputNumber [(ngModel)]="vnrForm.quantity" [min]="1" [showButtons]="true" styleClass="w" />
-        <label>Importe (S/) — parte del sobrante</label><p-inputNumber [(ngModel)]="vnrForm.amount" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
+        <label>Producto</label><p-select [options]="vnrProducts()" optionLabel="name" optionValue="id" [(ngModel)]="vnrForm.productId" (onChange)="recalcVnrAmount()" [filter]="true" filterBy="name" placeholder="Elegir producto" appendTo="body" styleClass="w" />
+        <label>Cantidad</label><p-inputNumber [(ngModel)]="vnrForm.quantity" [min]="1" [showButtons]="true" (onInput)="recalcVnrAmount()" (onBlur)="recalcVnrAmount()" styleClass="w" />
+        <label>Importe (S/) — se autocalcula (editable)</label><p-inputNumber [(ngModel)]="vnrForm.amount" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
         <label>Observación</label><input pInputText [(ngModel)]="vnrForm.note" />
       </div>
       <ng-template pTemplate="footer">
@@ -660,7 +660,7 @@ export class CashMovementsPageComponent implements OnInit {
   // VNR
   vnrVisible = false;
   vnrForm: { productId: string | null; quantity: number; amount: number | null; note: string } = { productId: null, quantity: 1, amount: null, note: '' };
-  readonly vnrProducts = signal<{ id: string; name: string }[]>([]);
+  readonly vnrProducts = signal<{ id: string; name: string; salePrice: number | string }[]>([]);
   private reconWhId = '';
 
   ngOnInit(): void {
@@ -912,9 +912,16 @@ export class CashMovementsPageComponent implements OnInit {
 
   openVnr(): void {
     this.vnrForm = { productId: null, quantity: 1, amount: null, note: '' };
-    if (!this.vnrProducts().length) this.http.get<ApiResponse<{ id: string; name: string }[]>>(`${this.api}/products`, { params: { pageSize: '300', status: 'active' } }).subscribe((r) => this.vnrProducts.set(r.data ?? []));
+    if (!this.vnrProducts().length) this.http.get<ApiResponse<{ id: string; name: string; salePrice: number | string }[]>>(`${this.api}/products`, { params: { pageSize: '300', status: 'active' } }).subscribe((r) => this.vnrProducts.set(r.data ?? []));
     this.http.get<ApiResponse<{ id: string; type: string }[]>>(`${this.api}/warehouses`, { params: { pageSize: '100' } }).subscribe((r) => { this.reconWhId = (r.data ?? []).find((w) => w.type === 'RECEPTION')?.id ?? ''; });
     this.vnrVisible = true;
+  }
+  /** Autocalcula el importe = precio de venta del producto × cantidad (editable después). */
+  recalcVnrAmount(): void {
+    const prod = this.vnrProducts().find((p) => p.id === this.vnrForm.productId);
+    if (!prod) return;
+    const qty = this.vnrForm.quantity && this.vnrForm.quantity > 0 ? this.vnrForm.quantity : 1;
+    this.vnrForm.amount = Math.round(Number(prod.salePrice) * qty * 100) / 100;
   }
   saveVnr(): void {
     const d = this.detail(); if (!d) return;

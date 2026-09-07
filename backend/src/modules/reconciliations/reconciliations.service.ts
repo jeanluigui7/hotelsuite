@@ -118,7 +118,8 @@ export const reconciliationsService = {
     const branchId = requireActiveBranch(scope);
     const session = await prisma.cashSession.findUnique({ where: { id: sessionId } });
     if (!session || session.branchId !== branchId) throw new NotFoundError('Turno no encontrado');
-    if (session.status !== 'CLOSED') throw new ConflictError('El turno debe estar cerrado para regularizar una venta no registrada.');
+    // Solo turnos ya cerrados (CLOSED) o ya ajustados (AJUSTADA); un turno ABIERTO se registra normal.
+    if (session.status === 'OPEN') throw new ConflictError('El turno debe estar cerrado para regularizar una venta no registrada.');
     const originalDiff = diffOf(session);
     if (originalDiff <= 0) throw new ConflictError('Este turno no tiene sobrante que reclasificar.');
     const already = (await prisma.cashReconciliation.findMany({ where: { branchId, cashSessionId: sessionId, affectsCash: true } })).reduce((a, r) => a + Number(r.amount), 0);
