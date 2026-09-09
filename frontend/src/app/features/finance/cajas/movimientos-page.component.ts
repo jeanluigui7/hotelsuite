@@ -56,6 +56,30 @@ const TYPE_COLOR: Record<string, [string, string]> = {
           </div>
         </header>
 
+        <!-- Auditoría administrativa (Fase B): estado + quién/cuándo + acciones -->
+        @if (d.session.status !== 'OPEN') {
+          <div class="auditbar {{ audClass(d.session.auditStatus) }}">
+            <div class="ab-l">
+              <span class="ab-lbl"><i class="pi pi-shield"></i> Auditoría</span>
+              <span class="apill {{ audClass(d.session.auditStatus) }}">{{ audLabel(d.session.auditStatus) }}</span>
+              @if (d.session.auditedByName) { <span class="ab-by">{{ d.session.auditedByName }} · {{ d.session.auditedAt | date: 'dd/MM HH:mm' }}</span> }
+            </div>
+            @if (canEdit) {
+              <div class="ab-actions">
+                @if (d.session.auditStatus === 'PENDIENTE') { <button class="mini" [disabled]="busy()" (click)="doAudit('START')"><i class="pi pi-play"></i> Iniciar auditoría</button> }
+                @if (d.session.auditStatus === 'EN_PROCESO' || d.session.auditStatus === 'OBSERVADA') {
+                  <button class="mini warn" [disabled]="busy()" (click)="doAudit('OBSERVE')"><i class="pi pi-flag"></i> Marcar Observada</button>
+                  <button class="mini ok" [disabled]="busy()" (click)="doAudit('FINALIZE')"><i class="pi pi-check"></i> Finalizar auditoría</button>
+                }
+                @if (d.session.auditStatus === 'AUDITADA') { <button class="mini" [disabled]="busy()" (click)="doAudit('START')"><i class="pi pi-replay"></i> Reabrir auditoría</button> }
+              </div>
+            }
+          </div>
+          @if (d.session.auditStatus === 'OBSERVADA' && d.session.auditObservation) {
+            <div class="ab-obs"><i class="pi pi-exclamation-triangle"></i> {{ d.session.auditObservation }}</div>
+          }
+        }
+
         <!-- Resumen del turno -->
         <div class="cards">
           <div class="mc total"><span>TOTAL RECAUDADO</span><strong>S/ {{ d.methodBar.total | number: '1.2-2' }}</strong></div>
@@ -474,6 +498,13 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .mc.red strong { color: #f87171; }
       .audit-badge { font-size: 0.68rem; font-weight: 700; color: #a5b4fc; background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.35); border-radius: 999px; padding: 0.15rem 0.6rem; vertical-align: middle; margin-left: 0.5rem; }
       .stpill { font-size: 0.7rem; font-weight: 700; border-radius: 999px; padding: 0.1rem 0.55rem; background: rgba(148,163,184,0.2); color: #cbd5e1; margin-left: 0.4rem; } .stpill.open { background: rgba(16,185,129,0.2); color: #34d399; } .stpill.adj { background: rgba(245,158,11,0.2); color: #fbbf24; }
+      .auditbar { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; border: 1px solid #243245; border-left: 3px solid #64748b; border-radius: 10px; padding: 0.55rem 0.9rem; margin-bottom: 0.9rem; background: #101a29; }
+      .auditbar.proc { border-left-color: #60a5fa; } .auditbar.obs { border-left-color: #f59e0b; } .auditbar.ok { border-left-color: #34d399; }
+      .auditbar .ab-l { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; } .ab-lbl { font-size: 0.85rem; color: #cbd5e1; font-weight: 600; display: flex; align-items: center; gap: 0.35rem; } .ab-by { font-size: 0.76rem; color: #8aa0bd; }
+      .auditbar .ab-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; } .auditbar .mini.ok { background: rgba(16,185,129,0.16); color: #6ee7b7; border-color: rgba(16,185,129,0.4); }
+      .apill { display: inline-flex; align-items: center; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.7rem; border-radius: 999px; }
+      .apill.pend { background: rgba(148,163,184,0.16); color: #cbd5e1; } .apill.proc { background: rgba(59,130,246,0.18); color: #60a5fa; } .apill.obs { background: rgba(245,158,11,0.18); color: #fbbf24; } .apill.ok { background: rgba(16,185,129,0.18); color: #34d399; }
+      .ab-obs { display: flex; gap: 0.4rem; align-items: flex-start; font-size: 0.82rem; color: #fcd34d; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); border-radius: 8px; padding: 0.5rem 0.75rem; margin: -0.4rem 0 0.9rem; }
       .mblock { margin-bottom: 1rem; } .mblock h3, .ablock h3 { margin: 0 0 0.5rem; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; color: #cbd5e1; }
       .mcards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px,1fr)); gap: 0.6rem; }
       .mcard { border: 1px solid #243245; border-radius: 9px; padding: 0.55rem 0.7rem; background: #131d2b; display: flex; flex-direction: column; gap: 0.15rem; } .mcard span { font-size: 0.72rem; color: #8aa0bd; } .mcard strong { font-size: 1.02rem; }
@@ -970,6 +1001,25 @@ export class CashMovementsPageComponent implements OnInit {
       if (this.correctMovAmount == null || this.correctMovAmount <= 0 || !this.correctMovConcept.trim()) { this.busy.set(false); this.messages.add({ severity: 'warn', summary: 'Datos', detail: 'Monto y concepto requeridos.' }); return; }
       this.finance.editMovement(m.id, { type: this.correctMovType, amount: this.correctMovAmount, concept: this.correctMovConcept.trim(), reason }).subscribe({ next: done, error: fail });
     }
+  }
+
+  // ── Auditoría administrativa (Fase B) ──
+  audLabel(s?: string): string { return ({ PENDIENTE: 'Pendiente', EN_PROCESO: 'En proceso', OBSERVADA: 'Observada', AUDITADA: 'Auditada' } as Record<string, string>)[s ?? 'PENDIENTE'] ?? 'Pendiente'; }
+  audClass(s?: string): string { return ({ PENDIENTE: 'pend', EN_PROCESO: 'proc', OBSERVADA: 'obs', AUDITADA: 'ok' } as Record<string, string>)[s ?? 'PENDIENTE'] ?? 'pend'; }
+  doAudit(action: 'START' | 'OBSERVE' | 'FINALIZE'): void {
+    const d = this.detail(); if (!d) return;
+    let observation: string | undefined;
+    if (action === 'OBSERVE') {
+      const o = prompt('Observación administrativa (motivo por el que la caja queda Observada):', d.session.auditObservation ?? '');
+      if (o === null) return;
+      if (!o.trim()) { this.messages.add({ severity: 'warn', summary: 'Observación', detail: 'Indica la observación.' }); return; }
+      observation = o.trim();
+    }
+    this.busy.set(true);
+    this.http.post<ApiResponse<unknown>>(`${this.api}/cash/sessions/${d.session.id}/audit`, { action, observation }).subscribe({
+      next: () => { this.busy.set(false); this.messages.add({ severity: 'success', summary: 'Auditoría', detail: action === 'FINALIZE' ? 'Caja auditada.' : action === 'OBSERVE' ? 'Caja marcada como Observada.' : 'Auditoría iniciada.' }); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.messages.add({ severity: 'error', summary: 'Auditoría', detail: e.error?.error?.message ?? 'No se pudo actualizar la auditoría.' }); },
+    });
   }
 
   reopen(id: string): void {

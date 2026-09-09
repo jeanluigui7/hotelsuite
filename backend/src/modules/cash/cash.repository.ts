@@ -198,7 +198,18 @@ export const cashRepository = {
       where: { id: cashSessionId, status: 'CLOSED' },
       data: { status: 'AJUSTADA' },
     });
+    // Auto-revert de auditoría: si la caja ya estaba AUDITADA y algo cambia (corrección/anulación/
+    // regularización), la auditoría se reabre automáticamente (vuelve a EN_PROCESO).
+    await prisma.cashSession.updateMany({
+      where: { id: cashSessionId, auditStatus: 'AUDITADA' },
+      data: { auditStatus: 'EN_PROCESO' },
+    });
     return res.count > 0;
+  },
+
+  /** Cambia el estado de auditoría administrativa de la caja. */
+  async setAuditStatus(cashSessionId: string, data: { auditStatus: string; auditedByUserId?: string | null; auditedAt?: Date | null; auditObservation?: string | null }) {
+    return prisma.cashSession.update({ where: { id: cashSessionId }, data });
   },
 
   async getSetting(branchId: string, key: string) {

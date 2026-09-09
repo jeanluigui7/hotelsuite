@@ -135,6 +135,10 @@ export interface CashDetail {
     closingAmount: number | null;
     pettyCashLeft?: number | null;
     denominations?: { value: number; qty: number }[] | null;
+    auditStatus?: 'PENDIENTE' | 'EN_PROCESO' | 'OBSERVADA' | 'AUDITADA';
+    auditedByName?: string | null;
+    auditedAt?: string | null;
+    auditObservation?: string | null;
   };
   cards: {
     ventasHospedaje: number;

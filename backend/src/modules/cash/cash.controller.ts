@@ -65,6 +65,11 @@ export const cashController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await cashService.reopen(req.scope, req.params.id)));
   },
+  async auditAction(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const b = req.body as { action: 'START' | 'OBSERVE' | 'FINALIZE'; observation?: string };
+    res.status(200).json(ok(await cashService.auditAction(req.scope, req.params.id, b)));
+  },
   async updateMovement(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const dto = updateMovementSchema.parse(req.body);

@@ -430,7 +430,45 @@ export const cashService = {
       reason: null,
       createdByUserId: scope.userId,
     });
+    // Reabrir invalida cualquier auditoría cerrada: vuelve a EN_PROCESO (se re-auditará al re-cerrar).
+    if (session.auditStatus === 'AUDITADA') await cashRepository.setAuditStatus(id, { auditStatus: 'EN_PROCESO' });
     return cashRepository.reopen(id);
+  },
+
+  /**
+   * Acción de AUDITORÍA administrativa de una caja (Fase B): iniciar / observar / finalizar.
+   * Reglas: solo cajas cerradas; FINALIZAR exige efectivo y virtuales resueltos (si no, se marca
+   * Observada o se regulariza). Si luego se corrige/anula/reabre algo, `markAdjusted` reabre la auditoría.
+   */
+  async auditAction(scope: RequestScope, id: string, dto: { action: 'START' | 'OBSERVE' | 'FINALIZE'; observation?: string }) {
+    const branchId = requireActiveBranch(scope);
+    const session = await cashRepository.findById(id);
+    if (!session || session.branchId !== branchId) throw new NotFoundError('Turno no encontrado');
+    if (session.status === 'OPEN') throw new ConflictError('No se puede auditar una caja abierta. Ciérrela primero.');
+    const stamp = { auditedByUserId: scope.userId, auditedAt: new Date() };
+    if (dto.action === 'START') {
+      await cashRepository.setAuditStatus(id, { auditStatus: 'EN_PROCESO', ...stamp });
+    } else if (dto.action === 'OBSERVE') {
+      const obs = dto.observation?.trim();
+      if (!obs) throw new ValidationError('Indica la observación administrativa.');
+      await cashRepository.setAuditStatus(id, { auditStatus: 'OBSERVADA', auditObservation: obs, ...stamp });
+    } else {
+      // FINALIZE: efectivo y virtuales deben estar resueltos.
+      const base = Number(session.openingAmount);
+      const expected = session.status === 'AJUSTADA' || session.expectedAmount == null ? (await sessionSummary(id, base)).expectedCash : Number(session.expectedAmount);
+      const closing = session.closingAmount != null ? Number(session.closingAmount) : null;
+      const cashDiff = closing != null ? Math.round((closing - (expected - base)) * 100) / 100 : 0;
+      const vd = (await cashRepository.virtualDiffBySessions([id])).get(id) ?? { expected: 0, verified: 0 };
+      const virtualPending = Math.round((vd.expected - vd.verified) * 100) / 100;
+      const problems: string[] = [];
+      if (cashDiff !== 0) problems.push(`efectivo sin cuadrar (${cashDiff > 0 ? '+' : ''}S/ ${cashDiff.toFixed(2)})`);
+      if (virtualPending > 0.001) problems.push(`virtuales sin verificar (S/ ${virtualPending.toFixed(2)})`);
+      if (problems.length) throw new ConflictError(`No se puede finalizar la auditoría: ${problems.join(' y ')}. Regulariza/verifica o marca la caja como Observada.`);
+      await cashRepository.setAuditStatus(id, { auditStatus: 'AUDITADA', auditObservation: null, ...stamp });
+    }
+    const updated = await cashRepository.findById(id);
+    const auditedByName = updated?.auditedByUserId ? ((await cashRepository.userNames([updated.auditedByUserId])).get(updated.auditedByUserId) ?? null) : null;
+    return { auditStatus: updated?.auditStatus ?? null, auditedByName, auditedAt: updated?.auditedAt ?? null, auditObservation: updated?.auditObservation ?? null };
   },
 
   /** Edita un movimiento de caja (corrección: monto/concepto/tipo/método/comprobante/observación).
@@ -508,7 +546,7 @@ export const cashService = {
     const [productTypes, stayInfo, names] = await Promise.all([
       cashRepository.productTypes(productIds),
       cashRepository.stayInfo(stayIds),
-      cashRepository.userNames([session.openedByUserId, session.closedByUserId].filter((x): x is string => !!x)),
+      cashRepository.userNames([session.openedByUserId, session.closedByUserId, session.auditedByUserId].filter((x): x is string => !!x)),
     ]);
 
     const round = (n: number) => Math.round(n * 100) / 100;
@@ -787,6 +825,11 @@ export const cashService = {
         closingAmount: session.closingAmount != null ? Number(session.closingAmount) : null,
         pettyCashLeft: session.pettyCashLeft != null ? Number(session.pettyCashLeft) : null,
         denominations: parseDenoms(session.closingDenominations),
+        // Auditoría administrativa (Fase B): estado + quién/cuándo + observación.
+        auditStatus: session.auditStatus,
+        auditedByName: session.auditedByUserId ? (names.get(session.auditedByUserId) ?? null) : null,
+        auditedAt: session.auditedAt,
+        auditObservation: session.auditObservation,
       },
       cards,
       methodBar: { byMethod, ingresos: movInCash, egresos: movOut, anulaciones, total },
