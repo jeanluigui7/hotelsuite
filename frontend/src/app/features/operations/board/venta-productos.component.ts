@@ -97,7 +97,7 @@ const DOC_TYPES = [
               @for (p of pays(); track $index; let i = $index) {
                 <div class="payrow">
                   <p-select [options]="methodOptions()" [(ngModel)]="p.method" (onChange)="onMethodChange(p)" optionLabel="label" optionValue="value" styleClass="w sm" />
-                  <p-inputNumber [(ngModel)]="p.amount" mode="decimal" [minFractionDigits]="2" [min]="0" placeholder="Monto" inputStyleClass="amt" [class.err]="!(p.amount > 0)" />
+                  <p-inputNumber [(ngModel)]="p.amount" mode="decimal" [minFractionDigits]="2" [min]="0" placeholder="Monto" inputStyleClass="amt" [class.err]="!(p.amount > 0)" [disabled]="cobro === 'TOTAL' && pays().length === 1 && p.method !== 'VUELTO'" />
                   <button class="del" (click)="removePay(i)"><i class="pi pi-times"></i></button>
                 </div>
                 @if (needsRef(p.method)) {
@@ -379,11 +379,20 @@ export class VentaProductosComponent {
     });
   }
 
-  inc(p: Product): void { if ((this.qty[p.id] || 0) < p.stock) { this.qty[p.id] = (this.qty[p.id] || 0) + 1; this.qtyTick.update((v) => v + 1); } }
-  dec(p: Product): void { if ((this.qty[p.id] || 0) > 0) { this.qty[p.id] = this.qty[p.id] - 1; this.qtyTick.update((v) => v + 1); } }
+  inc(p: Product): void { if ((this.qty[p.id] || 0) < p.stock) { this.qty[p.id] = (this.qty[p.id] || 0) + 1; this.qtyTick.update((v) => v + 1); this.syncTotalPay(); } }
+  dec(p: Product): void { if ((this.qty[p.id] || 0) > 0) { this.qty[p.id] = this.qty[p.id] - 1; this.qtyTick.update((v) => v + 1); this.syncTotalPay(); } }
+  /** En "Pago Total" con un solo medio (no Vuelto), el monto NO es editable: se fija al total a cobrar. */
+  private syncTotalPay(): void {
+    if (this.cobro !== 'TOTAL') return;
+    const ps = this.pays();
+    if (ps.length === 1 && ps[0].method !== 'VUELTO') {
+      const t = Math.round(this.total() * 100) / 100;
+      if (Math.abs((ps[0].amount || 0) - t) > 0.001) { const n = [...ps]; n[0] = { ...n[0], amount: t }; this.pays.set(n); }
+    }
+  }
 
-  addPay(): void { this.pays.set([...this.pays(), { method: 'CASH', amount: this.remaining() }]); }
-  removePay(i: number): void { const n = [...this.pays()]; n.splice(i, 1); this.pays.set(n); }
+  addPay(): void { this.pays.set([...this.pays(), { method: 'CASH', amount: this.remaining() }]); this.syncTotalPay(); }
+  removePay(i: number): void { const n = [...this.pays()]; n.splice(i, 1); this.pays.set(n); this.syncTotalPay(); }
   private remaining(): number { return Math.max(0, Math.round((this.total() - this.paid()) * 100) / 100); }
 
   private lines(): { productId: string; quantity: number }[] {
@@ -400,6 +409,7 @@ export class VentaProductosComponent {
       p.amount = Math.round(cap * 100) / 100;
     }
     this.pays.set([...this.pays()]);
+    this.syncTotalPay();
   }
 
   /** Saldo que quedaría como deuda (parcial). */
@@ -415,6 +425,7 @@ export class VentaProductosComponent {
     this.cobro = c;
     if (c === 'ADEUDO') { this.pays.set([]); }
     else if (!this.pays().length) { this.pays.set([{ method: 'CASH', amount: c === 'TOTAL' ? this.total() : 0 }]); }
+    this.syncTotalPay(); // Pago Total con un medio: fija el monto al total (no editable)
   }
 
   /** Al activar "Generar Comprobante", precarga los datos del huésped si aplica. */

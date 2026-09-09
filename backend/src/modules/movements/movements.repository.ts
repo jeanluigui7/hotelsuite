@@ -17,6 +17,7 @@ export interface MovementData {
   approvedByUserId?: string | null;
   adjustType?: string | null;
   refMovementId?: string | null;
+  saleId?: string | null; // venta que originó el movimiento SALE
 }
 
 /** Applies a signed delta to a product's stock in a warehouse. Throws if it would go negative. */

@@ -12,6 +12,7 @@ import { prisma } from '../../config/prisma';
 import { cashRepository } from '../cash/cash.repository';
 import { productsRepository } from '../products/products.repository';
 import { changeCreditsService } from '../change-credits/change-credits.service';
+import { applyStockTx, createMovementTx } from '../movements/movements.repository';
 import { operationsConfigService, commissionSnapshot } from '../operations-config/operations-config.service';
 import {
   salesRepository,
@@ -200,13 +201,42 @@ export const salesService = {
     const sale = await salesRepository.findById(id);
     if (!sale || sale.branchId !== branchId) throw new NotFoundError('Venta no encontrada');
     if (sale.status === 'CANCELLED') throw new ConflictError('La venta ya está anulada');
-    const result = serialize(await salesRepository.cancel(id));
+
+    // Restitución de stock: los movimientos SALE enlazados a la venta devuelven su cantidad al almacén.
+    // - Si la venta pertenece al TURNO ACTUAL (caja abierta) → se ELIMINA la salida (como si no hubiera
+    //   ocurrido): la salida desaparece del Kardex y el stock vuelve.
+    // - Si es de un turno YA CERRADO → no se toca la historia: se registra un AJUSTE POSITIVO trazable.
+    const saleMovs = await prisma.inventoryMovement.findMany({ where: { saleId: id, type: 'SALE' } });
+    const openSession = await cashRepository.findOpen(branchId);
+    const isCurrentTurn = !!sale.cashSessionId && !!openSession && openSession.id === sale.cashSessionId;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.sale.update({ where: { id }, data: { status: 'CANCELLED' } });
+      for (const mv of saleMovs) {
+        const qty = Math.abs(mv.quantity); // cantidad vendida (el movimiento SALE es negativo)
+        if (qty <= 0) continue;
+        await applyStockTx(tx, mv.productId, mv.warehouseId, qty); // devuelve el stock
+        if (isCurrentTurn) {
+          await tx.inventoryMovement.delete({ where: { id: mv.id } });
+        } else {
+          await createMovementTx(tx, {
+            branchId, productId: mv.productId, warehouseId: mv.warehouseId, type: 'ADJUST', quantity: qty,
+            unitCost: mv.unitCost != null ? Number(mv.unitCost) : null, reference: 'Anulación de venta',
+            adjustType: 'ANULACION_VENTA', cashSessionId: openSession?.id ?? null, refMovementId: mv.id,
+            saleId: id, createdByUserId: scope.userId,
+          });
+        }
+      }
+    });
+
+    const result = serialize((await salesRepository.findById(id))!);
     // Huella de auditoría: anular una venta ya cerrada marca su caja como AJUSTADA.
     if (sale.cashSessionId) {
       await cashRepository.createIntervention({
         branchId, cashSessionId: sale.cashSessionId, type: 'VOID', targetKind: 'SALE', targetId: id,
         beforeJson: JSON.stringify({ total: Number(sale.total), status: sale.status }),
-        afterJson: JSON.stringify({ status: 'CANCELLED' }), reason: reason?.trim() || null, createdByUserId: scope.userId,
+        afterJson: JSON.stringify({ status: 'CANCELLED', stockRestored: saleMovs.length > 0, mode: isCurrentTurn ? 'REMOVED' : 'ADJUSTED' }),
+        reason: reason?.trim() || null, createdByUserId: scope.userId,
       });
       await cashRepository.markAdjusted(sale.cashSessionId);
     }

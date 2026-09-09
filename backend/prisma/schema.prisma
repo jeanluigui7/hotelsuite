@@ -1137,8 +1137,9 @@ model InventoryMovement {
   roomId            String? // habitación (reposición frigobar / ajuste por habitación)
   cashSessionId     String? // turno de caja relacionado
   approvedByUserId  String? // usuario que aprueba (regularizaciones)
-  adjustType        String? // TRANSFER | SOBRANTE | VENCIDO | MERMA | FALTANTE | VENTA_NO_REGISTRADA | PERDIDA_COLABORADOR
+  adjustType        String? // TRANSFER | SOBRANTE | VENCIDO | MERMA | FALTANTE | VENTA_NO_REGISTRADA | PERDIDA_COLABORADOR | ANULACION_VENTA
   refMovementId     String? // movimiento original al que regulariza
+  saleId            String? // venta que originó el movimiento SALE (para restituir stock al anular)
   createdByUserId   String?
   createdAt         DateTime @default(now())
 
@@ -1148,6 +1149,7 @@ model InventoryMovement {
   @@index([productId])
   @@index([warehouseId])
   @@index([type])
+  @@index([saleId])
 }
 
 // Regularización posterior a un cierre de caja CONFIRMADO (no lo edita ni lo reabre).

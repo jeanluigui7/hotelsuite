@@ -60,21 +60,8 @@ export const salesRepository = {
     stockDecrements: { productId: string; warehouseId: string; quantity: number; unitCost: number | null }[];
   }) {
     return prisma.$transaction(async (tx) => {
-      // Guarded stock decrements + Kardex SALE movements (fail if insufficient).
-      for (const dec of data.stockDecrements) {
-        await applyStockTx(tx, dec.productId, dec.warehouseId, -dec.quantity);
-        await createMovementTx(tx, {
-          branchId: data.branchId,
-          productId: dec.productId,
-          warehouseId: dec.warehouseId,
-          type: 'SALE',
-          quantity: -dec.quantity,
-          unitCost: dec.unitCost,
-          reference: 'Venta',
-          createdByUserId: data.createdByUserId,
-        });
-      }
-
+      // La venta se crea PRIMERO para enlazar sus movimientos de Kardex (saleId) → así al anular se
+      // puede restituir el stock de forma precisa (eliminar la salida o compensar con un ajuste).
       const sale = await tx.sale.create({
         data: {
           branchId: data.branchId,
@@ -102,6 +89,23 @@ export const salesRepository = {
         },
         include,
       });
+
+      // Guarded stock decrements + Kardex SALE movements (fail if insufficient), enlazados a la venta.
+      for (const dec of data.stockDecrements) {
+        await applyStockTx(tx, dec.productId, dec.warehouseId, -dec.quantity);
+        await createMovementTx(tx, {
+          branchId: data.branchId,
+          productId: dec.productId,
+          warehouseId: dec.warehouseId,
+          type: 'SALE',
+          quantity: -dec.quantity,
+          unitCost: dec.unitCost,
+          reference: 'Venta',
+          cashSessionId: data.cashSessionId,
+          saleId: sale.id,
+          createdByUserId: data.createdByUserId,
+        });
+      }
       return sale;
     });
   },
