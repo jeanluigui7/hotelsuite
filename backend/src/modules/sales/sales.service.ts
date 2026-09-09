@@ -376,4 +376,59 @@ export const salesService = {
     }
     return result;
   },
+
+  /**
+   * Anula UNA línea de la venta (Fase D). Corrección administrativa: la línea se EXCLUYE de los totales
+   * válidos pero se conserva como ANULADA para auditoría; NO toca las demás líneas ni los pagos (el
+   * tratamiento del dinero efectivamente devuelto se define en un flujo aparte). Si es producto, devuelve
+   * stock con un AJUSTE trazable. Si era la última línea vigente, equivale a anular toda la venta.
+   */
+  async voidLine(scope: RequestScope, id: string, dto: { itemId: string; reason?: string }) {
+    const branchId = requireActiveBranch(scope);
+    const sale = await salesRepository.findById(id);
+    if (!sale || sale.branchId !== branchId) throw new NotFoundError('Venta no encontrada');
+    if (sale.status === 'CANCELLED') throw new ConflictError('La venta ya está anulada');
+    const item = sale.items.find((it) => it.id === dto.itemId);
+    if (!item) throw new ValidationError('La línea no pertenece a esta venta');
+    if (item.voided) throw new ConflictError('La línea ya está anulada');
+    const activeItems = sale.items.filter((it) => !it.voided);
+    // Última línea vigente → anular toda la venta (usa el flujo de anulación completa).
+    if (activeItems.length <= 1) return this.cancel(scope, id, dto.reason);
+
+    const qty = item.quantity;
+    const newTotal = round(activeItems.filter((it) => it.id !== item.id).reduce((a, it) => a + Number(it.subtotal), 0));
+    // Almacén del producto (del movimiento SALE enlazado; si no existe, el almacén por defecto).
+    let stockRestored = false;
+    let wh: string | null = null;
+    if (item.productId) {
+      const saleMovs = await prisma.inventoryMovement.findMany({ where: { saleId: id, type: 'SALE', productId: item.productId } });
+      wh = saleMovs[0]?.warehouseId ?? (await productsRepository.defaultWarehouse(branchId)).id;
+    }
+    await prisma.$transaction(async (tx) => {
+      await tx.saleItem.update({ where: { id: item.id }, data: { voided: true, voidedAt: new Date(), voidedByUserId: scope.userId, voidReason: dto.reason?.trim() || null } });
+      if (item.productId && wh) {
+        await applyStockTx(tx, item.productId, wh, qty); // devuelve el stock de la línea anulada
+        await createMovementTx(tx, {
+          branchId, productId: item.productId, warehouseId: wh, type: 'ADJUST', quantity: qty,
+          reference: 'Anulación de línea', adjustType: 'ANULACION_LINEA', cashSessionId: sale.cashSessionId,
+          saleId: id, createdByUserId: scope.userId,
+        });
+        stockRestored = true;
+      }
+      // El total válido excluye la línea anulada. Los PAGOS no se tocan (tratamiento de dinero aparte).
+      await tx.sale.update({ where: { id }, data: { total: newTotal } });
+    });
+
+    const result = serialize((await salesRepository.findById(id))!);
+    if (sale.cashSessionId) {
+      await cashRepository.createIntervention({
+        branchId, cashSessionId: sale.cashSessionId, type: 'VOID', targetKind: 'SALE', targetId: id,
+        beforeJson: JSON.stringify({ line: { id: item.id, desc: item.description, qty, price: Number(item.unitPrice), subtotal: Number(item.subtotal) }, total: Number(sale.total) }),
+        afterJson: JSON.stringify({ lineVoided: item.id, total: newTotal, impacto: { inventario: stockRestored ? `+${qty}` : 'n/a', caja: 'sin devolución (tratamiento de dinero aparte)', conciliacion: 'la línea deja de contar en los totales' } }),
+        reason: dto.reason?.trim() || null, createdByUserId: scope.userId,
+      });
+      await cashRepository.markAdjusted(sale.cashSessionId);
+    }
+    return result;
+  },
 };

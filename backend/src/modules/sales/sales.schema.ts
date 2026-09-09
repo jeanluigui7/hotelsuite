@@ -67,6 +67,12 @@ export const cancelSaleSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+/** Anular UNA línea de la venta (corrección administrativa; conserva la línea como ANULADA). */
+export const voidLineSchema = z.object({
+  itemId: z.string().min(1),
+  reason: z.string().max(500).optional(),
+});
+
 export type CreateSaleDto = z.infer<typeof createSaleSchema>;
 export type CorrectSaleDto = z.infer<typeof correctSaleSchema>;
 export type CorrectPaymentsDto = z.infer<typeof correctPaymentsSchema>;

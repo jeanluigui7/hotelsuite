@@ -1573,6 +1573,12 @@ model SaleItem {
   unitPrice   Decimal  @db.Decimal(10, 2)
   unitCost    Decimal? @db.Decimal(10, 2)
   subtotal    Decimal  @db.Decimal(10, 2)
+  // Anulación POR LÍNEA (corrección administrativa): se excluye de los totales válidos pero se
+  // conserva la fila como ANULADA para auditoría. No toca las otras líneas.
+  voided         Boolean   @default(false)
+  voidedAt       DateTime?
+  voidedByUserId String?
+  voidReason     String?
 
   sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
 

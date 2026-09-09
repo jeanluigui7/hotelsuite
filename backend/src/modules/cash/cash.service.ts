@@ -641,11 +641,15 @@ export const cashService = {
       for (const it of sale.items) {
         const t = itemType(it.description, it.productId);
         const amount = Number(it.subtotal);
-        if (!cancelled) {
+        // Línea anulada (por línea) o venta completa anulada → excluida de los totales válidos.
+        const itemVoided = cancelled || it.voided;
+        if (!itemVoided) {
           if (t === 'HOSPEDAJE' || t === 'RENOVACION') cards.ventasHospedaje = round(cards.ventasHospedaje + amount);
           else if (t === 'PRODUCTO') cards.ventasProductos = round(cards.ventasProductos + amount);
           else cards.serviciosOtros = round(cards.serviciosOtros + amount);
           catWeight[ticketCat(t)] += amount;
+        } else if (it.voided && !cancelled) {
+          anulaciones = round(anulaciones + amount); // anulación de una línea (la venta sigue vigente)
         }
         feed.push({
           id: it.id,
@@ -655,7 +659,7 @@ export const cashService = {
           description: (it.description + suffix).trim(),
           amount,
           method,
-          status: cancelled ? 'ANULADO' : 'NORMAL',
+          status: itemVoided ? 'ANULADO' : 'NORMAL',
           room: info?.room ?? null,
           stayId: sale.stayId ?? null,
         });

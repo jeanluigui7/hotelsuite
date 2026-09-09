@@ -66,6 +66,10 @@ export class FinanceApiService {
   correctSaleLines(id: string, items: { id: string; quantity: number; unitPrice: number }[], payments: { method: string; amount: number; reference?: string }[], reason?: string): Observable<ApiResponse<unknown>> {
     return this.http.post<ApiResponse<unknown>>(`${this.api}/sales/${id}/correct-lines`, { items, payments, reason });
   }
+  /** Anula UNA línea de la venta (corrección administrativa; conserva la línea como ANULADA). */
+  voidSaleLine(id: string, itemId: string, reason?: string): Observable<ApiResponse<unknown>> {
+    return this.http.post<ApiResponse<unknown>>(`${this.api}/sales/${id}/void-line`, { itemId, reason });
+  }
   /** Regulariza/cobra una deuda desde los movimientos de una caja. */
   regularizeDebt(sessionId: string, dto: { saleId?: string; stayId?: string; method: string; amount: number; reference?: string; mode?: 'HISTORICAL' | 'NOW'; targetSessionId?: string; paidAt?: string; note?: string }): Observable<ApiResponse<unknown>> {
     return this.http.post<ApiResponse<unknown>>(`${this.api}/cash/sessions/${sessionId}/regularize-debt`, dto);

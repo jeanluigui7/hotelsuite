@@ -261,6 +261,27 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       </ng-template>
     </p-dialog>
 
+    <!-- Anular por línea: ¿qué desea anular? -->
+    <p-dialog [(visible)]="voidChoiceVisible" [modal]="true" header="¿Qué desea anular?" [style]="{ width: '30rem', maxWidth: '96vw' }">
+      @if (voidTarget(); as m) {
+        <p class="muted sm">Esta venta tiene {{ voidSiblings() }} líneas. Elige qué anular; el resto queda intacto.</p>
+        <label class="vopt" [class.on]="voidChoice === 'LINE'">
+          <input type="radio" name="voidc" value="LINE" [(ngModel)]="voidChoice" />
+          <span><b>Solo esta línea</b><br><span class="muted sm">{{ m.description }} · S/ {{ m.amount | number:'1.2-2' }}</span></span>
+        </label>
+        <label class="vopt" [class.on]="voidChoice === 'ALL'">
+          <input type="radio" name="voidc" value="ALL" [(ngModel)]="voidChoice" />
+          <span><b>Toda la operación</b><br><span class="muted sm">Anula la venta completa</span></span>
+        </label>
+        <p class="muted sm" style="margin-top:.4rem"><i class="pi pi-info-circle"></i> Corrección administrativa: la línea se conserva como ANULADA y se excluye de los totales; si es producto, devuelve stock (ajuste). No hay devolución de dinero.</p>
+        <div class="form"><label>Motivo (auditoría)</label><input pInputText [(ngModel)]="voidReason" placeholder="Ej. producto registrado por error" /></div>
+      }
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="voidChoiceVisible = false" />
+        <p-button label="Anular" icon="pi pi-times" severity="danger" [loading]="busy()" (onClick)="confirmVoidChoice()" />
+      </ng-template>
+    </p-dialog>
+
     <!-- Regularizar venta no registrada -->
     <p-dialog [(visible)]="vnrVisible" [modal]="true" header="Regularizar venta no registrada" [style]="{ width: '30rem', maxWidth: '96vw' }">
       <div class="form">
@@ -544,6 +565,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .cpcode { width: 100%; margin: 0.1rem 0 0.2rem; }
       .cpsum { display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed #1c2c44; padding-top: 0.4rem; font-size: 0.86rem; } .cpsum b { color: #34d399; } .cpsum.bad b { color: #f87171; }
       .cperr { color: #fca5a5; font-size: 0.78rem; display: flex; gap: 0.35rem; align-items: center; margin: 0.2rem 0 0; }
+      .vopt { display: flex; gap: 0.6rem; align-items: flex-start; border: 1px solid #243245; border-radius: 9px; padding: 0.6rem 0.8rem; margin: 0.4rem 0; cursor: pointer; } .vopt.on { border-color: #f87171; background: rgba(248,113,113,0.08); } .vopt input { margin-top: 0.2rem; }
       .agroups { display: flex; flex-direction: column; gap: 0.6rem; max-height: 55vh; overflow-y: auto; }
       .agroup { border: 1px solid #243245; border-radius: 9px; padding: 0.6rem 0.8rem; background: #131d2b; } .agroup.dup { border-color: #b45309; }
       .ag-head { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; } .ag-code { font-size: 0.9rem; } .ag-code .dupt { color: #f59e0b; font-size: 0.7rem; margin-left: 0.4rem; } .ag-amt { color: #8aa0bd; font-size: 0.82rem; margin-left: auto; }
@@ -722,6 +744,12 @@ export class CashMovementsPageComponent implements OnInit {
   // Corregir
   correctVisible = false;
   readonly correctTarget = signal<CashDetailMovement | null>(null);
+  // Anular por línea (Fase D): ¿qué desea anular?
+  voidChoiceVisible = false;
+  readonly voidTarget = signal<CashDetailMovement | null>(null);
+  voidChoice: 'LINE' | 'ALL' = 'LINE';
+  voidReason = '';
+  readonly voidSiblings = signal(0);
   correctMethod = 'CASH';
   correctMovType: 'IN' | 'OUT' = 'IN';
   correctMovAmount: number | null = null;
@@ -978,14 +1006,33 @@ export class CashMovementsPageComponent implements OnInit {
   }
 
   anular(m: CashDetailMovement): void {
-    const what = m.saleId ? 'esta venta' : 'este movimiento';
-    const reason = prompt(`¿Anular ${what}? Se conserva para auditoría y se excluye del arqueo.\n\nMotivo (auditoría):`, '');
-    if (reason === null) return;
-    const next = () => { this.messages.add({ severity: 'success', summary: 'Anulado', detail: 'Movimiento anulado.' }); this.reload(); };
-    const error = (e: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo anular.' });
-    if (m.saleId) this.finance.cancelSale(m.saleId, reason || undefined).subscribe({ next, error });
-    else this.finance.deleteMovement(m.id, reason || undefined).subscribe({ next, error });
+    if (!m.saleId) {
+      const reason = prompt('¿Anular este movimiento? Se conserva para auditoría y se excluye del arqueo.\n\nMotivo (auditoría):', '');
+      if (reason === null) return;
+      this.finance.deleteMovement(m.id, reason || undefined).subscribe({ next: this.anularOk(), error: this.anularErr() });
+      return;
+    }
+    // Venta: si tiene VARIAS líneas vigentes, preguntar qué anular (nunca asumir "toda la operación").
+    const rows = (this.detail()?.movements ?? []).filter((x) => x.saleId === m.saleId && x.status === 'NORMAL' && x.type !== 'DEUDA' && !x.unregistered);
+    if (m.unregistered || rows.length <= 1) {
+      const reason = prompt('¿Anular esta venta? Se conserva para auditoría y se excluye del arqueo.\n\nMotivo (auditoría):', '');
+      if (reason === null) return;
+      this.finance.cancelSale(m.saleId, reason || undefined).subscribe({ next: this.anularOk(), error: this.anularErr() });
+      return;
+    }
+    this.voidTarget.set(m); this.voidChoice = 'LINE'; this.voidReason = ''; this.voidSiblings.set(rows.length); this.voidChoiceVisible = true;
   }
+  confirmVoidChoice(): void {
+    const m = this.voidTarget(); if (!m || !m.saleId) return;
+    const reason = this.voidReason.trim() || undefined;
+    this.busy.set(true);
+    const done = () => { this.busy.set(false); this.voidChoiceVisible = false; this.anularOk()(); };
+    const fail = (e: HttpErrorResponse) => { this.busy.set(false); this.anularErr()(e); };
+    if (this.voidChoice === 'ALL') this.finance.cancelSale(m.saleId, reason).subscribe({ next: done, error: fail });
+    else this.finance.voidSaleLine(m.saleId, m.id, reason).subscribe({ next: done, error: fail });
+  }
+  private anularOk() { return () => { this.messages.add({ severity: 'success', summary: 'Anulado', detail: 'Se anuló y se conserva para auditoría.' }); this.reload(); }; }
+  private anularErr() { return (e: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo anular.' }); }
 
   openCorrect(m: CashDetailMovement): void {
     this.correctTarget.set(m);
