@@ -307,7 +307,7 @@ export const salesService = {
    * cantidad de un producto, ajusta el stock con un AJUSTE trazable (no toca la salida SALE original).
    * Deja huella CORRECTION con antes/después por línea y reabre la auditoría (via markAdjusted).
    */
-  async correctSaleLines(scope: RequestScope, id: string, dto: { items: { id: string; quantity: number; unitPrice: number }[]; payments: { method: string; amount: number; reference?: string }[]; reason?: string }) {
+  async correctSaleLines(scope: RequestScope, id: string, dto: { items: { id: string; productId?: string | null }[]; payments: { method: string; amount: number; reference?: string }[]; stayId?: string | null; reason?: string }) {
     const branchId = requireActiveBranch(scope);
     const sale = await salesRepository.findById(id);
     if (!sale || sale.branchId !== branchId) throw new NotFoundError('Venta no encontrada');
@@ -316,20 +316,35 @@ export const salesService = {
       throw new ConflictError('No se puede corregir por línea una venta con Vuelto. Anula y vuelve a registrar.');
     }
     const byId = new Map(sale.items.map((it) => [it.id, it]));
-    if (dto.items.length !== sale.items.length || dto.items.some((di) => !byId.has(di.id))) {
-      throw new ValidationError('Envía exactamente las líneas de la venta.');
-    }
-    const newItems = dto.items.map((di) => {
+    if (dto.items.some((di) => !byId.has(di.id))) throw new ValidationError('Alguna línea no pertenece a la venta.');
+
+    // CAMBIO DE PRODUCTO: solo entre productos del MISMO precio (no cambia cantidad ni importe).
+    const swaps: { item: (typeof sale.items)[number]; newProdId: string; newName: string; newCost: number | null }[] = [];
+    for (const di of dto.items) {
       const it = byId.get(di.id)!;
-      return { id: di.id, productId: it.productId, oldQty: it.quantity, quantity: di.quantity, unitPrice: round(di.unitPrice), subtotal: round(di.quantity * di.unitPrice), description: it.description };
-    });
-    const newTotal = round(newItems.reduce((a, i) => a + i.subtotal, 0));
-    const paySum = round(dto.payments.reduce((a, p) => a + p.amount, 0));
-    if (Math.abs(paySum - newTotal) > 0.01) {
-      throw new ValidationError(`Los pagos (S/ ${paySum.toFixed(2)}) deben sumar el nuevo total de la venta (S/ ${newTotal.toFixed(2)}).`);
+      if (di.productId && di.productId !== it.productId) {
+        if (it.voided) throw new ConflictError('No se puede cambiar el producto de una línea anulada.');
+        const np = await prisma.product.findUnique({ where: { id: di.productId } });
+        if (!np || np.branchId !== branchId) throw new ValidationError('Producto de reemplazo inválido.');
+        if (round(Number(np.salePrice)) !== round(Number(it.unitPrice))) {
+          throw new ConflictError('El cambio solo está permitido entre productos del mismo precio.');
+        }
+        swaps.push({ item: it, newProdId: np.id, newName: np.name, newCost: np.cost != null ? Number(np.cost) : null });
+      }
     }
-    // Almacén por producto para ajustar stock si cambió la cantidad (del movimiento SALE enlazado; si no
-    // existe —venta antigua— se usa el almacén por defecto).
+
+    // El desglose de pagos conserva lo COBRADO (método/producto/habitación no cambian el importe).
+    const currentPaid = round(sale.payments.reduce((a, p) => a + Number(p.amount), 0));
+    const paySum = round(dto.payments.reduce((a, p) => a + p.amount, 0));
+    if (Math.abs(paySum - currentPaid) > 0.01) {
+      throw new ValidationError(`El desglose (S/ ${paySum.toFixed(2)}) debe sumar lo cobrado en la venta (S/ ${currentPaid.toFixed(2)}).`);
+    }
+    // Habitación / origen: re-vincular la venta a otra estancia (habitación correcta).
+    if (dto.stayId) {
+      const stay = await prisma.stay.findUnique({ where: { id: dto.stayId } });
+      if (!stay || stay.branchId !== branchId) throw new ValidationError('Estancia (habitación) inválida.');
+    }
+    // Almacén de cada línea (del movimiento SALE enlazado; si no existe, el almacén por defecto).
     const saleMovs = await prisma.inventoryMovement.findMany({ where: { saleId: id, type: 'SALE' } });
     const whByProduct = new Map(saleMovs.map((m) => [m.productId, m.warehouseId]));
     const defaultWh = await productsRepository.defaultWarehouse(branchId);
@@ -342,25 +357,24 @@ export const salesService = {
 
     try {
       await prisma.$transaction(async (tx) => {
-        for (const ni of newItems) {
-          await tx.saleItem.update({ where: { id: ni.id }, data: { quantity: ni.quantity, unitPrice: ni.unitPrice, subtotal: ni.subtotal } });
-          if (ni.productId && ni.quantity !== ni.oldQty) {
-            const wh = whByProduct.get(ni.productId) ?? defaultWh.id;
-            const delta = ni.oldQty - ni.quantity; // + devuelve stock (se vendió menos); − consume (se vendió más)
-            await applyStockTx(tx, ni.productId, wh, delta);
-            await createMovementTx(tx, {
-              branchId, productId: ni.productId, warehouseId: wh, type: 'ADJUST', quantity: delta,
-              reference: 'Corrección de cantidad', adjustType: 'CORRECCION_LINEA', cashSessionId: sale.cashSessionId,
-              saleId: id, createdByUserId: scope.userId,
-            });
+        for (const sw of swaps) {
+          const wh = (sw.item.productId ? whByProduct.get(sw.item.productId) : null) ?? defaultWh.id;
+          const qty = sw.item.quantity;
+          // +stock al producto original vendido, −stock al producto realmente entregado (ambos AJUSTES).
+          if (sw.item.productId) {
+            await applyStockTx(tx, sw.item.productId, wh, qty);
+            await createMovementTx(tx, { branchId, productId: sw.item.productId, warehouseId: wh, type: 'ADJUST', quantity: qty, reference: `Cambio de producto (devuelve ${sw.item.description})`, adjustType: 'CORRECCION_PRODUCTO', cashSessionId: sale.cashSessionId, saleId: id, createdByUserId: scope.userId });
           }
+          await applyStockTx(tx, sw.newProdId, wh, -qty);
+          await createMovementTx(tx, { branchId, productId: sw.newProdId, warehouseId: wh, type: 'ADJUST', quantity: -qty, reference: `Cambio de producto (entrega ${sw.newName})`, adjustType: 'CORRECCION_PRODUCTO', cashSessionId: sale.cashSessionId, saleId: id, createdByUserId: scope.userId });
+          await tx.saleItem.update({ where: { id: sw.item.id }, data: { productId: sw.newProdId, description: sw.newName, unitCost: sw.newCost } });
         }
-        await tx.sale.update({ where: { id }, data: { total: newTotal, status: newTotal > 0 && paySum >= newTotal - 0.001 ? 'PAID' : 'OPEN' } });
+        if (dto.stayId) await tx.sale.update({ where: { id }, data: { stayId: dto.stayId } });
         await tx.payment.deleteMany({ where: { saleId: id } });
         await tx.payment.createMany({ data: payments.map((p) => ({ saleId: id, branchId, cashSessionId: sale.cashSessionId, method: p.method, amount: p.amount, reference: p.reference, commissionPct: p.commissionPct ?? null, commissionAmount: p.commissionAmount ?? null, grossCharged: p.grossCharged ?? null, createdByUserId: scope.userId })) });
       });
     } catch (err) {
-      if (err instanceof Error && err.message.startsWith('STOCK_INSUFFICIENT')) throw new ValidationError('Stock insuficiente para aumentar la cantidad de un producto.');
+      if (err instanceof Error && err.message.startsWith('STOCK_INSUFFICIENT')) throw new ValidationError('Stock insuficiente del producto de reemplazo.');
       throw err;
     }
 
@@ -368,8 +382,8 @@ export const salesService = {
     if (sale.cashSessionId) {
       await cashRepository.createIntervention({
         branchId, cashSessionId: sale.cashSessionId, type: 'CORRECTION', targetKind: 'SALE', targetId: id,
-        beforeJson: JSON.stringify({ total: Number(sale.total), items: sale.items.map((it) => ({ desc: it.description, qty: it.quantity, price: Number(it.unitPrice), subtotal: Number(it.subtotal) })), payments: sale.payments.map((p) => `${p.method}:${Number(p.amount).toFixed(2)}`) }),
-        afterJson: JSON.stringify({ total: newTotal, items: newItems.map((i) => ({ desc: i.description, qty: i.quantity, price: i.unitPrice, subtotal: i.subtotal })), payments: payments.map((p) => `${p.method}:${p.amount.toFixed(2)}`), stockAdjusted: newItems.some((i) => i.productId && i.quantity !== i.oldQty) }),
+        beforeJson: JSON.stringify({ items: sale.items.map((it) => it.description), payments: sale.payments.map((p) => `${p.method}:${Number(p.amount).toFixed(2)}${p.reference ? '/' + p.reference : ''}`), stayId: sale.stayId }),
+        afterJson: JSON.stringify({ swaps: swaps.map((s) => `${s.item.description} → ${s.newName}`), payments: payments.map((p) => `${p.method}:${p.amount.toFixed(2)}${p.reference ? '/' + p.reference : ''}`), stayId: dto.stayId ?? sale.stayId, impacto: { inventario: swaps.length ? 'ajuste ±1 por cambio de producto' : 'n/a', caja: 'sin cambio de importe' } }),
         reason: dto.reason?.trim() || null, createdByUserId: scope.userId,
       });
       await cashRepository.markAdjusted(sale.cashSessionId);

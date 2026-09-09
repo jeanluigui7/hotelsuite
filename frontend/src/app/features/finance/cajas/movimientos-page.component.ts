@@ -216,21 +216,25 @@ const TYPE_COLOR: Record<string, [string, string]> = {
         <p class="muted">{{ m.description }}</p>
         @if (m.saleId) {
           @if (correctLoadingPays()) { <p class="muted sm">Cargando venta…</p> }
-          <!-- LÍNEAS: corregir cantidad/precio de cada concepto sin afectar los demás -->
+          <!-- LÍNEAS: cambiar producto por otro del MISMO precio (no se corrige cantidad ni precio) -->
           <div class="cpwrap">
             <div class="cphead"><span>Líneas de la venta</span></div>
-            <p class="muted sm">Corrige cantidad o precio de una línea sin tocar las otras. En producto, cambiar la cantidad ajusta el stock.</p>
+            <p class="muted sm">Puedes cambiar un producto por otro del mismo precio. La cantidad y el importe no se modifican aquí.</p>
             @for (it of correctItems(); track it.id) {
-              <div class="clrow">
-                <span class="cl-desc" [title]="it.description">{{ it.description }}</span>
-                <p-inputNumber [(ngModel)]="it.quantity" [min]="1" [showButtons]="true" buttonLayout="horizontal" decrementButtonClass="qbtn" incrementButtonClass="qbtn" inputStyleClass="qin" styleClass="q" />
-                <p-inputNumber [(ngModel)]="it.unitPrice" mode="decimal" [minFractionDigits]="2" [min]="0" inputStyleClass="amt" styleClass="pr" />
-                <span class="cl-sub">S/ {{ (it.quantity * it.unitPrice) | number:'1.2-2' }}</span>
+              <div class="clrow2">
+                <span class="cl-desc">{{ it.quantity }}× {{ it.description }} · S/ {{ it.unitPrice | number:'1.2-2' }}</span>
+                @if (it.productId) {
+                  <p-select [options]="swapOptions(it)" optionLabel="label" optionValue="value" [(ngModel)]="it.newProductId" appendTo="body" placeholder="Cambiar producto" styleClass="w sm" />
+                } @else { <span class="muted sm">—</span> }
               </div>
             }
-            <div class="cpsum"><span>Nuevo total</span><b>S/ {{ correctItemsTotal() | number:'1.2-2' }}</b></div>
           </div>
-          <!-- PAGOS: el desglose debe sumar el nuevo total -->
+          <!-- HABITACIÓN / ORIGEN -->
+          <div class="cpwrap">
+            <div class="cphead"><span>Habitación / origen</span></div>
+            <p-select [options]="correctStays()" optionLabel="label" optionValue="value" [ngModel]="correctStayId() ?? ''" (ngModelChange)="correctStayId.set($event || null)" appendTo="body" placeholder="Mantener habitación" styleClass="w" />
+          </div>
+          <!-- PAGOS: método + código; el desglose conserva lo cobrado -->
           <div class="cpwrap">
             <div class="cphead"><span>Desglose de pago</span><button class="lnk" (click)="addCorrectPay()"><i class="pi pi-plus"></i> Añadir</button></div>
             @for (p of correctPays(); track $index; let i = $index) {
@@ -241,8 +245,8 @@ const TYPE_COLOR: Record<string, [string, string]> = {
               </div>
               @if (p.method !== 'CASH') { <input class="cpcode" pInputText [(ngModel)]="p.reference" placeholder="Código de operación (obligatorio)" /> }
             }
-            <div class="cpsum" [class.bad]="(correctPaysSum() - correctItemsTotal()) > 0.01 || (correctItemsTotal() - correctPaysSum()) > 0.01">
-              <span>Suma del desglose</span><b>S/ {{ correctPaysSum() | number:'1.2-2' }} / S/ {{ correctItemsTotal() | number:'1.2-2' }}</b>
+            <div class="cpsum" [class.bad]="(correctPaysSum() - correctPaid()) > 0.01 || (correctPaid() - correctPaysSum()) > 0.01">
+              <span>Suma del desglose</span><b>S/ {{ correctPaysSum() | number:'1.2-2' }} / S/ {{ correctPaid() | number:'1.2-2' }}</b>
             </div>
             @if (correctPaysError()) { <p class="cperr"><i class="pi pi-exclamation-triangle"></i> {{ correctPaysError() }}</p> }
           </div>
@@ -253,7 +257,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
             <label>Concepto</label><input pInputText [(ngModel)]="correctMovConcept" />
           </div>
         }
-        <div class="form"><label>Motivo de la corrección (auditoría)</label><input pInputText [(ngModel)]="correctReason" placeholder="Ej. error de digitación" /></div>
+        <div class="form"><label>Motivo de la corrección (auditoría) *</label><input pInputText [(ngModel)]="correctReason" placeholder="Ej. método de pago mal registrado" /></div>
       }
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="correctVisible = false" />
@@ -273,8 +277,8 @@ const TYPE_COLOR: Record<string, [string, string]> = {
           <input type="radio" name="voidc" value="ALL" [(ngModel)]="voidChoice" />
           <span><b>Toda la operación</b><br><span class="muted sm">Anula la venta completa</span></span>
         </label>
-        <p class="muted sm" style="margin-top:.4rem"><i class="pi pi-info-circle"></i> Corrección administrativa: la línea se conserva como ANULADA y se excluye de los totales; si es producto, devuelve stock (ajuste). No hay devolución de dinero.</p>
-        <div class="form"><label>Motivo (auditoría)</label><input pInputText [(ngModel)]="voidReason" placeholder="Ej. producto registrado por error" /></div>
+        <p class="muted sm" style="margin-top:.4rem"><i class="pi pi-info-circle"></i> Esta línea se conservará para auditoría y se revertirá su efecto económico y de inventario según corresponda.</p>
+        <div class="form"><label>Motivo (auditoría) *</label><input pInputText [(ngModel)]="voidReason" placeholder="Ej. producto registrado por error" /></div>
       }
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="voidChoiceVisible = false" />
@@ -556,6 +560,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .cpwrap { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.3rem 0 0.2rem; }
       .cphead { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: #cbd5e1; }
       .cprow { display: grid; grid-template-columns: 9rem 1fr 2rem; gap: 0.4rem; align-items: center; }
+      .clrow2 { display: grid; grid-template-columns: 1fr 11rem; gap: 0.5rem; align-items: center; padding: 0.2rem 0; } .clrow2 .cl-desc { font-size: 0.82rem; color: #e2e8f0; }
       .clrow { display: grid; grid-template-columns: 1fr 6.5rem 5.5rem 4.5rem; gap: 0.4rem; align-items: center; padding: 0.15rem 0; }
       .clrow .cl-desc { font-size: 0.82rem; color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .clrow .cl-sub { text-align: right; font-size: 0.82rem; font-weight: 700; color: #34d399; font-variant-numeric: tabular-nums; }
@@ -756,24 +761,31 @@ export class CashMovementsPageComponent implements OnInit {
   correctMovConcept = '';
   correctReason = '';
   readonly methodEditOpts = [{ label: 'Efectivo', value: 'CASH' }, { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' }, { label: 'Tarjeta', value: 'CARD' }];
-  // Corrección del DESGLOSE de pagos de una venta (mismo total, distinto reparto por método).
+  // Corrección: desglose de pagos (método/código) + cambio de producto (mismo precio) + habitación/origen.
   readonly correctPays = signal<{ method: string; amount: number; reference: string }[]>([]);
-  readonly correctPaid = signal(0); // total cobrado en la venta (referencia)
-  readonly correctItems = signal<{ id: string; description: string; quantity: number; unitPrice: number }[]>([]); // líneas editables
+  readonly correctPaid = signal(0); // total COBRADO en la venta (el desglose debe sumar esto)
+  readonly correctItems = signal<{ id: string; description: string; productId: string | null; unitPrice: number; quantity: number; newProductId: string | null }[]>([]);
+  readonly correctStayId = signal<string | null>(null);
+  readonly correctProducts = signal<{ id: string; name: string; salePrice: number }[]>([]);
+  readonly correctStays = signal<{ value: string; label: string }[]>([]);
   readonly correctLoadingPays = signal(false);
-  correctItemsTotal(): number { return Math.round(this.correctItems().reduce((a, it) => a + (it.quantity || 0) * (it.unitPrice || 0), 0) * 100) / 100; }
+  /** Opciones de reemplazo de un producto: SOLO productos del MISMO precio (más "sin cambio"). */
+  swapOptions(it: { productId: string | null; unitPrice: number }): { value: string; label: string }[] {
+    const base: { value: string; label: string }[] = [{ value: '', label: '— Mantener producto —' }];
+    if (!it.productId) return base;
+    const same = this.correctProducts().filter((p) => Math.abs(Number(p.salePrice) - it.unitPrice) < 0.01 && p.id !== it.productId);
+    return base.concat(same.map((p) => ({ value: p.id, label: `${p.name} (S/ ${Number(p.salePrice).toFixed(2)})` })));
+  }
   correctPaysSum(): number { return Math.round(this.correctPays().reduce((a, p) => a + (p.amount || 0), 0) * 100) / 100; }
   private needsCode(m: string): boolean { return m !== 'CASH' && m !== 'VUELTO'; }
   correctPaysError(): string {
-    if (this.correctItems().some((it) => !(it.quantity >= 1) || !(it.unitPrice >= 0))) return 'Cada línea requiere cantidad ≥ 1 y precio ≥ 0.';
     const ps = this.correctPays();
     if (!ps.length) return 'Agrega al menos un pago.';
     for (const p of ps) { if (!(p.amount > 0)) return 'Cada pago debe tener un monto mayor a 0.'; if (this.needsCode(p.method) && !p.reference.trim()) return 'Los pagos con Yape, Plin, Transferencia o Tarjeta requieren su código.'; }
-    const target = this.correctItemsTotal();
-    if (Math.abs(this.correctPaysSum() - target) > 0.01) return `El desglose (S/ ${this.correctPaysSum().toFixed(2)}) debe sumar el nuevo total (S/ ${target.toFixed(2)}).`;
+    if (Math.abs(this.correctPaysSum() - this.correctPaid()) > 0.01) return `El desglose (S/ ${this.correctPaysSum().toFixed(2)}) debe sumar lo cobrado (S/ ${this.correctPaid().toFixed(2)}).`;
     return '';
   }
-  addCorrectPay(): void { const rem = Math.max(0, Math.round((this.correctItemsTotal() - this.correctPaysSum()) * 100) / 100); this.correctPays.set([...this.correctPays(), { method: 'CASH', amount: rem, reference: '' }]); }
+  addCorrectPay(): void { const rem = Math.max(0, Math.round((this.correctPaid() - this.correctPaysSum()) * 100) / 100); this.correctPays.set([...this.correctPays(), { method: 'CASH', amount: rem, reference: '' }]); }
   removeCorrectPay(i: number): void { const n = [...this.correctPays()]; n.splice(i, 1); this.correctPays.set(n); }
   readonly movTypeOpts = [{ label: 'Ingreso', value: 'IN' }, { label: 'Egreso', value: 'OUT' }];
 
@@ -1024,7 +1036,8 @@ export class CashMovementsPageComponent implements OnInit {
   }
   confirmVoidChoice(): void {
     const m = this.voidTarget(); if (!m || !m.saleId) return;
-    const reason = this.voidReason.trim() || undefined;
+    if (!this.voidReason.trim()) { this.messages.add({ severity: 'warn', summary: 'Motivo', detail: 'El motivo de la anulación es obligatorio.' }); return; }
+    const reason = this.voidReason.trim();
     this.busy.set(true);
     const done = () => { this.busy.set(false); this.voidChoiceVisible = false; this.anularOk()(); };
     const fail = (e: HttpErrorResponse) => { this.busy.set(false); this.anularErr()(e); };
@@ -1037,15 +1050,17 @@ export class CashMovementsPageComponent implements OnInit {
   openCorrect(m: CashDetailMovement): void {
     this.correctTarget.set(m);
     this.correctReason = '';
-    this.correctPays.set([]); this.correctPaid.set(0); this.correctItems.set([]);
+    this.correctPays.set([]); this.correctPaid.set(0); this.correctItems.set([]); this.correctStayId.set(null);
     if (m.saleId) {
       this.correctMethod = m.method === 'MIXTO' || m.method === 'PENDIENTE' ? 'CASH' : m.method;
-      // Trae las LÍNEAS y el desglose de pagos de la venta para corregir por línea (cantidad/precio/método).
+      // Trae las LÍNEAS y el desglose de pagos; carga productos (para cambio mismo precio) y estancias (habitación).
       this.correctLoadingPays.set(true);
+      if (!this.correctProducts().length) this.http.get<ApiResponse<{ id: string; name: string; salePrice: number | string }[]>>(`${this.api}/products`, { params: { pageSize: '500', status: 'active' } }).subscribe((r) => this.correctProducts.set((r.data ?? []).map((p) => ({ id: p.id, name: p.name, salePrice: Number(p.salePrice) }))));
+      if (!this.correctStays().length) this.http.get<ApiResponse<{ id: string; room?: { number?: string } | null; guest?: { firstName?: string; lastName?: string } | null }[]>>(`${this.api}/stays`, { params: { status: 'OPEN', pageSize: '200' } }).subscribe((r) => this.correctStays.set([{ value: '', label: '— Mantener habitación —' }].concat((r.data ?? []).map((s) => ({ value: s.id, label: `Hab. ${s.room?.number ?? '?'} · ${(s.guest?.firstName ?? '').trim()}` })))));
       this.finance.movementDetail({ saleId: m.saleId }).subscribe({
         next: (r) => {
           const items = (r.data?.items ?? []).filter((it) => !!it.id);
-          this.correctItems.set(items.map((it) => ({ id: it.id as string, description: it.description, quantity: it.quantity, unitPrice: it.unitPrice })));
+          this.correctItems.set(items.map((it) => ({ id: it.id as string, description: it.description, productId: it.productId ?? null, unitPrice: it.unitPrice, quantity: it.quantity, newProductId: null })));
           const ps = (r.data?.payments ?? []).filter((p) => p.method !== 'VUELTO');
           this.correctPays.set(ps.length ? ps.map((p) => ({ method: p.method, amount: p.amount, reference: p.code ?? '' })) : [{ method: 'CASH', amount: 0, reference: '' }]);
           this.correctPaid.set(Math.round((r.data?.payments ?? []).reduce((a, p) => a + (p.amount || 0), 0) * 100) / 100);
@@ -1062,12 +1077,14 @@ export class CashMovementsPageComponent implements OnInit {
     const done = () => { this.busy.set(false); this.correctVisible = false; this.messages.add({ severity: 'success', summary: 'Corregido', detail: 'Movimiento actualizado.' }); this.reload(); };
     const fail = (e: HttpErrorResponse) => { this.busy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo corregir.' }); };
     if (m.saleId) {
+      if (!this.correctReason.trim()) { this.messages.add({ severity: 'warn', summary: 'Motivo', detail: 'El motivo de la corrección es obligatorio.' }); return; }
       const err = this.correctPaysError();
       if (err) { this.messages.add({ severity: 'warn', summary: 'Revisa la corrección', detail: err }); return; }
       this.busy.set(true);
-      const items = this.correctItems().map((it) => ({ id: it.id, quantity: it.quantity, unitPrice: Math.round(it.unitPrice * 100) / 100 }));
+      const items = this.correctItems().map((it) => ({ id: it.id, productId: it.newProductId || undefined }));
       const payments = this.correctPays().map((p) => ({ method: p.method, amount: Math.round(p.amount * 100) / 100, reference: p.reference.trim() || undefined }));
-      this.finance.correctSaleLines(m.saleId, items, payments, reason).subscribe({ next: done, error: fail });
+      const stayId = this.correctStayId() || undefined;
+      this.finance.correctSaleLines(m.saleId, items, payments, stayId, reason).subscribe({ next: done, error: fail });
     } else {
       this.busy.set(true);
       if (this.correctMovAmount == null || this.correctMovAmount <= 0 || !this.correctMovConcept.trim()) { this.busy.set(false); this.messages.add({ severity: 'warn', summary: 'Datos', detail: 'Monto y concepto requeridos.' }); return; }

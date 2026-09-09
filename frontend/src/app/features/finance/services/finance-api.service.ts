@@ -62,9 +62,9 @@ export class FinanceApiService {
   correctSalePayments(id: string, payments: { method: string; amount: number; reference?: string }[], reason?: string): Observable<ApiResponse<unknown>> {
     return this.http.post<ApiResponse<unknown>>(`${this.api}/sales/${id}/correct-payments`, { payments, reason });
   }
-  /** Corrige POR LÍNEA una venta: cantidad/precio de cada ítem + desglose de pagos (recalcula total). */
-  correctSaleLines(id: string, items: { id: string; quantity: number; unitPrice: number }[], payments: { method: string; amount: number; reference?: string }[], reason?: string): Observable<ApiResponse<unknown>> {
-    return this.http.post<ApiResponse<unknown>>(`${this.api}/sales/${id}/correct-lines`, { items, payments, reason });
+  /** Corrige POR LÍNEA: método/código (desglose), cambio de producto (mismo precio) y habitación/origen. */
+  correctSaleLines(id: string, items: { id: string; productId?: string }[], payments: { method: string; amount: number; reference?: string }[], stayId?: string, reason?: string): Observable<ApiResponse<unknown>> {
+    return this.http.post<ApiResponse<unknown>>(`${this.api}/sales/${id}/correct-lines`, { items, payments, stayId, reason });
   }
   /** Anula UNA línea de la venta (corrección administrativa; conserva la línea como ANULADA). */
   voidSaleLine(id: string, itemId: string, reason?: string): Observable<ApiResponse<unknown>> {

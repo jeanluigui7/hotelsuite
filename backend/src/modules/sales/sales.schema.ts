@@ -50,16 +50,15 @@ export const correctPaymentsSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
-/** Corrección POR LÍNEA de una venta: cantidad/precio de cada ítem + desglose de pagos.
- * Recalcula subtotales y total; los pagos deben sumar el nuevo total. Corregir una línea NO
- * modifica las otras. Si cambia la cantidad de un producto, ajusta stock (Kardex). */
+/** Corrección POR LÍNEA de una venta: método/código (desglose), cambio de PRODUCTO (mismo precio) y
+ * habitación/origen. NO cambia cantidad ni precio. El desglose conserva lo cobrado. */
 export const correctSaleLinesSchema = z.object({
   items: z.array(z.object({
     id: z.string().min(1),
-    quantity: z.coerce.number().int().min(1),
-    unitPrice: z.coerce.number().min(0),
+    productId: z.string().min(1).nullable().optional(), // producto de reemplazo (mismo precio); null/omitido = sin cambio
   })).min(1, 'Envía las líneas de la venta'),
   payments: z.array(paymentSchema).min(1, 'Agregue al menos un pago'),
+  stayId: z.string().min(1).nullable().optional(), // habitación/origen correcto (estancia destino)
   reason: z.string().max(500).optional(),
 });
 
