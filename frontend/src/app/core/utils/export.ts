@@ -15,6 +15,72 @@ export function downloadCsv(filename: string, headers: string[], rows: (string |
   URL.revokeObjectURL(url);
 }
 
+/** Columna para la exportación a tabla de Excel. */
+export interface XlsxColumn {
+  header: string;
+  width?: number;
+  numFmt?: string; // ej. '#,##0.00' para montos
+  align?: 'left' | 'right' | 'center';
+}
+
+/**
+ * Exporta a un .xlsx REAL con una TABLA de Excel (ListObject): encabezado con filtros,
+ * filas con bandas y estilo. ExcelJS se carga de forma diferida (solo al exportar) para no
+ * engordar el bundle principal.
+ */
+export async function downloadXlsxTable(
+  filename: string,
+  sheetName: string,
+  columns: XlsxColumn[],
+  rows: (string | number | null | undefined)[][],
+  tableName = 'Datos',
+): Promise<void> {
+  // ExcelJS es CommonJS: según el interop, el constructor puede venir en la raíz o en `.default`.
+  const mod = (await import('exceljs')) as unknown as { Workbook?: new () => ExcelWorkbook; default?: { Workbook: new () => ExcelWorkbook } };
+  const WorkbookCtor = mod.Workbook ?? mod.default?.Workbook;
+  if (!WorkbookCtor) throw new Error('ExcelJS no disponible');
+  const wb = new WorkbookCtor();
+  const ws = wb.addWorksheet(sheetName.slice(0, 31) || 'Datos');
+  const safeName = (tableName.replace(/[^A-Za-z0-9_]/g, '_') || 'Datos').replace(/^(\d)/, '_$1');
+  ws.addTable({
+    name: safeName,
+    ref: 'A1',
+    headerRow: true,
+    style: { theme: 'TableStyleMedium9', showRowStripes: true },
+    columns: columns.map((c) => ({ name: c.header, filterButton: true })),
+    rows: rows.map((r) => r.map((v) => (v == null ? '' : v))),
+  });
+  columns.forEach((c, i) => {
+    const col = ws.getColumn(i + 1);
+    if (c.width) col.width = c.width;
+    if (c.numFmt) col.numFmt = c.numFmt;
+    if (c.align) col.alignment = { horizontal: c.align };
+  });
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// Tipos mínimos de ExcelJS que usamos (evita depender del tipado completo en tiempo de compilación).
+interface ExcelWorkbook {
+  addWorksheet(name: string): ExcelWorksheet;
+  xlsx: { writeBuffer(): Promise<ArrayBuffer> };
+}
+interface ExcelWorksheet {
+  addTable(opts: {
+    name: string; ref: string; headerRow: boolean;
+    style: { theme: string; showRowStripes: boolean };
+    columns: { name: string; filterButton: boolean }[];
+    rows: (string | number)[][];
+  }): void;
+  getColumn(i: number): { width?: number; numFmt?: string; alignment?: { horizontal: string } };
+}
+
 /**
  * Exporta un reporte a PDF sin dependencias: renderiza un HTML imprimible en un
  * iframe aislado y abre el diálogo de impresión del navegador, donde el usuario

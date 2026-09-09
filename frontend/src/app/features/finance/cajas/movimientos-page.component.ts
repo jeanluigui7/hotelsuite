@@ -16,7 +16,7 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { FinanceApiService } from '../services/finance-api.service';
 import type { CashDetail, CashDetailMovement, MovementDetail, MovementHistoryEntry } from '../services/finance.models';
 import { buildCuadreTicket } from '../services/cuadre-ticket';
-import { downloadCsv } from '../../../core/utils/export';
+import { downloadCsv, downloadXlsxTable } from '../../../core/utils/export';
 
 interface ReconItem { id: string; at: string; type: string; amount: number; affectsCash: boolean; quantity: number | null; note: string | null; by: string | null; approvedBy: string | null; }
 interface ReconSummary { expected: number | null; declared: number | null; originalDifference: number; pendingDifference: number; reconciliations: ReconItem[]; }
@@ -779,12 +779,25 @@ export class CashMovementsPageComponent implements OnInit {
   }
 
   // ── Exportar movimientos ──
-  exportMovs(d: CashDetail, _fmt: 'xlsx' | 'csv'): void {
+  exportMovs(d: CashDetail, fmt: 'xlsx' | 'csv'): void {
+    const headers = ['Hora', 'Habitación', 'Tipo', 'Descripción', 'Monto', 'Método', 'Estado'];
+    // El Monto va como NÚMERO (para que la tabla de Excel lo sume/filtre); el resto como texto.
     const rows = d.movements.map((m) => [
       new Date(m.time).toLocaleString('es-PE'), m.room || '', this.typeLabel(m.type), m.description,
-      m.amount.toFixed(2), this.methodLabel(m.method), m.status,
+      Math.round((m.amount || 0) * 100) / 100, this.methodLabel(m.method), m.status,
     ]);
-    downloadCsv(`caja-${d.session.number ?? 'mov'}-movimientos`, ['Hora', 'Habitación', 'Tipo', 'Descripción', 'Monto', 'Método', 'Estado'], rows);
+    const name = `caja-${d.session.number ?? 'mov'}-movimientos`;
+    if (fmt === 'xlsx') {
+      downloadXlsxTable(name, `Caja ${d.session.number ?? ''}`.trim(), [
+        { header: 'Hora', width: 20 }, { header: 'Habitación', width: 12, align: 'center' },
+        { header: 'Tipo', width: 16 }, { header: 'Descripción', width: 42 },
+        { header: 'Monto', width: 12, numFmt: '#,##0.00', align: 'right' },
+        { header: 'Método', width: 14 }, { header: 'Estado', width: 12 },
+      ], rows, `Caja_${d.session.number ?? 'mov'}`)
+        .catch(() => this.messages.add({ severity: 'error', summary: 'Exportar', detail: 'No se pudo generar el Excel.' }));
+    } else {
+      downloadCsv(name, headers, rows.map((r) => r.map((v, i) => (i === 4 ? Number(v).toFixed(2) : v))));
+    }
   }
 
   // ── Auditoría de medios virtuales (tabla compacta + filtros + orden por hora) ──
