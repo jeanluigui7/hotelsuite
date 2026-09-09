@@ -50,6 +50,19 @@ export const correctPaymentsSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+/** Corrección POR LÍNEA de una venta: cantidad/precio de cada ítem + desglose de pagos.
+ * Recalcula subtotales y total; los pagos deben sumar el nuevo total. Corregir una línea NO
+ * modifica las otras. Si cambia la cantidad de un producto, ajusta stock (Kardex). */
+export const correctSaleLinesSchema = z.object({
+  items: z.array(z.object({
+    id: z.string().min(1),
+    quantity: z.coerce.number().int().min(1),
+    unitPrice: z.coerce.number().min(0),
+  })).min(1, 'Envía las líneas de la venta'),
+  payments: z.array(paymentSchema).min(1, 'Agregue al menos un pago'),
+  reason: z.string().max(500).optional(),
+});
+
 export const cancelSaleSchema = z.object({
   reason: z.string().max(500).optional(),
 });
@@ -57,3 +70,4 @@ export const cancelSaleSchema = z.object({
 export type CreateSaleDto = z.infer<typeof createSaleSchema>;
 export type CorrectSaleDto = z.infer<typeof correctSaleSchema>;
 export type CorrectPaymentsDto = z.infer<typeof correctPaymentsSchema>;
+export type CorrectSaleLinesDto = z.infer<typeof correctSaleLinesSchema>;

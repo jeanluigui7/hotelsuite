@@ -179,7 +179,7 @@ export interface MovementDetail {
   room?: string | null;
   guest?: string | null;
   folio?: string | null;
-  items?: { description: string; quantity: number; unitPrice: number; subtotal: number }[];
+  items?: { id?: string; productId?: string | null; description: string; quantity: number; unitPrice: number; subtotal: number }[];
   payments?: { method: string; amount: number; code: string | null; time: string; commissionPct?: number | null; commission?: number | null; grossCharged?: number | null }[];
   // MOVEMENT
   type?: string;

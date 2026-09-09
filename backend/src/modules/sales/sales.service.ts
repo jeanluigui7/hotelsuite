@@ -300,4 +300,80 @@ export const salesService = {
     }
     return result;
   },
+
+  /**
+   * Corrección POR LÍNEA (Fase C): edita cantidad/precio de cada ítem y el desglose de pagos, sin tocar
+   * las otras líneas. Recalcula subtotales y total; los pagos deben sumar el nuevo total. Si cambia la
+   * cantidad de un producto, ajusta el stock con un AJUSTE trazable (no toca la salida SALE original).
+   * Deja huella CORRECTION con antes/después por línea y reabre la auditoría (via markAdjusted).
+   */
+  async correctSaleLines(scope: RequestScope, id: string, dto: { items: { id: string; quantity: number; unitPrice: number }[]; payments: { method: string; amount: number; reference?: string }[]; reason?: string }) {
+    const branchId = requireActiveBranch(scope);
+    const sale = await salesRepository.findById(id);
+    if (!sale || sale.branchId !== branchId) throw new NotFoundError('Venta no encontrada');
+    if (sale.status === 'CANCELLED') throw new ConflictError('No se puede corregir una venta anulada');
+    if (sale.payments.some((p) => p.method === 'VUELTO') || dto.payments.some((p) => p.method === 'VUELTO')) {
+      throw new ConflictError('No se puede corregir por línea una venta con Vuelto. Anula y vuelve a registrar.');
+    }
+    const byId = new Map(sale.items.map((it) => [it.id, it]));
+    if (dto.items.length !== sale.items.length || dto.items.some((di) => !byId.has(di.id))) {
+      throw new ValidationError('Envía exactamente las líneas de la venta.');
+    }
+    const newItems = dto.items.map((di) => {
+      const it = byId.get(di.id)!;
+      return { id: di.id, productId: it.productId, oldQty: it.quantity, quantity: di.quantity, unitPrice: round(di.unitPrice), subtotal: round(di.quantity * di.unitPrice), description: it.description };
+    });
+    const newTotal = round(newItems.reduce((a, i) => a + i.subtotal, 0));
+    const paySum = round(dto.payments.reduce((a, p) => a + p.amount, 0));
+    if (Math.abs(paySum - newTotal) > 0.01) {
+      throw new ValidationError(`Los pagos (S/ ${paySum.toFixed(2)}) deben sumar el nuevo total de la venta (S/ ${newTotal.toFixed(2)}).`);
+    }
+    // Almacén por producto para ajustar stock si cambió la cantidad (del movimiento SALE enlazado; si no
+    // existe —venta antigua— se usa el almacén por defecto).
+    const saleMovs = await prisma.inventoryMovement.findMany({ where: { saleId: id, type: 'SALE' } });
+    const whByProduct = new Map(saleMovs.map((m) => [m.productId, m.warehouseId]));
+    const defaultWh = await productsRepository.defaultWarehouse(branchId);
+    const opsCfg = await operationsConfigService.get(scope);
+    const payments: SalePaymentInput[] = dto.payments.map((p) => {
+      const amount = round(p.amount);
+      const snap = commissionSnapshot(opsCfg, p.method, amount);
+      return { method: p.method, amount, reference: p.reference?.trim() || null, commissionPct: snap.commissionPct, commissionAmount: snap.commissionAmount, grossCharged: snap.grossCharged };
+    });
+
+    try {
+      await prisma.$transaction(async (tx) => {
+        for (const ni of newItems) {
+          await tx.saleItem.update({ where: { id: ni.id }, data: { quantity: ni.quantity, unitPrice: ni.unitPrice, subtotal: ni.subtotal } });
+          if (ni.productId && ni.quantity !== ni.oldQty) {
+            const wh = whByProduct.get(ni.productId) ?? defaultWh.id;
+            const delta = ni.oldQty - ni.quantity; // + devuelve stock (se vendió menos); − consume (se vendió más)
+            await applyStockTx(tx, ni.productId, wh, delta);
+            await createMovementTx(tx, {
+              branchId, productId: ni.productId, warehouseId: wh, type: 'ADJUST', quantity: delta,
+              reference: 'Corrección de cantidad', adjustType: 'CORRECCION_LINEA', cashSessionId: sale.cashSessionId,
+              saleId: id, createdByUserId: scope.userId,
+            });
+          }
+        }
+        await tx.sale.update({ where: { id }, data: { total: newTotal, status: newTotal > 0 && paySum >= newTotal - 0.001 ? 'PAID' : 'OPEN' } });
+        await tx.payment.deleteMany({ where: { saleId: id } });
+        await tx.payment.createMany({ data: payments.map((p) => ({ saleId: id, branchId, cashSessionId: sale.cashSessionId, method: p.method, amount: p.amount, reference: p.reference, commissionPct: p.commissionPct ?? null, commissionAmount: p.commissionAmount ?? null, grossCharged: p.grossCharged ?? null, createdByUserId: scope.userId })) });
+      });
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith('STOCK_INSUFFICIENT')) throw new ValidationError('Stock insuficiente para aumentar la cantidad de un producto.');
+      throw err;
+    }
+
+    const result = serialize((await salesRepository.findById(id))!);
+    if (sale.cashSessionId) {
+      await cashRepository.createIntervention({
+        branchId, cashSessionId: sale.cashSessionId, type: 'CORRECTION', targetKind: 'SALE', targetId: id,
+        beforeJson: JSON.stringify({ total: Number(sale.total), items: sale.items.map((it) => ({ desc: it.description, qty: it.quantity, price: Number(it.unitPrice), subtotal: Number(it.subtotal) })), payments: sale.payments.map((p) => `${p.method}:${Number(p.amount).toFixed(2)}`) }),
+        afterJson: JSON.stringify({ total: newTotal, items: newItems.map((i) => ({ desc: i.description, qty: i.quantity, price: i.unitPrice, subtotal: i.subtotal })), payments: payments.map((p) => `${p.method}:${p.amount.toFixed(2)}`), stockAdjusted: newItems.some((i) => i.productId && i.quantity !== i.oldQty) }),
+        reason: dto.reason?.trim() || null, createdByUserId: scope.userId,
+      });
+      await cashRepository.markAdjusted(sale.cashSessionId);
+    }
+    return result;
+  },
 };

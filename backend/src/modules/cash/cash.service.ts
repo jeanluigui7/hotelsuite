@@ -274,7 +274,7 @@ export const cashService = {
         user: sale.createdByUserId ? (names.get(sale.createdByUserId) ?? null) : null,
         sessionId: sale.cashSessionId,
         sessionNumber: session?.number ?? null,
-        items: sale.items.map((it) => ({ description: it.description, quantity: it.quantity, unitPrice: Number(it.unitPrice), subtotal: Number(it.subtotal) })),
+        items: sale.items.map((it) => ({ id: it.id, productId: it.productId, description: it.description, quantity: it.quantity, unitPrice: Number(it.unitPrice), subtotal: Number(it.subtotal) })),
         payments,
         history,
       };

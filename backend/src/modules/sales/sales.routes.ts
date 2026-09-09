@@ -15,3 +15,4 @@ salesRouter.post('/sales', requirePermission('finance', 'create'), asyncHandler(
 salesRouter.post('/sales/:id/cancel', requirePermission('finance', 'edit'), asyncHandler(salesController.cancel));
 salesRouter.post('/sales/:id/correct', requirePermission('finance', 'edit'), asyncHandler(salesController.correct));
 salesRouter.post('/sales/:id/correct-payments', requirePermission('finance', 'edit'), asyncHandler(salesController.correctPayments));
+salesRouter.post('/sales/:id/correct-lines', requirePermission('finance', 'edit'), asyncHandler(salesController.correctLines));
