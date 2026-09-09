@@ -136,10 +136,12 @@ export const cashAuditService = {
     const esperadoTotal = round(Object.values(esperadoByMethod).reduce((a, b) => a + b, 0));
     const grossTotal = round(Object.values(grossByMethod).reduce((a, b) => a + b, 0));
 
-    // Agrupar por método + código (código vacío = SIN_CODIGO, cada operación en su propio grupo).
+    // NUNCA agrupar automáticamente: CADA operación (pago o ingreso) es su PROPIA fila, aunque comparta
+    // método y código con otra. Si el código se repite se marca como Duplicado (abajo) y el auditor
+    // decide si agruparlas manualmente en el frontend (agrupación solo visual). key único por entrada.
     const groupsMap = new Map<string, AuditGroup>();
     for (const e of entries) {
-      const key = e.code ? `${e.method}|${e.code}` : `${e.method}|__nocode__|${e.kind}|${e.id}`;
+      const key = `${e.kind}|${e.id}`;
       let g = groupsMap.get(key);
       if (!g) { g = { method: e.method, code: e.code, amount: 0, grossAmount: 0, commissionAmount: 0, ops: 0, room: e.room, client: e.client, clientShort: e.clientShort, concept: e.concept, state: 'PENDIENTE', duplicate: false, lastTime: e.createdAt, states: new Set(), items: [] }; groupsMap.set(key, g); }
       g.amount = round(g.amount + e.amount);
@@ -160,7 +162,8 @@ export const cashAuditService = {
     }
     const groups = [...groupsMap.values()];
 
-    // Duplicados: un mismo código usado en más de un grupo (p. ej. distinto método).
+    // Duplicados: un mismo código presente en más de UNA operación (mismo o distinto método). Se marca
+    // como alerta; NO se fusionan (el auditor decide si agrupar). Cada operación queda separada y visible.
     const codeCount = new Map<string, number>();
     for (const g of groups) if (g.code) codeCount.set(g.code, (codeCount.get(g.code) ?? 0) + 1);
     for (const g of groups) if (g.code && (codeCount.get(g.code) ?? 0) > 1) g.duplicate = true;

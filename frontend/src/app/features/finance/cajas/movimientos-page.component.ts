@@ -449,7 +449,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
         @if (va.esperado.commissionTotal) {
           <div class="vsum posbar" style="margin-bottom:.5rem"><span>Cobrado en POS (neto + comisión): <b>S/ {{ va.esperado.grossTotal | number: '1.2-2' }}</b></span><span class="muted">Comisión POS retenida: S/ {{ va.esperado.commissionTotal | number: '1.2-2' }}</span></div>
         }
-        <p class="muted sm" style="margin:.2rem 0 .6rem">Operaciones agrupadas por método + código. Si un mismo código cubre varias líneas, aparecen juntas (un solo pago).</p>
+        <p class="muted sm" style="margin:.2rem 0 .6rem">Cada operación se muestra por separado. Si un código se repite se marca <b>Duplicado</b> y puedes <b>Agrupar</b> manualmente (solo visual — no fusiona ni altera los movimientos).</p>
 
         <!-- Filtros por método + buscador -->
         <div class="afilters">
@@ -475,25 +475,28 @@ const TYPE_COLOR: Record<string, [string, string]> = {
               </tr>
             </thead>
             <tbody>
-              @for (g of pagedAudit(); track vAuditKey(g)) {
-                <tr [class.dup]="g.duplicate">
-                  <td class="hab">{{ g.room || '—' }}</td>
-                  <td><span class="mtag {{ methodClass(g.method) }}">{{ methodLabel(g.method) }}</span></td>
-                  <td class="nm"><span [title]="g.client">{{ g.clientShort || g.client }}</span>@if (g.concept) { <em>{{ g.concept }}</em> }</td>
-                  <td class="hr">{{ g.time | date: 'HH:mm' }}</td>
-                  <td class="r amt"><b>S/ {{ g.amount | number: '1.2-2' }}</b>@if (g.commissionAmount) { <em class="posit">POS {{ g.grossAmount | number: '1.2-2' }}</em> }</td>
-                  <td class="cod">{{ g.code || '—' }}@if (g.duplicate) { <span class="dupt">dup</span> }</td>
-                  <td><span class="est {{ vStateClass(g.state) }}">{{ vStateLabel(g.state) }}</span></td>
+              @for (row of pagedAudit(); track vAuditKey(row.g)) {
+                @if (row.head) {
+                  <tr class="grp-head"><td colspan="8"><i class="pi pi-link"></i> Código <b>{{ row.g.code }}</b> agrupado · {{ row.count }} ops · {{ row.verified }} verificadas · Total <b>S/ {{ row.total | number: '1.2-2' }}</b> <button class="grp-btn" (click)="toggleGroupCode(row.g.code)">Desagrupar</button></td></tr>
+                }
+                <tr [class.dup]="row.g.duplicate" [class.grouped]="isGrouped(row.g)">
+                  <td class="hab">{{ row.g.room || '—' }}</td>
+                  <td><span class="mtag {{ methodClass(row.g.method) }}">{{ methodLabel(row.g.method) }}</span></td>
+                  <td class="nm"><span [title]="row.g.client">{{ row.g.clientShort || row.g.client }}</span>@if (row.g.concept) { <em>{{ row.g.concept }}</em> }</td>
+                  <td class="hr">{{ row.g.time | date: 'HH:mm' }}</td>
+                  <td class="r amt"><b>S/ {{ row.g.amount | number: '1.2-2' }}</b>@if (row.g.commissionAmount) { <em class="posit">POS {{ row.g.grossAmount | number: '1.2-2' }}</em> }</td>
+                  <td class="cod">{{ row.g.code || '—' }}@if (row.g.duplicate) { <span class="dupt">Duplicado</span> <button class="grp-btn" (click)="toggleGroupCode(row.g.code)">{{ isGrouped(row.g) ? 'Desagrupar' : 'Agrupar' }}</button> }</td>
+                  <td><span class="est {{ vStateClass(row.g.state) }}">{{ vStateLabel(row.g.state) }}</span></td>
                   <td class="acts">
                     @if (!canEdit) { <span class="muted sm">—</span> }
-                    @else if (auditingCode() === vAuditKey(g)) {
+                    @else if (auditingCode() === vAuditKey(row.g)) {
                       <input pInputText class="codein" [(ngModel)]="auditCodeInput" placeholder="Código" />
-                      <button class="ab save" [disabled]="busy()" (click)="confirmSetCode(g)">Guardar</button>
+                      <button class="ab save" [disabled]="busy()" (click)="confirmSetCode(row.g)">Guardar</button>
                       <button class="ab x" (click)="auditingCode.set('')" title="Cancelar"><i class="pi pi-times"></i></button>
                     } @else {
-                      <button class="ab ok" [disabled]="busy() || g.state === 'VERIFICADO'" (click)="verifyGroup(g)"><i class="pi pi-check"></i> Verificar</button>
-                      <button class="ab edit" [disabled]="busy()" (click)="startSetCode(g)"><i class="pi pi-pencil"></i> Editar código</button>
-                      <button class="ab no" [disabled]="busy() || g.state === 'NO_EXISTE'" (click)="markNotFound(g)"><i class="pi pi-times"></i> No existente</button>
+                      <button class="ab ok" [disabled]="busy() || row.g.state === 'VERIFICADO'" (click)="verifyGroup(row.g)"><i class="pi pi-check"></i> Verificar</button>
+                      <button class="ab edit" [disabled]="busy()" (click)="startSetCode(row.g)"><i class="pi pi-pencil"></i> Editar código</button>
+                      <button class="ab no" [disabled]="busy() || row.g.state === 'NO_EXISTE'" (click)="markNotFound(row.g)"><i class="pi pi-times"></i> No existente</button>
                     }
                   </td>
                 </tr>
@@ -594,7 +597,10 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .atbl td.hab { font-weight: 700; color: #cbd5e1; } .atbl td.hr { color: #cbd5e1; font-variant-numeric: tabular-nums; }
       .atbl td.nm span { display: block; font-weight: 600; } .atbl td.nm em { display: block; font-size: 0.72rem; color: #8aa0bd; font-style: normal; }
       .atbl td.amt b { font-variant-numeric: tabular-nums; } .atbl td.amt em { display: block; font-size: 0.68rem; }
-      .atbl td.cod { font-variant-numeric: tabular-nums; letter-spacing: 0.4px; } .atbl td.cod .dupt { color: #f59e0b; font-size: 0.62rem; margin-left: 0.25rem; }
+      .atbl td.cod { font-variant-numeric: tabular-nums; letter-spacing: 0.4px; } .atbl td.cod .dupt { display: inline-block; color: #fbbf24; background: rgba(245,158,11,0.16); font-size: 0.62rem; font-weight: 700; padding: 0.05rem 0.35rem; border-radius: 999px; margin-left: 0.3rem; }
+      .atbl td.cod .grp-btn { margin-left: 0.35rem; background: transparent; border: 1px solid rgba(96,165,250,0.5); color: #93c5fd; border-radius: 6px; padding: 0.05rem 0.4rem; font-size: 0.66rem; cursor: pointer; } .atbl td.cod .grp-btn:hover { background: rgba(96,165,250,0.14); }
+      .atbl tbody tr.grouped { background: rgba(96,165,250,0.07); box-shadow: inset 3px 0 0 #60a5fa; }
+      .atbl tbody tr.grp-head td { background: rgba(96,165,250,0.14); color: #cbd5e1; font-size: 0.76rem; padding: 0.35rem 0.6rem; border-bottom: 1px solid #1c2c44; } .atbl tbody tr.grp-head .grp-btn { margin-left: 0.5rem; background: transparent; border: 1px solid rgba(148,163,184,0.5); color: #cbd5e1; border-radius: 6px; padding: 0.05rem 0.45rem; font-size: 0.7rem; cursor: pointer; }
       .mtag { display: inline-flex; align-items: center; font-size: 0.72rem; font-weight: 700; padding: 0.12rem 0.5rem; border-radius: 999px; }
       .mtag.yape { background: rgba(168,85,247,0.18); color: #c4b5fd; } .mtag.plin { background: rgba(20,184,166,0.18); color: #2dd4bf; } .mtag.card { background: rgba(96,165,250,0.18); color: #93c5fd; } .mtag.transfer { background: rgba(245,158,11,0.18); color: #fbbf24; } .mtag.other { background: rgba(148,163,184,0.18); color: #cbd5e1; }
       .est.no { color: #f87171; }
@@ -712,15 +718,39 @@ export class CashMovementsPageComponent implements OnInit {
     rows.sort((a, b) => asc ? a.time.localeCompare(b.time) : b.time.localeCompare(a.time));
     return rows;
   });
+  // Códigos que el auditor decidió AGRUPAR manualmente (solo visual; nunca fusiona en BD).
+  readonly groupedCodes = signal<Set<string>>(new Set());
+  toggleGroupCode(code: string | null): void { if (!code) return; const s = new Set(this.groupedCodes()); if (s.has(code)) s.delete(code); else s.add(code); this.groupedCodes.set(s); }
+  isGrouped(g: VAuditGroup): boolean { return !!g.code && this.groupedCodes().has(g.code); }
+  // Lista de visualización: si hay códigos agrupados, sus filas se juntan (clúster) tras su primera
+  // aparición, con una cabecera de total; el resto conserva el orden por hora. head=true marca la cabecera.
+  readonly displayAudit = computed<{ g: VAuditGroup; head: boolean; total: number; count: number; verified: number }[]>(() => {
+    const rows = this.filteredAudit();
+    const grouped = this.groupedCodes();
+    if (!grouped.size) return rows.map((g) => ({ g, head: false, total: 0, count: 0, verified: 0 }));
+    const emitted = new Set<string>();
+    const out: { g: VAuditGroup; head: boolean; total: number; count: number; verified: number }[] = [];
+    for (const g of rows) {
+      if (g.code && grouped.has(g.code)) {
+        if (emitted.has(g.code)) continue;
+        emitted.add(g.code);
+        const cluster = rows.filter((x) => x.code === g.code);
+        const total = Math.round(cluster.reduce((a, x) => a + x.amount, 0) * 100) / 100;
+        const verified = cluster.filter((x) => x.state === 'VERIFICADO').length;
+        cluster.forEach((x, i) => out.push({ g: x, head: i === 0, total, count: cluster.length, verified }));
+      } else out.push({ g, head: false, total: 0, count: 0, verified: 0 });
+    }
+    return out;
+  });
   readonly auditPages = computed(() => {
     const size = this.auditPageSize();
     if (!size) return [0]; // "Todos" → una sola página
-    const n = Math.ceil(this.filteredAudit().length / size);
+    const n = Math.ceil(this.displayAudit().length / size);
     return Array.from({ length: Math.max(1, n) }, (_, i) => i);
   });
   readonly pagedAudit = computed(() => {
     const size = this.auditPageSize();
-    const rows = this.filteredAudit();
+    const rows = this.displayAudit();
     if (!size) return rows; // "Todos": sin recorte
     const start = this.auditPage() * size;
     return rows.slice(start, start + size);
@@ -899,7 +929,7 @@ export class CashMovementsPageComponent implements OnInit {
   onAuditSearch(v: string): void { this.auditSearch.set(v); this.auditPage.set(0); }
   toggleHoraSort(): void { this.horaSortAsc.set(!this.horaSortAsc()); }
   methodClass(m: string): string { return ({ YAPE: 'yape', PLIN: 'plin', CARD: 'card', TRANSFER: 'transfer' } as Record<string, string>)[m] ?? 'other'; }
-  vAuditKey(g: VAuditGroup): string { return `${g.method}|${g.code ?? ''}`; }
+  vAuditKey(g: VAuditGroup): string { return g.items[0]?.paymentId ?? `${g.method}|${g.code ?? ''}`; } // id único por operación
   vStateLabel(s: string): string { return ({ VERIFICADO: 'Verificado', PENDIENTE: 'Pendiente', SIN_CODIGO: 'Sin código', EN_REVISION: 'En revisión', NO_EXISTE: 'No existente' } as Record<string, string>)[s] ?? s; }
   vStateClass(s: string): string { return ({ VERIFICADO: 'ok', PENDIENTE: 'pend', SIN_CODIGO: 'warn', EN_REVISION: 'warn', NO_EXISTE: 'no' } as Record<string, string>)[s] ?? ''; }
   vDiffLabel(diff: number): string { return diff === 0 ? '✓ CUADRADO' : `S/ ${diff.toFixed(2)} DIFERENCIA`; }
@@ -910,9 +940,9 @@ export class CashMovementsPageComponent implements OnInit {
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo auditar.' }); },
     });
   }
-  private targetOf(g: VAuditGroup): { paymentIds?: string[]; movementIds?: string[]; method?: string; code?: string } {
-    if (g.code) return { method: g.method, code: g.code };
-    // Grupo sin código: separa pagos de venta e ingresos de caja por su tipo (kind).
+  private targetOf(g: VAuditGroup): { paymentIds?: string[]; movementIds?: string[] } {
+    // Cada operación es su propia fila: la acción apunta SIEMPRE a su id exacto (pago o ingreso),
+    // nunca por método+código (así verificar/editar una no toca otra que comparta el mismo código).
     const paymentIds = g.items.filter((i) => (i.kind ?? 'PAYMENT') === 'PAYMENT').map((i) => i.paymentId);
     const movementIds = g.items.filter((i) => i.kind === 'MOVEMENT').map((i) => i.paymentId);
     return { paymentIds: paymentIds.length ? paymentIds : undefined, movementIds: movementIds.length ? movementIds : undefined };
