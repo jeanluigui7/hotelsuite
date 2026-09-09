@@ -119,4 +119,25 @@ export const salesRepository = {
     await prisma.payment.updateMany({ where: { saleId: id }, data: { method } });
     return prisma.sale.findUnique({ where: { id }, include });
   },
+
+  /** Reemplaza el desglose de pagos de una venta (borra los actuales y crea los nuevos). */
+  async replacePayments(
+    id: string,
+    branchId: string,
+    cashSessionId: string | null,
+    createdByUserId: string,
+    payments: SalePaymentInput[],
+  ) {
+    await prisma.$transaction(async (tx) => {
+      await tx.payment.deleteMany({ where: { saleId: id } });
+      await tx.payment.createMany({
+        data: payments.map((p) => ({
+          saleId: id, branchId, cashSessionId, method: p.method, amount: p.amount, reference: p.reference,
+          commissionPct: p.commissionPct ?? null, commissionAmount: p.commissionAmount ?? null, grossCharged: p.grossCharged ?? null,
+          createdByUserId,
+        })),
+      });
+    });
+    return prisma.sale.findUnique({ where: { id }, include });
+  },
 };

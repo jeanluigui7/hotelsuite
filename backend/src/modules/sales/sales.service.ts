@@ -261,4 +261,43 @@ export const salesService = {
     }
     return result;
   },
+
+  /**
+   * Corrige el DESGLOSE de pagos de una venta (método+monto por línea) SIN cambiar el total cobrado.
+   * Caso típico: la recepción registró un pago mixto como un solo medio (p. ej. Yape 31 cuando fue
+   * Yape 25 + Efectivo 6) → se re-reparte para que cada medio cuadre. Recalcula el snapshot de comisión.
+   */
+  async correctPayments(scope: RequestScope, id: string, dto: { payments: { method: string; amount: number; reference?: string }[]; reason?: string }) {
+    const branchId = requireActiveBranch(scope);
+    const sale = await salesRepository.findById(id);
+    if (!sale || sale.branchId !== branchId) throw new NotFoundError('Venta no encontrada');
+    if (sale.status === 'CANCELLED') throw new ConflictError('No se puede corregir una venta anulada');
+    // El Vuelto afecta el saldo de cambio de la estancia; para no descuadrarlo, no se corrige por aquí.
+    if (sale.payments.some((p) => p.method === 'VUELTO') || dto.payments.some((p) => p.method === 'VUELTO')) {
+      throw new ConflictError('No se puede corregir el desglose de ventas con Vuelto. Anula y vuelve a registrar.');
+    }
+    const currentPaid = round(sale.payments.reduce((a, p) => a + Number(p.amount), 0));
+    const newSum = round(dto.payments.reduce((a, p) => a + p.amount, 0));
+    if (Math.abs(newSum - currentPaid) > 0.01) {
+      throw new ValidationError(`El desglose (S/ ${newSum.toFixed(2)}) debe sumar exactamente lo cobrado en la venta (S/ ${currentPaid.toFixed(2)}).`);
+    }
+    const opsCfg = await operationsConfigService.get(scope);
+    const payments: SalePaymentInput[] = dto.payments.map((p) => {
+      const amount = round(p.amount);
+      const snap = commissionSnapshot(opsCfg, p.method, amount);
+      return { method: p.method, amount, reference: p.reference?.trim() || null, commissionPct: snap.commissionPct, commissionAmount: snap.commissionAmount, grossCharged: snap.grossCharged };
+    });
+    const beforeMethods = sale.payments.map((p) => `${p.method}:${Number(p.amount).toFixed(2)}`);
+    const result = serialize((await salesRepository.replacePayments(id, branchId, sale.cashSessionId, scope.userId, payments))!);
+    if (sale.cashSessionId) {
+      await cashRepository.createIntervention({
+        branchId, cashSessionId: sale.cashSessionId, type: 'CORRECTION', targetKind: 'SALE', targetId: id,
+        beforeJson: JSON.stringify({ payments: beforeMethods }),
+        afterJson: JSON.stringify({ payments: payments.map((p) => `${p.method}:${p.amount.toFixed(2)}`) }),
+        reason: dto.reason?.trim() || null, createdByUserId: scope.userId,
+      });
+      await cashRepository.markAdjusted(sale.cashSessionId);
+    }
+    return result;
+  },
 };

@@ -43,9 +43,17 @@ export const correctSaleSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+/** Corrección del DESGLOSE de pagos de una venta (método+monto por línea). El total NO cambia:
+ * solo se re-reparte cómo se pagó (p. ej. un Yape de 31 → Yape 25 + Efectivo 6). */
+export const correctPaymentsSchema = z.object({
+  payments: z.array(paymentSchema).min(1, 'Agregue al menos un pago'),
+  reason: z.string().max(500).optional(),
+});
+
 export const cancelSaleSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
 export type CreateSaleDto = z.infer<typeof createSaleSchema>;
 export type CorrectSaleDto = z.infer<typeof correctSaleSchema>;
+export type CorrectPaymentsDto = z.infer<typeof correctPaymentsSchema>;

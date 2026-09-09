@@ -3,7 +3,7 @@ import { ok } from '../../shared/response';
 import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { salesService } from './sales.service';
-import { cancelSaleSchema, correctSaleSchema, createSaleSchema } from './sales.schema';
+import { cancelSaleSchema, correctSaleSchema, correctPaymentsSchema, createSaleSchema } from './sales.schema';
 
 export const salesController = {
   async list(req: Request, res: Response): Promise<void> {
@@ -33,5 +33,10 @@ export const salesController = {
     if (!req.scope) throw new UnauthorizedError();
     const dto = correctSaleSchema.parse(req.body);
     res.status(200).json(ok(await salesService.correct(req.scope, req.params.id, dto)));
+  },
+  async correctPayments(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = correctPaymentsSchema.parse(req.body);
+    res.status(200).json(ok(await salesService.correctPayments(req.scope, req.params.id, dto)));
   },
 };

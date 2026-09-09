@@ -187,11 +187,27 @@ const TYPE_COLOR: Record<string, [string, string]> = {
     </section>
 
     <!-- Corregir movimiento -->
-    <p-dialog [(visible)]="correctVisible" [modal]="true" header="Corregir movimiento" [style]="{ width: '26rem' }">
+    <p-dialog [(visible)]="correctVisible" [modal]="true" header="Corregir movimiento" [style]="{ width: '30rem', maxWidth: '96vw' }">
       @if (correctTarget(); as m) {
         <p class="muted">{{ m.description }}</p>
         @if (m.saleId) {
-          <div class="form"><label>Método de pago correcto</label><p-select [options]="methodEditOpts" optionLabel="label" optionValue="value" [(ngModel)]="correctMethod" styleClass="w" /></div>
+          <div class="cpwrap">
+            <div class="cphead"><span>Desglose de pago de la venta</span><button class="lnk" [disabled]="correctLoadingPays()" (click)="addCorrectPay()"><i class="pi pi-plus"></i> Añadir</button></div>
+            <p class="muted sm">Re-reparte cómo se pagó sin cambiar el total cobrado (ej.: un Yape de S/{{ correctPaid() | number:'1.2-2' }} → Yape + Efectivo).</p>
+            @if (correctLoadingPays()) { <p class="muted sm">Cargando pagos…</p> }
+            @for (p of correctPays(); track $index; let i = $index) {
+              <div class="cprow">
+                <p-select [options]="methodEditOpts" optionLabel="label" optionValue="value" [(ngModel)]="p.method" appendTo="body" styleClass="w sm" />
+                <p-inputNumber [(ngModel)]="p.amount" mode="decimal" [minFractionDigits]="2" [min]="0" placeholder="Monto" inputStyleClass="amt" />
+                <button class="del" (click)="removeCorrectPay(i)"><i class="pi pi-times"></i></button>
+              </div>
+              @if (p.method !== 'CASH') { <input class="cpcode" pInputText [(ngModel)]="p.reference" placeholder="Código de operación (obligatorio)" /> }
+            }
+            <div class="cpsum" [class.bad]="(correctPaysSum() - correctPaid()) > 0.01 || (correctPaid() - correctPaysSum()) > 0.01">
+              <span>Suma del desglose</span><b>S/ {{ correctPaysSum() | number:'1.2-2' }} / S/ {{ correctPaid() | number:'1.2-2' }}</b>
+            </div>
+            @if (correctPaysError()) { <p class="cperr"><i class="pi pi-exclamation-triangle"></i> {{ correctPaysError() }}</p> }
+          </div>
         } @else {
           <div class="form">
             <label>Tipo</label><p-select [options]="movTypeOpts" optionLabel="label" optionValue="value" [(ngModel)]="correctMovType" styleClass="w" />
@@ -471,6 +487,14 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .vsum { display: flex; flex-wrap: wrap; gap: 0.9rem; font-size: 0.82rem; margin: 0.5rem 0; } .vsum .ok { color: #34d399; } .vsum .pend { color: #60a5fa; } .vsum .warn { color: #f59e0b; } .vsum .diff { font-weight: 700; color: #f59e0b; } .vsum .diff.ok { color: #34d399; }
       .vsum.posbar { padding: 0.45rem 0.7rem; background: rgba(96,165,250,0.08); border: 1px solid rgba(96,165,250,0.25); border-radius: 8px; } .vsum.posbar b { color: #93c5fd; }
       .posit { color: #93c5fd; font-style: normal; font-weight: 600; }
+      .cpwrap { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.3rem 0 0.2rem; }
+      .cphead { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: #cbd5e1; }
+      .cprow { display: grid; grid-template-columns: 9rem 1fr 2rem; gap: 0.4rem; align-items: center; }
+      .cprow .del { background: transparent; border: none; color: #f87171; cursor: pointer; }
+      :host ::ng-deep .cprow .p-select, :host ::ng-deep .cprow .p-inputnumber, :host ::ng-deep .cprow .p-inputnumber input { width: 100%; }
+      .cpcode { width: 100%; margin: 0.1rem 0 0.2rem; }
+      .cpsum { display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed #1c2c44; padding-top: 0.4rem; font-size: 0.86rem; } .cpsum b { color: #34d399; } .cpsum.bad b { color: #f87171; }
+      .cperr { color: #fca5a5; font-size: 0.78rem; display: flex; gap: 0.35rem; align-items: center; margin: 0.2rem 0 0; }
       .agroups { display: flex; flex-direction: column; gap: 0.6rem; max-height: 55vh; overflow-y: auto; }
       .agroup { border: 1px solid #243245; border-radius: 9px; padding: 0.6rem 0.8rem; background: #131d2b; } .agroup.dup { border-color: #b45309; }
       .ag-head { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; } .ag-code { font-size: 0.9rem; } .ag-code .dupt { color: #f59e0b; font-size: 0.7rem; margin-left: 0.4rem; } .ag-amt { color: #8aa0bd; font-size: 0.82rem; margin-left: auto; }
@@ -655,6 +679,21 @@ export class CashMovementsPageComponent implements OnInit {
   correctMovConcept = '';
   correctReason = '';
   readonly methodEditOpts = [{ label: 'Efectivo', value: 'CASH' }, { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' }, { label: 'Tarjeta', value: 'CARD' }];
+  // Corrección del DESGLOSE de pagos de una venta (mismo total, distinto reparto por método).
+  readonly correctPays = signal<{ method: string; amount: number; reference: string }[]>([]);
+  readonly correctPaid = signal(0); // total cobrado en la venta (el desglose debe sumar esto)
+  readonly correctLoadingPays = signal(false);
+  correctPaysSum(): number { return Math.round(this.correctPays().reduce((a, p) => a + (p.amount || 0), 0) * 100) / 100; }
+  private needsCode(m: string): boolean { return m !== 'CASH' && m !== 'VUELTO'; }
+  correctPaysError(): string {
+    const ps = this.correctPays();
+    if (!ps.length) return 'Agrega al menos un pago.';
+    for (const p of ps) { if (!(p.amount > 0)) return 'Cada pago debe tener un monto mayor a 0.'; if (this.needsCode(p.method) && !p.reference.trim()) return 'Los pagos con Yape, Plin, Transferencia o Tarjeta requieren su código.'; }
+    if (Math.abs(this.correctPaysSum() - this.correctPaid()) > 0.01) return `El desglose (S/ ${this.correctPaysSum().toFixed(2)}) debe sumar lo cobrado (S/ ${this.correctPaid().toFixed(2)}).`;
+    return '';
+  }
+  addCorrectPay(): void { const rem = Math.max(0, Math.round((this.correctPaid() - this.correctPaysSum()) * 100) / 100); this.correctPays.set([...this.correctPays(), { method: 'CASH', amount: rem, reference: '' }]); }
+  removeCorrectPay(i: number): void { const n = [...this.correctPays()]; n.splice(i, 1); this.correctPays.set(n); }
   readonly movTypeOpts = [{ label: 'Ingreso', value: 'IN' }, { label: 'Egreso', value: 'OUT' }];
 
   // VNR
@@ -885,18 +924,36 @@ export class CashMovementsPageComponent implements OnInit {
   openCorrect(m: CashDetailMovement): void {
     this.correctTarget.set(m);
     this.correctReason = '';
-    if (m.saleId) { this.correctMethod = m.method === 'MIXTO' || m.method === 'PENDIENTE' ? 'CASH' : m.method; }
-    else { this.correctMovType = m.type === 'EGRESO' ? 'OUT' : 'IN'; this.correctMovAmount = m.amount; this.correctMovConcept = m.description; }
+    this.correctPays.set([]); this.correctPaid.set(0);
+    if (m.saleId) {
+      this.correctMethod = m.method === 'MIXTO' || m.method === 'PENDIENTE' ? 'CASH' : m.method;
+      // Trae el desglose real de pagos de la venta para poder re-repartirlo (p. ej. Yape 31 → Yape 25 + Efectivo 6).
+      this.correctLoadingPays.set(true);
+      this.finance.movementDetail({ saleId: m.saleId }).subscribe({
+        next: (r) => {
+          const ps = (r.data?.payments ?? []).filter((p) => p.method !== 'VUELTO');
+          this.correctPays.set(ps.length ? ps.map((p) => ({ method: p.method, amount: p.amount, reference: p.code ?? '' })) : [{ method: 'CASH', amount: 0, reference: '' }]);
+          this.correctPaid.set(Math.round((r.data?.payments ?? []).reduce((a, p) => a + (p.amount || 0), 0) * 100) / 100);
+          this.correctLoadingPays.set(false);
+        },
+        error: () => { this.correctLoadingPays.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar los pagos de la venta.' }); },
+      });
+    } else { this.correctMovType = m.type === 'EGRESO' ? 'OUT' : 'IN'; this.correctMovAmount = m.amount; this.correctMovConcept = m.description; }
     this.correctVisible = true;
   }
   doCorrect(): void {
     const m = this.correctTarget(); if (!m) return;
-    this.busy.set(true);
     const reason = this.correctReason.trim() || undefined;
     const done = () => { this.busy.set(false); this.correctVisible = false; this.messages.add({ severity: 'success', summary: 'Corregido', detail: 'Movimiento actualizado.' }); this.reload(); };
     const fail = (e: HttpErrorResponse) => { this.busy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo corregir.' }); };
-    if (m.saleId) { this.finance.correctSale(m.saleId, this.correctMethod, reason).subscribe({ next: done, error: fail }); }
-    else {
+    if (m.saleId) {
+      const err = this.correctPaysError();
+      if (err) { this.messages.add({ severity: 'warn', summary: 'Revisa el desglose', detail: err }); return; }
+      this.busy.set(true);
+      const payments = this.correctPays().map((p) => ({ method: p.method, amount: Math.round(p.amount * 100) / 100, reference: p.reference.trim() || undefined }));
+      this.finance.correctSalePayments(m.saleId, payments, reason).subscribe({ next: done, error: fail });
+    } else {
+      this.busy.set(true);
       if (this.correctMovAmount == null || this.correctMovAmount <= 0 || !this.correctMovConcept.trim()) { this.busy.set(false); this.messages.add({ severity: 'warn', summary: 'Datos', detail: 'Monto y concepto requeridos.' }); return; }
       this.finance.editMovement(m.id, { type: this.correctMovType, amount: this.correctMovAmount, concept: this.correctMovConcept.trim(), reason }).subscribe({ next: done, error: fail });
     }
