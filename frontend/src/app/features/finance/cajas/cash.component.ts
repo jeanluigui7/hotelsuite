@@ -88,7 +88,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       <div class="tbl-wrap">
         <table class="tbl">
           <thead>
-            <tr><th>ID</th><th>DÍA / TURNO</th><th>APERTURA</th><th>CIERRE</th><th class="r">RECAUDACIÓN</th><th class="r">ENTREGA EFECTIVO</th><th class="c">CUADRE</th><th class="c">ESTADO</th><th class="ac">ACCIONES</th></tr>
+            <tr><th>ID</th><th>DÍA / TURNO</th><th>APERTURA</th><th>CIERRE</th><th class="r">RECAUDACIÓN</th><th class="r">ENTREGA EFECTIVO</th><th class="c">CUADRE</th><th class="c">ESTADO</th><th class="c">AUDITORÍA</th><th class="ac">ACCIONES</th></tr>
           </thead>
           <tbody>
             @for (s of rows(); track s.id) {
@@ -99,14 +99,27 @@ const TYPE_COLOR: Record<string, [string, string]> = {
                 <td>{{ s.closedAt ? hora(s.closedAt) : '—' }}</td>
                 <td class="r">{{ s.recaudacion != null ? ('S/ ' + (s.recaudacion | number: '1.2-2')) : '—' }}</td>
                 <td class="r">{{ s.closingAmount != null ? ('S/ ' + (s.closingAmount | number: '1.2-2')) : '—' }}</td>
-                <td class="c">
+                <td class="c cuadre-cell">
                   @if (!canSeeCuadre()) { <span class="muted" title="Cierre ciego: el cuadre lo audita administración"><i class="pi pi-lock"></i></span> }
-                  @else if (s.status === 'OPEN' || s.difference == null) { <span class="muted">—</span> }
-                  @else if (s.difference > 0) { <span class="cuadre sob">+S/ {{ s.difference | number: '1.2-2' }} Sobrante</span> }
-                  @else if (s.difference < 0) { <span class="cuadre fal">S/ {{ -s.difference | number: '1.2-2' }} Faltante</span> }
-                  @else { <span class="cuadre ok"><i class="pi pi-check"></i> OK</span> }
+                  @else if (s.status === 'OPEN') { <span class="muted">—</span> }
+                  @else {
+                    <div class="cline"><span class="cl-lbl">Efectivo:</span>
+                      @if (s.difference == null) { <span class="muted">—</span> }
+                      @else if (s.difference > 0) { <b class="sob">+S/ {{ s.difference | number: '1.2-2' }}</b> }
+                      @else if (s.difference < 0) { <b class="fal">-S/ {{ -s.difference | number: '1.2-2' }}</b> }
+                      @else { <b class="ok">OK</b> }
+                    </div>
+                    <div class="cline"><span class="cl-lbl">Virtuales:</span>
+                      @if ((s.virtualPending ?? 0) > 0.001) { <b class="fal">-S/ {{ s.virtualPending | number: '1.2-2' }}</b> }
+                      @else { <b class="ok">OK</b> }
+                    </div>
+                  }
                 </td>
                 <td class="c"><span class="pill" [class.open]="s.status === 'OPEN'" [class.closed]="s.status === 'CLOSED'" [class.adjusted]="s.status === 'AJUSTADA'"><i class="pi" [class.pi-lock-open]="s.status==='OPEN'" [class.pi-lock]="s.status==='CLOSED'" [class.pi-pencil]="s.status==='AJUSTADA'"></i> {{ s.status === 'OPEN' ? 'Abierta' : (s.status === 'AJUSTADA' ? 'Ajustada' : 'Cerrada') }}</span></td>
+                <td class="c">
+                  @if (s.status === 'OPEN') { <span class="muted">—</span> }
+                  @else { <span class="apill {{ auditClass(s.auditStatus) }}">{{ auditLabel(s.auditStatus) }}</span> }
+                </td>
                 <td class="ac">
                   <button class="mini" (click)="viewCuadre(s)"><i class="pi pi-print"></i> Ver</button>
                   @if (s.status !== 'OPEN' && canSeeCuadre()) { <button class="mini" (click)="reprintBlind(s)"><i class="pi pi-inbox"></i> Entrega</button> }
@@ -114,7 +127,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
                   @if (s.status === 'OPEN' && canEdit) { <button class="mini close" (click)="openCloseDialog(s)">Cerrar</button> }
                 </td>
               </tr>
-            } @empty { <tr><td colspan="9" class="empty">Sin cajas registradas.</td></tr> }
+            } @empty { <tr><td colspan="10" class="empty">Sin cajas registradas.</td></tr> }
           </tbody>
         </table>
       </div>
@@ -356,6 +369,10 @@ const TYPE_COLOR: Record<string, [string, string]> = {
       .pill.adjusted { background: rgba(245,158,11,0.16); color: #f59e0b; }
       .cuadre { font-size: 0.74rem; font-weight: 700; padding: 0.18rem 0.7rem; border-radius: 999px; white-space: nowrap; }
       .cuadre.sob { background: rgba(16,185,129,0.16); color: #34d399; } .cuadre.fal { background: rgba(248,113,113,0.16); color: #f87171; } .cuadre.ok { background: rgba(59,130,246,0.18); color: #60a5fa; }
+      .cuadre-cell { text-align: left; } .cline { display: flex; align-items: center; gap: 0.35rem; font-size: 0.75rem; padding: 0.05rem 0; white-space: nowrap; } .cline .cl-lbl { color: #8aa0bd; }
+      .cline b.sob { color: #34d399; } .cline b.fal { color: #f87171; } .cline b.ok { color: #34d399; }
+      .apill { display: inline-flex; align-items: center; font-size: 0.72rem; font-weight: 700; padding: 0.18rem 0.7rem; border-radius: 999px; white-space: nowrap; }
+      .apill.pend { background: rgba(148,163,184,0.16); color: #cbd5e1; } .apill.proc { background: rgba(59,130,246,0.18); color: #60a5fa; } .apill.obs { background: rgba(245,158,11,0.18); color: #fbbf24; } .apill.ok { background: rgba(16,185,129,0.18); color: #34d399; }
       .mini { background: #13243a; border: 1px solid #274468; color: #cbd5e1; border-radius: 7px; padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; cursor: pointer; margin-left: 0.35rem; }
       .mini.close { background: #10b981; color: #04130d; border: 0; }
       .empty { text-align: center; color: #8aa0bd; padding: 2rem; }
@@ -471,6 +488,8 @@ export class CashComponent implements OnInit {
   turnoLabel(v: string): string { return shiftOf(v); }
   /** Solo la hora HH:mm (el día va en la columna DÍA/TURNO; en turno noche el cierre solo muestra la hora). */
   hora(v: string | null): string { if (!v) return '—'; const d = new Date(v); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; }
+  auditLabel(s?: string): string { return ({ PENDIENTE: 'Pendiente', EN_PROCESO: 'En proceso', OBSERVADA: 'Observada', AUDITADA: 'Auditada' } as Record<string, string>)[s ?? 'PENDIENTE'] ?? 'Pendiente'; }
+  auditClass(s?: string): string { return ({ PENDIENTE: 'pend', EN_PROCESO: 'proc', OBSERVADA: 'obs', AUDITADA: 'ok' } as Record<string, string>)[s ?? 'PENDIENTE'] ?? 'pend'; }
 
   // Diálogos
   openVisible = false;

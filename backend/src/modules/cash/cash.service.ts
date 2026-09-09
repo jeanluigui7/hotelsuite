@@ -164,6 +164,8 @@ export const cashService = {
     ]);
     // Recaudación (total real del turno) por caja, para la columna del listado.
     const recaudacion = await cashRepository.recaudacionBySessions(rows.map((s) => s.id));
+    // Cuadre de VIRTUALES por caja (esperado − verificado) para la columna CUADRE de 2 líneas.
+    const vdiff = await cashRepository.virtualDiffBySessions(rows.map((s) => s.id));
     const items = await Promise.all(rows.map(async (s) => {
       const closing = s.closingAmount != null ? Number(s.closingAmount) : null;
       const base = Number(s.openingAmount);
@@ -186,9 +188,14 @@ export const cashService = {
         closedByName: s.closedByUserId ? (names.get(s.closedByUserId) ?? '—') : null,
         // Recaudación = total económico real del turno (todos los conceptos y métodos, sin la base).
         recaudacion: Math.round((recaudacion.get(s.id) ?? 0) * 100) / 100,
-        // Cuadre = contado − esperado A ENTREGAR (esperado del cajón − caja base). El contado
+        // Cuadre EFECTIVO = contado − esperado A ENTREGAR (esperado del cajón − caja base). El contado
         // (closingAmount) NO incluye la base; el esperado sí. Igual que el ticket de cuadre.
         difference: closing != null && expected != null ? Math.round((closing - (expected - base)) * 100) / 100 : null,
+        // Cuadre VIRTUAL = esperado virtual − verificado (0 = OK; >0 = falta verificar/regularizar).
+        virtualPending: Math.round(((vdiff.get(s.id)?.expected ?? 0) - (vdiff.get(s.id)?.verified ?? 0)) * 100) / 100,
+        virtualExpected: Math.round((vdiff.get(s.id)?.expected ?? 0) * 100) / 100,
+        // Estado de AUDITORÍA administrativa (independiente del estado operativo).
+        auditStatus: s.auditStatus,
       };
     }));
     return { items, meta: pageMeta(params, total) };

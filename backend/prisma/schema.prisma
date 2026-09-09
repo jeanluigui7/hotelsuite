@@ -944,6 +944,11 @@ model CashSession {
   closingDenominations String? @db.NVarChar(Max) // JSON del conteo por denominaciones al cerrar (reimpresión del ticket ciego)
   workShiftId    String? // turno (WorkShift) al que pertenece la caja (USUARIO → TURNO → CAJA)
   pettyCashLeft  Decimal?  @db.Decimal(10, 2) // caja chica realmente declarada al cierre (editable, puede diferir de la base)
+  // Estado de AUDITORÍA administrativa (independiente del estado operativo `status`).
+  auditStatus      String    @default("PENDIENTE") // PENDIENTE | EN_PROCESO | OBSERVADA | AUDITADA
+  auditedByUserId  String?   // quién realizó/cerró la auditoría
+  auditedAt        DateTime? // cuándo se auditó/observó por última vez
+  auditObservation String?   @db.NVarChar(Max) // observación administrativa (si quedó Observada)
   notes          String?
   openedAt       DateTime  @default(now())
   closedAt       DateTime?

@@ -226,6 +226,33 @@ export const cashRepository = {
     return prisma.cashSession.count({ where: { branchId, ...(status ? { status } : {}) } });
   },
 
+  /**
+   * Por caja: esperado virtual (pagos + ingresos por medio virtual) y lo VERIFICADO, para el cuadre
+   * de virtuales del listado. La diferencia = esperado − verificado (0 = OK; >0 = falta verificar).
+   */
+  async virtualDiffBySessions(ids: string[]): Promise<Map<string, { expected: number; verified: number }>> {
+    const out = new Map<string, { expected: number; verified: number }>();
+    if (!ids.length) return out;
+    const VIRTUAL = ['CARD', 'TRANSFER', 'YAPE', 'PLIN', 'WALLET'];
+    const bump = (id: string | null, key: 'expected' | 'verified', amt: number): void => {
+      if (!id) return;
+      const cur = out.get(id) ?? { expected: 0, verified: 0 };
+      cur[key] = Math.round((cur[key] + amt) * 100) / 100;
+      out.set(id, cur);
+    };
+    const [payExp, payVer, movExp, movVer] = await Promise.all([
+      prisma.payment.groupBy({ by: ['cashSessionId'], where: { cashSessionId: { in: ids }, method: { in: VIRTUAL }, sale: { status: { not: 'CANCELLED' } } }, _sum: { amount: true } }),
+      prisma.payment.groupBy({ by: ['cashSessionId'], where: { cashSessionId: { in: ids }, method: { in: VIRTUAL }, verifyState: 'VERIFICADO', sale: { status: { not: 'CANCELLED' } } }, _sum: { amount: true } }),
+      prisma.cashMovement.groupBy({ by: ['cashSessionId'], where: { cashSessionId: { in: ids }, type: 'IN', method: { in: VIRTUAL }, voided: false }, _sum: { amount: true } }),
+      prisma.cashMovement.groupBy({ by: ['cashSessionId'], where: { cashSessionId: { in: ids }, type: 'IN', method: { in: VIRTUAL }, voided: false, verifyState: 'VERIFICADO' }, _sum: { amount: true } }),
+    ]);
+    for (const g of payExp) bump(g.cashSessionId, 'expected', Number(g._sum.amount ?? 0));
+    for (const g of payVer) bump(g.cashSessionId, 'verified', Number(g._sum.amount ?? 0));
+    for (const g of movExp) bump(g.cashSessionId, 'expected', Number(g._sum.amount ?? 0));
+    for (const g of movVer) bump(g.cashSessionId, 'verified', Number(g._sum.amount ?? 0));
+    return out;
+  },
+
   /** Nombres de usuario por id (para apertura/cierre del turno). */
   async userNames(ids: string[]) {
     if (ids.length === 0) return new Map<string, string>();

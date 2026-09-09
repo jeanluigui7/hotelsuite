@@ -25,7 +25,10 @@ export interface CashSessionRow {
   openedByName: string;
   closedByName: string | null;
   recaudacion?: number; // total económico real del turno (todos los conceptos y métodos)
-  difference: number | null;
+  difference: number | null; // cuadre de EFECTIVO
+  virtualPending?: number; // cuadre de VIRTUALES: esperado − verificado (0 = OK; >0 = falta verificar)
+  virtualExpected?: number; // total esperado de medios virtuales del turno
+  auditStatus?: 'PENDIENTE' | 'EN_PROCESO' | 'OBSERVADA' | 'AUDITADA'; // estado de auditoría administrativa
 }
 
 export interface CashSummary {
