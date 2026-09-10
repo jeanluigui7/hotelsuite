@@ -56,25 +56,37 @@ const PAY_TYPES = [
   imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, DialogModule, InputTextModule, InputNumberModule, SelectModule, ToggleSwitchModule],
   template: `
     <p-dialog [visible]="visible" (visibleChange)="onVisibleChange($event)" [modal]="true"
-              [style]="{ width: '960px', maxWidth: '97vw' }" header="Cambiar Estado de Habitación" styleClass="ci-dialog">
-      <p class="sub">Selecciona el nuevo estado para la habitación {{ room?.roomType?.name }} - {{ room?.number }}.</p>
-
-      <!-- Habitación actual / cambiar a -->
-      <div class="room-card">
-        <div><span class="lbl">Habitación Actual</span><strong>{{ room?.number }} - {{ room?.roomType?.name }}</strong></div>
-        <div class="change"><span>Cambiar a:</span>
-          <p-select [options]="freeRooms()" [(ngModel)]="targetRoomId" optionValue="id" (onChange)="onTargetRoomChange()" styleClass="w sm">
-            <ng-template let-r pTemplate="item">{{ r.number }} - {{ r.roomType.name }}</ng-template>
-            <ng-template let-r pTemplate="selectedItem">{{ r.number }} - {{ r.roomType.name }}</ng-template>
-          </p-select>
+              [style]="{ width: '960px', maxWidth: '97vw' }" [header]="blankMode() ? 'Registrar Check-in' : 'Cambiar Estado de Habitación'" styleClass="ci-dialog">
+      @if (blankMode()) {
+        <p class="sub">Registra un nuevo check-in. Elige la habitación disponible y completa los datos del huésped.</p>
+        <!-- Habitación (solo disponibles): elección manual, sin preselección -->
+        <div class="room-card">
+          <div class="change blank"><span>Habitación *</span>
+            <p-select [options]="freeRooms()" [(ngModel)]="targetRoomId" optionValue="id" (onChange)="onTargetRoomChange()" placeholder="Selecciona habitación disponible" [filter]="true" filterBy="number" styleClass="w sm">
+              <ng-template let-r pTemplate="item">{{ r.number }} - {{ r.roomType.name }}</ng-template>
+              <ng-template let-r pTemplate="selectedItem">{{ r.number }} - {{ r.roomType.name }}</ng-template>
+            </p-select>
+          </div>
         </div>
-      </div>
+      } @else {
+        <p class="sub">Selecciona el nuevo estado para la habitación {{ room?.roomType?.name }} - {{ room?.number }}.</p>
+        <!-- Habitación actual / cambiar a -->
+        <div class="room-card">
+          <div><span class="lbl">Habitación Actual</span><strong>{{ room?.number }} - {{ room?.roomType?.name }}</strong></div>
+          <div class="change"><span>Cambiar a:</span>
+            <p-select [options]="freeRooms()" [(ngModel)]="targetRoomId" optionValue="id" (onChange)="onTargetRoomChange()" styleClass="w sm">
+              <ng-template let-r pTemplate="item">{{ r.number }} - {{ r.roomType.name }}</ng-template>
+              <ng-template let-r pTemplate="selectedItem">{{ r.number }} - {{ r.roomType.name }}</ng-template>
+            </p-select>
+          </div>
+        </div>
+      }
 
       <!-- Tabs -->
       <div class="tabs">
         <button [class.on]="tab() === 'huesped'" (click)="tab.set('huesped')">Datos del Huésped</button>
         <button [class.on]="tab() === 'adicionales'" (click)="tab.set('adicionales')">Huéspedes Adicionales @if (addGuests().length) { <span class="tbadge">{{ addGuests().length }}</span> }</button>
-        <button [class.on]="tab() === 'venta'" (click)="tab.set('venta')">Venta Productos (Opcional) @if (lines().length) { <span class="tbadge">{{ lines().length }}</span> }</button>
+        <button [class.on]="tab() === 'venta'" (click)="setTab('venta')">Venta Productos (Opcional) @if (lines().length) { <span class="tbadge">{{ lines().length }}</span> }</button>
         <button [class.on]="tab() === 'pago'" (click)="tab.set('pago')">Métodos de Pago</button>
       </div>
 
@@ -83,7 +95,7 @@ const PAY_TYPES = [
         <div class="grid2">
           <div class="fld"><label>Documento</label>
             <div class="doc-row">
-              <input pInputText [(ngModel)]="docNumber" placeholder="Número de documento" (ngModelChange)="onDocInput()" (keyup.enter)="lookupDoc(); reniec()" (blur)="lookupDoc()" />
+              <input #docInput pInputText [(ngModel)]="docNumber" placeholder="Número de documento" (ngModelChange)="onDocInput()" (keyup.enter)="lookupDoc(); reniec()" (blur)="lookupDoc()" />
               @if (docType === 'DNI') {
                 <button type="button" class="reniec-btn" [disabled]="reniecBusy()" (click)="reniec()" title="Buscar en RENIEC">
                   <i class="pi" [class.pi-search]="!reniecBusy()" [class.pi-spin]="reniecBusy()" [class.pi-spinner]="reniecBusy()"></i> RENIEC
@@ -230,7 +242,7 @@ const PAY_TYPES = [
             <div class="vbox">
               <strong>Seleccionar Producto</strong><p class="muted">Busca y selecciona un producto del inventario</p>
               <div class="vfilters">
-                <input pInputText placeholder="Buscar por nombre o código..." [(ngModel)]="prodSearch" />
+                <input #ciScanInput pInputText placeholder="Buscar o escanear código de barras…" [(ngModel)]="prodSearch" (keyup.enter)="onScanCheckin()" autocomplete="off" />
                 <p-select [options]="categoryOptions()" [(ngModel)]="categoryFilter" placeholder="Todas" [showClear]="true" styleClass="w sm" />
               </div>
               <div class="plist">
@@ -562,6 +574,10 @@ export class CheckInDialogComponent {
   payTypes = PAY_TYPES.map((t) => ({ ...t }));
 
   readonly tab = signal<Tab>('huesped');
+  /** Modo "Registrar Check-in" (F9/botón): sin habitación preseleccionada, foco en documento. */
+  readonly blankMode = signal(false);
+  @ViewChild('docInput') private docInput?: ElementRef<HTMLInputElement>;
+  @ViewChild('ciScanInput') private ciScanInput?: ElementRef<HTMLInputElement>;
   readonly rates = signal<Rate[]>([]);
   readonly tiers = signal<ClientTier[]>([]);
   readonly freeRooms = signal<RoomMapItem[]>([]);
@@ -617,6 +633,7 @@ export class CheckInDialogComponent {
   isCustom(): boolean { return this.selectedRateId === this.CUSTOM_RATE; }
 
   private init(room: RoomMapItem): void {
+    this.blankMode.set(false);
     this.tab.set('huesped');
     this.targetRoomId = room.id;
     this.docType = 'DNI'; this.docNumber = ''; this.guestName = ''; this.phone = ''; this.nationality = ''; this.vehiclePlate = ''; this.lastReniec = '';
@@ -641,6 +658,71 @@ export class CheckInDialogComponent {
       });
     }
   }
+
+  /**
+   * F9 / botón "Check-in": abre el modal SIN habitación preseleccionada. El campo Habitación
+   * arranca vacío (solo disponibles), no se autoselecciona tarifa y el foco va a Documento
+   * para teclear o recibir la lectura de la Zebra DS2278.
+   */
+  openBlank(): void {
+    this._room = null;
+    this.initBlank();
+    this.visible = true;
+    this.visibleChange.emit(true);
+  }
+
+  private initBlank(): void {
+    this.blankMode.set(true);
+    this.tab.set('huesped');
+    this.targetRoomId = null;
+    this.docType = 'DNI'; this.docNumber = ''; this.guestName = ''; this.phone = ''; this.nationality = ''; this.vehiclePlate = ''; this.lastReniec = '';
+    this.stopCamera(); this.docPhoto.set(null); this.camError.set('');
+    this.selectedRateId = null; this.selectedTierId = null; this.checkoutAt = ''; this.notes = '';
+    this.customPrice = null; this.applyEarly = false; this.finalPrice = null;
+    this.earlyAmount = null; this.earlyCortesia = false;
+    this.prodSearch = ''; this.categoryFilter = null; this.comprobante = false;
+    this.nights = 1; this.manualNights = false;
+    this.lines.set([]); this.addGuests.set([]); this.pays.set([]); this.debts.set({ items: [], total: 0 });
+    this.foundGuestId = null; this.blacklistInfo.set(null); this.reservationId = null;
+    // Sin habitación → sin tarifas hasta que se elija una (no hay autoselección de tarifa).
+    this.rates.set([]);
+    this.loadCommissions();
+    this.catalog.clientTiers.list({ pageSize: 100, sortBy: 'name' }).subscribe((res) => this.tiers.set(res.data ?? []));
+    this.inventory.products.list({ pageSize: 300, status: 'active', area: 'RECEPTION' }).subscribe((res) => this.products.set(res.data ?? []));
+    // El selector muestra ÚNICAMENTE habitaciones disponibles.
+    this.ops.map().subscribe((res) => this.freeRooms.set((res.data ?? []).filter((r) => r.status === 'FREE')));
+    // Foco automático en Número de documento (listo para teclear o para la Zebra DS2278).
+    setTimeout(() => this.docInput?.nativeElement.focus(), 350);
+  }
+
+  /** Cambia de pestaña; al entrar a Venta, enfoca el buscador para escanear con la Zebra sin clic. */
+  setTab(t: Tab): void {
+    this.tab.set(t);
+    if (t === 'venta') setTimeout(() => this.ciScanInput?.nativeElement.focus(), 120);
+  }
+
+  /**
+   * Escaneo en la pestaña Venta del check-in (Zebra = teclea el código + Enter). Coincidencia
+   * exacta por código de barras (o SKU) → agrega el producto; si ya está, aumenta la cantidad.
+   * Tras cada lectura limpia el buscador y devuelve el foco para el siguiente escaneo.
+   */
+  onScanCheckin(): void {
+    const code = this.prodSearch.trim();
+    if (!code) return;
+    const prod = this.products().find((p) => (p.barcode ?? '').trim() === code)
+      ?? this.products().find((p) => (p.sku ?? '').trim().toLowerCase() === code.toLowerCase());
+    const target = prod ?? (this.filteredProducts().length === 1 ? this.filteredProducts()[0] : null);
+    if (!target) {
+      if (this.filteredProducts().length === 0) this.messages.add({ severity: 'warn', summary: 'No encontrado', detail: `Sin producto para "${code}".` });
+      return; // sin coincidencia única: se deja el texto para elegir a mano
+    }
+    if (target.stock <= 0) { this.messages.add({ severity: 'warn', summary: 'Sin stock', detail: `${target.name}: sin stock disponible.` }); this.prodSearch = ''; this.refocusCiScan(); return; }
+    this.addProduct(target); // agrega o incrementa cantidad
+    this.messages.add({ severity: 'success', summary: 'Escaneado', detail: `${target.name} · S/ ${Number(target.salePrice).toFixed(2)}` });
+    this.prodSearch = '';
+    this.refocusCiScan();
+  }
+  private refocusCiScan(): void { setTimeout(() => this.ciScanInput?.nativeElement.focus(), 0); }
 
   /**
    * Al cambiar la habitación destino ("Cambiar a"), las tarifas dependen del tipo de la
@@ -684,6 +766,15 @@ export class CheckInDialogComponent {
    */
   onDocInput(): void {
     const doc = (this.docNumber || '').trim();
+    // Protección Zebra/EAN-13: 13 dígitos NO son un documento de identidad (DNI=8, RUC=11).
+    // Evita que el escaneo de un producto en el campo de documento se registre como DNI.
+    // No se aplica a 8 dígitos (un EAN-8 comparte longitud con el DNI y sería ambiguo).
+    if (/^\d{13}$/.test(doc)) {
+      this.docNumber = '';
+      this.lastReniec = '';
+      this.messages.add({ severity: 'warn', summary: 'Código no válido', detail: 'Código no válido para documento de identidad.' });
+      return;
+    }
     if (this.docType === 'DNI' && /^\d{8}$/.test(doc)) {
       if (doc !== this.lastReniec && !this.reniecBusy()) {
         this.lastReniec = doc;
@@ -866,9 +957,12 @@ export class CheckInDialogComponent {
   // Productos
   categoryOptions(): string[] { return [...new Set(this.products().map((p) => p.category?.name).filter((c): c is string => !!c))].sort(); }
   filteredProducts(): Product[] {
-    const q = this.prodSearch.toLowerCase();
+    const q = this.prodSearch.toLowerCase().trim();
     return this.products()
-      .filter((p) => (!q || p.name.toLowerCase().includes(q)) && (!this.categoryFilter || p.category?.name === this.categoryFilter))
+      .filter((p) => {
+        const matchesText = !q || p.name.toLowerCase().includes(q) || (p.sku ?? '').toLowerCase().includes(q) || (p.barcode ?? '').toLowerCase().includes(q);
+        return matchesText && (!this.categoryFilter || p.category?.name === this.categoryFilter);
+      })
       .sort((a, b) => (a.sku ?? '').localeCompare(b.sku ?? '')); // orden por código, no alfabético
   }
   addProduct(p: Product): void {
@@ -951,12 +1045,14 @@ export class CheckInDialogComponent {
 
   nextTab(): void {
     const order: Tab[] = ['huesped', 'adicionales', 'venta', 'pago'];
-    this.tab.set(order[Math.min(order.length - 1, order.indexOf(this.tab()) + 1)]);
+    const next = order[Math.min(order.length - 1, order.indexOf(this.tab()) + 1)];
+    this.setTab(next);
   }
   onVisibleChange(value: boolean): void { if (!value) this.stopCamera(); this.visible = value; this.visibleChange.emit(value); }
 
   confirm(): void {
-    if (!this.room) return;
+    // En modo "Registrar Check-in" (F9) no hay habitación previa: exige elegir una disponible.
+    if (!this.room && !this.targetRoomId) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Falta habitación', detail: 'Selecciona la habitación disponible.' }); return; }
     if (!this.selectedRateId) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Falta tarifa', detail: 'Selecciona una tarifa.' }); return; }
     if (this.isCustom() && (!this.checkoutAt || this.customPrice == null)) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Tarifa personalizada', detail: 'Indica la fecha de salida y el precio a cobrar.' }); return; }
     if (!this.docNumber || !this.guestName) { this.tab.set('huesped'); this.messages.add({ severity: 'warn', summary: 'Datos incompletos', detail: 'Completa documento y nombre del huésped.' }); return; }

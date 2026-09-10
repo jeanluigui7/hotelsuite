@@ -69,7 +69,7 @@ const DOC_TYPES = [
                 <label>Tipo de Documento</label>
                 <p-select [options]="docTypes" [(ngModel)]="docType" optionLabel="label" optionValue="value" styleClass="w" />
                 <label>Número de Documento</label>
-                <input pInputText [(ngModel)]="docNumber" placeholder="12345678" />
+                <input pInputText [(ngModel)]="docNumber" (ngModelChange)="onDocInput()" placeholder="12345678" />
               } @else {
                 <label>Placa Vehicular</label>
                 <input pInputText [(ngModel)]="plate" placeholder="ABC-123" style="text-transform:uppercase" />
@@ -362,6 +362,15 @@ export class VentaProductosComponent {
     if ((this.qty[prod.id] || 0) === before) this.toast.add({ severity: 'warn', summary: 'Sin stock', detail: `${prod.name}: sin stock disponible.` });
     else this.toast.add({ severity: 'success', summary: 'Escaneado', detail: `${prod.name} · S/ ${Number(prod.salePrice).toFixed(2)}` });
     this.search = ''; // listo para el siguiente escaneo
+    setTimeout(() => this.scanInput?.nativeElement.focus(), 0); // devuelve el foco al buscador
+  }
+
+  /** Venta Directa: un EAN-13 (13 dígitos) NO es un documento de identidad; se rechaza. */
+  onDocInput(): void {
+    if (/^\d{13}$/.test((this.docNumber || '').trim())) {
+      this.docNumber = '';
+      this.toast.add({ severity: 'warn', summary: 'Código no válido', detail: 'Código no válido para documento de identidad.' });
+    }
   }
 
   readonly total = computed(() => {

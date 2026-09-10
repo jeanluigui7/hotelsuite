@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -1607,11 +1607,36 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     this.checkInVisible = true;
   }
 
-  /** Botón global Check-in: abre el modal con una habitación libre para registrar/reservar. */
+  @ViewChild(CheckInDialogComponent) private checkInDlg?: CheckInDialogComponent;
+
+  /**
+   * Atajos de teclado para agilizar recepción (no restringen el uso normal con mouse/teclado):
+   *  F9  → Registrar Check-in (modal en blanco, sin habitación preseleccionada, foco en documento).
+   *  F10 → Venta de Productos / Venta Directa (foco en el buscador para escanear con la Zebra).
+   */
+  @HostListener('document:keydown', ['$event'])
+  onGlobalKey(e: KeyboardEvent): void {
+    if (e.key === 'F9') {
+      e.preventDefault();
+      if (this.checkInVisible || this.ventaVisible) return; // ya hay un modal abierto
+      this.openCheckInBlank();
+    } else if (e.key === 'F10') {
+      e.preventDefault();
+      if (this.ventaVisible || this.checkInVisible) return;
+      this.ventaVisible = true; // (onShow)=load() enfoca el buscador/escáner
+    }
+  }
+
+  /** Abre el check-in en modo "Registrar" (sin habitación fijada); el foco va al documento. */
+  openCheckInBlank(): void {
+    this.selectedRoom = null; // que el binding [room] no reinicialice con una habitación
+    this.checkInDlg?.openBlank();
+  }
+
+  /** Botón global Check-in: abre el modal en blanco (elección manual de habitación disponible). */
   checkInHint(): void {
-    const free = this.rooms().find((r) => r.status === 'FREE') ?? this.rooms().find((r) => r.status === 'RESERVADA');
-    if (!free) { this.toast.add({ severity: 'info', summary: 'Check-in', detail: 'No hay habitaciones disponibles para registrar.' }); return; }
-    this.openCheckIn(free);
+    if (!this.freeRooms().length) { this.toast.add({ severity: 'info', summary: 'Check-in', detail: 'No hay habitaciones disponibles para registrar.' }); return; }
+    this.openCheckInBlank();
   }
 
   // Cobro del pendiente de la estancia.
