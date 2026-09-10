@@ -722,22 +722,31 @@ export class CashMovementsPageComponent implements OnInit {
   readonly groupedCodes = signal<Set<string>>(new Set());
   toggleGroupCode(code: string | null): void { if (!code) return; const s = new Set(this.groupedCodes()); if (s.has(code)) s.delete(code); else s.add(code); this.groupedCodes.set(s); }
   isGrouped(g: VAuditGroup): boolean { return !!g.code && this.groupedCodes().has(g.code); }
-  // Lista de visualización: si hay códigos agrupados, sus filas se juntan (clúster) tras su primera
-  // aparición, con una cabecera de total; el resto conserva el orden por hora. head=true marca la cabecera.
+  // Lista de visualización: si hay códigos agrupados, sus filas se juntan (clúster) ANCLADO en la
+  // posición del movimiento ORIGINAL (el más antiguo): el original conserva su lugar y el/los
+  // duplicado(s) más recientes se apilan justo encima (orden por hora desc dentro del clúster).
+  // El resto de movimientos mantiene su orden. head=true marca la cabecera del grupo.
   readonly displayAudit = computed<{ g: VAuditGroup; head: boolean; total: number; count: number; verified: number }[]>(() => {
     const rows = this.filteredAudit();
     const grouped = this.groupedCodes();
     if (!grouped.size) return rows.map((g) => ({ g, head: false, total: 0, count: 0, verified: 0 }));
+    const ms = (x: VAuditGroup): number => new Date(x.time).getTime();
     const emitted = new Set<string>();
     const out: { g: VAuditGroup; head: boolean; total: number; count: number; verified: number }[] = [];
     for (const g of rows) {
       if (g.code && grouped.has(g.code)) {
         if (emitted.has(g.code)) continue;
-        emitted.add(g.code);
         const cluster = rows.filter((x) => x.code === g.code);
+        // El original = el más antiguo del clúster. Se emite el bloque SOLO al llegar a él, para
+        // que no se mueva de su posición; los duplicados más recientes (que en la lista aparecen
+        // antes) se saltan aquí y se renderizan dentro del clúster, encima del original.
+        const original = cluster.reduce((a, x) => (ms(x) <= ms(a) ? x : a), cluster[0]);
+        if (g !== original) continue;
+        emitted.add(g.code);
+        const ordered = [...cluster].sort((a, b) => ms(b) - ms(a)); // reciente → original (desc)
         const total = Math.round(cluster.reduce((a, x) => a + x.amount, 0) * 100) / 100;
         const verified = cluster.filter((x) => x.state === 'VERIFICADO').length;
-        cluster.forEach((x, i) => out.push({ g: x, head: i === 0, total, count: cluster.length, verified }));
+        ordered.forEach((x, i) => out.push({ g: x, head: i === 0, total, count: cluster.length, verified }));
       } else out.push({ g, head: false, total: 0, count: 0, verified: 0 });
     }
     return out;
