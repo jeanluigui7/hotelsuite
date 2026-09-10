@@ -18,7 +18,7 @@ import type { Product, Warehouse } from '../services/inventory.models';
 
 interface Form {
   id?: string;
-  name: string; sku: string; barcode: string; imageUrl: string; brand: string;
+  name: string; sku: string; barcodes: string[]; imageUrl: string; brand: string;
   reusable: boolean; categoryId: string | null; productType: string;
   initialWarehouseId: string | null; unit: string; igvType: string; igvPercent: number;
   taxable: boolean; active: boolean;
@@ -26,7 +26,7 @@ interface Form {
   reorderPoint: number; receptionReorderPoint: number; stock: number;
 }
 function emptyForm(): Form {
-  return { name: '', sku: '', barcode: '', imageUrl: '', brand: '', reusable: false, categoryId: null, productType: 'PRODUCTO', initialWarehouseId: null, unit: 'NIU', igvType: 'GRAVADO', igvPercent: 18, taxable: true, active: true, salePrice: null, cost: 0, reorderPoint: 0, receptionReorderPoint: 0, stock: 0 };
+  return { name: '', sku: '', barcodes: [''], imageUrl: '', brand: '', reusable: false, categoryId: null, productType: 'PRODUCTO', initialWarehouseId: null, unit: 'NIU', igvType: 'GRAVADO', igvPercent: 18, taxable: true, active: true, salePrice: null, cost: 0, reorderPoint: 0, receptionReorderPoint: 0, stock: 0 };
 }
 const PRODUCT_TYPES = [
   { label: 'Producto', value: 'PRODUCTO' }, { label: 'Servicio', value: 'SERVICIO' },
@@ -81,9 +81,16 @@ const IGV_TYPES = [
       <div class="pf">
         <div class="f"><label>Código *</label><input pInputText [(ngModel)]="form.sku" placeholder="Ej: AMN-005" /></div>
 
-        <div class="f"><label>Código de Barras</label>
-          <div class="bc"><input pInputText [(ngModel)]="form.barcode" placeholder="EAN-13, EAN-8, UPC, etc." /><button class="bc-cam" type="button" pTooltip="Escanear" title="Escanear"><i class="pi pi-camera"></i></button></div>
-          <small>Código de barras para escaneo rápido (opcional)</small>
+        <div class="f"><label>Códigos de Barras</label>
+          @for (code of form.barcodes; track $index; let i = $index) {
+            <div class="bc">
+              <input pInputText [(ngModel)]="form.barcodes[i]" placeholder="EAN-13, EAN-8, UPC, etc." />
+              <button class="bc-cam" type="button" pTooltip="Escanear" title="Escanear"><i class="pi pi-camera"></i></button>
+              <button class="bc-del" type="button" (click)="removeBarcode(i)" pTooltip="Eliminar" title="Eliminar"><i class="pi pi-times"></i></button>
+            </div>
+          }
+          <button class="bc-add" type="button" (click)="addBarcode()"><i class="pi pi-plus"></i> Agregar código</button>
+          <small>Un producto puede tener varios códigos (p. ej. sabores/presentaciones). Cada código es único y no puede estar en otro producto. Opcional.</small>
         </div>
 
         <div class="f"><label>Imagen</label>
@@ -149,8 +156,10 @@ const IGV_TYPES = [
       .pf .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
       .pf input[pInputText], :host ::ng-deep .pf .w-full { width: 100%; }
       .pf .chk { flex-direction: row; align-items: center; gap: 0.5rem; font-weight: 500; cursor: pointer; }
-      .bc { display: flex; gap: 0.4rem; } .bc input { flex: 1; }
+      .bc { display: flex; gap: 0.4rem; margin-bottom: 0.35rem; } .bc input { flex: 1; }
       .bc-cam { background: var(--p-content-hover-background, #1b2433); border: 1px solid var(--p-content-border-color, #2b3a4f); color: inherit; border-radius: 8px; padding: 0 0.8rem; cursor: pointer; }
+      .bc-del { background: transparent; border: 1px solid var(--p-content-border-color, #2b3a4f); color: #f87171; border-radius: 8px; padding: 0 0.7rem; cursor: pointer; }
+      .bc-add { align-self: flex-start; background: transparent; border: 1px dashed var(--p-content-border-color, #2b3a4f); color: #60a5fa; border-radius: 8px; padding: 0.4rem 0.8rem; cursor: pointer; font-weight: 600; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.35rem; }
       .img-row { display: flex; align-items: center; gap: 0.7rem; }
       .img-thumb { width: 56px; height: 56px; border-radius: 10px; background: var(--p-content-hover-background, #1b2433); display: grid; place-items: center; overflow: hidden; flex: 0 0 auto; }
       .img-thumb img { width: 100%; height: 100%; object-fit: cover; } .img-thumb i { font-size: 1.3rem; color: #8aa0bd; }
@@ -223,10 +232,16 @@ export class ProductsComponent implements OnInit {
 
   openNew(): void { this.form = emptyForm(); this.dialogVisible = true; }
 
+  addBarcode(): void { this.form.barcodes = [...this.form.barcodes, '']; }
+  removeBarcode(i: number): void {
+    const n = [...this.form.barcodes]; n.splice(i, 1);
+    this.form.barcodes = n.length ? n : ['']; // siempre queda al menos una fila visible
+  }
+
   openEdit(row: Product): void {
     this.form = {
       id: row.id,
-      name: row.name, sku: row.sku ?? '', barcode: row.barcode ?? '', imageUrl: row.imageUrl ?? '', brand: row.brand ?? '',
+      name: row.name, sku: row.sku ?? '', barcodes: (row.barcodes && row.barcodes.length ? [...row.barcodes] : (row.barcode ? [row.barcode] : [''])), imageUrl: row.imageUrl ?? '', brand: row.brand ?? '',
       reusable: !!row.reusable, categoryId: row.categoryId ?? null, productType: row.productType ?? 'PRODUCTO',
       initialWarehouseId: null, unit: row.unit ?? 'NIU', igvType: row.igvType ?? 'GRAVADO', igvPercent: row.igvPercent != null ? Number(row.igvPercent) : 18,
       taxable: row.taxable ?? true, active: row.status === 'active',
@@ -243,7 +258,7 @@ export class ProductsComponent implements OnInit {
     }
     if (!this.form.categoryId) { this.messages.add({ severity: 'warn', summary: 'Falta categoría', detail: 'Selecciona una categoría.' }); return; }
     const dto = {
-      name: this.form.name, sku: this.form.sku || undefined, barcode: this.form.barcode || undefined,
+      name: this.form.name, sku: this.form.sku || undefined, barcodes: this.form.barcodes.map((c) => c.trim()).filter((c) => !!c),
       imageUrl: this.form.imageUrl || undefined, brand: this.form.brand || undefined, reusable: this.form.reusable,
       categoryId: this.form.categoryId, productType: this.form.productType, unit: this.form.unit,
       igvType: this.form.igvType, igvPercent: this.form.igvPercent, taxable: this.form.taxable,

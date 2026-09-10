@@ -330,7 +330,7 @@ export class VentaProductosComponent {
   filteredProducts(): Product[] {
     const q = this.search.toLowerCase().trim();
     return this.products().filter((p) => {
-      if (q && !(p.name.toLowerCase().includes(q) || (p.sku ?? '').toLowerCase().includes(q) || (p.barcode ?? '').toLowerCase().includes(q))) return false;
+      if (q && !(p.name.toLowerCase().includes(q) || (p.sku ?? '').toLowerCase().includes(q) || this.codesOf(p).some((c) => c.toLowerCase().includes(q)))) return false;
       if (this.categoryFilter && p.category?.name !== this.categoryFilter) return false;
       if (this.lowStockOnly && !this.isLow(p)) return false;
       return true;
@@ -347,7 +347,7 @@ export class VentaProductosComponent {
     if (!code) return;
     // SOLO un código EXACTO (barras o SKU) agrega el producto (+1). El texto tecleado a mano
     // NO agrega: únicamente filtra la lista (el filtrado ya ocurre al escribir).
-    const prod = this.products().find((p) => (p.barcode ?? '').trim() === code)
+    const prod = this.products().find((p) => this.codesOf(p).some((c) => c.trim() === code))
       ?? this.products().find((p) => (p.sku ?? '').trim().toLowerCase() === code.toLowerCase());
     if (!prod) {
       // Un escaneo real (código numérico largo) sin producto → avisar; texto tecleado → solo filtra.
@@ -356,6 +356,8 @@ export class VentaProductosComponent {
     }
     this.addByScan(prod);
   }
+  /** Todos los códigos de barras del producto (usa `barcodes`; cae al legacy `barcode` si aplica). */
+  private codesOf(p: Product): string[] { return p.barcodes ?? (p.barcode ? [p.barcode] : []); }
   private addByScan(prod: Product): void {
     const before = this.qty[prod.id] || 0;
     this.inc(prod); // inc ya respeta el stock disponible

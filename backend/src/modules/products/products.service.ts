@@ -16,11 +16,13 @@ const SORTABLE = ['name', 'salePrice', 'createdAt', 'status'] as const;
 
 function serialize(p: ProductWithRelations, warehouseId: string) {
   const stockRow = p.stock.find((s) => s.warehouseId === warehouseId);
+  const codes = p.barcodes.map((b) => b.code);
   return {
     id: p.id,
     name: p.name,
     sku: p.sku,
-    barcode: p.barcode,
+    barcode: codes[0] ?? null, // legacy: primer código (compatibilidad con pantallas antiguas)
+    barcodes: codes, // todos los códigos asociados
     imageUrl: p.imageUrl,
     brand: p.brand,
     reusable: p.reusable,
@@ -49,15 +51,33 @@ async function assertCategoryInBranch(categoryId: string | null | undefined, bra
 }
 
 /**
- * El código de barras debe ser ÚNICO por sucursal. Vacío/null se permite (varios productos
- * pueden no tener código). Al editar se excluye el propio registro. Es la validación de
- * negocio; el índice único filtrado en BD es la segunda protección.
+ * Normaliza la lista de códigos de barras de un producto: acepta `barcodes` (varios) o el legacy
+ * `barcode` (uno solo); recorta espacios, descarta vacíos y duplicados. Devuelve [] si no usa código.
  */
-async function assertBarcodeUnique(barcode: string | null | undefined, branchId: string, excludeId?: string): Promise<void> {
-  const code = (barcode ?? '').trim();
-  if (!code) return;
-  const other = await productsRepository.findByBarcode(branchId, code, excludeId);
-  if (other) throw new ValidationError(`El código de barras ya está asignado a otro producto (${other.name}).`);
+function normalizeBarcodes(dto: { barcodes?: string[]; barcode?: string | null }): string[] {
+  const raw = dto.barcodes ?? (dto.barcode != null ? [dto.barcode] : []);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const c of raw) {
+    const code = (c ?? '').trim();
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    out.push(code);
+  }
+  return out;
+}
+
+/**
+ * Cada código de barras debe ser ÚNICO GLOBAL: no puede pertenecer a otro producto. Al editar se
+ * excluye el propio producto. Es la validación de negocio; el índice único de code es la 2ª protección.
+ */
+async function assertBarcodesUnique(codes: string[], selfProductId?: string): Promise<void> {
+  for (const code of codes) {
+    const owner = await productsRepository.findBarcodeOwner(code);
+    if (owner && owner.productId !== selfProductId) {
+      throw new ValidationError(`El código de barras "${code}" ya está asignado a otro producto (${owner.product?.name ?? 'otro'}).`);
+    }
+  }
 }
 
 export const productsService = {
@@ -107,7 +127,8 @@ export const productsService = {
   async create(scope: RequestScope, dto: CreateProductDto) {
     const branchId = requireActiveBranch(scope);
     await assertCategoryInBranch(dto.categoryId, branchId);
-    await assertBarcodeUnique(dto.barcode, branchId);
+    const barcodes = normalizeBarcodes(dto);
+    await assertBarcodesUnique(barcodes);
     const defaultWh = await productsRepository.defaultWarehouse(branchId);
     // Área inicial: almacén donde se coloca el stock inicial (validado por sucursal).
     let initialWh = defaultWh;
@@ -122,7 +143,6 @@ export const productsService = {
         categoryId: dto.categoryId ?? null,
         name: dto.name,
         sku: dto.sku || null,
-        barcode: (dto.barcode ?? '').trim() || null,
         imageUrl: dto.imageUrl || null,
         brand: dto.brand || null,
         reusable: dto.reusable,
@@ -139,6 +159,7 @@ export const productsService = {
       },
       initialWh.id,
       dto.stock,
+      barcodes,
     );
     return serialize(p, defaultWh.id);
   },
@@ -147,14 +168,16 @@ export const productsService = {
     const branchId = requireActiveBranch(scope);
     await this.getEntity(scope, id);
     await assertCategoryInBranch(dto.categoryId, branchId);
-    await assertBarcodeUnique(dto.barcode, branchId, id); // excluye el propio registro
+    // Reemplazo de códigos SOLO cuando llega el array `barcodes` (pantalla Artículos). Las pantallas
+    // legacy que mandan un `barcode` único NO tocan la lista, para no borrar los demás códigos.
+    const barcodes = dto.barcodes !== undefined ? normalizeBarcodes({ barcodes: dto.barcodes }) : undefined;
+    if (barcodes) await assertBarcodesUnique(barcodes, id); // excluye el propio producto
     const wh = await productsRepository.defaultWarehouse(branchId);
     const p = await productsRepository.update(
       id,
       {
         name: dto.name,
         sku: dto.sku === '' ? null : dto.sku,
-        barcode: dto.barcode === undefined ? undefined : (dto.barcode.trim() === '' ? null : dto.barcode.trim()),
         imageUrl: dto.imageUrl === '' ? null : dto.imageUrl,
         brand: dto.brand === '' ? null : dto.brand,
         reusable: dto.reusable,
@@ -175,6 +198,7 @@ export const productsService = {
           : {}),
       },
       dto.stock !== undefined ? { warehouseId: wh.id, quantity: dto.stock } : undefined,
+      barcodes,
     );
     return serialize(p as ProductWithRelations, wh.id);
   },

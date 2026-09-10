@@ -4,6 +4,7 @@ import { prisma } from '../../config/prisma';
 const include = {
   category: { select: { id: true, name: true } },
   stock: true,
+  barcodes: { select: { code: true }, orderBy: { createdAt: 'asc' } },
 } satisfies Prisma.ProductInclude;
 
 export type ProductWithRelations = Prisma.ProductGetPayload<{ include: typeof include }>;
@@ -38,12 +39,9 @@ export const productsRepository = {
   findById(id: string) {
     return prisma.product.findUnique({ where: { id }, include });
   },
-  /** Otro producto de la sucursal con ese código de barras (excluye el propio al editar). */
-  findByBarcode(branchId: string, barcode: string, excludeId?: string) {
-    return prisma.product.findFirst({
-      where: { branchId, barcode, ...(excludeId ? { NOT: { id: excludeId } } : {}) },
-      select: { id: true, name: true },
-    });
+  /** Dueño (productId) de un código de barras, si ya existe (código único global). */
+  findBarcodeOwner(code: string) {
+    return prisma.productBarcode.findUnique({ where: { code }, select: { productId: true, product: { select: { name: true } } } });
   },
 
   create(
@@ -52,7 +50,6 @@ export const productsRepository = {
       categoryId: string | null;
       name: string;
       sku: string | null;
-      barcode: string | null;
       imageUrl: string | null;
       brand: string | null;
       reusable: boolean;
@@ -69,11 +66,13 @@ export const productsRepository = {
     },
     warehouseId: string,
     stock: number,
+    barcodes: string[],
   ) {
     return prisma.product.create({
       data: {
         ...data,
         stock: { create: [{ warehouseId, quantity: stock }] },
+        barcodes: barcodes.length ? { create: barcodes.map((code) => ({ code })) } : undefined,
       },
       include,
     });
@@ -83,6 +82,7 @@ export const productsRepository = {
     id: string,
     data: Prisma.ProductUpdateInput,
     stockUpdate?: { warehouseId: string; quantity: number },
+    barcodes?: string[],
   ) {
     return prisma.$transaction(async (tx) => {
       await tx.product.update({ where: { id }, data });
@@ -92,6 +92,11 @@ export const productsRepository = {
           update: { quantity: stockUpdate.quantity },
           create: { productId: id, warehouseId: stockUpdate.warehouseId, quantity: stockUpdate.quantity },
         });
+      }
+      // Reemplazo total de los códigos cuando se envían (undefined = no tocar).
+      if (barcodes !== undefined) {
+        await tx.productBarcode.deleteMany({ where: { productId: id } });
+        if (barcodes.length) await tx.productBarcode.createMany({ data: barcodes.map((code) => ({ productId: id, code })) });
       }
       return tx.product.findUnique({ where: { id }, include });
     });

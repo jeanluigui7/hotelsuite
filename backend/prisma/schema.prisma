@@ -908,9 +908,22 @@ model Product {
   branch   Branch             @relation(fields: [branchId], references: [id], onDelete: Cascade)
   category InventoryCategory? @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   stock    Stock[]
+  barcodes ProductBarcode[] // un producto puede tener varios códigos de barras (sabores/presentaciones)
 
   @@index([branchId])
   @@index([categoryId])
+}
+
+/// Código de barras asociado a un producto. 1 producto → N códigos; 1 código → 1 producto (code único global).
+model ProductBarcode {
+  id        String   @id @default(uuid())
+  productId String
+  code      String   @unique // único globalmente: un mismo EAN no puede pertenecer a dos productos
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
 }
 
 /// Stock de un producto en un almacén.

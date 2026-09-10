@@ -2,7 +2,8 @@ export interface Product {
   id: string;
   name: string;
   sku?: string | null;
-  barcode?: string | null;
+  barcode?: string | null; // legacy: primer código (compatibilidad)
+  barcodes?: string[] | null; // todos los códigos de barras del producto
   imageUrl?: string | null;
   brand?: string | null;
   reusable?: boolean;
@@ -25,7 +26,8 @@ export interface Product {
 export interface ProductUpsert {
   name: string;
   sku?: string;
-  barcode?: string;
+  barcode?: string; // legacy
+  barcodes?: string[]; // varios códigos por producto
   imageUrl?: string;
   brand?: string;
   reusable?: boolean;

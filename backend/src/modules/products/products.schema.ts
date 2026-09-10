@@ -4,7 +4,8 @@ export const createProductSchema = z.object({
   name: z.string().min(1).max(150),
   categoryId: z.string().min(1).optional().nullable(),
   sku: z.string().max(60).optional().or(z.literal('')),
-  barcode: z.string().max(60).optional().or(z.literal('')),
+  barcode: z.string().max(60).optional().or(z.literal('')), // legacy: un solo código (pantallas antiguas)
+  barcodes: z.array(z.string().max(60)).optional(), // varios códigos por producto (sabores/presentaciones)
   imageUrl: z.string().optional().or(z.literal('')),
   brand: z.string().max(120).optional().or(z.literal('')),
   reusable: z.coerce.boolean().optional().default(false),

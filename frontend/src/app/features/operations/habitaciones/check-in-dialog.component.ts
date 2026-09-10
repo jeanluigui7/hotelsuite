@@ -710,7 +710,7 @@ export class CheckInDialogComponent {
     const code = this.prodSearch.trim();
     if (!code) return;
     // SOLO un código EXACTO (barras o SKU) agrega el producto; el texto tecleado a mano solo filtra.
-    const target = this.products().find((p) => (p.barcode ?? '').trim() === code)
+    const target = this.products().find((p) => this.codesOf(p).some((c) => c.trim() === code))
       ?? this.products().find((p) => (p.sku ?? '').trim().toLowerCase() === code.toLowerCase());
     if (!target) {
       // Escaneo real (numérico largo) sin producto → avisar; texto tecleado → solo filtra.
@@ -724,6 +724,8 @@ export class CheckInDialogComponent {
     this.refocusCiScan();
   }
   private refocusCiScan(): void { setTimeout(() => this.ciScanInput?.nativeElement.focus(), 0); }
+  /** Todos los códigos de barras del producto (usa `barcodes`; cae al legacy `barcode` si aplica). */
+  private codesOf(p: Product): string[] { return p.barcodes ?? (p.barcode ? [p.barcode] : []); }
 
   /**
    * Al cambiar la habitación destino ("Cambiar a"), las tarifas dependen del tipo de la
@@ -961,7 +963,7 @@ export class CheckInDialogComponent {
     const q = this.prodSearch.toLowerCase().trim();
     return this.products()
       .filter((p) => {
-        const matchesText = !q || p.name.toLowerCase().includes(q) || (p.sku ?? '').toLowerCase().includes(q) || (p.barcode ?? '').toLowerCase().includes(q);
+        const matchesText = !q || p.name.toLowerCase().includes(q) || (p.sku ?? '').toLowerCase().includes(q) || this.codesOf(p).some((c) => c.toLowerCase().includes(q));
         return matchesText && (!this.categoryFilter || p.category?.name === this.categoryFilter);
       })
       .sort((a, b) => (a.sku ?? '').localeCompare(b.sku ?? '')); // orden por código, no alfabético
