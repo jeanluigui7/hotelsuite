@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output, computed, inject, signal } from '@angular/core';
+import { Component, ElementRef, EventEmitter, Input, Output, ViewChild, computed, inject, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
@@ -153,7 +153,7 @@ const DOC_TYPES = [
         <!-- Derecha: catálogo en tabla -->
         <div class="catalog">
           <div class="cat-filters">
-            <span class="search"><i class="pi pi-search"></i><input pInputText placeholder="Buscar por nombre o descripción" [(ngModel)]="search" /></span>
+            <span class="search"><i class="pi pi-barcode"></i><input #scanInput pInputText placeholder="Buscar o escanear código de barras…" [(ngModel)]="search" (keyup.enter)="onScan()" autocomplete="off" /></span>
             <p-select [options]="categoryOptions()" [(ngModel)]="categoryFilter" placeholder="Todas" [showClear]="true" styleClass="w sm" />
           </div>
           <label class="lowstock"><p-toggleSwitch [(ngModel)]="lowStockOnly" /> Solo productos con bajo stock</label>
@@ -328,13 +328,40 @@ export class VentaProductosComponent {
 
   // Método (no computed) para que reaccione a búsqueda/categoría/bajo-stock (props no-signal).
   filteredProducts(): Product[] {
-    const q = this.search.toLowerCase();
+    const q = this.search.toLowerCase().trim();
     return this.products().filter((p) => {
-      if (q && !p.name.toLowerCase().includes(q)) return false;
+      if (q && !(p.name.toLowerCase().includes(q) || (p.sku ?? '').toLowerCase().includes(q) || (p.barcode ?? '').toLowerCase().includes(q))) return false;
       if (this.categoryFilter && p.category?.name !== this.categoryFilter) return false;
       if (this.lowStockOnly && !this.isLow(p)) return false;
       return true;
     }).sort((a, b) => (a.sku ?? '').localeCompare(b.sku ?? '')); // orden por código, no alfabético
+  }
+
+  /**
+   * Escaneo con lector (Zebra DS22 = teclado: teclea el código + Enter). Al presionar Enter, si el texto
+   * coincide EXACTO con el código de barras (o SKU) de un producto, agrega 1 unidad y limpia para el
+   * siguiente escaneo. Si no hay coincidencia exacta, solo filtra (se puede elegir a mano).
+   */
+  onScan(): void {
+    const code = this.search.trim();
+    if (!code) return;
+    const prod = this.products().find((p) => (p.barcode ?? '').trim() === code)
+      ?? this.products().find((p) => (p.sku ?? '').trim().toLowerCase() === code.toLowerCase());
+    if (!prod) {
+      // Sin match exacto: si el filtro deja exactamente 1 producto, lo agrega; si no, deja el texto.
+      const f = this.filteredProducts();
+      if (f.length === 1) { this.addByScan(f[0]); }
+      else if (f.length === 0) { this.toast.add({ severity: 'warn', summary: 'No encontrado', detail: `Sin producto para "${code}".` }); }
+      return;
+    }
+    this.addByScan(prod);
+  }
+  private addByScan(prod: Product): void {
+    const before = this.qty[prod.id] || 0;
+    this.inc(prod); // inc ya respeta el stock disponible
+    if ((this.qty[prod.id] || 0) === before) this.toast.add({ severity: 'warn', summary: 'Sin stock', detail: `${prod.name}: sin stock disponible.` });
+    else this.toast.add({ severity: 'success', summary: 'Escaneado', detail: `${prod.name} · S/ ${Number(prod.salePrice).toFixed(2)}` });
+    this.search = ''; // listo para el siguiente escaneo
   }
 
   readonly total = computed(() => {
@@ -362,7 +389,10 @@ export class VentaProductosComponent {
     this.inventory.products.list({ pageSize: 300, status: 'active', area: 'RECEPTION' }).subscribe((r) => this.products.set(r.data ?? []));
     this.ops.stays({ status: 'OPEN', pageSize: 200 }).subscribe((r) => this.stays.set(r.data ?? []));
     this.loadCommissions();
+    // Enfoca la barra de búsqueda/escaneo para que el lector (Zebra DS22) funcione sin clic previo.
+    setTimeout(() => this.scanInput?.nativeElement.focus(), 350);
   }
+  @ViewChild('scanInput') private scanInput?: ElementRef<HTMLInputElement>;
 
   private loadCommissions(): void {
     this.http.get<ApiResponse<{ commissionsEnabled: boolean; pos: Record<string, { enabled: boolean; pct: number }> }>>(`${this.api}/operations-config`).subscribe((res) => {
