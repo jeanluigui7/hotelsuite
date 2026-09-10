@@ -888,7 +888,7 @@ model Product {
   categoryId String?
   name         String
   sku          String?
-  barcode      String? // código de barras (EAN-13, etc.)
+  barcode      String? // código de barras (EAN-13, etc.); único por sucursal vía índice filtrado UX_Product_branch_barcode (migración 20260910000000), null permitido
   imageUrl     String?  @db.NVarChar(Max) // imagen del artículo (data URL o URL)
   brand        String? // marca
   reusable     Boolean  @default(false) // ¿es reutilizable?

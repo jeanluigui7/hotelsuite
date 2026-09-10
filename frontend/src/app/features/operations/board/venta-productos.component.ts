@@ -345,13 +345,13 @@ export class VentaProductosComponent {
   onScan(): void {
     const code = this.search.trim();
     if (!code) return;
+    // SOLO un código EXACTO (barras o SKU) agrega el producto (+1). El texto tecleado a mano
+    // NO agrega: únicamente filtra la lista (el filtrado ya ocurre al escribir).
     const prod = this.products().find((p) => (p.barcode ?? '').trim() === code)
       ?? this.products().find((p) => (p.sku ?? '').trim().toLowerCase() === code.toLowerCase());
     if (!prod) {
-      // Sin match exacto: si el filtro deja exactamente 1 producto, lo agrega; si no, deja el texto.
-      const f = this.filteredProducts();
-      if (f.length === 1) { this.addByScan(f[0]); }
-      else if (f.length === 0) { this.toast.add({ severity: 'warn', summary: 'No encontrado', detail: `Sin producto para "${code}".` }); }
+      // Un escaneo real (código numérico largo) sin producto → avisar; texto tecleado → solo filtra.
+      if (/^\d{8,}$/.test(code)) this.toast.add({ severity: 'warn', summary: 'No encontrado', detail: `Sin producto con el código "${code}".` });
       return;
     }
     this.addByScan(prod);

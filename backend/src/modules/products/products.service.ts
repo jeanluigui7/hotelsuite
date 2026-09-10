@@ -48,6 +48,18 @@ async function assertCategoryInBranch(categoryId: string | null | undefined, bra
   if (!cat || cat.branchId !== branchId) throw new ValidationError('Categoría inválida');
 }
 
+/**
+ * El código de barras debe ser ÚNICO por sucursal. Vacío/null se permite (varios productos
+ * pueden no tener código). Al editar se excluye el propio registro. Es la validación de
+ * negocio; el índice único filtrado en BD es la segunda protección.
+ */
+async function assertBarcodeUnique(barcode: string | null | undefined, branchId: string, excludeId?: string): Promise<void> {
+  const code = (barcode ?? '').trim();
+  if (!code) return;
+  const other = await productsRepository.findByBarcode(branchId, code, excludeId);
+  if (other) throw new ValidationError(`El código de barras ya está asignado a otro producto (${other.name}).`);
+}
+
 export const productsService = {
   async list(scope: RequestScope, params: PaginationParams, area?: string, status?: string, itemType?: string) {
     const branchId = requireActiveBranch(scope);
@@ -95,6 +107,7 @@ export const productsService = {
   async create(scope: RequestScope, dto: CreateProductDto) {
     const branchId = requireActiveBranch(scope);
     await assertCategoryInBranch(dto.categoryId, branchId);
+    await assertBarcodeUnique(dto.barcode, branchId);
     const defaultWh = await productsRepository.defaultWarehouse(branchId);
     // Área inicial: almacén donde se coloca el stock inicial (validado por sucursal).
     let initialWh = defaultWh;
@@ -109,7 +122,7 @@ export const productsService = {
         categoryId: dto.categoryId ?? null,
         name: dto.name,
         sku: dto.sku || null,
-        barcode: dto.barcode || null,
+        barcode: (dto.barcode ?? '').trim() || null,
         imageUrl: dto.imageUrl || null,
         brand: dto.brand || null,
         reusable: dto.reusable,
@@ -134,13 +147,14 @@ export const productsService = {
     const branchId = requireActiveBranch(scope);
     await this.getEntity(scope, id);
     await assertCategoryInBranch(dto.categoryId, branchId);
+    await assertBarcodeUnique(dto.barcode, branchId, id); // excluye el propio registro
     const wh = await productsRepository.defaultWarehouse(branchId);
     const p = await productsRepository.update(
       id,
       {
         name: dto.name,
         sku: dto.sku === '' ? null : dto.sku,
-        barcode: dto.barcode === '' ? null : dto.barcode,
+        barcode: dto.barcode === undefined ? undefined : (dto.barcode.trim() === '' ? null : dto.barcode.trim()),
         imageUrl: dto.imageUrl === '' ? null : dto.imageUrl,
         brand: dto.brand === '' ? null : dto.brand,
         reusable: dto.reusable,

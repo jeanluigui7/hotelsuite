@@ -709,12 +709,13 @@ export class CheckInDialogComponent {
   onScanCheckin(): void {
     const code = this.prodSearch.trim();
     if (!code) return;
-    const prod = this.products().find((p) => (p.barcode ?? '').trim() === code)
+    // SOLO un código EXACTO (barras o SKU) agrega el producto; el texto tecleado a mano solo filtra.
+    const target = this.products().find((p) => (p.barcode ?? '').trim() === code)
       ?? this.products().find((p) => (p.sku ?? '').trim().toLowerCase() === code.toLowerCase());
-    const target = prod ?? (this.filteredProducts().length === 1 ? this.filteredProducts()[0] : null);
     if (!target) {
-      if (this.filteredProducts().length === 0) this.messages.add({ severity: 'warn', summary: 'No encontrado', detail: `Sin producto para "${code}".` });
-      return; // sin coincidencia única: se deja el texto para elegir a mano
+      // Escaneo real (numérico largo) sin producto → avisar; texto tecleado → solo filtra.
+      if (/^\d{8,}$/.test(code)) this.messages.add({ severity: 'warn', summary: 'No encontrado', detail: `Sin producto con el código "${code}".` });
+      return;
     }
     if (target.stock <= 0) { this.messages.add({ severity: 'warn', summary: 'Sin stock', detail: `${target.name}: sin stock disponible.` }); this.prodSearch = ''; this.refocusCiScan(); return; }
     this.addProduct(target); // agrega o incrementa cantidad

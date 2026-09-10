@@ -38,6 +38,13 @@ export const productsRepository = {
   findById(id: string) {
     return prisma.product.findUnique({ where: { id }, include });
   },
+  /** Otro producto de la sucursal con ese código de barras (excluye el propio al editar). */
+  findByBarcode(branchId: string, barcode: string, excludeId?: string) {
+    return prisma.product.findFirst({
+      where: { branchId, barcode, ...(excludeId ? { NOT: { id: excludeId } } : {}) },
+      select: { id: true, name: true },
+    });
+  },
 
   create(
     data: {
