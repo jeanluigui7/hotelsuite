@@ -216,10 +216,10 @@ const TYPE_COLOR: Record<string, [string, string]> = {
         <p class="muted">{{ m.description }}</p>
         @if (m.saleId) {
           @if (correctLoadingPays()) { <p class="muted sm">Cargando venta…</p> }
-          <!-- LÍNEAS: cambiar producto por otro del MISMO precio (no se corrige cantidad ni precio) -->
+          <!-- LÍNEAS: cambiar el producto de una línea (mismo o distinto precio); no se corrige la cantidad -->
           <div class="cpwrap">
             <div class="cphead"><span>Líneas de la venta</span></div>
-            <p class="muted sm">Puedes cambiar un producto por otro del mismo precio. La cantidad y el importe no se modifican aquí.</p>
+            <p class="muted sm">Puedes cambiar un producto por otro (aunque tenga distinto precio); el importe y el total se recalculan y debes ajustar el desglose de pago. La cantidad no se modifica aquí.</p>
             @for (it of correctItems(); track it.id) {
               <div class="clrow2">
                 <span class="cl-desc">{{ it.quantity }}× {{ it.description }} · S/ {{ it.unitPrice | number:'1.2-2' }}</span>
@@ -245,8 +245,11 @@ const TYPE_COLOR: Record<string, [string, string]> = {
               </div>
               @if (p.method !== 'CASH') { <input class="cpcode" pInputText [(ngModel)]="p.reference" placeholder="Código de operación (obligatorio)" /> }
             }
-            <div class="cpsum" [class.bad]="(correctPaysSum() - correctPaid()) > 0.01 || (correctPaid() - correctPaysSum()) > 0.01">
-              <span>Suma del desglose</span><b>S/ {{ correctPaysSum() | number:'1.2-2' }} / S/ {{ correctPaid() | number:'1.2-2' }}</b>
+            @if (correctSwapDelta() !== 0) {
+              <p class="muted sm">El cambio de producto ajusta el total a <b>S/ {{ correctTargetTotal() | number:'1.2-2' }}</b> (diferencia {{ correctSwapDelta() > 0 ? '+' : '' }}{{ correctSwapDelta() | number:'1.2-2' }}). Ajusta el desglose para que sume ese total.</p>
+            }
+            <div class="cpsum" [class.bad]="(correctPaysSum() - correctTargetTotal()) > 0.01 || (correctTargetTotal() - correctPaysSum()) > 0.01">
+              <span>Suma del desglose</span><b>S/ {{ correctPaysSum() | number:'1.2-2' }} / S/ {{ correctTargetTotal() | number:'1.2-2' }}</b>
             </div>
             @if (correctPaysError()) { <p class="cperr"><i class="pi pi-exclamation-triangle"></i> {{ correctPaysError() }}</p> }
           </div>
@@ -808,23 +811,46 @@ export class CashMovementsPageComponent implements OnInit {
   readonly correctProducts = signal<{ id: string; name: string; salePrice: number }[]>([]);
   readonly correctStays = signal<{ value: string; label: string }[]>([]);
   readonly correctLoadingPays = signal(false);
-  /** Opciones de reemplazo de un producto: SOLO productos del MISMO precio (más "sin cambio"). */
+  /** Opciones de reemplazo: cualquier producto (mismo o distinto precio); la etiqueta muestra la diferencia. */
   swapOptions(it: { productId: string | null; unitPrice: number }): { value: string; label: string }[] {
     const base: { value: string; label: string }[] = [{ value: '', label: '— Mantener producto —' }];
     if (!it.productId) return base;
-    const same = this.correctProducts().filter((p) => Math.abs(Number(p.salePrice) - it.unitPrice) < 0.01 && p.id !== it.productId);
-    return base.concat(same.map((p) => ({ value: p.id, label: `${p.name} (S/ ${Number(p.salePrice).toFixed(2)})` })));
+    return base.concat(
+      this.correctProducts()
+        .filter((p) => p.id !== it.productId)
+        .map((p) => {
+          const d = Math.round((Number(p.salePrice) - it.unitPrice) * 100) / 100;
+          const diff = d === 0 ? '' : ` · ${d > 0 ? '+' : ''}${d.toFixed(2)}`;
+          return { value: p.id, label: `${p.name} (S/ ${Number(p.salePrice).toFixed(2)}${diff})` };
+        }),
+    );
   }
+  /** Diferencia de importe por los cambios de producto seleccionados (nuevo precio − anterior) × cantidad. */
+  correctSwapDelta(): number {
+    const prods = this.correctProducts();
+    return Math.round(this.correctItems().reduce((a, it) => {
+      if (!it.newProductId) return a;
+      const np = prods.find((p) => p.id === it.newProductId);
+      return np ? a + (np.salePrice - it.unitPrice) * it.quantity : a;
+    }, 0) * 100) / 100;
+  }
+  /** Total que el desglose debe sumar: lo cobrado + la diferencia por cambios de producto. */
+  correctTargetTotal(): number { return Math.round((this.correctPaid() + this.correctSwapDelta()) * 100) / 100; }
   correctPaysSum(): number { return Math.round(this.correctPays().reduce((a, p) => a + (p.amount || 0), 0) * 100) / 100; }
   private needsCode(m: string): boolean { return m !== 'CASH' && m !== 'VUELTO'; }
   correctPaysError(): string {
     const ps = this.correctPays();
     if (!ps.length) return 'Agrega al menos un pago.';
     for (const p of ps) { if (!(p.amount > 0)) return 'Cada pago debe tener un monto mayor a 0.'; if (this.needsCode(p.method) && !p.reference.trim()) return 'Los pagos con Yape, Plin, Transferencia o Tarjeta requieren su código.'; }
-    if (Math.abs(this.correctPaysSum() - this.correctPaid()) > 0.01) return `El desglose (S/ ${this.correctPaysSum().toFixed(2)}) debe sumar lo cobrado (S/ ${this.correctPaid().toFixed(2)}).`;
+    const target = this.correctTargetTotal();
+    if (Math.abs(this.correctPaysSum() - target) > 0.01) {
+      return this.correctSwapDelta() !== 0
+        ? `El desglose (S/ ${this.correctPaysSum().toFixed(2)}) debe sumar el nuevo total S/ ${target.toFixed(2)} (por el cambio de producto).`
+        : `El desglose (S/ ${this.correctPaysSum().toFixed(2)}) debe sumar lo cobrado (S/ ${target.toFixed(2)}).`;
+    }
     return '';
   }
-  addCorrectPay(): void { const rem = Math.max(0, Math.round((this.correctPaid() - this.correctPaysSum()) * 100) / 100); this.correctPays.set([...this.correctPays(), { method: 'CASH', amount: rem, reference: '' }]); }
+  addCorrectPay(): void { const rem = Math.max(0, Math.round((this.correctTargetTotal() - this.correctPaysSum()) * 100) / 100); this.correctPays.set([...this.correctPays(), { method: 'CASH', amount: rem, reference: '' }]); }
   removeCorrectPay(i: number): void { const n = [...this.correctPays()]; n.splice(i, 1); this.correctPays.set(n); }
   readonly movTypeOpts = [{ label: 'Ingreso', value: 'IN' }, { label: 'Egreso', value: 'OUT' }];
 

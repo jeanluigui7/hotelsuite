@@ -302,10 +302,11 @@ export const salesService = {
   },
 
   /**
-   * Corrección POR LÍNEA (Fase C): edita cantidad/precio de cada ítem y el desglose de pagos, sin tocar
-   * las otras líneas. Recalcula subtotales y total; los pagos deben sumar el nuevo total. Si cambia la
-   * cantidad de un producto, ajusta el stock con un AJUSTE trazable (no toca la salida SALE original).
-   * Deja huella CORRECTION con antes/después por línea y reabre la auditoría (via markAdjusted).
+   * Corrección POR LÍNEA: cambia el PRODUCTO de una línea (a otro del mismo o DISTINTO precio), el
+   * desglose de pagos y la habitación/origen; no cambia cantidad. Al cambiar de producto ajusta el
+   * stock con un AJUSTE trazable (devuelve el anterior, descuenta el nuevo; no toca la salida SALE
+   * original) y, si el precio difiere, recalcula el importe de la línea y el total de la venta: el
+   * desglose de pagos debe sumar el nuevo total. Deja huella CORRECTION y reabre la auditoría.
    */
   async correctSaleLines(scope: RequestScope, id: string, dto: { items: { id: string; productId?: string | null }[]; payments: { method: string; amount: number; reference?: string }[]; stayId?: string | null; reason?: string }) {
     const branchId = requireActiveBranch(scope);
@@ -318,26 +319,30 @@ export const salesService = {
     const byId = new Map(sale.items.map((it) => [it.id, it]));
     if (dto.items.some((di) => !byId.has(di.id))) throw new ValidationError('Alguna línea no pertenece a la venta.');
 
-    // CAMBIO DE PRODUCTO: solo entre productos del MISMO precio (no cambia cantidad ni importe).
-    const swaps: { item: (typeof sale.items)[number]; newProdId: string; newName: string; newCost: number | null }[] = [];
+    // CAMBIO DE PRODUCTO: puede ser a un producto de DISTINTO precio. El importe de la línea y el
+    // total de la venta se recalculan; el desglose de pagos debe sumar el nuevo total.
+    const swaps: { item: (typeof sale.items)[number]; newProdId: string; newName: string; newPrice: number; newCost: number | null }[] = [];
     for (const di of dto.items) {
       const it = byId.get(di.id)!;
       if (di.productId && di.productId !== it.productId) {
         if (it.voided) throw new ConflictError('No se puede cambiar el producto de una línea anulada.');
         const np = await prisma.product.findUnique({ where: { id: di.productId } });
         if (!np || np.branchId !== branchId) throw new ValidationError('Producto de reemplazo inválido.');
-        if (round(Number(np.salePrice)) !== round(Number(it.unitPrice))) {
-          throw new ConflictError('El cambio solo está permitido entre productos del mismo precio.');
-        }
-        swaps.push({ item: it, newProdId: np.id, newName: np.name, newCost: np.cost != null ? Number(np.cost) : null });
+        swaps.push({ item: it, newProdId: np.id, newName: np.name, newPrice: round(Number(np.salePrice)), newCost: np.cost != null ? Number(np.cost) : null });
       }
     }
+    // Diferencia de importe por los cambios de producto: (nuevo precio − precio anterior) × cantidad.
+    const swapDelta = round(swaps.reduce((a, s) => a + (s.newPrice - round(Number(s.item.unitPrice))) * s.item.quantity, 0));
 
-    // El desglose de pagos conserva lo COBRADO (método/producto/habitación no cambian el importe).
+    // El desglose debe sumar el NUEVO total = lo cobrado + la diferencia por los cambios de producto.
     const currentPaid = round(sale.payments.reduce((a, p) => a + Number(p.amount), 0));
+    const targetTotal = round(currentPaid + swapDelta);
     const paySum = round(dto.payments.reduce((a, p) => a + p.amount, 0));
-    if (Math.abs(paySum - currentPaid) > 0.01) {
-      throw new ValidationError(`El desglose (S/ ${paySum.toFixed(2)}) debe sumar lo cobrado en la venta (S/ ${currentPaid.toFixed(2)}).`);
+    if (Math.abs(paySum - targetTotal) > 0.01) {
+      const base = swapDelta !== 0
+        ? `el nuevo total (S/ ${targetTotal.toFixed(2)}) tras el cambio de producto`
+        : `lo cobrado en la venta (S/ ${targetTotal.toFixed(2)})`;
+      throw new ValidationError(`El desglose (S/ ${paySum.toFixed(2)}) debe sumar ${base}.`);
     }
     // Habitación / origen: re-vincular la venta a otra estancia (habitación correcta).
     if (dto.stayId) {
@@ -367,8 +372,11 @@ export const salesService = {
           }
           await applyStockTx(tx, sw.newProdId, wh, -qty);
           await createMovementTx(tx, { branchId, productId: sw.newProdId, warehouseId: wh, type: 'ADJUST', quantity: -qty, reference: `Cambio de producto (entrega ${sw.newName})`, adjustType: 'CORRECCION_PRODUCTO', cashSessionId: sale.cashSessionId, saleId: id, createdByUserId: scope.userId });
-          await tx.saleItem.update({ where: { id: sw.item.id }, data: { productId: sw.newProdId, description: sw.newName, unitCost: sw.newCost } });
+          // El importe de la línea sigue el precio del nuevo producto (puede diferir del anterior).
+          await tx.saleItem.update({ where: { id: sw.item.id }, data: { productId: sw.newProdId, description: sw.newName, unitPrice: sw.newPrice, subtotal: round(sw.newPrice * qty), unitCost: sw.newCost } });
         }
+        // El total de la venta se ajusta por la diferencia de precio de los cambios de producto.
+        if (swapDelta !== 0) await tx.sale.update({ where: { id }, data: { total: round(Number(sale.total) + swapDelta) } });
         if (dto.stayId) await tx.sale.update({ where: { id }, data: { stayId: dto.stayId } });
         await tx.payment.deleteMany({ where: { saleId: id } });
         await tx.payment.createMany({ data: payments.map((p) => ({ saleId: id, branchId, cashSessionId: sale.cashSessionId, method: p.method, amount: p.amount, reference: p.reference, commissionPct: p.commissionPct ?? null, commissionAmount: p.commissionAmount ?? null, grossCharged: p.grossCharged ?? null, createdByUserId: scope.userId })) });
@@ -383,7 +391,7 @@ export const salesService = {
       await cashRepository.createIntervention({
         branchId, cashSessionId: sale.cashSessionId, type: 'CORRECTION', targetKind: 'SALE', targetId: id,
         beforeJson: JSON.stringify({ items: sale.items.map((it) => it.description), payments: sale.payments.map((p) => `${p.method}:${Number(p.amount).toFixed(2)}${p.reference ? '/' + p.reference : ''}`), stayId: sale.stayId }),
-        afterJson: JSON.stringify({ swaps: swaps.map((s) => `${s.item.description} → ${s.newName}`), payments: payments.map((p) => `${p.method}:${p.amount.toFixed(2)}${p.reference ? '/' + p.reference : ''}`), stayId: dto.stayId ?? sale.stayId, impacto: { inventario: swaps.length ? 'ajuste ±1 por cambio de producto' : 'n/a', caja: 'sin cambio de importe' } }),
+        afterJson: JSON.stringify({ swaps: swaps.map((s) => `${s.item.description} (S/${Number(s.item.unitPrice).toFixed(2)}) → ${s.newName} (S/${s.newPrice.toFixed(2)})`), payments: payments.map((p) => `${p.method}:${p.amount.toFixed(2)}${p.reference ? '/' + p.reference : ''}`), stayId: dto.stayId ?? sale.stayId, impacto: { inventario: swaps.length ? 'ajuste ±cantidad por cambio de producto' : 'n/a', caja: swapDelta !== 0 ? `total ${swapDelta > 0 ? '+' : ''}${swapDelta.toFixed(2)} (nuevo S/ ${round(Number(sale.total) + swapDelta).toFixed(2)})` : 'sin cambio de importe' } }),
         reason: dto.reason?.trim() || null, createdByUserId: scope.userId,
       });
       await cashRepository.markAdjusted(sale.cashSessionId);
