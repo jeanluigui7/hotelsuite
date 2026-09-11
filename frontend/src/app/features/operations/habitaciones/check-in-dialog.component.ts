@@ -242,7 +242,7 @@ const PAY_TYPES = [
             <div class="vbox">
               <strong>Seleccionar Producto</strong><p class="muted">Busca y selecciona un producto del inventario</p>
               <div class="vfilters">
-                <input #ciScanInput pInputText placeholder="Buscar o escanear código de barras…" [(ngModel)]="prodSearch" (keyup.enter)="onScanCheckin()" autocomplete="off" />
+                <input #ciScanInput pInputText placeholder="Buscar o escanear código de barras…" [ngModel]="prodSearch" (ngModelChange)="onCiSearchInput($event)" (keyup.enter)="onScanCheckin()" autocomplete="off" />
                 <p-select [options]="categoryOptions()" [(ngModel)]="categoryFilter" placeholder="Todas" [showClear]="true" styleClass="w sm" />
               </div>
               <div class="plist">
@@ -702,27 +702,37 @@ export class CheckInDialogComponent {
   }
 
   /**
-   * Escaneo en la pestaña Venta del check-in (Zebra = teclea el código + Enter). Coincidencia
-   * exacta por código de barras (o SKU) → agrega el producto; si ya está, aumenta la cantidad.
-   * Tras cada lectura limpia el buscador y devuelve el foco para el siguiente escaneo.
+   * Escaneo en la pestaña Venta del check-in. La Zebra NO necesita enviar Enter: con cada cambio del
+   * buscador se espera un breve lapso a que se complete el código y, si coincide EXACTO, se agrega +1;
+   * si ya está, aumenta la cantidad. Tras cada lectura limpia el buscador y devuelve el foco.
    */
+  onCiSearchInput(v: string): void {
+    this.prodSearch = v;
+    if (this.ciScanTimer) clearTimeout(this.ciScanTimer);
+    const code = v.trim();
+    if (!code) return;
+    this.ciScanTimer = setTimeout(() => { this.ciScanTimer = null; this.tryExactAddCi(code); }, 90);
+  }
+  /** Enter (si la Zebra lo envía): agrega de inmediato sin duplicar (cancela el lapso pendiente). */
   onScanCheckin(): void {
+    if (this.ciScanTimer) { clearTimeout(this.ciScanTimer); this.ciScanTimer = null; }
     const code = this.prodSearch.trim();
     if (!code) return;
-    // SOLO un código EXACTO (barras o SKU) agrega el producto; el texto tecleado a mano solo filtra.
+    if (!this.tryExactAddCi(code) && /^\d{8,}$/.test(code)) this.messages.add({ severity: 'warn', summary: 'No encontrado', detail: `Sin producto con el código "${code}".` });
+  }
+  /** Coincidencia EXACTA (código de barras o SKU) → agrega/incrementa. Devuelve true si consumió el código. */
+  private tryExactAddCi(code: string): boolean {
     const target = this.products().find((p) => this.codesOf(p).some((c) => c.trim() === code))
       ?? this.products().find((p) => (p.sku ?? '').trim().toLowerCase() === code.toLowerCase());
-    if (!target) {
-      // Escaneo real (numérico largo) sin producto → avisar; texto tecleado → solo filtra.
-      if (/^\d{8,}$/.test(code)) this.messages.add({ severity: 'warn', summary: 'No encontrado', detail: `Sin producto con el código "${code}".` });
-      return;
-    }
-    if (target.stock <= 0) { this.messages.add({ severity: 'warn', summary: 'Sin stock', detail: `${target.name}: sin stock disponible.` }); this.prodSearch = ''; this.refocusCiScan(); return; }
+    if (!target) return false; // no es un código exacto: queda como búsqueda/filtro manual
+    if (target.stock <= 0) { this.messages.add({ severity: 'warn', summary: 'Sin stock', detail: `${target.name}: sin stock disponible.` }); this.prodSearch = ''; this.refocusCiScan(); return true; }
     this.addProduct(target); // agrega o incrementa cantidad
     this.messages.add({ severity: 'success', summary: 'Escaneado', detail: `${target.name} · S/ ${Number(target.salePrice).toFixed(2)}` });
     this.prodSearch = '';
     this.refocusCiScan();
+    return true;
   }
+  private ciScanTimer: ReturnType<typeof setTimeout> | null = null;
   private refocusCiScan(): void { setTimeout(() => this.ciScanInput?.nativeElement.focus(), 0); }
   /** Todos los códigos de barras del producto (usa `barcodes`; cae al legacy `barcode` si aplica). */
   private codesOf(p: Product): string[] { return p.barcodes ?? (p.barcode ? [p.barcode] : []); }

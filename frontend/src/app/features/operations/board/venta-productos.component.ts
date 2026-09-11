@@ -153,7 +153,7 @@ const DOC_TYPES = [
         <!-- Derecha: catálogo en tabla -->
         <div class="catalog">
           <div class="cat-filters">
-            <span class="search"><i class="pi pi-barcode"></i><input #scanInput pInputText placeholder="Buscar o escanear código de barras…" [(ngModel)]="search" (keyup.enter)="onScan()" autocomplete="off" /></span>
+            <span class="search"><i class="pi pi-barcode"></i><input #scanInput pInputText placeholder="Buscar o escanear código de barras…" [ngModel]="search" (ngModelChange)="onSearchInput($event)" (keyup.enter)="onScan()" autocomplete="off" /></span>
             <p-select [options]="categoryOptions()" [(ngModel)]="categoryFilter" placeholder="Todas" [showClear]="true" styleClass="w sm" />
           </div>
           <label class="lowstock"><p-toggleSwitch [(ngModel)]="lowStockOnly" /> Solo productos con bajo stock</label>
@@ -319,6 +319,7 @@ export class VentaProductosComponent {
   compName = '';
   compAddress = '';
   search = '';
+  private scanTimer: ReturnType<typeof setTimeout> | null = null;
   categoryFilter: string | null = null;
   lowStockOnly = false;
   qty: Record<string, number> = {};
@@ -342,19 +343,36 @@ export class VentaProductosComponent {
    * coincide EXACTO con el código de barras (o SKU) de un producto, agrega 1 unidad y limpia para el
    * siguiente escaneo. Si no hay coincidencia exacta, solo filtra (se puede elegir a mano).
    */
+  /**
+   * Se dispara con CADA cambio del buscador (incluye lo que teclea la Zebra). La Zebra NO necesita
+   * enviar Enter: se espera un breve lapso a que termine de escribir el código completo y, si coincide
+   * EXACTO con un producto, se agrega solo. Texto manual sin coincidencia exacta → solo filtra.
+   */
+  onSearchInput(v: string): void {
+    this.search = v;
+    if (this.scanTimer) clearTimeout(this.scanTimer);
+    const code = v.trim();
+    if (!code) return;
+    // Lapso corto: deja que la Zebra complete el código antes de comparar (evita agregar un código
+    // que sea prefijo de otro). El humano tecleando exacto también dispara al pausar (comportamiento válido).
+    this.scanTimer = setTimeout(() => { this.scanTimer = null; this.tryExactAdd(code); }, 90);
+  }
+  /** Enter (si la Zebra lo envía): agrega de inmediato. No duplica: cancela el lapso pendiente. */
   onScan(): void {
+    if (this.scanTimer) { clearTimeout(this.scanTimer); this.scanTimer = null; }
     const code = this.search.trim();
     if (!code) return;
-    // SOLO un código EXACTO (barras o SKU) agrega el producto (+1). El texto tecleado a mano
-    // NO agrega: únicamente filtra la lista (el filtrado ya ocurre al escribir).
+    if (!this.tryExactAdd(code) && /^\d{8,}$/.test(code)) {
+      this.toast.add({ severity: 'warn', summary: 'No encontrado', detail: `Sin producto con el código "${code}".` });
+    }
+  }
+  /** Busca coincidencia EXACTA (código de barras o SKU) y agrega +1. Devuelve true si agregó. */
+  private tryExactAdd(code: string): boolean {
     const prod = this.products().find((p) => this.codesOf(p).some((c) => c.trim() === code))
       ?? this.products().find((p) => (p.sku ?? '').trim().toLowerCase() === code.toLowerCase());
-    if (!prod) {
-      // Un escaneo real (código numérico largo) sin producto → avisar; texto tecleado → solo filtra.
-      if (/^\d{8,}$/.test(code)) this.toast.add({ severity: 'warn', summary: 'No encontrado', detail: `Sin producto con el código "${code}".` });
-      return;
-    }
-    this.addByScan(prod);
+    if (!prod) return false; // no es un código exacto: queda como búsqueda/filtro manual
+    this.addByScan(prod); // agrega +1, limpia el buscador y reenfoca
+    return true;
   }
   /** Todos los códigos de barras del producto (usa `barcodes`; cae al legacy `barcode` si aplica). */
   private codesOf(p: Product): string[] { return p.barcodes ?? (p.barcode ? [p.barcode] : []); }
