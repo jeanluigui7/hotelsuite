@@ -708,14 +708,13 @@ export class CheckInDialogComponent {
    */
   onCiSearchInput(v: string): void {
     this.prodSearch = v;
-    if (this.ciScanTimer) clearTimeout(this.ciScanTimer);
     const code = v.trim();
     if (!code) return;
-    this.ciScanTimer = setTimeout(() => { this.ciScanTimer = null; this.tryExactAddCi(code); }, 90);
+    // Coincidencia EXACTA inmediata: al completar el código se agrega +1 y se limpia. Sin depender de Enter.
+    this.tryExactAddCi(code);
   }
-  /** Enter (si la Zebra lo envía): agrega de inmediato sin duplicar (cancela el lapso pendiente). */
+  /** Enter (si la Zebra lo envía): agrega de inmediato. No duplica: si ya se agregó, el campo está vacío. */
   onScanCheckin(): void {
-    if (this.ciScanTimer) { clearTimeout(this.ciScanTimer); this.ciScanTimer = null; }
     const code = this.prodSearch.trim();
     if (!code) return;
     if (!this.tryExactAddCi(code) && /^\d{8,}$/.test(code)) this.messages.add({ severity: 'warn', summary: 'No encontrado', detail: `Sin producto con el código "${code}".` });
@@ -732,8 +731,7 @@ export class CheckInDialogComponent {
     this.refocusCiScan();
     return true;
   }
-  private ciScanTimer: ReturnType<typeof setTimeout> | null = null;
-  private refocusCiScan(): void { setTimeout(() => this.ciScanInput?.nativeElement.focus(), 0); }
+  private refocusCiScan(): void { setTimeout(() => { const el = this.ciScanInput?.nativeElement; if (el) { el.value = ''; el.focus(); } }, 0); }
   /** Todos los códigos de barras del producto (usa `barcodes`; cae al legacy `barcode` si aplica). */
   private codesOf(p: Product): string[] { return p.barcodes ?? (p.barcode ? [p.barcode] : []); }
 

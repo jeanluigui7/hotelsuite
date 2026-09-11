@@ -41,7 +41,7 @@ const DOC_TYPES = [
   imports: [DecimalPipe, FormsModule, DialogModule, SelectModule, InputNumberModule, InputTextModule, ButtonModule, ToggleSwitchModule],
   template: `
     <p-dialog [(visible)]="visible" (visibleChange)="visibleChange.emit($event)" [modal]="true" header="Venta de Productos"
-              [style]="{ width: '64rem', maxWidth: '96vw' }" styleClass="dk-dialog" (onShow)="load()">
+              [style]="{ width: '80rem', maxWidth: '97vw' }" styleClass="dk-dialog" (onShow)="load()">
       <p class="sub">Selecciona los productos de recepción disponibles en stock para la venta.</p>
       <div class="grid">
         <!-- Izquierda: cliente + pago -->
@@ -156,28 +156,47 @@ const DOC_TYPES = [
             <span class="search"><i class="pi pi-barcode"></i><input #scanInput pInputText placeholder="Buscar o escanear código de barras…" [ngModel]="search" (ngModelChange)="onSearchInput($event)" (keyup.enter)="onScan()" autocomplete="off" /></span>
             <p-select [options]="categoryOptions()" [(ngModel)]="categoryFilter" placeholder="Todas" [showClear]="true" styleClass="w sm" />
           </div>
+          <p class="scan-hint"><i class="pi pi-info-circle"></i> Coincidencia exacta: agrega +1 automáticamente y limpia el campo.</p>
           <label class="lowstock"><p-toggleSwitch [(ngModel)]="lowStockOnly" /> Solo productos con bajo stock</label>
-          <div class="tablewrap">
-            <table class="ptbl">
-              <thead><tr><th>Producto</th><th>Precio</th><th>Stock</th><th class="qc">Cant.</th><th>Subtotal</th></tr></thead>
-              <tbody>
+          <div class="two-pan">
+            <!-- Productos Disponibles (catálogo para buscar/seleccionar) -->
+            <div class="pan">
+              <div class="pan-h"><span class="pan-t"><i class="pi pi-box"></i> Productos Disponibles</span><span class="pan-s">Busca y selecciona un producto del inventario</span></div>
+              <div class="plist">
                 @for (p of filteredProducts(); track p.id) {
-                  <tr [class.low]="isLow(p)">
-                    <td><div class="pn">{{ p.name }}</div>@if (p.category) { <div class="pc">Categoría: {{ p.category.name }}</div> }</td>
-                    <td class="price">S/ {{ +p.salePrice | number: '1.2-2' }}</td>
-                    <td><span class="stk" [class.low]="isLow(p)">Stock: {{ p.stock }}</span></td>
-                    <td class="qc">
-                      <div class="stepper">
-                        <button (click)="dec(p)" [disabled]="(qty[p.id]||0) <= 0">-</button>
-                        <span>{{ qty[p.id] || 0 }}</span>
-                        <button (click)="inc(p)" [disabled]="(qty[p.id]||0) >= p.stock">+</button>
-                      </div>
-                    </td>
-                    <td class="sub">S/ {{ (+p.salePrice) * (qty[p.id]||0) | number: '1.2-2' }}</td>
-                  </tr>
-                } @empty { <tr><td colspan="5" class="muted center">Sin productos.</td></tr> }
-              </tbody>
-            </table>
+                  <button class="pcard" [class.low]="isLow(p)" (click)="inc(p)" [disabled]="(qty[p.id]||0) >= p.stock">
+                    <div class="pc-l"><div class="pn">{{ p.name }}</div>@if (p.category) { <div class="pc">Categoría: {{ p.category.name }}</div> }</div>
+                    <div class="pc-r"><div class="pp">S/ {{ +p.salePrice | number: '1.2-2' }}</div><div class="ps" [class.low]="isLow(p)">Stock: {{ p.stock }}</div></div>
+                    <span class="pc-add"><i class="pi pi-plus"></i></span>
+                  </button>
+                } @empty { <p class="muted center">Sin productos.</p> }
+              </div>
+            </div>
+            <!-- Productos Seleccionados (bolsa de despacho) -->
+            <div class="pan">
+              <div class="pan-h"><span class="pan-t"><i class="pi pi-shopping-cart"></i> Productos Seleccionados @if (selectedCount()) { <span class="pan-badge">{{ selectedCount() }}</span> }</span><span class="pan-s">Revisa los productos y cantidades</span></div>
+              @if (selectedLines().length) {
+                <div class="bagwrap">
+                  <table class="bagtbl">
+                    <thead><tr><th>Producto</th><th class="qc">Cantidad</th><th>Precio Unit.</th><th>Subtotal</th><th></th></tr></thead>
+                    <tbody>
+                      @for (l of selectedLines(); track l.p.id) {
+                        <tr>
+                          <td class="bn">{{ l.p.name }}</td>
+                          <td class="qc"><div class="stepper"><button (click)="dec(l.p)">-</button><span>{{ l.qty }}</span><button (click)="inc(l.p)" [disabled]="l.qty >= l.p.stock">+</button></div></td>
+                          <td class="price">S/ {{ +l.p.salePrice | number: '1.2-2' }}</td>
+                          <td class="sub">S/ {{ (+l.p.salePrice) * l.qty | number: '1.2-2' }}</td>
+                          <td><button class="bagdel" (click)="removeLine(l.p)" title="Eliminar"><i class="pi pi-trash"></i></button></td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                  <div class="bagtotal">Total: <strong>S/ {{ total() | number: '1.2-2' }}</strong></div>
+                </div>
+              } @else {
+                <div class="bagempty"><i class="pi pi-shopping-cart"></i><p>No hay productos seleccionados</p><span>Escanea o selecciona un producto de la izquierda.</span></div>
+              }
+            </div>
           </div>
         </div>
       </div>
@@ -192,7 +211,8 @@ const DOC_TYPES = [
     `
       :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1622; color: #e6e9ef; }
       .sub { color: #8b97a8; margin: 0 0 1rem; font-size: 0.85rem; }
-      .grid { display: grid; grid-template-columns: 0.85fr 1.15fr; gap: 1.1rem; min-height: 440px; }
+      .grid { display: grid; grid-template-columns: 0.7fr 1.7fr; gap: 1.1rem; min-height: 440px; }
+      @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
       .muted { color: #8b97a8; } .center { text-align: center; }
       h4 { margin: 0 0 0.6rem; color: #fff; font-size: 0.95rem; }
       .client { background: #0b1119; border: 1px solid #1c2a3a; border-radius: 12px; padding: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
@@ -246,13 +266,35 @@ const DOC_TYPES = [
       .search i { position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%); color: #6b7a90; }
       .search input { width: 100%; background: #131d2b; border: 1px solid #243245; color: #e6e9ef; border-radius: 8px; padding: 0.55rem 0.7rem 0.55rem 2rem; }
       .lowstock { display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: #9fb0c3; }
-      .tablewrap { border: 1px solid #1c2a3a; border-radius: 10px; overflow: auto; max-height: 360px; }
-      .ptbl { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-      .ptbl th { text-align: left; padding: 0.6rem 0.8rem; color: #9fb0c3; font-weight: 600; border-bottom: 1px solid #1c2a3a; position: sticky; top: 0; background: #101a28; }
-      .ptbl td { padding: 0.55rem 0.8rem; border-bottom: 1px solid #16202e; }
+      .scan-hint { display: flex; align-items: center; gap: 0.4rem; margin: 0; font-size: 0.78rem; color: #7fb0d8; background: rgba(37,99,235,0.08); border: 1px solid rgba(37,99,235,0.22); border-radius: 8px; padding: 0.4rem 0.6rem; }
+      .scan-hint .pi { color: #60a5fa; }
+      .two-pan { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
+      @media (max-width: 1000px) { .two-pan { grid-template-columns: 1fr; } }
+      .pan { display: flex; flex-direction: column; gap: 0.5rem; background: #0b1119; border: 1px solid #1c2a3a; border-radius: 12px; padding: 0.8rem; }
+      .pan-h { display: flex; flex-direction: column; gap: 0.1rem; }
+      .pan-t { display: inline-flex; align-items: center; gap: 0.45rem; font-weight: 700; color: #fff; font-size: 0.92rem; }
+      .pan-t .pi { color: #34d399; }
+      .pan-s { font-size: 0.74rem; color: #8b97a8; }
+      .pan-badge { background: #10b981; color: #04130d; border-radius: 999px; font-size: 0.68rem; font-weight: 700; padding: 0.05rem 0.45rem; }
+      .plist { display: flex; flex-direction: column; gap: 0.45rem; max-height: 340px; overflow-y: auto; }
+      .pcard { position: relative; display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; text-align: left; background: #101a28; border: 1px solid #1c2a3a; border-radius: 10px; padding: 0.6rem 0.75rem; cursor: pointer; color: #e6e9ef; }
+      .pcard:hover:not(:disabled) { border-color: #10b981; }
+      .pcard:disabled { opacity: 0.45; cursor: not-allowed; }
+      .pc-l { min-width: 0; } .pc-l .pn { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .pc-r { text-align: right; white-space: nowrap; }
+      .pp { color: #34d399; font-weight: 700; font-size: 0.85rem; } .ps { font-size: 0.72rem; color: #8b97a8; } .ps.low { color: #fbbf24; }
+      .pc-add { flex: 0 0 auto; width: 1.7rem; height: 1.7rem; border-radius: 7px; background: #13233a; border: 1px solid #274468; color: #93c5fd; display: inline-flex; align-items: center; justify-content: center; }
+      .bagwrap { display: flex; flex-direction: column; gap: 0.5rem; }
+      .bagtbl { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+      .bagtbl th { text-align: left; padding: 0.4rem 0.5rem; color: #9fb0c3; font-weight: 600; border-bottom: 1px solid #1c2a3a; }
+      .bagtbl td { padding: 0.45rem 0.5rem; border-bottom: 1px solid #16202e; vertical-align: middle; }
+      .bagtbl .bn { font-weight: 600; }
+      .bagtotal { text-align: right; font-size: 1rem; color: #cdd8e6; } .bagtotal strong { color: #34d399; font-size: 1.2rem; margin-left: 0.4rem; }
+      .bagdel { background: transparent; border: 0; color: #f87171; cursor: pointer; }
+      .bagempty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.35rem; color: #8b97a8; border: 1px dashed #1c2a3a; border-radius: 10px; padding: 2.4rem 1rem; text-align: center; }
+      .bagempty .pi { font-size: 1.8rem; } .bagempty p { margin: 0; color: #cdd8e6; font-weight: 600; } .bagempty span { font-size: 0.76rem; }
       .pn { font-weight: 600; } .pc { font-size: 0.72rem; color: #8b97a8; }
       .price { color: #cdd8e6; white-space: nowrap; }
-      .stk { font-size: 0.78rem; color: #8b97a8; } .stk.low, tr.low .pn { color: #fbbf24; }
       .qc { text-align: center; } th.qc { text-align: center; }
       .stepper { display: inline-flex; align-items: center; gap: 0.3rem; }
       .stepper button { width: 1.7rem; height: 1.7rem; border-radius: 6px; border: 1px solid #243245; background: #131d2b; color: #e6e9ef; cursor: pointer; font-weight: 700; }
@@ -319,7 +361,6 @@ export class VentaProductosComponent {
   compName = '';
   compAddress = '';
   search = '';
-  private scanTimer: ReturnType<typeof setTimeout> | null = null;
   categoryFilter: string | null = null;
   lowStockOnly = false;
   qty: Record<string, number> = {};
@@ -350,16 +391,14 @@ export class VentaProductosComponent {
    */
   onSearchInput(v: string): void {
     this.search = v;
-    if (this.scanTimer) clearTimeout(this.scanTimer);
     const code = v.trim();
     if (!code) return;
-    // Lapso corto: deja que la Zebra complete el código antes de comparar (evita agregar un código
-    // que sea prefijo de otro). El humano tecleando exacto también dispara al pausar (comportamiento válido).
-    this.scanTimer = setTimeout(() => { this.scanTimer = null; this.tryExactAdd(code); }, 90);
+    // Coincidencia EXACTA inmediata: en cuanto la Zebra completa el código (o se teclea completo),
+    // se agrega +1 y se limpia el buscador. NO depende de Enter. Texto parcial → solo filtra.
+    this.tryExactAdd(code);
   }
-  /** Enter (si la Zebra lo envía): agrega de inmediato. No duplica: cancela el lapso pendiente. */
+  /** Enter (si la Zebra lo envía): agrega de inmediato. No duplica: si ya se agregó, el campo está vacío. */
   onScan(): void {
-    if (this.scanTimer) { clearTimeout(this.scanTimer); this.scanTimer = null; }
     const code = this.search.trim();
     if (!code) return;
     if (!this.tryExactAdd(code) && /^\d{8,}$/.test(code)) {
@@ -382,7 +421,8 @@ export class VentaProductosComponent {
     if ((this.qty[prod.id] || 0) === before) this.toast.add({ severity: 'warn', summary: 'Sin stock', detail: `${prod.name}: sin stock disponible.` });
     else this.toast.add({ severity: 'success', summary: 'Escaneado', detail: `${prod.name} · S/ ${Number(prod.salePrice).toFixed(2)}` });
     this.search = ''; // listo para el siguiente escaneo
-    setTimeout(() => this.scanInput?.nativeElement.focus(), 0); // devuelve el foco al buscador
+    // Fuerza el vaciado del input nativo (además del modelo) y devuelve el foco al buscador.
+    setTimeout(() => { const el = this.scanInput?.nativeElement; if (el) { el.value = ''; el.focus(); } }, 0);
   }
 
   /** Venta Directa: un EAN-13 (13 dígitos) NO es un documento de identidad; se rechaza. */
@@ -440,6 +480,15 @@ export class VentaProductosComponent {
 
   inc(p: Product): void { if ((this.qty[p.id] || 0) < p.stock) { this.qty[p.id] = (this.qty[p.id] || 0) + 1; this.qtyTick.update((v) => v + 1); this.syncTotalPay(); } }
   dec(p: Product): void { if ((this.qty[p.id] || 0) > 0) { this.qty[p.id] = this.qty[p.id] - 1; this.qtyTick.update((v) => v + 1); this.syncTotalPay(); } }
+  /** Quita una línea completa de la bolsa (cantidad a 0). */
+  removeLine(p: Product): void { this.qty[p.id] = 0; this.qtyTick.update((v) => v + 1); this.syncTotalPay(); }
+  /** Productos en la bolsa de despacho (cantidad > 0), con su cantidad. */
+  selectedLines(): { p: Product; qty: number }[] {
+    void this.qtyTick();
+    return this.products().filter((p) => (this.qty[p.id] || 0) > 0).map((p) => ({ p, qty: this.qty[p.id] }));
+  }
+  /** Total de unidades en la bolsa (para el contador del panel). */
+  selectedCount(): number { void this.qtyTick(); return this.products().reduce((a, p) => a + (this.qty[p.id] || 0), 0); }
   /** En "Pago Total" con un solo medio (no Vuelto), el monto NO es editable: se fija al total a cobrar. */
   private syncTotalPay(): void {
     if (this.cobro !== 'TOTAL') return;
