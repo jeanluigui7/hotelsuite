@@ -12,6 +12,7 @@ import { ConfirmationService, MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { printPdf } from '../../../core/utils/export';
+import { AuthService } from '../../../core/auth/auth.service';
 import { InventoryApiService } from '../../inventory/services/inventory-api.service';
 import type { Product, Warehouse } from '../../inventory/services/inventory.models';
 
@@ -323,6 +324,7 @@ export class AlmacenProductosComponent implements OnInit {
   private readonly toast = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
   private readonly router = inject(Router);
+  private readonly auth = inject(AuthService);
 
   readonly products = signal<Product[]>([]);
   readonly categories = signal<{ id: string; name: string }[]>([]);
@@ -552,11 +554,48 @@ export class AlmacenProductosComponent implements OnInit {
     send(0);
   }
 
+  private esc(s: string | null | undefined): string {
+    return (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  /**
+   * Documento A4 de CONTROL DE INVENTARIO (reposición): lista TODOS los productos ACTIVOS del
+   * almacén de ESTA sucursal (el stock ya viene por sucursal), en 3 bloques para entrar en una
+   * hoja. Columnas por bloque: Producto | Stock | (en blanco para anotar la compra a mano). Los
+   * productos con bajo stock (según su Stock Mínimo) se sombrean en rojo.
+   */
   print(): void {
-    const body = `<table><thead><tr><th>Código</th><th>Artículo</th><th>Categoría</th><th class="num">Venta</th><th class="num">Compra</th><th class="num">Stock</th></tr></thead><tbody>${
-      this.filtered().map((p) => `<tr><td>${p.sku ?? ''}</td><td>${p.name}</td><td>${p.category?.name ?? ''}</td><td class="num">${(+p.salePrice).toFixed(2)}</td><td class="num">${(+(p.cost || 0)).toFixed(2)}</td><td class="num">${p.stock}</td></tr>`).join('')
+    const rows = this.products()
+      .filter((p) => p.status === 'active')
+      .slice()
+      .sort((a, b) => (a.sku ?? '').localeCompare(b.sku ?? '')); // por código, no alfabético
+    if (!rows.length) { this.toast.add({ severity: 'info', summary: 'Sin productos', detail: 'No hay productos activos para imprimir.' }); return; }
+    const branch = this.auth.activeBranch()?.name ?? 'RIZZOS';
+    const totalUnits = rows.reduce((a, p) => a + (p.stock || 0), 0);
+    const COLS = 3;
+    const per = Math.ceil(rows.length / COLS) || 1; // reparto por columnas (column-major)
+    const chunks: Product[][] = [];
+    for (let i = 0; i < rows.length; i += per) chunks.push(rows.slice(i, i + per));
+    while (chunks.length < COLS) chunks.push([]);
+    const block = (items: Product[]): string => `<table class="rl"><thead><tr><th class="pn">Producto</th><th class="st">Stock</th><th class="buy">Comprar</th></tr></thead><tbody>${
+      items.map((p) => `<tr class="${this.isLow(p) ? 'low' : ''}"><td class="pn">${this.esc(p.name)}</td><td class="st">${p.stock}</td><td class="buy"></td></tr>`).join('')
     }</tbody></table>`;
-    printPdf('Almacén de Productos · RIZZOS', body);
+    const body = `
+      <style>
+        .rl-sum { display:flex; gap:18px; font-size:11px; color:#333; margin:0 0 8px; }
+        .rl-sum b { color:#111; }
+        .rl-grid { display:grid; grid-template-columns:repeat(${COLS}, 1fr); gap:8px; align-items:start; }
+        table.rl { width:100%; border-collapse:collapse; }
+        table.rl th, table.rl td { border:1px solid #cfd4da; padding:2px 6px; font-size:10px; line-height:1.3; }
+        table.rl th { background:#111827; color:#fff; text-align:left; font-size:9px; text-transform:uppercase; letter-spacing:.3px; }
+        table.rl th.st, table.rl td.st { text-align:right; width:38px; }
+        table.rl th.buy, table.rl td.buy { width:54px; }
+        table.rl tr.low td { background:#fdecec; color:#c0392b; font-weight:700; }
+        @page { size:A4; margin:9mm; }
+      </style>
+      <div class="rl-sum"><span>Total Productos: <b>${rows.length}</b></span><span>Total Unidades: <b>${totalUnits}</b></span><span>Almacén: <b>Productos</b></span></div>
+      <div class="rl-grid">${chunks.map(block).join('')}</div>`;
+    printPdf(`${branch} · Control de Inventario`, body);
   }
 
   // Enviar a recepción
