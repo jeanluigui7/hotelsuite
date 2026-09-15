@@ -6,7 +6,7 @@ import type { RequestScope } from '../../shared/context';
 export type ActivityArea =
   | 'HOSPEDAJE' | 'VENTAS' | 'CAJA' | 'INVENTARIO' | 'LIMPIEZA' | 'INSPECCION'
   | 'RESERVAS' | 'WIFI' | 'FRIGOBAR' | 'MANTENIMIENTO' | 'USUARIOS' | 'PERMISOS'
-  | 'PRECIOS' | 'SESION' | 'TURNO' | 'COMPROBANTES' | 'OBSERVACIONES';
+  | 'AUTORIZACIONES' | 'PRECIOS' | 'SESION' | 'TURNO' | 'COMPROBANTES' | 'OBSERVACIONES';
 
 export interface RecordActivityInput {
   activity: string; // código del evento (CHECK_IN, SALE, CASH_IN, …)

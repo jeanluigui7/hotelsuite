@@ -1,6 +1,7 @@
-import type { AuthUser } from '../../shared/context';
+import type { AuthUser, RequestScope } from '../../shared/context';
 import { env } from '../../config/env';
 import { prisma } from '../../config/prisma';
+import { recordActivity } from '../activity-log/activity.emitter';
 import { UnauthorizedError, ForbiddenError, ConflictError, ValidationError } from '../../shared/errors';
 import { verifyPassword, hashPassword } from '../../shared/password';
 import { logger } from '../../config/logger';
@@ -114,5 +115,14 @@ export const authService = {
     if (!valid) throw new ValidationError('La contraseña actual es incorrecta');
     await prisma.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(dto.newPassword) } });
     await authRepository.revokeAllForUser(userId);
+    // Auditoría: se registra el HECHO del cambio (jamás la contraseña). Resuelve la sucursal del usuario.
+    void (async () => {
+      const ub = await prisma.userBranch.findFirst({ where: { userId }, select: { branchId: true } }).catch(() => null);
+      const miniScope = { userId, activeBranchId: ub?.branchId ?? null, isSuperAdmin: false, branchIds: [], permissions: [], roleId: '' } as RequestScope;
+      await recordActivity(miniScope, {
+        activity: 'USER_PASSWORD', area: 'USUARIOS', entityId: userId, reference: `Usuario ${user.name}`,
+        detail: `${user.name} cambió su contraseña`, meta: { user: user.name },
+      });
+    })();
   },
 };

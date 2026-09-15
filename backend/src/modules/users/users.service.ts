@@ -9,6 +9,7 @@ import {
   type PaginationParams,
 } from '../../shared/pagination';
 import { usersRepository } from './users.repository';
+import { recordActivity } from '../activity-log/activity.emitter';
 import type { CreateUserDto, UpdateUserDto } from './users.schema';
 
 const SORTABLE = ['name', 'email', 'createdAt', 'status'] as const;
@@ -77,6 +78,11 @@ export const usersService = {
       status: dto.status,
       branchIds: dto.branchIds,
     });
+    void recordActivity(scope, {
+      activity: 'USER_CREATE', area: 'USUARIOS', entityId: user.id, reference: `Usuario ${user.name}`,
+      detail: `Usuario ${user.name} creado · Rol ${user.role?.name ?? '—'}`,
+      meta: { user: user.name, email: user.email, role: user.role?.name ?? null, status: user.status },
+    });
     return serialize(user as UserRecord);
   },
 
@@ -90,13 +96,28 @@ export const usersService = {
     }
 
     const passwordHash = dto.password ? await hashPassword(dto.password) : undefined;
-    const user = await usersRepository.update(id, {
+    const user = (await usersRepository.update(id, {
       name: dto.name,
       email: dto.email,
       passwordHash,
       roleId: dto.roleId,
       status: dto.status,
       branchIds: dto.branchIds,
+    })) as UserRecord;
+    // Un evento por el cambio más significativo (nunca se registra la contraseña, solo el hecho).
+    const pwReset = !!dto.password;
+    const deactivated = existing.status === 'active' && dto.status === 'inactive';
+    const reactivated = existing.status === 'inactive' && dto.status === 'active';
+    const roleChanged = dto.roleId !== undefined && existing.role?.id !== user.role?.id;
+    let activity: 'USER_PASSWORD_RESET' | 'USER_DEACTIVATE' | 'USER_UPDATE' = 'USER_UPDATE';
+    let detail = `Usuario ${user.name} modificado`;
+    if (pwReset) { activity = 'USER_PASSWORD_RESET'; detail = `Restablecimiento administrativo de contraseña para ${user.name}`; }
+    else if (deactivated) { activity = 'USER_DEACTIVATE'; detail = `Usuario ${user.name} desactivado`; }
+    else if (roleChanged) { detail = `${user.name} · Rol ${existing.role?.name ?? '—'} → ${user.role?.name ?? '—'}`; }
+    else if (reactivated) { detail = `Usuario ${user.name} reactivado`; }
+    void recordActivity(scope, {
+      activity, area: 'USUARIOS', entityId: user.id, reference: `Usuario ${user.name}`, detail,
+      meta: { user: user.name, email: user.email, roleBefore: existing.role?.name ?? null, roleAfter: user.role?.name ?? null, statusBefore: existing.status, statusAfter: user.status, passwordReset: pwReset },
     });
     return serialize(user as UserRecord);
   },
@@ -107,6 +128,12 @@ export const usersService = {
     }
     const existing = await usersRepository.findById(id);
     if (!existing) throw new NotFoundError('Usuario no encontrado');
-    return usersRepository.delete(id);
+    const out = await usersRepository.delete(id);
+    void recordActivity(scope, {
+      activity: 'USER_DEACTIVATE', area: 'USUARIOS', entityId: id, reference: `Usuario ${existing.name}`,
+      detail: `Usuario ${existing.name} eliminado`,
+      meta: { user: existing.name, email: existing.email, role: existing.role?.name ?? null },
+    });
+    return out;
   },
 };

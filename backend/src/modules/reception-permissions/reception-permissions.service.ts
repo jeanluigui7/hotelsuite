@@ -2,6 +2,11 @@ import { z } from 'zod';
 import type { RequestScope } from '../../shared/context';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
+import { recordActivity } from '../activity-log/activity.emitter';
+
+const FLAG_LABEL: Record<'allowChangeRoom' | 'allowWriteOff' | 'allowViewCash', string> = {
+  allowChangeRoom: 'Cambiar habitación', allowWriteOff: 'Anular ventas / dar de baja', allowViewCash: 'Ver caja',
+};
 
 /** Permisos de recepción configurables por el administrador (por sucursal). */
 const KEYS = {
@@ -48,9 +53,22 @@ export const receptionPermsService = {
   },
   async update(scope: RequestScope, dto: UpdateReceptionPermsDto) {
     const branchId = requireActiveBranch(scope);
+    const before = await this.get(scope);
     if (dto.allowChangeRoom !== undefined) await write(branchId, KEYS.allowChangeRoom, dto.allowChangeRoom);
     if (dto.allowWriteOff !== undefined) await write(branchId, KEYS.allowWriteOff, dto.allowWriteOff);
     if (dto.allowViewCash !== undefined) await write(branchId, KEYS.allowViewCash, dto.allowViewCash);
-    return this.get(scope);
+    const after = await this.get(scope);
+    // Un evento por cada flag que realmente cambió (concedido / retirado), con antes→después.
+    (['allowChangeRoom', 'allowWriteOff', 'allowViewCash'] as const).forEach((k) => {
+      if (dto[k] !== undefined && before[k] !== after[k]) {
+        void recordActivity(scope, {
+          activity: after[k] ? 'PERMISSION_GRANT' : 'PERMISSION_REVOKE', area: 'PERMISOS',
+          reference: `Permiso · ${FLAG_LABEL[k]}`,
+          detail: `Recepción · ${FLAG_LABEL[k]} ${after[k] ? 'concedido' : 'retirado'}`,
+          meta: { flag: k, label: FLAG_LABEL[k], before: before[k], after: after[k] },
+        });
+      }
+    });
+    return after;
   },
 };

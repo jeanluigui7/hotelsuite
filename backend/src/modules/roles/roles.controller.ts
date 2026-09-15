@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { ok } from '../../shared/response';
+import { UnauthorizedError } from '../../shared/errors';
 import { paginationSchema } from '../../shared/pagination';
 import { rolesService } from './roles.service';
 import { createRoleSchema, updateRoleSchema } from './roles.schema';
@@ -23,8 +24,9 @@ export const rolesController = {
   },
 
   async update(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
     const dto = updateRoleSchema.parse(req.body);
-    const role = await rolesService.update(req.params.id, dto);
+    const role = await rolesService.update(req.scope, req.params.id, dto);
     res.status(200).json(ok(role));
   },
 
