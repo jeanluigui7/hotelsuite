@@ -138,20 +138,28 @@ export const reconciliationsService = {
 
     // SIN producto: concilia el sobrante con un concepto libre (servicio, penalidad, otro…) sin tocar inventario.
     if (!dto.productId) {
+      // Ingreso de efectivo que EXPLICA el sobrante: eleva el efectivo esperado (reduce la diferencia
+      // en el cuadre en vivo y en el finalizar) y deja una línea visible en el feed del turno.
+      const mv = await cashRepository.addMovement({
+        cashSessionId: sessionId, branchId, type: 'IN', amount: dto.amount,
+        concept: `Venta no registrada · ${finalNote ?? 'regularización'}`,
+        method: 'CASH', reference: null, note: null, category: 'REGULARIZACION', createdByUserId: scope.userId,
+      });
       const rec = await prisma.cashReconciliation.create({
         data: {
           branchId, cashSessionId: sessionId, type: 'VENTA_NO_REGISTRADA', amount: dto.amount, affectsCash: true,
-          productId: null, quantity: null, movementId: null, note: finalNote,
+          productId: null, quantity: null, movementId: mv.id, note: finalNote,
           createdByUserId: scope.userId, approvedByUserId: scope.userId,
         },
       });
+      await cashRepository.markAdjusted(sessionId); // la caja cerrada pasa a AJUSTADA (recalcula esperado en vivo)
       void recordActivity(scope, {
         activity: 'CASH_ADJUST', area: 'CAJA', entityId: rec.id,
         reference: `Caja #${session.number ?? ''}`.trim(),
         detail: `Ajuste · +S/ ${Number(dto.amount).toFixed(2)} · ${finalNote ?? 'Venta no registrada'}`,
         meta: { sessionId, amount: Number(dto.amount), concept: finalNote, product: null },
       });
-      return { reconciliationId: rec.id, movementId: null };
+      return { reconciliationId: rec.id, movementId: mv.id };
     }
 
     // CON producto: descuenta inventario y deja rastro en el kardex.
@@ -181,6 +189,13 @@ export const reconciliationsService = {
       if (err instanceof Error && err.message === 'STOCK_INSUFFICIENT') throw new ValidationError('Stock insuficiente para descontar el producto');
       throw err as Error;
     });
+    // Ingreso de efectivo que explica el sobrante (eleva el esperado; línea visible en el feed).
+    await cashRepository.addMovement({
+      cashSessionId: sessionId, branchId, type: 'IN', amount: dto.amount,
+      concept: `Venta no registrada · ${product.name} x${qty}${finalNote ? ' · ' + finalNote : ''}`,
+      method: 'CASH', reference: null, note: null, category: 'REGULARIZACION', createdByUserId: scope.userId,
+    });
+    await cashRepository.markAdjusted(sessionId);
     void recordActivity(scope, {
       activity: 'CASH_ADJUST', area: 'CAJA', entityId: adjOut.reconciliationId,
       reference: `Caja #${session.number ?? ''}`.trim(),
