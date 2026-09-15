@@ -67,3 +67,7 @@ SISTEMA RIZZOS.docx
 
 # Word/Office lock files
 ~$*
+
+# Copias de seguridad de base de datos (no versionar)
+backups/
+*.bak

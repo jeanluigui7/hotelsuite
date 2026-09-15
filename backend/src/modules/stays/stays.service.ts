@@ -15,6 +15,7 @@ import { pernoctaService } from '../pernocta/pernocta.service';
 import { wifiService } from '../wifi/wifi.service';
 import { changeCreditsService } from '../change-credits/change-credits.service';
 import { cashRepository } from '../cash/cash.repository';
+import { recordActivity } from '../activity-log/activity.emitter';
 import { staysRepository, type StayWithRelations } from './stays.repository';
 import type { ChangeRoomDto, CheckInDto, CheckOutDto, PayStayDto, RenewDto, UpdateStayDetailsDto } from './stays.schema';
 
@@ -270,6 +271,12 @@ export const staysService = {
         : 'ESTADIA_CORTA';
     const gName = `${created.guest?.firstName ?? ''} ${created.guest?.lastName ?? ''}`.trim();
     await wifiService.assignAvailableToStay(branchId, created.id, wifiCat, room.number, gName || null);
+    void recordActivity(scope, {
+      activity: 'CHECK_IN', area: 'HOSPEDAJE', roomId: room.id, entityId: created.id,
+      reference: `Hab. ${room.number}`,
+      detail: `${gName || 'Huésped'} · ${rate?.label ?? 'Estancia'} · S/ ${Number(created.priceAgreed).toFixed(2)}`,
+      meta: { room: room.number, guest: gName || null, rate: rate?.label ?? null, price: Number(created.priceAgreed), stayId: created.id, checkOutAt: created.plannedCheckoutAt },
+    });
     return serialize(created);
   },
 
@@ -317,6 +324,13 @@ export const staysService = {
     // Red de seguridad: si quedó vuelto pendiente sin entregar, se cierra como NO_RECLAMADO
     // (reclasificación pasivo→ingreso). Best-effort: si no hay caja abierta, se deja para regularizar.
     await changeCreditsService.closeUnclaimedByStay(scope, id).catch(() => undefined);
+    const coGuest = `${stay.guest?.firstName ?? ''} ${stay.guest?.lastName ?? ''}`.trim();
+    void recordActivity(scope, {
+      activity: 'CHECK_OUT', area: 'HOSPEDAJE', roomId: stay.roomId, entityId: id,
+      reference: `Hab. ${stay.room?.number ?? '?'}`,
+      detail: `${coGuest || 'Huésped'} · Salida${lateCharge > 0 ? ` · Late check-out S/ ${lateCharge.toFixed(2)}` : ''}`,
+      meta: { room: stay.room?.number ?? null, guest: coGuest || null, lateCharge: lateCharge || 0, roomStatus: dto.roomStatus, stayId: id },
+    });
     return serialize(result as StayWithRelations);
   },
 
@@ -501,6 +515,15 @@ export const staysService = {
     const u = updated as StayWithRelations;
     const rGuest = `${u.guest?.firstName ?? ''} ${u.guest?.lastName ?? ''}`.trim();
     await wifiService.reassignOnRenewal(branchId, id, u.room?.number ?? null, rGuest || null).catch(() => undefined);
+    const rMethods = adjPayments.map((p) => p.method).join(' + ');
+    void recordActivity(scope, {
+      activity: 'RENEWAL', area: 'HOSPEDAJE', roomId: u.room?.id ?? stay.roomId, entityId: id,
+      reference: `Hab. ${u.room?.number ?? '?'}`,
+      detail: paidNow >= price
+        ? `${ref} · S/ ${price.toFixed(2)} · ${rMethods || 'pagado'}`
+        : `${ref} · S/ ${price.toFixed(2)} ${paidNow > 0 ? `(pagó S/ ${paidNow.toFixed(2)}, resto a cuenta)` : 'cargados a cuenta'}`,
+      meta: { room: u.room?.number ?? null, amount: price, paidNow, methods: rMethods || null, mode: dto.mode, concept: ref, stayId: id },
+    });
     return serialize(u);
   },
 
@@ -548,6 +571,13 @@ export const staysService = {
       }
     });
     const updated = await staysRepository.findById(id);
+    const payGuest = `${stay.guest?.firstName ?? ''} ${stay.guest?.lastName ?? ''}`.trim();
+    void recordActivity(scope, {
+      activity: 'DEBT_PAYMENT', area: 'HOSPEDAJE', roomId: stay.roomId, entityId: id,
+      reference: `Hab. ${(updated as StayWithRelations)?.room?.number ?? '?'}`,
+      detail: `${payGuest || 'Huésped'} · S/ ${Number(dto.amount).toFixed(2)} cobrados · ${dto.method}`,
+      meta: { amount: Number(dto.amount), method: dto.method, reference: dto.reference ?? null, stayId: id },
+    });
     return serialize(updated as StayWithRelations);
   },
 
@@ -618,6 +648,13 @@ export const staysService = {
     if (!dest || dest.branchId !== branchId) throw new NotFoundError('Habitación de destino no encontrada');
     if (dest.status !== 'FREE') throw new ConflictError('La habitación de destino no está disponible');
     const result = await staysRepository.changeRoom(id, stay.roomId, dto.destRoomId, dto.originStatus);
+    const chGuest = `${stay.guest?.firstName ?? ''} ${stay.guest?.lastName ?? ''}`.trim();
+    void recordActivity(scope, {
+      activity: 'ROOM_CHANGE', area: 'HOSPEDAJE', roomId: dto.destRoomId, entityId: id,
+      reference: `Hab. ${stay.room?.number ?? '?'} → ${dest.number}`,
+      detail: `${chGuest || 'Huésped'} · Hab. ${stay.room?.number ?? '?'} → ${dest.number} · Origen queda ${dto.originStatus === 'FREE' ? 'disponible' : 'en limpieza'}`,
+      meta: { from: stay.room?.number ?? null, to: dest.number, originStatus: dto.originStatus, stayId: id },
+    });
     return serialize(result as StayWithRelations);
   },
 

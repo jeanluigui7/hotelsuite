@@ -4,6 +4,7 @@ import { pageMeta, toPrismaPaging, type PaginationParams } from '../../shared/pa
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { cashRepository } from './cash.repository';
+import { recordActivity } from '../activity-log/activity.emitter';
 import { PAYMENT_METHODS, requiresReference, PAYMENT_REFERENCE_REQUIRED } from '../../shared/payments';
 import { operationsConfigService, commissionSnapshot } from '../operations-config/operations-config.service';
 import type { CloseCashDto, MovementDto, OpenCashDto } from './cash.schema';
@@ -81,13 +82,20 @@ export const cashService = {
     // La caja pertenece al TURNO: exige un turno activo del usuario (el super admin puede operar sin turno).
     const shift = await prisma.workShift.findFirst({ where: { branchId, userId: scope.userId, status: 'ACTIVE' } });
     if (!shift && !scope.isSuperAdmin) throw new ConflictError('Inicia tu turno antes de abrir la caja.');
-    return cashRepository.open({
+    const opened = await cashRepository.open({
       branchId,
       openedByUserId: scope.userId,
       openingAmount: dto.openingAmount,
       notes: dto.notes || null,
       workShiftId: shift?.id ?? null,
     });
+    void recordActivity(scope, {
+      activity: 'CASH_OPEN', area: 'CAJA', entityId: opened.id,
+      reference: `Caja #${opened.number ?? ''}`.trim(),
+      detail: `Caja abierta · Fondo S/ ${Number(dto.openingAmount).toFixed(2)}`,
+      meta: { sessionId: opened.id, number: opened.number, openingAmount: Number(dto.openingAmount) },
+    });
+    return opened;
   },
 
   async close(scope: RequestScope, dto: CloseCashDto) {
@@ -104,12 +112,19 @@ export const cashService = {
       // Caja chica declarada al cierre (si no se envía, por defecto la base de apertura).
       pettyCashLeft: dto.pettyCashLeft != null ? dto.pettyCashLeft : Number(session.openingAmount),
     });
+    const difference = Math.round((dto.closingAmount - (summary.expectedCash - Number(session.openingAmount))) * 100) / 100;
+    void recordActivity(scope, {
+      activity: 'CASH_CLOSE', area: 'CAJA', entityId: closed.id,
+      reference: `Caja #${closed.number ?? session.number ?? ''}`.trim(),
+      detail: `Caja cerrada · Contado S/ ${Number(dto.closingAmount).toFixed(2)} · Cuadre S/ ${difference.toFixed(2)}`,
+      meta: { sessionId: closed.id, number: closed.number ?? session.number, counted: Number(dto.closingAmount), expected: summary.expectedCash, difference },
+    });
     return {
       session: closed,
       summary,
       // Cuadre = contado − esperado A ENTREGAR (esperado del cajón − caja base). El contado
       // (closingAmount) NO incluye la base; el esperado sí. Igual que el ticket de cuadre.
-      difference: Math.round((dto.closingAmount - (summary.expectedCash - Number(session.openingAmount))) * 100) / 100,
+      difference,
     };
   },
 
@@ -119,7 +134,7 @@ export const cashService = {
     if (!session) throw new ConflictError('Debe abrir un turno para registrar movimientos');
     // Los egresos siempre salen del efectivo del cajón; el método solo aplica a ingresos.
     const method = dto.type === 'OUT' ? 'CASH' : (dto.method ?? 'CASH');
-    return cashRepository.addMovement({
+    const mv = await cashRepository.addMovement({
       cashSessionId: session.id,
       branchId,
       type: dto.type,
@@ -131,6 +146,13 @@ export const cashService = {
       category: dto.category ?? 'MOVEMENT',
       createdByUserId: scope.userId,
     });
+    void recordActivity(scope, {
+      activity: dto.type === 'IN' ? 'CASH_IN' : 'CASH_OUT', area: 'CAJA', entityId: mv.id,
+      reference: `Caja #${session.number ?? ''}`.trim(),
+      detail: `${dto.type === 'IN' ? 'Ingreso' : 'Egreso'} · S/ ${Number(dto.amount).toFixed(2)}${method !== 'CASH' ? ` · ${method}` : ''} · ${dto.concept}`,
+      meta: { sessionId: session.id, type: dto.type, amount: Number(dto.amount), method, concept: dto.concept, category: dto.category ?? 'MOVEMENT' },
+    });
+    return mv;
   },
 
   /** Conceptos frecuentes de movimientos de caja (por sucursal). */

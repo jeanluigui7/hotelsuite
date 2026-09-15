@@ -17,13 +17,20 @@ export interface Attendance {
 
 export interface ActivityLog {
   id: string;
-  branchId?: string | null;
-  userEmail?: string | null;
-  action: string;
-  module: string;
-  entityId?: string | null;
-  summary: string;
   createdAt: string;
+  activity: string | null;
+  area: string | null;
+  reference: string | null;
+  detail: string | null;
+  shift: string | null;
+  roomId?: string | null;
+  entityId?: string | null;
+  userId?: string | null;
+  userName?: string | null;
+  authorizedByName?: string | null;
+  branchId?: string | null;
+  branchName?: string | null;
+  meta?: Record<string, unknown> | null;
 }
 
 @Injectable({ providedIn: 'root' })

@@ -1341,15 +1341,26 @@ model ActivityLog {
   branchId  String?
   userId    String?
   userEmail String?
-  action    String // POST | PUT | PATCH | DELETE
+  action    String // legacy HTTP: POST | PUT | PATCH | DELETE (eventos de dominio no lo usan)
   module    String
   entityId  String?
   summary   String
-  createdAt DateTime @default(now())
+  // Auditoría de dominio (bitácora legible): un evento por acción de negocio.
+  activity           String? // código de evento (CHECK_IN, SALE, CASH_IN, …); null = log HTTP legacy (oculto en la vista)
+  area               String? // HOSPEDAJE | VENTAS | CAJA | LIMPIEZA | RESERVAS | …
+  reference          String? // "Hab. 208", "Venta #1854", "Caja #3", "Reserva #458", …
+  detail             String? @db.NVarChar(Max) // texto legible para el auditor
+  shift              String? // MANANA | TARDE | NOCHE | FUERA_DE_TURNO (turno operativo al momento)
+  roomId             String?
+  authorizedByUserId String?
+  metaJson           String? @db.NVarChar(Max) // detalle estructurado (JSON) para el desplegable ▼
+  createdAt          DateTime @default(now())
 
   @@index([branchId])
   @@index([userId])
   @@index([createdAt])
+  @@index([activity])
+  @@index([area])
 }
 
 /// Resultado de un ítem de checklist en una inspección de tarea.

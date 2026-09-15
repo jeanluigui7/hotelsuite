@@ -5,6 +5,7 @@ import { ValidationError, NotFoundError, ConflictError } from '../../shared/erro
 import { prisma } from '../../config/prisma';
 import { applyStockTx, createMovementTx } from '../movements/movements.repository';
 import { cashRepository } from '../cash/cash.repository';
+import { recordActivity } from '../activity-log/activity.emitter';
 import { operationsConfigService, commissionSnapshot } from '../operations-config/operations-config.service';
 import { requiresReference, PAYMENT_REFERENCE_REQUIRED } from '../../shared/payments';
 
@@ -144,6 +145,12 @@ export const reconciliationsService = {
           createdByUserId: scope.userId, approvedByUserId: scope.userId,
         },
       });
+      void recordActivity(scope, {
+        activity: 'CASH_ADJUST', area: 'CAJA', entityId: rec.id,
+        reference: `Caja #${session.number ?? ''}`.trim(),
+        detail: `Ajuste · +S/ ${Number(dto.amount).toFixed(2)} · ${finalNote ?? 'Venta no registrada'}`,
+        meta: { sessionId, amount: Number(dto.amount), concept: finalNote, product: null },
+      });
       return { reconciliationId: rec.id, movementId: null };
     }
 
@@ -154,7 +161,7 @@ export const reconciliationsService = {
     if (!wh || wh.branchId !== branchId) throw new ValidationError('Almacén inválido');
     const qty = dto.quantity ?? 1;
 
-    return prisma.$transaction(async (tx) => {
+    const adjOut = await prisma.$transaction(async (tx) => {
       await applyStockTx(tx, dto.productId!, wh.id, -qty);
       const mv = await createMovementTx(tx, {
         branchId, productId: dto.productId!, warehouseId: wh.id, type: 'SALE', quantity: -qty,
@@ -174,6 +181,13 @@ export const reconciliationsService = {
       if (err instanceof Error && err.message === 'STOCK_INSUFFICIENT') throw new ValidationError('Stock insuficiente para descontar el producto');
       throw err as Error;
     });
+    void recordActivity(scope, {
+      activity: 'CASH_ADJUST', area: 'CAJA', entityId: adjOut.reconciliationId,
+      reference: `Caja #${session.number ?? ''}`.trim(),
+      detail: `Ajuste · +S/ ${Number(dto.amount).toFixed(2)} · ${product.name} x${qty}${finalNote ? ` · ${finalNote}` : ''}`,
+      meta: { sessionId, amount: Number(dto.amount), concept: finalNote, product: product.name, quantity: qty },
+    });
+    return adjOut;
   },
 
   /**

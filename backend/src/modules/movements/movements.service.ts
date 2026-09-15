@@ -5,6 +5,7 @@ import { pageMeta, toPrismaPaging, type PaginationParams } from '../../shared/pa
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { movementsRepository } from './movements.repository';
+import { recordActivity } from '../activity-log/activity.emitter';
 import type { AdjustDto, TransferDto } from './movements.schema';
 
 async function assertProductAndWarehouse(productId: string, warehouseId: string, branchId: string) {
@@ -95,7 +96,7 @@ export const movementsService = {
     let to = await prisma.warehouse.findFirst({ where: { branchId, type: dto.toArea } });
     if (!to) to = await prisma.warehouse.create({ data: { branchId, name: areaName, type: dto.toArea } });
     try {
-      return await movementsRepository.transfer({
+      const trOut = await movementsRepository.transfer({
         branchId,
         productId: dto.productId,
         fromWarehouseId: from.id,
@@ -105,6 +106,12 @@ export const movementsService = {
         reference: dto.reference || `Transferencia a ${areaName}`,
         createdByUserId: scope.userId,
       });
+      void recordActivity(scope, {
+        activity: 'STOCK_TRANSFER', area: 'INVENTARIO', reference: `Producto ${product.name}`,
+        detail: `${product.name} x${dto.quantity} · ${from.name} → ${areaName}`,
+        meta: { product: product.name, quantity: dto.quantity, from: from.name, to: areaName },
+      });
+      return trOut;
     } catch (err) {
       if (err instanceof Error && err.message === 'STOCK_INSUFFICIENT') throw new ValidationError('Stock insuficiente en el almacén de productos');
       throw err;

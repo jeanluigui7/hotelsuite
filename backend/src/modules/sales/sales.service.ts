@@ -10,6 +10,7 @@ import {
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { cashRepository } from '../cash/cash.repository';
+import { recordActivity } from '../activity-log/activity.emitter';
 import { productsRepository } from '../products/products.repository';
 import { changeCreditsService } from '../change-credits/change-credits.service';
 import { applyStockTx, createMovementTx } from '../movements/movements.repository';
@@ -163,6 +164,21 @@ export const salesService = {
         stockDecrements,
       });
       if (vueltoUsed > 0 && dto.stayId) await changeCreditsService.consumeForStay(branchId, dto.stayId, vueltoUsed);
+      void (async () => {
+        let ref = dto.customerName ? `Cliente ${dto.customerName}` : `Venta #${sale.id.slice(0, 8)}`;
+        let roomId: string | null = null;
+        if (dto.stayId) {
+          const st = await prisma.stay.findUnique({ where: { id: dto.stayId }, select: { roomId: true, room: { select: { number: true } } } }).catch(() => null);
+          if (st?.room?.number) { ref = `Hab. ${st.room.number}`; roomId = st.roomId; }
+        }
+        const itemsDesc = sale.items.map((i) => `${i.description}${i.quantity > 1 ? ` x${i.quantity}` : ''}`).join(' + ');
+        const methods = payments.map((p) => p.method).join(' + ');
+        await recordActivity(scope, {
+          activity: 'SALE', area: 'VENTAS', roomId, entityId: sale.id, reference: ref,
+          detail: `${sale.items.length} ítem(es) · ${itemsDesc} · Total S/ ${Number(sale.total).toFixed(2)}${methods ? ` · ${methods}` : ' · a cuenta'}`,
+          meta: { saleId: sale.id, total: Number(sale.total), items: sale.items.map((i) => ({ desc: i.description, qty: i.quantity, subtotal: Number(i.subtotal) })), methods: methods || null, customer: dto.customerName ?? null, stayId: dto.stayId ?? null, sourceArea: dto.sourceArea ?? null },
+        });
+      })();
       return serialize(sale);
     } catch (err) {
       if (err instanceof Error && err.message.startsWith('STOCK_INSUFFICIENT')) {
@@ -240,6 +256,11 @@ export const salesService = {
       });
       await cashRepository.markAdjusted(sale.cashSessionId);
     }
+    void recordActivity(scope, {
+      activity: 'SALE_VOID', area: 'VENTAS', entityId: id, reference: `Venta #${id.slice(0, 8)}`,
+      detail: `Venta anulada · S/ ${Number(sale.total).toFixed(2)}${reason?.trim() ? ` · Motivo: ${reason.trim()}` : ''}`,
+      meta: { saleId: id, amount: Number(sale.total), reason: reason?.trim() || null, methods: sale.payments.map((p) => p.method).join(' + ') || null, mode: isCurrentTurn ? 'REMOVED' : 'ADJUSTED' },
+    });
     return result;
   },
 
@@ -259,6 +280,11 @@ export const salesService = {
       });
       await cashRepository.markAdjusted(sale.cashSessionId);
     }
+    void recordActivity(scope, {
+      activity: 'SALE_CORRECTION', area: 'VENTAS', entityId: id, reference: `Venta #${id.slice(0, 8)}`,
+      detail: `Corrección de venta · Método ${beforeMethods.join(' + ') || '—'} → ${dto.method}${dto.reason?.trim() ? ` · ${dto.reason.trim()}` : ''}`,
+      meta: { saleId: id, before: beforeMethods, afterMethod: dto.method, reason: dto.reason?.trim() || null },
+    });
     return result;
   },
 
@@ -298,6 +324,11 @@ export const salesService = {
       });
       await cashRepository.markAdjusted(sale.cashSessionId);
     }
+    void recordActivity(scope, {
+      activity: 'SALE_CORRECTION', area: 'VENTAS', entityId: id, reference: `Venta #${id.slice(0, 8)}`,
+      detail: `Corrección de venta · Desglose ${beforeMethods.join(', ')} → ${payments.map((p) => `${p.method}:${p.amount.toFixed(2)}`).join(', ')}${dto.reason?.trim() ? ` · ${dto.reason.trim()}` : ''}`,
+      meta: { saleId: id, before: beforeMethods, after: payments.map((p) => `${p.method}:${p.amount.toFixed(2)}`), reason: dto.reason?.trim() || null },
+    });
     return result;
   },
 
@@ -396,6 +427,11 @@ export const salesService = {
       });
       await cashRepository.markAdjusted(sale.cashSessionId);
     }
+    void recordActivity(scope, {
+      activity: 'SALE_CORRECTION', area: 'VENTAS', entityId: id, reference: `Venta #${id.slice(0, 8)}`,
+      detail: `Corrección de venta · ${swaps.map((s) => `${s.item.description} → ${s.newName}`).join(', ') || 'ajuste'}${swapDelta !== 0 ? ` · Total ${swapDelta > 0 ? '+' : ''}${swapDelta.toFixed(2)}` : ''}${dto.reason?.trim() ? ` · ${dto.reason.trim()}` : ''}`,
+      meta: { saleId: id, swaps: swaps.map((s) => `${s.item.description} → ${s.newName}`), swapDelta, stayId: dto.stayId ?? sale.stayId, reason: dto.reason?.trim() || null },
+    });
     return result;
   },
 
@@ -451,6 +487,11 @@ export const salesService = {
       });
       await cashRepository.markAdjusted(sale.cashSessionId);
     }
+    void recordActivity(scope, {
+      activity: 'SALE_VOID', area: 'VENTAS', entityId: id, reference: `Venta #${id.slice(0, 8)}`,
+      detail: `Línea anulada · ${item.description} · S/ ${Number(item.subtotal).toFixed(2)}${dto.reason?.trim() ? ` · Motivo: ${dto.reason.trim()}` : ''}`,
+      meta: { saleId: id, line: item.description, amount: Number(item.subtotal), newTotal, reason: dto.reason?.trim() || null },
+    });
     return result;
   },
 };

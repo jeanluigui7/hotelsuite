@@ -3,6 +3,7 @@ import { requireActiveBranch } from '../../shared/scope';
 import { ConflictError } from '../../shared/errors';
 import { prisma } from '../../config/prisma';
 import { cashRepository } from '../cash/cash.repository';
+import { recordActivity } from '../activity-log/activity.emitter';
 
 /**
  * Turno de trabajo PERSONAL (jornada de recepción). Entidad distinta de la caja: USUARIO → TURNO → CAJA.
@@ -70,9 +71,11 @@ export const workShiftsService = {
     const branchId = requireActiveBranch(scope);
     const existing = await activeShift(branchId, scope.userId);
     if (existing) return existing;
-    return prisma.workShift.create({
+    const ws = await prisma.workShift.create({
       data: { branchId, userId: scope.userId, shift: shiftForHour(new Date()), status: 'ACTIVE' },
     });
+    void recordActivity(scope, { activity: 'SHIFT_OPEN', area: 'TURNO', shift: ws.shift, entityId: ws.id, detail: 'Inicio de turno', meta: { shift: ws.shift } });
+    return ws;
   },
 
   /** Finaliza el turno. No permitido con una caja ABIERTA. */
@@ -82,6 +85,8 @@ export const workShiftsService = {
     if (!shift) throw new ConflictError('No tienes un turno activo.');
     const openCaja = await cashRepository.findOpen(branchId);
     if (openCaja) throw new ConflictError('Debes cerrar tu caja antes de finalizar el turno.');
-    return prisma.workShift.update({ where: { id: shift.id }, data: { status: 'CLOSED', endedAt: new Date() } });
+    const ended = await prisma.workShift.update({ where: { id: shift.id }, data: { status: 'CLOSED', endedAt: new Date() } });
+    void recordActivity(scope, { activity: 'SHIFT_CLOSE', area: 'TURNO', shift: shift.shift, entityId: shift.id, detail: 'Cierre de turno', meta: { shift: shift.shift } });
+    return ended;
   },
 };
