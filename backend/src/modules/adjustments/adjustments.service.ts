@@ -5,7 +5,10 @@ import { ValidationError } from '../../shared/errors';
 import { prisma } from '../../config/prisma';
 import { applyStockTx, createMovementTx } from '../movements/movements.repository';
 import { cashRepository } from '../cash/cash.repository';
+import { recordActivity } from '../activity-log/activity.emitter';
 import { productWarehouses } from '../../shared/product-kardex';
+
+const KIND_LABEL: Record<string, string> = { VENCIDO: 'Vencido', MERMA: 'Merma', FALTANTE: 'Faltante', SOBRANTE: 'Sobrante', TRANSFER: 'Transferencia' };
 
 /**
  * Ajustes trazables del kardex de productos (Fase 1, solo inventario — no mueve caja):
@@ -72,7 +75,7 @@ export const adjustmentsService = {
         if (!general) throw new ValidationError('No hay Almacén General de Productos');
         toWhId = general.id;
       }
-      return prisma
+      const trRes = await prisma
         .$transaction(async (tx) => {
           await applyStockTx(tx, dto.productId, wh.id, -dto.quantity);
           await applyStockTx(tx, dto.productId, toWhId, dto.quantity);
@@ -81,16 +84,28 @@ export const adjustmentsService = {
           return { outId: out.id, inId: inn.id };
         })
         .catch(mapStockErr);
+      void recordActivity(scope, {
+        activity: 'INVENTORY_ADJUST', area: 'INVENTARIO', entityId: trRes.outId, reference: `Producto ${product.name}`,
+        detail: `${KIND_LABEL[dto.kind] ?? dto.kind} · ${product.name} x${dto.quantity} · ${wh.name} →`,
+        meta: { kind: dto.kind, product: product.name, quantity: dto.quantity, from: wh.name, reference },
+      });
+      return trRes;
     }
 
     // VENCIDO / MERMA / FALTANTE: baja simple (sin contrapartida). No regresa a stock.
-    return prisma
+    const adjRes = await prisma
       .$transaction(async (tx) => {
         await applyStockTx(tx, dto.productId, wh.id, -dto.quantity);
         const mv = await createMovementTx(tx, { ...commonBase, warehouseId: wh.id, type: 'ADJUST', quantity: -dto.quantity, relatedWarehouseId: null });
         return { id: mv.id };
       })
       .catch(mapStockErr);
+    void recordActivity(scope, {
+      activity: 'INVENTORY_ADJUST', area: 'INVENTARIO', entityId: adjRes.id, roomId: dto.roomId ?? null, reference: `Producto ${product.name}`,
+      detail: `${KIND_LABEL[dto.kind] ?? dto.kind} · ${product.name} x${dto.quantity}${reference ? ` · ${reference}` : ''}`,
+      meta: { kind: dto.kind, product: product.name, quantity: dto.quantity, warehouse: wh.name, reference, room: dto.roomId ?? null },
+    });
+    return adjRes;
   },
 
   /** Detalle de ajustes de un almacén dentro de una ventana (para el kardex interactivo). */

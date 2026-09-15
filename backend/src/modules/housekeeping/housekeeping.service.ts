@@ -5,6 +5,7 @@ import { pageMeta, toPrismaPaging, type PaginationParams } from '../../shared/pa
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { housekeepingRepository, type TaskWithRelations } from './housekeeping.repository';
+import { recordActivity } from '../activity-log/activity.emitter';
 import type { CompleteTaskDto, CreateTaskDto, InspectTaskDto } from './housekeeping.schema';
 
 function serialize(
@@ -82,6 +83,12 @@ export const housekeepingService = {
       notes: dto.notes || null,
     });
     const m = await maps(branchId);
+    void recordActivity(scope, {
+      activity: 'CLEANING', area: 'LIMPIEZA', roomId: dto.roomId, entityId: task.id,
+      reference: `Hab. ${m.rooms.get(dto.roomId) ?? '?'}`,
+      detail: `Solicitada · Hab. ${m.rooms.get(dto.roomId) ?? '?'}`,
+      meta: { room: m.rooms.get(dto.roomId) ?? null, state: 'Solicitada', taskId: task.id },
+    });
     return serialize(task, m.rooms, m.users);
   },
 
@@ -90,6 +97,12 @@ export const housekeepingService = {
     if (task.status !== 'PENDING') throw new ConflictError('La tarea ya fue iniciada');
     const updated = await housekeepingRepository.update(id, { status: 'IN_PROGRESS' });
     const m = await maps(task.branchId);
+    void recordActivity(scope, {
+      activity: 'CLEANING', area: 'LIMPIEZA', roomId: task.roomId, entityId: task.id,
+      reference: `Hab. ${m.rooms.get(task.roomId) ?? '?'}`,
+      detail: `Iniciada · Hab. ${m.rooms.get(task.roomId) ?? '?'}`,
+      meta: { room: m.rooms.get(task.roomId) ?? null, state: 'Iniciada', taskId: task.id },
+    });
     return serialize(updated, m.rooms, m.users);
   },
 
@@ -116,6 +129,13 @@ export const housekeepingService = {
         userId: scope.userId,
       });
       const m = await maps(branchId);
+      const durMin = updated.completedAt ? Math.max(0, Math.round((new Date(updated.completedAt).getTime() - new Date(task.createdAt).getTime()) / 60000)) : null;
+      void recordActivity(scope, {
+        activity: 'CLEANING', area: 'LIMPIEZA', roomId: task.roomId, entityId: task.id,
+        reference: `Hab. ${roomNumber ?? '?'}`,
+        detail: `Finalizada · Hab. ${roomNumber ?? '?'}${durMin != null ? ` · Duración ${durMin} min` : ''}`,
+        meta: { room: roomNumber ?? null, state: 'Finalizada', durationMin: durMin, amenities: dto.consumption.length, taskId: task.id },
+      });
       return serialize(updated, m.rooms, m.users);
     } catch (err) {
       if (err instanceof Error && err.message === 'STOCK_INSUFFICIENT') {
@@ -136,6 +156,12 @@ export const housekeepingService = {
       userId: scope.userId,
     });
     const m = await maps(branchId);
+    void recordActivity(scope, {
+      activity: 'INSPECTION', area: 'INSPECCION', roomId: task.roomId, entityId: task.id,
+      reference: `Hab. ${m.rooms.get(task.roomId) ?? '?'}`,
+      detail: `Hab. ${m.rooms.get(task.roomId) ?? '?'} · ${dto.approved ? 'Aprobada' : 'Rechazada'}`,
+      meta: { room: m.rooms.get(task.roomId) ?? null, approved: dto.approved, items: dto.items.filter((i) => !i.passed).map((i) => i.note).filter(Boolean), taskId: task.id },
+    });
     return serialize(updated, m.rooms, m.users);
   },
 };

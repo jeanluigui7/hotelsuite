@@ -10,6 +10,7 @@ import {
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { cashRepository } from '../cash/cash.repository';
+import { recordActivity } from '../activity-log/activity.emitter';
 import { reservationsRepository, type ReservationWithRelations } from './reservations.repository';
 import type { CreateReservationDto, UpdateReservationDto } from './reservations.schema';
 
@@ -106,6 +107,11 @@ export const reservationsService = {
       notes: dto.notes || null,
       createdByUserId: scope.userId,
     });
+    void recordActivity(scope, {
+      activity: 'RESERVATION_CREATE', area: 'RESERVAS', entityId: r.id, reference: `Reserva #${r.id.slice(0, 8)}`,
+      detail: `${dto.guestName || 'Cliente'} · ${new Date(dto.expectedCheckInAt).toLocaleString('es-PE')}`,
+      meta: { reservationId: r.id, guest: dto.guestName ?? null, expectedCheckInAt: dto.expectedCheckInAt, durationMinutes: dto.durationMinutes, status: dto.status },
+    });
     return serialize(r);
   },
 
@@ -126,11 +132,23 @@ export const reservationsService = {
       status: dto.status,
       notes: dto.notes === '' ? null : dto.notes,
     });
+    const cancelled = dto.status === 'CANCELLED';
+    void recordActivity(scope, {
+      activity: cancelled ? 'RESERVATION_CANCEL' : 'RESERVATION_UPDATE', area: 'RESERVAS', entityId: r.id, reference: `Reserva #${r.id.slice(0, 8)}`,
+      detail: cancelled ? `Reserva cancelada${dto.notes ? ` · ${dto.notes}` : ''}` : `Reserva modificada · ${dto.guestName || 'Cliente'}`,
+      meta: { reservationId: r.id, status: dto.status, guest: dto.guestName ?? null, notes: dto.notes ?? null },
+    });
     return serialize(r);
   },
 
   async remove(scope: RequestScope, id: string) {
     await this.getEntity(scope, id);
-    return reservationsRepository.delete(id);
+    const out = await reservationsRepository.delete(id);
+    void recordActivity(scope, {
+      activity: 'RESERVATION_CANCEL', area: 'RESERVAS', entityId: id, reference: `Reserva #${id.slice(0, 8)}`,
+      detail: 'Reserva eliminada',
+      meta: { reservationId: id },
+    });
+    return out;
   },
 };

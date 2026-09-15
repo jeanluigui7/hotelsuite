@@ -22,10 +22,14 @@ const ACTIVITY_LABEL: Record<string, string> = {
   SALE: 'Venta', SALE_VOID: 'Anulación', SALE_CORRECTION: 'Corrección de venta',
   CASH_IN: 'Ingreso de caja', CASH_OUT: 'Egreso de caja', CASH_ADJUST: 'Ajuste de caja', CASH_OPEN: 'Apertura de caja', CASH_CLOSE: 'Cierre de caja',
   STOCK_TRANSFER: 'Transferencia de stock', SHIFT_OPEN: 'Inicio de turno', SHIFT_CLOSE: 'Cierre de turno',
+  CLEANING: 'Limpieza', INSPECTION: 'Inspección',
+  RESERVATION_CREATE: 'Reserva creada', RESERVATION_UPDATE: 'Reserva modificada', RESERVATION_CANCEL: 'Reserva cancelada',
+  WIFI: 'Wi-Fi', FRIGOBAR: 'Frigobar', MAINTENANCE: 'Mantenimiento', INVENTORY_ADJUST: 'Ajuste de inventario',
 };
 const SHIFT_LABEL: Record<string, string> = { MANANA: 'Mañana', TARDE: 'Tarde', NOCHE: 'Noche', FUERA_DE_TURNO: 'Fuera de turno' };
 const AREA_CLASS: Record<string, string> = {
   HOSPEDAJE: 'a-hosp', VENTAS: 'a-vent', CAJA: 'a-caja', INVENTARIO: 'a-inv', TURNO: 'a-turno',
+  LIMPIEZA: 'a-limp', INSPECCION: 'a-insp', RESERVAS: 'a-resv', WIFI: 'a-wifi', FRIGOBAR: 'a-frig', MANTENIMIENTO: 'a-mant',
 };
 
 const PAGE_SIZES = [
@@ -151,6 +155,12 @@ const SHIFT_OPTS = [{ label: 'Mañana', value: 'MANANA' }, { label: 'Tarde', val
       .atag.a-caja { background: rgba(245,158,11,0.16); color: #fcd34d; border-color: rgba(245,158,11,0.4); }
       .atag.a-inv { background: rgba(168,85,247,0.16); color: #d8b4fe; border-color: rgba(168,85,247,0.4); }
       .atag.a-turno { background: rgba(148,163,184,0.16); color: #cbd5e1; border-color: rgba(148,163,184,0.4); }
+      .atag.a-limp { background: rgba(20,184,166,0.16); color: #5eead4; border-color: rgba(20,184,166,0.4); }
+      .atag.a-insp { background: rgba(59,130,246,0.16); color: #93c5fd; border-color: rgba(59,130,246,0.4); }
+      .atag.a-resv { background: rgba(236,72,153,0.16); color: #f9a8d4; border-color: rgba(236,72,153,0.4); }
+      .atag.a-wifi { background: rgba(99,102,241,0.16); color: #a5b4fc; border-color: rgba(99,102,241,0.4); }
+      .atag.a-frig { background: rgba(6,182,212,0.16); color: #67e8f9; border-color: rgba(6,182,212,0.4); }
+      .atag.a-mant { background: rgba(234,88,12,0.16); color: #fdba74; border-color: rgba(234,88,12,0.4); }
       .shift { font-size: 0.72rem; padding: 0.1rem 0.45rem; border-radius: 6px; background: #1b2433; color: #9fb0c3; } .shift.out { background: rgba(180,35,35,0.14); color: #fca5a5; }
       .exp-btn { background: transparent; border: 0; color: #8aa0bd; cursor: pointer; }
       .al-detail td { background: #0b1119; border-bottom: 1px solid #1c2a3a; }

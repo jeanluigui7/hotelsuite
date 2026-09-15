@@ -173,9 +173,12 @@ export const salesService = {
         }
         const itemsDesc = sale.items.map((i) => `${i.description}${i.quantity > 1 ? ` x${i.quantity}` : ''}`).join(' + ');
         const methods = payments.map((p) => p.method).join(' + ');
+        const isFrigobar = dto.sourceArea === 'FRIGOBAR';
         await recordActivity(scope, {
-          activity: 'SALE', area: 'VENTAS', roomId, entityId: sale.id, reference: ref,
-          detail: `${sale.items.length} ítem(es) · ${itemsDesc} · Total S/ ${Number(sale.total).toFixed(2)}${methods ? ` · ${methods}` : ' · a cuenta'}`,
+          activity: isFrigobar ? 'FRIGOBAR' : 'SALE', area: isFrigobar ? 'FRIGOBAR' : 'VENTAS', roomId, entityId: sale.id, reference: ref,
+          detail: isFrigobar
+            ? `Consumo registrado · ${itemsDesc} · S/ ${Number(sale.total).toFixed(2)}${methods ? ` · ${methods}` : ' · a cuenta'}`
+            : `${sale.items.length} ítem(es) · ${itemsDesc} · Total S/ ${Number(sale.total).toFixed(2)}${methods ? ` · ${methods}` : ' · a cuenta'}`,
           meta: { saleId: sale.id, total: Number(sale.total), items: sale.items.map((i) => ({ desc: i.description, qty: i.quantity, subtotal: Number(i.subtotal) })), methods: methods || null, customer: dto.customerName ?? null, stayId: dto.stayId ?? null, sourceArea: dto.sourceArea ?? null },
         });
       })();

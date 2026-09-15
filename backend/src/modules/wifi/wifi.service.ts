@@ -2,6 +2,7 @@ import type { RequestScope } from '../../shared/context';
 import { NotFoundError, ConflictError, ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
+import { recordActivity } from '../activity-log/activity.emitter';
 import { WIFI_CATEGORIES, type CreateWifiDto, type UpdateWifiDto, type BulkCreateWifiDto, type AssignWifiDto, type ImportWifiDto } from './wifi.schema';
 
 type WifiRow = {
@@ -194,7 +195,14 @@ export const wifiService = {
     if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
     if (stay.status !== 'OPEN') throw new ConflictError('La estancia no está activa');
     const guest = `${stay.guest?.firstName ?? ''} ${stay.guest?.lastName ?? ''}`.trim();
-    return this.assignToStay({ branchId, stayId: stay.id, room: stay.room?.number ?? null, guest: guest || null, credentialId: id, userId: scope.userId, reason: 'MANUAL' });
+    const wres = await this.assignToStay({ branchId, stayId: stay.id, room: stay.room?.number ?? null, guest: guest || null, credentialId: id, userId: scope.userId, reason: 'MANUAL' });
+    if (wres) void recordActivity(scope, {
+      activity: 'WIFI', area: 'WIFI', entityId: wres.id,
+      reference: stay.room?.number ? `Hab. ${stay.room.number}` : 'Wi-Fi',
+      detail: `Voucher asignado · ${wres.category} · Hab. ${stay.room?.number ?? '?'}`,
+      meta: { room: stay.room?.number ?? null, category: wres.category, stayId: stay.id, reason: 'MANUAL' },
+    });
+    return wres;
   },
 
   /** Asignación AUTOMÁTICA a una habitación (recepción y admin): el sistema toma la siguiente disponible
@@ -209,7 +217,14 @@ export const wifiService = {
     if (stay.status !== 'OPEN') throw new ConflictError('La estancia no está activa');
     const guest = `${stay.guest?.firstName ?? ''} ${stay.guest?.lastName ?? ''}`.trim();
     const category = await this.categoryForStay(stayId);
-    return this.assignToStay({ branchId, stayId, room: stay.room?.number ?? null, guest: guest || null, category, userId: scope.userId, reason: 'MANUAL', requireAvailable: true });
+    const wres = await this.assignToStay({ branchId, stayId, room: stay.room?.number ?? null, guest: guest || null, category, userId: scope.userId, reason: 'MANUAL', requireAvailable: true });
+    if (wres) void recordActivity(scope, {
+      activity: 'WIFI', area: 'WIFI', entityId: wres.id,
+      reference: stay.room?.number ? `Hab. ${stay.room.number}` : 'Wi-Fi',
+      detail: `Voucher asignado · ${wres.category} · Hab. ${stay.room?.number ?? '?'}`,
+      meta: { room: stay.room?.number ?? null, category: wres.category, stayId, reason: 'AUTO' },
+    });
+    return wres;
   },
 
   /** Al checkout: la credencial asignada a la estancia se consume ("Usada"). */

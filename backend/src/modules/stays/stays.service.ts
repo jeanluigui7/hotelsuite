@@ -610,6 +610,14 @@ export const staysService = {
       await prisma.stay.update({ where: { id }, data: { renewalCleaningStatus: 'NONE', renewalCleaningStep: 0, cleaningRequested: false, renewalCleaningDone: { increment: 1 } } });
     }
     const updated = await staysRepository.findById(id);
+    if (action !== 'advance') {
+      const stateLbl = action === 'start' ? 'Iniciada' : action === 'finish' ? 'Finalizada' : 'Rechazada';
+      void recordActivity(scope, {
+        activity: 'CLEANING', area: 'LIMPIEZA', roomId: stay.roomId, entityId: id,
+        reference: `Hab. ${stay.room?.number ?? '?'}`, detail: `${stateLbl} · Hab. ${stay.room?.number ?? '?'}`,
+        meta: { room: stay.room?.number ?? null, state: stateLbl, stayId: id },
+      });
+    }
     return serialize(updated as StayWithRelations);
   },
 
@@ -633,6 +641,11 @@ export const staysService = {
     await prisma.room.update({ where: { id: stay.roomId }, data: { status: 'LIMPIEZA_SOLICITADA' } });
     await prisma.stay.update({ where: { id }, data: { renewalCleaningStatus: 'SOLICITADA', cleaningRequested: true } });
     const updated = await staysRepository.findById(id);
+    void recordActivity(scope, {
+      activity: 'CLEANING', area: 'LIMPIEZA', roomId: stay.roomId, entityId: id,
+      reference: `Hab. ${room.number}`, detail: `Solicitada · Hab. ${room.number}`,
+      meta: { room: room.number, state: 'Solicitada', stayId: id },
+    });
     return serialize(updated as StayWithRelations);
   },
 

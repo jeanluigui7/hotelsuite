@@ -5,6 +5,7 @@ import { pageMeta, toPrismaPaging, type PaginationParams } from '../../shared/pa
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { maintenanceRepository } from './maintenance.repository';
+import { recordActivity } from '../activity-log/activity.emitter';
 import type { CreateMaintenanceDto, UpdateMaintenanceDto } from './maintenance.schema';
 
 async function roomMap(branchId: string) {
@@ -75,7 +76,15 @@ export const maintenanceService = {
         await prisma.room.update({ where: { id: dto.roomId }, data: { status: 'MAINTENANCE' } });
       }
     }
-    return serialize(m, await roomMap(branchId));
+    const rmap = await roomMap(branchId);
+    const num = m.roomId ? rmap.get(m.roomId) : null;
+    void recordActivity(scope, {
+      activity: 'MAINTENANCE', area: 'MANTENIMIENTO', roomId: m.roomId, entityId: m.id,
+      reference: num ? `Hab. ${num}` : 'Mantenimiento',
+      detail: `${num ? `Hab. ${num} ` : ''}enviada a mantenimiento · ${m.title}`,
+      meta: { room: num ?? null, title: m.title, description: m.description ?? null, status: m.status, critical: dto.critical ?? false },
+    });
+    return serialize(m, rmap);
   },
 
   async update(scope: RequestScope, id: string, dto: UpdateMaintenanceDto) {
@@ -99,7 +108,16 @@ export const maintenanceService = {
         await prisma.room.update({ where: { id: m.roomId }, data: { status: 'CLEANING' } });
       }
     }
-    return serialize(m, await roomMap(branchId));
+    const rmap = await roomMap(branchId);
+    const num = m.roomId ? rmap.get(m.roomId) : null;
+    const doneMnt = dto.status === 'DONE' || dto.status === 'CANCELLED';
+    void recordActivity(scope, {
+      activity: 'MAINTENANCE', area: 'MANTENIMIENTO', roomId: m.roomId, entityId: m.id,
+      reference: num ? `Hab. ${num}` : 'Mantenimiento',
+      detail: doneMnt ? `${num ? `Hab. ${num} ` : ''}disponible nuevamente · ${m.title}` : `${num ? `Hab. ${num} ` : ''}${m.title} · ${m.status}`,
+      meta: { room: num ?? null, title: m.title, status: m.status },
+    });
+    return serialize(m, rmap);
   },
 
   async remove(scope: RequestScope, id: string) {
