@@ -3,6 +3,7 @@ import type { RequestScope } from '../../shared/context';
 import { requireActiveBranch } from '../../shared/scope';
 import { ForbiddenError } from '../../shared/errors';
 import { prisma } from '../../config/prisma';
+import { recordActivity } from '../activity-log/activity.emitter';
 
 /**
  * Configuración operativa de la sucursal activa (una sola pantalla).
@@ -134,6 +135,7 @@ export const operationsConfigService = {
   async update(scope: RequestScope, dto: UpdateOperationsConfigDto) {
     const branchId = requireActiveBranch(scope);
     const b = (v: boolean) => (v ? 'true' : 'false');
+    const cfgBefore = await this.get(scope); // snapshot para auditar cambios económicos
 
     if (dto.blindCash !== undefined) await prisma.branch.update({ where: { id: branchId }, data: { adminPresent: !dto.blindCash } });
     if (dto.cutoffHour !== undefined) await write(branchId, KEYS.cutoffHour, String(dto.cutoffHour));
@@ -151,7 +153,16 @@ export const operationsConfigService = {
     if (dto.reception?.creditNote !== undefined) await write(branchId, KEYS.recCreditNote, b(dto.reception.creditNote));
     if (dto.cleaning?.linenWriteoff !== undefined) await write(branchId, KEYS.linenWriteoff, b(dto.cleaning.linenWriteoff));
 
-    return this.get(scope);
+    const cfgAfter = await this.get(scope);
+    // Auditoría de configuración ECONÓMICA: comisiones POS (habilitación y porcentajes).
+    if (cfgBefore.commissionsEnabled !== cfgAfter.commissionsEnabled || JSON.stringify(cfgBefore.pos) !== JSON.stringify(cfgAfter.pos)) {
+      void recordActivity(scope, {
+        activity: 'PRICE_CHANGE', area: 'PRECIOS', reference: 'Comisiones POS',
+        detail: `Comisiones POS actualizadas${cfgBefore.commissionsEnabled !== cfgAfter.commissionsEnabled ? ` · ${cfgAfter.commissionsEnabled ? 'activadas' : 'desactivadas'}` : ''}`,
+        meta: { entity: 'Comisiones POS', enabledBefore: cfgBefore.commissionsEnabled, enabledAfter: cfgAfter.commissionsEnabled, before: cfgBefore.pos, after: cfgAfter.pos },
+      });
+    }
+    return cfgAfter;
   },
 };
 

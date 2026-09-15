@@ -277,6 +277,19 @@ export const staysService = {
       detail: `${gName || 'Huésped'} · ${rate?.label ?? 'Estancia'} · S/ ${Number(created.priceAgreed).toFixed(2)}`,
       meta: { room: room.number, guest: gName || null, rate: rate?.label ?? null, price: Number(created.priceAgreed), stayId: created.id, checkOutAt: created.plannedCheckoutAt },
     });
+    // Descuento / cortesía: si el precio final quedó por debajo de la tarifa base (o en S/0).
+    const finalP = Number(created.priceAgreed);
+    if (finalP < basePrice - 0.01) {
+      const courtesy = finalP <= 0.001;
+      void recordActivity(scope, {
+        activity: courtesy ? 'COURTESY' : 'DISCOUNT', area: 'PRECIOS', roomId: room.id, entityId: created.id,
+        reference: `Hab. ${room.number}`,
+        detail: courtesy
+          ? `Cortesía · Hab. ${room.number} · ${rate?.label ?? 'Estancia'} S/ ${basePrice.toFixed(2)} → S/ 0.00`
+          : `Descuento · Hab. ${room.number} · S/ ${basePrice.toFixed(2)} → S/ ${finalP.toFixed(2)}`,
+        meta: { room: room.number, base: basePrice, final: finalP, tierId: dto.tierId ?? null, priceOverride: dto.priceOverride ?? null, guest: gName || null, stayId: created.id },
+      });
+    }
     return serialize(created);
   },
 

@@ -4,6 +4,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../../shared/erro
 import { requireActiveBranch } from '../../shared/scope';
 import { ratesRepository } from './rates.repository';
 import { roomTypesRepository } from '../room-types/room-types.repository';
+import { recordActivity } from '../activity-log/activity.emitter';
 import type {
   CreateCustomRateDto,
   CreateRateDto,
@@ -48,7 +49,15 @@ export const ratesService = {
     if (!existing || existing.branchId !== branchId) throw new NotFoundError('Tarifa no encontrada');
     if (dto.roomTypeId) await assertRoomTypeInBranch(dto.roomTypeId, branchId);
     try {
-      return await ratesRepository.updateRate(id, dto);
+      const updated = await ratesRepository.updateRate(id, dto);
+      if (dto.price !== undefined && Number(existing.price) !== Number(updated.price)) {
+        void recordActivity(scope, {
+          activity: 'PRICE_CHANGE', area: 'PRECIOS', entityId: id, reference: `Tarifa ${updated.label}`,
+          detail: `Tarifa modificada · ${updated.label} · S/ ${Number(existing.price).toFixed(2)} → S/ ${Number(updated.price).toFixed(2)}`,
+          meta: { entity: 'Tarifa', label: updated.label, before: Number(existing.price), after: Number(updated.price) },
+        });
+      }
+      return updated;
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new ConflictError('Ya existe una tarifa con esa etiqueta y duración para el tipo de habitación');
@@ -95,7 +104,7 @@ export const ratesService = {
       throw new NotFoundError('Tarifa personalizada no encontrada');
     }
     if (dto.roomTypeId) await assertRoomTypeInBranch(dto.roomTypeId, branchId);
-    return ratesRepository.updateCustomRate(id, {
+    const updated = await ratesRepository.updateCustomRate(id, {
       label: dto.label,
       durationMinutes: dto.durationMinutes,
       price: dto.price,
@@ -109,6 +118,14 @@ export const ratesService = {
           : { tier: { disconnect: true } }
         : {}),
     });
+    if (dto.price !== undefined && Number(existing.price) !== Number(updated.price)) {
+      void recordActivity(scope, {
+        activity: 'PRICE_CHANGE', area: 'PRECIOS', entityId: id, reference: `Tarifa ${updated.label}`,
+        detail: `Tarifa personalizada modificada · ${updated.label} · S/ ${Number(existing.price).toFixed(2)} → S/ ${Number(updated.price).toFixed(2)}`,
+        meta: { entity: 'Tarifa personalizada', label: updated.label, before: Number(existing.price), after: Number(updated.price) },
+      });
+    }
+    return updated;
   },
 
   async removeCustomRate(scope: RequestScope, id: string) {

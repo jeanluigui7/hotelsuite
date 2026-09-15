@@ -10,6 +10,7 @@ import {
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { productsRepository, type ProductWithRelations } from './products.repository';
+import { recordActivity } from '../activity-log/activity.emitter';
 import type { CreateProductDto, UpdateProductDto } from './products.schema';
 
 const SORTABLE = ['name', 'salePrice', 'createdAt', 'status'] as const;
@@ -166,7 +167,7 @@ export const productsService = {
 
   async update(scope: RequestScope, id: string, dto: UpdateProductDto) {
     const branchId = requireActiveBranch(scope);
-    await this.getEntity(scope, id);
+    const before = await this.getEntity(scope, id);
     await assertCategoryInBranch(dto.categoryId, branchId);
     // Reemplazo de códigos SOLO cuando llega el array `barcodes` (pantalla Artículos). Las pantallas
     // legacy que mandan un `barcode` único NO tocan la lista, para no borrar los demás códigos.
@@ -200,7 +201,20 @@ export const productsService = {
       dto.stock !== undefined ? { warehouseId: wh.id, quantity: dto.stock } : undefined,
       barcodes,
     );
-    return serialize(p as ProductWithRelations, wh.id);
+    const up = p as ProductWithRelations;
+    const priceBefore = Number(before.salePrice), priceAfter = Number(up.salePrice);
+    const costBefore = before.cost != null ? Number(before.cost) : null, costAfter = up.cost != null ? Number(up.cost) : null;
+    if (priceBefore !== priceAfter || costBefore !== costAfter) {
+      const parts: string[] = [];
+      if (priceBefore !== priceAfter) parts.push(`Venta S/ ${priceBefore.toFixed(2)} → S/ ${priceAfter.toFixed(2)}`);
+      if (costBefore !== costAfter) parts.push(`Compra S/ ${(costBefore ?? 0).toFixed(2)} → S/ ${(costAfter ?? 0).toFixed(2)}`);
+      void recordActivity(scope, {
+        activity: 'PRICE_CHANGE', area: 'PRECIOS', entityId: id, reference: `Producto ${up.name}`,
+        detail: `${up.name} · ${parts.join(' · ')}`,
+        meta: { entity: 'Producto', product: up.name, priceBefore, priceAfter, costBefore, costAfter },
+      });
+    }
+    return serialize(up, wh.id);
   },
 
   async remove(scope: RequestScope, id: string) {
