@@ -19,12 +19,16 @@ import { requiresReference, PAYMENT_REFERENCE_REQUIRED } from '../../shared/paym
  * La "diferencia pendiente" = diferencia original − Σ(regularizaciones que afectan caja).
  */
 export const unregisteredSaleSchema = z.object({
-  productId: z.string().min(1),
-  warehouseId: z.string().min(1),
-  quantity: z.coerce.number().int().positive(),
+  // Con producto: descuenta inventario. Sin producto: solo concilia el sobrante con un concepto libre.
+  productId: z.string().min(1).optional(),
+  warehouseId: z.string().min(1).optional(),
+  quantity: z.coerce.number().int().positive().optional(),
   amount: z.coerce.number().positive(),
+  concept: z.string().max(80).optional().or(z.literal('')), // etiqueta libre (Servicio, Penalidad, Otro…)
   note: z.string().max(500).optional().or(z.literal('')),
-});
+})
+  .refine((v) => !v.productId || (!!v.warehouseId && !!v.quantity), { message: 'Indica el almacén y la cantidad del producto.', path: ['productId'] })
+  .refine((v) => !!v.productId || !!((v.concept && v.concept.trim()) || (v.note && v.note.trim())), { message: 'Sin producto, indica un concepto o una descripción del sobrante.', path: ['note'] });
 export type UnregisteredSaleDto = z.infer<typeof unregisteredSaleSchema>;
 
 export const attributeLossSchema = z.object({
@@ -126,23 +130,42 @@ export const reconciliationsService = {
     const pending = Math.round((originalDiff - already) * 100) / 100;
     if (dto.amount > pending + 0.001) throw new ValidationError(`El importe (S/ ${dto.amount.toFixed(2)}) excede el sobrante pendiente (S/ ${pending.toFixed(2)}).`);
 
+    // Nota final: combina el concepto (etiqueta) con la descripción libre.
+    const conceptLabel = (dto.concept ?? '').trim();
+    const desc = (dto.note ?? '').trim();
+    const finalNote = [conceptLabel || null, desc || null].filter(Boolean).join(' — ') || null;
+
+    // SIN producto: concilia el sobrante con un concepto libre (servicio, penalidad, otro…) sin tocar inventario.
+    if (!dto.productId) {
+      const rec = await prisma.cashReconciliation.create({
+        data: {
+          branchId, cashSessionId: sessionId, type: 'VENTA_NO_REGISTRADA', amount: dto.amount, affectsCash: true,
+          productId: null, quantity: null, movementId: null, note: finalNote,
+          createdByUserId: scope.userId, approvedByUserId: scope.userId,
+        },
+      });
+      return { reconciliationId: rec.id, movementId: null };
+    }
+
+    // CON producto: descuenta inventario y deja rastro en el kardex.
     const product = await prisma.product.findUnique({ where: { id: dto.productId } });
     if (!product || product.branchId !== branchId) throw new ValidationError('Producto inválido');
     const wh = await prisma.warehouse.findUnique({ where: { id: dto.warehouseId } });
     if (!wh || wh.branchId !== branchId) throw new ValidationError('Almacén inválido');
+    const qty = dto.quantity ?? 1;
 
     return prisma.$transaction(async (tx) => {
-      await applyStockTx(tx, dto.productId, wh.id, -dto.quantity);
+      await applyStockTx(tx, dto.productId!, wh.id, -qty);
       const mv = await createMovementTx(tx, {
-        branchId, productId: dto.productId, warehouseId: wh.id, type: 'SALE', quantity: -dto.quantity,
+        branchId, productId: dto.productId!, warehouseId: wh.id, type: 'SALE', quantity: -qty,
         unitCost: product.cost != null ? Number(product.cost) : null,
-        reference: dto.note?.trim() || 'Venta no registrada (regularización)',
+        reference: finalNote || 'Venta no registrada (regularización)',
         adjustType: 'VENTA_NO_REGISTRADA', cashSessionId: sessionId, createdByUserId: scope.userId, approvedByUserId: scope.userId,
       });
       const rec = await tx.cashReconciliation.create({
         data: {
           branchId, cashSessionId: sessionId, type: 'VENTA_NO_REGISTRADA', amount: dto.amount, affectsCash: true,
-          productId: dto.productId, quantity: dto.quantity, movementId: mv.id, note: dto.note?.trim() || null,
+          productId: dto.productId, quantity: qty, movementId: mv.id, note: finalNote,
           createdByUserId: scope.userId, approvedByUserId: scope.userId,
         },
       });

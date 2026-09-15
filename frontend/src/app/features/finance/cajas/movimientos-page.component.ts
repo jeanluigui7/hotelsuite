@@ -292,11 +292,14 @@ const TYPE_COLOR: Record<string, [string, string]> = {
     <!-- Regularizar venta no registrada -->
     <p-dialog [(visible)]="vnrVisible" [modal]="true" header="Regularizar venta no registrada" [style]="{ width: '30rem', maxWidth: '96vw' }">
       <div class="form">
-        <p class="muted">Reclasifica parte del sobrante del turno como una venta que no se registró. No duplica efectivo ni modifica el cierre.</p>
-        <label>Producto</label><p-select [options]="vnrProducts()" optionLabel="name" optionValue="id" [(ngModel)]="vnrForm.productId" (onChange)="recalcVnrAmount()" [filter]="true" filterBy="name" placeholder="Elegir producto" appendTo="body" styleClass="w" />
-        <label>Cantidad</label><p-inputNumber [(ngModel)]="vnrForm.quantity" [min]="1" [showButtons]="true" (onInput)="recalcVnrAmount()" (onBlur)="recalcVnrAmount()" styleClass="w" />
-        <label>Importe (S/) — se autocalcula (editable)</label><p-inputNumber [(ngModel)]="vnrForm.amount" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
-        <label>Observación</label><input pInputText [(ngModel)]="vnrForm.note" />
+        <p class="muted">Reclasifica parte del sobrante del turno. No duplica efectivo ni modifica el cierre. Puede ser una venta de producto (descuenta inventario) o un concepto libre (servicio, penalidad, etc.).</p>
+        <label>Concepto</label><p-select [options]="vnrConcepts" optionLabel="label" optionValue="value" [(ngModel)]="vnrForm.concept" (onChange)="onVnrConcept()" appendTo="body" styleClass="w" />
+        @if (vnrForm.concept === 'PRODUCTO') {
+          <label>Producto</label><p-select [options]="vnrProducts()" optionLabel="name" optionValue="id" [(ngModel)]="vnrForm.productId" (onChange)="recalcVnrAmount()" [filter]="true" filterBy="name" placeholder="Elegir producto" appendTo="body" styleClass="w" />
+          <label>Cantidad</label><p-inputNumber [(ngModel)]="vnrForm.quantity" [min]="1" [showButtons]="true" (onInput)="recalcVnrAmount()" (onBlur)="recalcVnrAmount()" styleClass="w" />
+        }
+        <label>Importe (S/){{ vnrForm.concept === 'PRODUCTO' ? ' — se autocalcula (editable)' : '' }}</label><p-inputNumber [(ngModel)]="vnrForm.amount" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
+        <label>{{ vnrForm.concept === 'PRODUCTO' ? 'Observación' : 'Detalle / motivo' }}</label><input pInputText [(ngModel)]="vnrForm.note" maxlength="200" [placeholder]="vnrForm.concept === 'PRODUCTO' ? 'Opcional' : 'Explica el porqué del sobrante (ej. cobro de penalidad por daño)'" />
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="vnrVisible = false" />
@@ -856,7 +859,15 @@ export class CashMovementsPageComponent implements OnInit {
 
   // VNR
   vnrVisible = false;
-  vnrForm: { productId: string | null; quantity: number; amount: number | null; note: string } = { productId: null, quantity: 1, amount: null, note: '' };
+  vnrForm: { concept: string; productId: string | null; quantity: number; amount: number | null; note: string } = { concept: 'PRODUCTO', productId: null, quantity: 1, amount: null, note: '' };
+  // Concepto de la regularización: 'PRODUCTO' descuenta inventario; el resto son conceptos libres (la etiqueta se guarda tal cual).
+  readonly vnrConcepts = [
+    { value: 'PRODUCTO', label: 'Venta de producto' },
+    { value: 'Servicio', label: 'Servicio' },
+    { value: 'Penalidad / daño', label: 'Penalidad / daño' },
+    { value: 'Propina / redondeo', label: 'Propina / redondeo' },
+    { value: 'Otro', label: 'Otro (detallar)' },
+  ];
   readonly vnrProducts = signal<{ id: string; name: string; salePrice: number | string }[]>([]);
   private reconWhId = '';
 
@@ -1185,10 +1196,15 @@ export class CashMovementsPageComponent implements OnInit {
   }
 
   openVnr(): void {
-    this.vnrForm = { productId: null, quantity: 1, amount: null, note: '' };
+    this.vnrForm = { concept: 'PRODUCTO', productId: null, quantity: 1, amount: null, note: '' };
     if (!this.vnrProducts().length) this.http.get<ApiResponse<{ id: string; name: string; salePrice: number | string }[]>>(`${this.api}/products`, { params: { pageSize: '300', status: 'active' } }).subscribe((r) => this.vnrProducts.set(r.data ?? []));
     this.http.get<ApiResponse<{ id: string; type: string }[]>>(`${this.api}/warehouses`, { params: { pageSize: '100' } }).subscribe((r) => { this.reconWhId = (r.data ?? []).find((w) => w.type === 'RECEPTION')?.id ?? ''; });
     this.vnrVisible = true;
+  }
+  /** Al cambiar el concepto: si NO es producto, olvida el producto; si vuelve a producto, recalcula. */
+  onVnrConcept(): void {
+    if (this.vnrForm.concept !== 'PRODUCTO') this.vnrForm.productId = null;
+    else this.recalcVnrAmount();
   }
   /** Autocalcula el importe = precio de venta del producto × cantidad (editable después). */
   recalcVnrAmount(): void {
@@ -1199,10 +1215,18 @@ export class CashMovementsPageComponent implements OnInit {
   }
   saveVnr(): void {
     const d = this.detail(); if (!d) return;
-    if (!this.vnrForm.productId || !this.vnrForm.amount || this.vnrForm.amount <= 0) { this.messages.add({ severity: 'warn', summary: 'Datos', detail: 'Elige producto e importe.' }); return; }
-    if (!this.reconWhId) { this.messages.add({ severity: 'warn', summary: 'Almacén', detail: 'No se encontró el almacén de recepción.' }); return; }
+    if (!this.vnrForm.amount || this.vnrForm.amount <= 0) { this.messages.add({ severity: 'warn', summary: 'Datos', detail: 'Ingresa el importe.' }); return; }
+    const isProduct = this.vnrForm.concept === 'PRODUCTO';
+    if (isProduct) {
+      if (!this.vnrForm.productId) { this.messages.add({ severity: 'warn', summary: 'Producto', detail: 'Elige el producto.' }); return; }
+      if (!this.reconWhId) { this.messages.add({ severity: 'warn', summary: 'Almacén', detail: 'No se encontró el almacén de recepción.' }); return; }
+    } else if (!this.vnrForm.note.trim()) {
+      this.messages.add({ severity: 'warn', summary: 'Detalle', detail: 'Describe el motivo del sobrante.' }); return;
+    }
     this.busy.set(true);
-    const body = { productId: this.vnrForm.productId, warehouseId: this.reconWhId, quantity: this.vnrForm.quantity, amount: this.vnrForm.amount, note: this.vnrForm.note || undefined };
+    const body = isProduct
+      ? { productId: this.vnrForm.productId, warehouseId: this.reconWhId, quantity: this.vnrForm.quantity, amount: this.vnrForm.amount, note: this.vnrForm.note || undefined }
+      : { concept: this.vnrForm.concept, amount: this.vnrForm.amount, note: this.vnrForm.note || undefined };
     this.http.post<ApiResponse<unknown>>(`${this.api}/cash/${d.session.id}/reconciliation/unregistered-sale`, body).subscribe({
       next: () => { this.busy.set(false); this.vnrVisible = false; this.messages.add({ severity: 'success', summary: 'Regularizado', detail: '' }); this.loadRecon(d.session.id); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo regularizar.' }); },
