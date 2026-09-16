@@ -22,6 +22,7 @@ COPY --from=build /app/src ./src
 COPY --from=build /app/tsconfig.json ./tsconfig.json
 COPY --from=build /app/package.json ./package.json
 EXPOSE 3000
-# Aplica migraciones pendientes, siembra datos base + ropa por sucursal
-# (idempotente) y arranca.
-CMD ["sh", "-c", "npx prisma migrate deploy && npx prisma db seed && npx tsx prisma/seed-linen.ts && node dist/server.js"]
+# Aplica migraciones pendientes y siembra datos base + ropa por sucursal (idempotente).
+# Estos pasos son NO-FATALES: si fallan (p. ej. la BD temporalmente inaccesible o sin espacio),
+# el servidor arranca igual y sirve — evita un crash-loop del backend por un problema de la BD.
+CMD ["sh", "-c", "npx prisma migrate deploy || echo 'WARN: migrate deploy fallo, se continua'; npx prisma db seed || echo 'WARN: db seed fallo'; npx tsx prisma/seed-linen.ts || echo 'WARN: seed-linen fallo'; node dist/server.js"]
