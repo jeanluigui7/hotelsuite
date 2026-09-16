@@ -15,7 +15,7 @@ import { HrApiService, type ActivityLog } from '../services/hr-api.service';
 const AREA_LABEL: Record<string, string> = {
   HOSPEDAJE: 'Hospedaje', VENTAS: 'Ventas', CAJA: 'Caja', INVENTARIO: 'Inventario', LIMPIEZA: 'Limpieza',
   INSPECCION: 'Inspección', RESERVAS: 'Reservas', WIFI: 'Wi-Fi', FRIGOBAR: 'Frigobar', MANTENIMIENTO: 'Mantenimiento',
-  USUARIOS: 'Usuarios', PERMISOS: 'Permisos', AUTORIZACIONES: 'Autorizaciones', PRECIOS: 'Precios', SESION: 'Sesión', TURNO: 'Turno', COMPROBANTES: 'Comprobantes', OBSERVACIONES: 'Observaciones',
+  USUARIOS: 'Usuarios', PERMISOS: 'Permisos', AUTORIZACIONES: 'Autorizaciones', PRECIOS: 'Precios', SESION: 'Sesión', ASISTENCIA: 'Asistencia', TURNO: 'Turno', COMPROBANTES: 'Comprobantes', OBSERVACIONES: 'Observaciones',
 };
 const ACTIVITY_LABEL: Record<string, string> = {
   CHECK_IN: 'Check-in', CHECK_OUT: 'Check-out', RENEWAL: 'Renovación', DEBT_PAYMENT: 'Cobro de deuda', ROOM_CHANGE: 'Cambio de habitación',
@@ -30,12 +30,14 @@ const ACTIVITY_LABEL: Record<string, string> = {
   PERMISSION_GRANT: 'Permiso concedido', PERMISSION_REVOKE: 'Permiso retirado', PERMISSION_EXPIRE: 'Permiso vencido',
   AUTH_REQUEST: 'Solicitud de autorización', AUTH_APPROVE: 'Autorización aprobada', AUTH_REJECT: 'Autorización rechazada',
   PRICE_CHANGE: 'Precio modificado', DISCOUNT: 'Descuento aplicado', COURTESY: 'Operación excepcional',
+  SESSION_LOGIN: 'Inicio de sesión', SESSION_LOGOUT: 'Cierre de sesión',
+  ATTENDANCE_IN: 'Marcación de entrada', ATTENDANCE_OUT: 'Marcación de salida',
 };
 const SHIFT_LABEL: Record<string, string> = { MANANA: 'Mañana', TARDE: 'Tarde', NOCHE: 'Noche', FUERA_DE_TURNO: 'Fuera de turno' };
 const AREA_CLASS: Record<string, string> = {
   HOSPEDAJE: 'a-hosp', VENTAS: 'a-vent', CAJA: 'a-caja', INVENTARIO: 'a-inv', TURNO: 'a-turno',
   LIMPIEZA: 'a-limp', INSPECCION: 'a-insp', RESERVAS: 'a-resv', WIFI: 'a-wifi', FRIGOBAR: 'a-frig', MANTENIMIENTO: 'a-mant',
-  USUARIOS: 'a-user', PERMISOS: 'a-perm', AUTORIZACIONES: 'a-auth', PRECIOS: 'a-prec',
+  USUARIOS: 'a-user', PERMISOS: 'a-perm', AUTORIZACIONES: 'a-auth', PRECIOS: 'a-prec', SESION: 'a-ses', ASISTENCIA: 'a-asis',
 };
 
 const PAGE_SIZES = [
@@ -171,6 +173,8 @@ const SHIFT_OPTS = [{ label: 'Mañana', value: 'MANANA' }, { label: 'Tarde', val
       .atag.a-perm { background: rgba(217,70,239,0.16); color: #f0abfc; border-color: rgba(217,70,239,0.4); }
       .atag.a-auth { background: rgba(245,158,11,0.16); color: #fcd34d; border-color: rgba(245,158,11,0.4); }
       .atag.a-prec { background: rgba(34,197,94,0.16); color: #86efac; border-color: rgba(34,197,94,0.4); }
+      .atag.a-ses { background: rgba(100,116,139,0.16); color: #cbd5e1; border-color: rgba(100,116,139,0.4); }
+      .atag.a-asis { background: rgba(13,148,136,0.16); color: #5eead4; border-color: rgba(13,148,136,0.4); }
       .shift { font-size: 0.72rem; padding: 0.1rem 0.45rem; border-radius: 6px; background: #1b2433; color: #9fb0c3; } .shift.out { background: rgba(180,35,35,0.14); color: #fca5a5; }
       .exp-btn { background: transparent; border: 0; color: #8aa0bd; cursor: pointer; }
       .al-detail td { background: #0b1119; border-bottom: 1px solid #1c2a3a; }

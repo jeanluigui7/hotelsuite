@@ -5,6 +5,7 @@ import { pageMeta, toPrismaPaging, type PaginationParams } from '../../shared/pa
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { attendanceRepository, recordAttendance } from './attendance.repository';
+import { recordActivity } from '../activity-log/activity.emitter';
 import type { CreateAttendanceDto } from './attendance.schema';
 
 async function userMap(branchId: string) {
@@ -57,6 +58,12 @@ export const attendanceService = {
       source: 'MANUAL',
       at: dto.at,
       note: dto.note || null,
+    });
+    void recordActivity(scope, {
+      activity: a.type === 'IN' ? 'ATTENDANCE_IN' : 'ATTENDANCE_OUT', area: 'ASISTENCIA', entityId: a.id,
+      reference: `Usuario ${user.name}`,
+      detail: `${user.name} · Marcación de ${a.type === 'IN' ? 'entrada' : 'salida'} · ${new Date(a.at).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}`,
+      meta: { user: user.name, type: a.type, source: a.source, at: a.at },
     });
     return serialize(a, await userMap(branchId));
   },
