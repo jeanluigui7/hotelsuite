@@ -13,7 +13,35 @@ interface CleanRoom { id: string; number: string; floor?: string | null; status:
 interface Supply { id: string; roomId: string; room: string; floor?: string | null; roomType?: string; description: string; category?: string; quantity: number; }
 interface SupplyGroup { roomId: string; room: string; floor?: string | null; roomType?: string; items: Supply[]; }
 interface LinenItem { id: string; type: string; name: string; color?: string | null; reusable: boolean; }
-interface InspRow { item: LinenItem; tipo: 'BASE' | 'EXTRA'; state: 'OK' | 'ROBADA' | 'DETERIORADA'; pickup: boolean; qty: number; }
+type UnitDecision = 'QUEDA' | 'RETIRA' | null;
+type UnitIncidencia = null | 'ROBADA' | 'DETERIORADA';
+type SectionKey = 'SABANAS' | 'TOALLAS' | 'EDREDONES' | 'AMENITIES' | 'OTROS';
+/** Una unidad física de ropa/amenity = una fila (1 unidad = 1 fila). */
+interface UnitRow {
+  uid: string;
+  item: LinenItem;
+  section: SectionKey;
+  tipo: 'BASE' | 'ADICIONAL';
+  clasif: string; // "2 plazas", "Estándar", "Baño"…
+  decision: UnitDecision;
+  incidencia: UnitIncidencia;
+}
+const SECTION_META: Record<SectionKey, { label: string; color: string; hasInc: boolean }> = {
+  SABANAS: { label: 'SÁBANAS', color: '#B000F0', hasInc: true },
+  TOALLAS: { label: 'TOALLAS', color: '#2463F6', hasInc: true },
+  EDREDONES: { label: 'EDREDONES', color: '#14B8A6', hasInc: false },
+  AMENITIES: { label: 'AMENITIES', color: '#FFB800', hasInc: false },
+  OTROS: { label: 'OTROS', color: '#64748B', hasInc: false },
+};
+const SECTION_ORDER: SectionKey[] = ['SABANAS', 'TOALLAS', 'EDREDONES', 'AMENITIES', 'OTROS'];
+function sectionOf(type: string, isAmenity: boolean): SectionKey {
+  if (isAmenity) return 'AMENITIES';
+  const u = (type || '').toUpperCase();
+  if (u.includes('SABANA') || u.includes('SÁBANA')) return 'SABANAS';
+  if (u.includes('TOALLA')) return 'TOALLAS';
+  if (u.includes('EDRED')) return 'EDREDONES';
+  return 'OTROS';
+}
 interface RepoVariant { linenItemId?: string; productId?: string; name: string; size?: string | null; color?: string | null; available: number; }
 interface RepoRow {
   section: string; tipo: string; name: string; code: string; type: string | null; size?: string | null; color: string | null; cant: number; mantiene: boolean; motivo: string; subName?: string; subIndex?: number;
@@ -135,50 +163,52 @@ const ACCIONES_PERIODICAS = [
 
     <!-- Iniciar limpieza: FASE 1 (Recoger) → Confirmar Recojo -->
     <p-dialog [(visible)]="iniciarVisible" [modal]="true"
-              [header]="(iniStep === 'fase1' ? 'FASE 1: Recoger Ropa y Amenities – Habitación ' : 'Confirmar Recojo – Habitación ') + (selRoom?.number || '')"
-              [style]="{ width: '52rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+              [header]="(iniStep === 'fase1' ? 'Recojo · Habitación ' : 'Confirmar Recojo · Habitación ') + (selRoom?.number || '')"
+              [style]="{ width: '56rem', maxWidth: '97vw' }" styleClass="dk-dialog">
       @if (iniStep === 'fase1') {
-        <p class="sub">Marca el estado de cada ítem y decide si recogerlo (☑) o dejarlo (☐)</p>
-        <div class="instr">
-          <strong><i class="pi pi-info-circle"></i> Instrucciones</strong>
-          <p>☑ <b>RECOGER:</b> Sábanas/toallas van a lavandería y se reponen. Edredones van a lavandería pero NO se reponen automáticamente.</p>
-          <p>☐ <b>DEJAR:</b> Los items permanecen en la habitación. Edredones regresan al almacén. Sin reposición.</p>
-          <p><b>ROBADA/AUSENTE:</b> Se marca como "—". Sábanas/toallas se reponen automáticamente. Edredones solo por orden de Recepción.</p>
-          <p><b>DETERIORADA:</b> Fuerza ☑ RECOGER. Sábanas/toallas se reponen. Edredones solo por orden de Recepción.</p>
+        <div class="rec-head">
+          <div class="rh-main">
+            <div class="rh-room"><b>Habitación {{ selRoom?.number }}</b> <span class="rh-sep">|</span> {{ selRoom?.typeName }} · Piso {{ selRoom?.floor || '-' }}</div>
+            <h2 class="rh-title">ÍTEMS A RECOGER</h2>
+            <p class="rh-sub">Para avanzar, selecciona qué prenda se queda o se retira.</p>
+          </div>
+          <div class="rh-note"><i class="pi pi-info-circle"></i> En sábanas y toallas, si alguna prenda está robada o deteriorada, selecciónala en el botón correspondiente.</div>
         </div>
-        <div class="insp2">
-          <div class="ir ih"><span>Item</span><span>Cantidad</span><span>Estado</span><span class="rc">Recoger</span></div>
-          @for (row of rows(); track $index) {
-            <div class="ir">
-              <div class="it"><strong>{{ row.item.name }}</strong><small>{{ typeLabel(row.item.type) }} · {{ row.tipo }} @if (row.tipo === 'EXTRA') { <span class="oblig">⚠ Recoger obligatorio</span> }</small></div>
-              <div class="qty"><span class="qb">{{ row.qty }}</span></div>
-              <div class="states2">
-                <button [class.on]="row.state === 'OK'" class="ok" (click)="setState(row, 'OK')">OK</button>
-                <button [class.on]="row.state === 'ROBADA'" class="rob" (click)="setState(row, 'ROBADA')">ROBADA</button>
-                <button [class.on]="row.state === 'DETERIORADA'" class="det" (click)="setState(row, 'DETERIORADA')">DETERIORADA</button>
-              </div>
-              <div class="rc">
-                @if (row.state === 'ROBADA') { <span class="dash">—</span> }
-                @else {
-                  <input type="checkbox" [checked]="row.pickup" [disabled]="!canToggle(row)" (change)="togglePickup(row)" />
-                  @if (forced(row)) { <small class="forced">(Forzado)</small> }
+        @for (sec of sections(); track sec.key) {
+          <div class="cat">
+            <div class="cat-hd" [style.background]="sec.color">{{ sec.label }}</div>
+            <div class="cat-cols"><span>ÍTEM</span><span class="c-est">ESTADO</span>@if (sec.hasInc) { <span class="c-inc">INCIDENCIA</span> }</div>
+            @for (u of sec.rows; track u.uid) {
+              <div class="urow">
+                <div class="u-it">
+                  <div class="u-top"><span class="u-name">{{ u.item.name }}</span> <span class="u-tag" [class.adic]="u.tipo === 'ADICIONAL'">{{ u.tipo }}</span></div>
+                  <div class="u-clasif">{{ u.clasif }}</div>
+                </div>
+                <div class="u-est">
+                  @if (u.tipo === 'BASE') {
+                    <button class="ub queda" [class.on]="u.decision === 'QUEDA' && !u.incidencia" [disabled]="!!u.incidencia" (click)="setDecision(u, 'QUEDA')"><i class="pi pi-shopping-bag"></i> Se queda</button>
+                  }
+                  <button class="ub retira" [class.on]="u.decision === 'RETIRA' && !u.incidencia" [disabled]="!!u.incidencia" (click)="setDecision(u, 'RETIRA')"><i class="pi pi-shopping-bag"></i> Se retira</button>
+                </div>
+                @if (sec.hasInc) {
+                  <div class="u-inc">
+                    <button class="ub inci" [class.on]="!!u.incidencia" (click)="openIncidencia(u)">{{ u.incidencia ? incLabel(u.incidencia) : 'ROBADA / DETERIORO' }}</button>
+                  </div>
                 }
               </div>
-              <div class="ir-note"><i class="pi pi-info-circle"></i> {{ noteFor(row) }}</div>
-            </div>
-          } @empty { <div class="ir"><span class="muted" style="grid-column:1/-1">Esta habitación aún no tiene ropa dotada. Cárgala primero en <b>Inventario Inicial (Habitaciones)</b> antes de iniciar la limpieza.</span></div> }
-        </div>
-        <div class="done-bar"><span><i class="pi pi-check-circle"></i> Todos los items completados</span><span>{{ rows().length }} / {{ rows().length }} completados</span></div>
+            }
+          </div>
+        } @empty { <p class="muted" style="padding:1rem">Esta habitación aún no tiene ropa dotada. Cárgala primero en <b>Inventario Inicial (Habitaciones)</b> antes de iniciar la limpieza.</p> }
       } @else {
         <p class="sub">Revisa el resumen de tu selección antes de confirmar</p>
         <div class="confbox recoger">
-          <div class="cb-h">☑ Items a RECOGER ({{ recogerList().length }})</div>
-          @for (row of recogerList(); track $index) { <div class="cb-row"><span>{{ row.item.name }}</span><span><span class="qb">1</span> <span class="ok-badge">{{ row.state }}</span></span></div> }
+          <div class="cb-h">Se retiran / incidencias ({{ recogerList().length }})</div>
+          @for (u of recogerList(); track u.uid) { <div class="cb-row"><span>{{ u.item.name }}</span><span class="ok-badge" [class.inc]="!!u.incidencia">{{ u.incidencia ? incLabel(u.incidencia) : 'SE RETIRA' }}</span></div> }
           @if (!recogerList().length) { <div class="cb-row muted">Ninguno</div> }
         </div>
         <div class="confbox dejar">
-          <div class="cb-h">☐ Items a DEJAR ({{ dejarList().length }})</div>
-          @for (row of dejarList(); track $index) { <div class="cb-row"><span>{{ row.item.name }}</span><span><span class="qb">1</span> <span class="ok-badge">{{ row.state }}</span></span></div> }
+          <div class="cb-h">Se quedan ({{ dejarList().length }})</div>
+          @for (u of dejarList(); track u.uid) { <div class="cb-row"><span>{{ u.item.name }}</span><span class="ok-badge stay">SE QUEDA</span></div> }
           @if (!dejarList().length) { <div class="cb-row muted">Ninguno</div> }
         </div>
         <div class="rep-info"><p><i class="pi pi-info-circle"></i> <strong>¿Estás seguro?</strong></p><p>Una vez confirmado, esta acción registrará el recojo de items y no podrá deshacerse. Si cometiste un error, presiona "Volver" para corregir.</p></div>
@@ -186,11 +216,25 @@ const ACCIONES_PERIODICAS = [
       <ng-template pTemplate="footer">
         @if (iniStep === 'fase1') {
           <p-button label="Cancelar" [text]="true" (onClick)="iniciarVisible = false" />
-          <p-button label="Siguiente" icon="pi pi-arrow-right" iconPos="right" (onClick)="iniStep = 'confirmar'" />
+          @if (!allValid()) { <span class="need"><i class="pi pi-exclamation-circle"></i> Faltan ítems por marcar</span> }
+          <p-button label="Siguiente" icon="pi pi-arrow-right" iconPos="right" [disabled]="!allValid()" (onClick)="iniStep = 'confirmar'" />
         } @else {
           <p-button label="Volver" icon="pi pi-arrow-left" severity="secondary" (onClick)="iniStep = 'fase1'" />
           <p-button label="Confirmar Recojo" icon="pi pi-check" [loading]="busy()" (onClick)="confirmRecojo()" />
         }
+      </ng-template>
+    </p-dialog>
+
+    <!-- Incidencia de una unidad (Robada/Ausente vs Deteriorada) -->
+    <p-dialog [(visible)]="incVisible" [modal]="true" header="Registrar incidencia" [style]="{ width: '26rem', maxWidth: '94vw' }" styleClass="dk-dialog">
+      <p class="sub">{{ incUnit?.item?.name }} — ¿qué ocurrió con esta unidad?</p>
+      <div class="inc-opts">
+        <button class="inc-op rob" (click)="setIncidencia('ROBADA')"><i class="pi pi-ban"></i> <b>Robada / Ausente</b><small>No está físicamente en la habitación.</small></button>
+        <button class="inc-op det" (click)="setIncidencia('DETERIORADA')"><i class="pi pi-exclamation-triangle"></i> <b>Deteriorada</b><small>Existe pero dañada: se retira y se repone.</small></button>
+      </div>
+      <ng-template pTemplate="footer">
+        @if (incUnit?.incidencia) { <p-button label="Quitar incidencia" severity="secondary" [text]="true" (onClick)="clearIncidencia()" /> }
+        <p-button label="Cerrar" [text]="true" (onClick)="incVisible = false" />
       </ng-template>
     </p-dialog>
 
@@ -440,7 +484,40 @@ const ACCIONES_PERIODICAS = [
       .confbox.recoger { border: 1px solid #14633f; } .confbox.dejar { border: 1px solid #6b4f2a; }
       .cb-h { font-weight: 700; margin-bottom: 0.5rem; } .confbox.recoger .cb-h { color: #6ee7b7; } .confbox.dejar .cb-h { color: #fbbf24; }
       .cb-row { display: flex; align-items: center; justify-content: space-between; padding: 0.45rem 0.6rem; border-radius: 8px; background: #0b1410; margin-bottom: 0.35rem; }
-      .ok-badge { background: #10b981; color: #04130d; border-radius: 6px; padding: 0.05rem 0.4rem; font-size: 0.7rem; font-weight: 700; }
+      .ok-badge { background: #00A83B; color: #fff; border-radius: 6px; padding: 0.1rem 0.5rem; font-size: 0.7rem; font-weight: 800; }
+      .ok-badge.inc { background: #dc2626; } .ok-badge.stay { background: #2463F6; }
+
+      /* ── Recojo por unidad (ÍTEMS A RECOGER) ── */
+      .rec-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
+      .rh-room { font-size: 0.95rem; font-weight: 600; color: #cdd8e6; } .rh-room b { color: #fff; } .rh-sep { color: #46617a; margin: 0 0.3rem; }
+      .rh-title { margin: 0.15rem 0 0.1rem; font-size: 1.4rem; font-weight: 800; color: #fff; letter-spacing: 0.02em; }
+      .rh-sub { margin: 0; color: #9fb0c3; font-size: 0.92rem; }
+      .rh-note { flex: 0 1 300px; display: flex; align-items: flex-start; gap: 0.45rem; background: rgba(37,99,235,0.1); border: 1px solid rgba(37,99,235,0.3); border-radius: 10px; padding: 0.6rem 0.8rem; color: #bcd0ea; font-size: 0.8rem; } .rh-note .pi { margin-top: 0.1rem; color: #60a5fa; }
+      .cat { margin-bottom: 1rem; border: 1px solid #24455a; border-radius: 12px; overflow: hidden; }
+      .cat-hd { padding: 0.5rem 0.9rem; font-weight: 800; color: #fff; letter-spacing: 0.05em; font-size: 0.95rem; text-shadow: 0 1px 2px rgba(0,0,0,0.4); }
+      .cat-cols { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.9rem; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.05em; color: #8aa0bd; background: #0f1e28; border-bottom: 1px solid #1c3444; }
+      .cat-cols span:first-child { flex: 1; } .cat-cols .c-est { width: 22rem; text-align: center; } .cat-cols .c-inc { width: 12rem; text-align: center; }
+      .urow { display: flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.9rem; border-bottom: 1px solid #16283580; }
+      .urow:last-child { border-bottom: 0; }
+      .u-it { flex: 1; min-width: 0; }
+      .u-top { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+      .u-name { font-weight: 700; font-size: 0.95rem; color: #fff; }
+      .u-tag { font-size: 0.62rem; font-weight: 800; letter-spacing: 0.04em; border-radius: 5px; padding: 0.08rem 0.4rem; background: #2b4258; color: #9fc0e0; } .u-tag.adic { background: #B000F0; color: #fff; }
+      .u-clasif { font-size: 0.8rem; color: #8aa0bd; margin-top: 0.1rem; }
+      .u-est { display: flex; gap: 0.5rem; width: 22rem; justify-content: center; }
+      .u-inc { width: 12rem; display: flex; justify-content: center; }
+      .ub { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; border: 1px solid #2f4f6b; background: #14262f; color: #dbe7f0; border-radius: 9px; padding: 0.55rem 0.7rem; font-weight: 700; font-size: 0.85rem; cursor: pointer; min-width: 8.5rem; transition: filter 0.1s; }
+      .ub:hover:not(:disabled) { filter: brightness(1.15); }
+      .ub:disabled { opacity: 0.4; cursor: not-allowed; }
+      .ub.queda.on { background: #2463F6; border-color: #2463F6; color: #fff; }
+      .ub.retira.on { background: #00A83B; border-color: #00A83B; color: #fff; }
+      .ub.inci { min-width: 11rem; border-color: #7f1d1d; color: #fca5a5; background: rgba(220,38,38,0.12); }
+      .ub.inci.on { background: #dc2626; border-color: #dc2626; color: #fff; }
+      .need { color: #f59e0b; font-size: 0.82rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem; margin-right: auto; }
+      .inc-opts { display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.4rem; }
+      .inc-op { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; text-align: left; border-radius: 10px; padding: 0.7rem 0.9rem; cursor: pointer; border: 1px solid #2f4f6b; background: #14262f; color: #dbe7f0; }
+      .inc-op b { font-size: 0.95rem; } .inc-op small { color: #8aa0bd; font-weight: 400; } .inc-op .pi { margin-right: 0.3rem; }
+      .inc-op.rob:hover { border-color: #dc2626; background: rgba(220,38,38,0.1); } .inc-op.det:hover { border-color: #f59e0b; background: rgba(245,158,11,0.1); }
 
       /* Mantenimiento Periódico */
       .rev-status { display: flex; align-items: center; gap: 0.7rem; border: 1px solid #14633f; background: rgba(16,185,129,0.08); border-radius: 10px; padding: 0.8rem 1rem; color: #6ee7b7; margin-bottom: 1rem; }
@@ -504,8 +581,17 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
 
   readonly rooms = signal<CleanRoom[]>([]);
   readonly linen = signal<LinenItem[]>([]);
-  readonly rows = signal<InspRow[]>([]);
+  readonly rows = signal<UnitRow[]>([]);
   readonly busy = signal(false);
+  // Incidencia (Robada/Deteriorada) por unidad
+  incVisible = false;
+  incUnit: UnitRow | null = null;
+  /** Filas del recojo agrupadas por sección (SÁBANAS/TOALLAS/EDREDONES/AMENITIES), en orden fijo. */
+  readonly sections = computed(() => {
+    const groups = new Map<SectionKey, UnitRow[]>();
+    for (const u of this.rows()) { const arr = groups.get(u.section) ?? []; arr.push(u); groups.set(u.section, arr); }
+    return SECTION_ORDER.filter((k) => groups.has(k)).map((k) => ({ key: k, label: SECTION_META[k].label, color: SECTION_META[k].color, hasInc: SECTION_META[k].hasInc, rows: groups.get(k) as UnitRow[] }));
+  });
   // Suministros pendientes (agrupados por habitación) para "Suministrar Habitación"
   readonly supplies = signal<Supply[]>([]);
   readonly supplyGroups = computed<SupplyGroup[]>(() => {
@@ -646,70 +732,84 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     this.iniStep = 'fase1';
     this.rows.set([]);
     this.iniciarVisible = true;
-    // BASE: SOLO lo realmente dotado a ESTA habitación (ropa + amenities), no todo el almacén.
-    this.http.get<ApiResponse<{ items: { linenItemId: string; name: string; type: string; color: string | null; quantity: number }[]; amenities: { productId: string; name: string; reusable: boolean; quantity: number }[] }>>(`${this.api}/rooms/${r.id}/linen`).subscribe((res) => {
-      const base: InspRow[] = (res.data?.items ?? []).map((it) => ({
-        item: { id: it.linenItemId, type: it.type, name: it.name, color: it.color, reusable: true },
-        tipo: 'BASE' as const, state: 'OK' as const, pickup: !this.isEdredon(it.type), qty: it.quantity,
-      }));
-      // Amenities dotados a la habitación (se recogen por defecto).
-      const amenities: InspRow[] = (res.data?.amenities ?? []).map((a) => ({
-        item: { id: 'amn-' + a.productId, type: 'AMENITY', name: a.name, reusable: a.reusable },
-        tipo: 'BASE' as const, state: 'OK' as const, pickup: true, qty: a.quantity,
-      }));
-      this.rows.set([...base, ...amenities]);
-      // EXTRA: suministros pendientes de la habitación (recoger obligatorio).
+    let seq = 0;
+    // 1 UNIDAD FÍSICA = 1 FILA: se expande cada artículo dotado en `quantity` filas individuales.
+    this.http.get<ApiResponse<{ items: { linenItemId: string; name: string; type: string; size?: string | null; color: string | null; quantity: number; baseQty?: number; adicionalQty?: number }[]; amenities: { productId: string; name: string; category?: string | null; reusable: boolean; quantity: number }[] }>>(`${this.api}/rooms/${r.id}/linen`).subscribe((res) => {
+      const units: UnitRow[] = [];
+      for (const it of res.data?.items ?? []) {
+        const section = sectionOf(it.type, false);
+        const clasif = it.size || this.typeLabel(it.type);
+        const item: LinenItem = { id: it.linenItemId, type: it.type, name: it.name, color: it.color, reusable: true };
+        const baseQty = it.baseQty ?? it.quantity; // sin desglose = todo BASE
+        const adicQty = it.adicionalQty ?? Math.max(0, it.quantity - baseQty);
+        for (let k = 0; k < baseQty; k++) units.push({ uid: `L${seq++}`, item, section, tipo: 'BASE', clasif, decision: null, incidencia: null });
+        for (let k = 0; k < adicQty; k++) units.push({ uid: `L${seq++}`, item, section, tipo: 'ADICIONAL', clasif, decision: null, incidencia: null });
+      }
+      // Amenities dotados a la habitación (BASE, con decisión se queda/se retira).
+      for (const a of res.data?.amenities ?? []) {
+        const item: LinenItem = { id: 'amn-' + a.productId, type: 'AMENITY', name: a.name, reusable: a.reusable };
+        for (let k = 0; k < a.quantity; k++) units.push({ uid: `A${seq++}`, item, section: 'AMENITIES', tipo: 'BASE', clasif: a.category || 'Amenity', decision: null, incidencia: null });
+      }
+      this.rows.set(units);
+      // ADICIONAL: suministros pendientes de la habitación (retiro obligatorio).
       this.http.get<ApiResponse<{ id: string; room: string; description: string; quantity?: number }[]>>(`${this.api}/services/supplies?status=PENDING`).subscribe((res2) => {
         const sups = (res2.data ?? []).filter((s) => s.room === r.number);
         if (!sups.length) return;
-        const extras: InspRow[] = sups.map((s) => ({ item: { id: 'sup-' + s.id, type: 'AMENITY', name: s.description, reusable: true }, tipo: 'EXTRA' as const, state: 'OK' as const, pickup: true, qty: s.quantity ?? 1 }));
-        this.rows.set([...this.rows(), ...extras]);
+        const extras: UnitRow[] = [];
+        for (const s of sups) {
+          const item: LinenItem = { id: 'sup-' + s.id, type: 'AMENITY', name: s.description, reusable: true };
+          const q = s.quantity ?? 1;
+          for (let k = 0; k < q; k++) extras.push({ uid: `X${seq++}`, item, section: 'AMENITIES', tipo: 'ADICIONAL', clasif: 'Adicional', decision: null, incidencia: null });
+        }
+        if (extras.length) this.rows.set([...this.rows(), ...extras]);
       });
     });
   }
 
-  /** Los edredones no se reponen automáticamente (por nombre de categoría). */
-  isEdredon(type: string): boolean { return (type || '').toUpperCase().includes('EDRED'); }
-
-  setState(row: InspRow, state: 'OK' | 'ROBADA' | 'DETERIORADA'): void {
-    row.state = state;
-    if (state === 'ROBADA') row.pickup = false; // marcado "—", reposición automática
-    else if (state === 'DETERIORADA') row.pickup = true; // fuerza recoger
-    else if (row.tipo === 'EXTRA') row.pickup = true; // EXTRA siempre se recoge
+  incLabel(i: UnitIncidencia): string { return i === 'ROBADA' ? 'ROBADA / AUSENTE' : i === 'DETERIORADA' ? 'DETERIORADA' : ''; }
+  /** Marca la decisión (se queda / se retira) de una unidad; excluye incidencia. */
+  setDecision(u: UnitRow, d: 'QUEDA' | 'RETIRA'): void {
+    if (u.incidencia) return;
+    u.decision = d;
     this.rows.set([...this.rows()]);
   }
-  /** Solo los BASE en estado OK pueden alternarse; EXTRA/DETERIORADA forzados, ROBADA "—". */
-  canToggle(row: InspRow): boolean { return row.tipo === 'BASE' && row.state === 'OK'; }
-  forced(row: InspRow): boolean { return row.state !== 'ROBADA' && (row.tipo === 'EXTRA' || row.state === 'DETERIORADA'); }
-  togglePickup(row: InspRow): void { if (this.canToggle(row)) { row.pickup = !row.pickup; this.rows.set([...this.rows()]); } }
-  private effPickup(row: InspRow): boolean { return row.state === 'ROBADA' ? false : (this.forced(row) || row.pickup); }
-  noteFor(row: InspRow): string {
-    if (row.state === 'ROBADA') return 'Marcado como ausente "—" → reposición automática (sábanas/toallas).';
-    if (row.state === 'DETERIORADA') return 'Deteriorada → se recoge y se repone.';
-    if (row.tipo === 'EXTRA') return 'Suministro adicional → se recoge obligatoriamente (no se repone).';
-    if (row.item.type === 'AMENITY') {
-      if (!this.effPickup(row)) return 'Se deja → permanece en la habitación.';
-      return row.item.reusable
-        ? 'Amenity reutilizable → se recoge, retorna y se repone desde AMENITIES - LIMPIEZA.'
-        : 'Amenity desechable → se recoge (consumido) y se repone desde AMENITIES - LIMPIEZA.';
-    }
-    return this.effPickup(row)
-      ? 'Se recoge → va a lavandería y se repone automáticamente.'
-      : 'Se deja en la habitación → permanece hasta la próxima limpieza (sin reposición).';
+  openIncidencia(u: UnitRow): void { this.incUnit = u; this.incVisible = true; }
+  setIncidencia(i: 'ROBADA' | 'DETERIORADA'): void {
+    if (this.incUnit) { this.incUnit.incidencia = i; this.incUnit.decision = null; this.rows.set([...this.rows()]); }
+    this.incVisible = false;
   }
-  recogerList(): InspRow[] { return this.rows().filter((r) => this.effPickup(r)); }
-  dejarList(): InspRow[] { return this.rows().filter((r) => !this.effPickup(r)); }
+  clearIncidencia(): void {
+    if (this.incUnit) { this.incUnit.incidencia = null; this.rows.set([...this.rows()]); }
+    this.incVisible = false;
+  }
+  /** Estado backend por unidad. */
+  private stateOf(u: UnitRow): 'OK' | 'ROBADA' | 'DETERIORADA' { return u.incidencia ?? 'OK'; }
+  /** Se recoge (retira físicamente): RETIRA o DETERIORADA. ROBADA no se recoge (ausente). */
+  private pickupOf(u: UnitRow): boolean {
+    if (u.incidencia === 'DETERIORADA') return true;
+    if (u.incidencia === 'ROBADA') return false;
+    return u.decision === 'RETIRA';
+  }
+  /** Una unidad es válida cuando tiene decisión: BASE se queda/retira o incidencia; ADICIONAL debe retirarse. */
+  unitValid(u: UnitRow): boolean {
+    if (u.incidencia) return true;
+    if (u.tipo === 'ADICIONAL') return u.decision === 'RETIRA';
+    return u.decision === 'QUEDA' || u.decision === 'RETIRA';
+  }
+  allValid(): boolean { return this.rows().length > 0 && this.rows().every((u) => this.unitValid(u)); }
+  recogerList(): UnitRow[] { return this.rows().filter((u) => u.decision === 'RETIRA' || !!u.incidencia); }
+  dejarList(): UnitRow[] { return this.rows().filter((u) => u.decision === 'QUEDA' && !u.incidencia); }
 
   confirmRecojo(): void {
-    if (!this.selRoom) return;
+    if (!this.selRoom || !this.allValid()) return;
     this.busy.set(true);
-    // Ropa lleva linenItemId; amenity lleva productId (se repone luego desde AMENITIES - LIMPIEZA).
-    const inspections = this.rows().map((r) => ({
-      linenItemId: r.item.id.startsWith('sup-') || r.item.id.startsWith('amn-') ? undefined : r.item.id,
-      productId: r.item.id.startsWith('amn-') ? r.item.id.slice(4) : undefined,
-      description: `${this.typeLabel(r.item.type)} ${r.item.name}`,
-      state: r.state,
-      pickup: this.effPickup(r),
+    // Una inspección POR UNIDAD: ropa lleva linenItemId; amenity lleva productId.
+    const inspections = this.rows().map((u) => ({
+      linenItemId: u.item.id.startsWith('sup-') || u.item.id.startsWith('amn-') ? undefined : u.item.id,
+      productId: u.item.id.startsWith('amn-') ? u.item.id.slice(4) : undefined,
+      description: `${this.typeLabel(u.item.type)} ${u.item.name}`,
+      state: this.stateOf(u),
+      pickup: this.pickupOf(u),
     }));
     this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/${this.selRoom.id}/start`, { inspections }).subscribe({
       next: () => { this.busy.set(false); this.iniciarVisible = false; this.toast.add({ severity: 'success', summary: 'Limpieza iniciada', detail: `Hab. ${this.selRoom?.number} en curso` }); this.reload(); },

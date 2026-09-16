@@ -159,8 +159,21 @@ export const roomInventoryService = {
     const lmap = new Map(linen.map((l) => [l.id, l]));
     const items = inv.map((i) => {
       const l = i.linenItemId ? lmap.get(i.linenItemId) : undefined;
-      return { linenItemId: i.linenItemId, name: l?.name ?? i.name, type: l?.type ?? 'ROPA', size: l?.size ?? null, color: l?.color ?? null, quantity: i.quantity };
+      return { linenItemId: i.linenItemId, name: l?.name ?? i.name, type: l?.type ?? 'ROPA', size: l?.size ?? null, color: l?.color ?? null, quantity: i.quantity, baseQty: 0, adicionalQty: 0 };
     });
+    // Desglose BASE vs ADICIONAL por unidad: la Dotación Base (por categoría|tamaño) marca cuántas
+    // son parte de la dotación; las que exceden son ADICIONALES (retiro obligatorio en el recojo).
+    // Misma convención que finish(): la dotación se agrupa por type|size de la prenda.
+    const dot = await prisma.roomTypeDotacion.findMany({ where: { branchId, roomTypeId: room.roomTypeId, articleKind: 'LINEN_REUSABLE', status: 'active' }, select: { name: true, size: true, baseQty: true } });
+    const remainingBase = new Map<string, number>();
+    for (const d of dot) { const k = `${(d.name ?? '').toUpperCase()}|${(d.size ?? '').toUpperCase()}`; remainingBase.set(k, (remainingBase.get(k) ?? 0) + d.baseQty); }
+    for (const it of [...items].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))) {
+      const k = `${(it.type ?? '').toUpperCase()}|${(it.size ?? '').toUpperCase()}`;
+      const rem = remainingBase.get(k) ?? 0;
+      it.baseQty = Math.min(rem, it.quantity);
+      it.adicionalQty = it.quantity - it.baseQty;
+      remainingBase.set(k, rem - it.baseQty);
+    }
     const floorAvailable = floorStock
       .map((s) => ({ linenItemId: s.linenItemId, ...lmap.get(s.linenItemId), available: s.rem + s.sum }))
       .filter((x) => x.available > 0 && x.name)
