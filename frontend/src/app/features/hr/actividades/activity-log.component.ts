@@ -25,6 +25,7 @@ const ACTIVITY_LABEL: Record<string, string> = {
   CLEANING: 'Limpieza', INSPECTION: 'Inspección',
   RESERVATION_CREATE: 'Reserva creada', RESERVATION_UPDATE: 'Reserva modificada', RESERVATION_CANCEL: 'Reserva cancelada',
   WIFI: 'Wi-Fi', FRIGOBAR: 'Frigobar', MAINTENANCE: 'Mantenimiento', INVENTORY_ADJUST: 'Ajuste de inventario',
+  REGULARIZATION_REQUEST: 'Regularización solicitada', REGULARIZATION_APPROVED: 'Regularización aprobada', REGULARIZATION_REJECTED: 'Regularización rechazada',
   USER_CREATE: 'Usuario creado', USER_UPDATE: 'Usuario modificado', USER_DEACTIVATE: 'Usuario desactivado',
   USER_PASSWORD: 'Contraseña cambiada', USER_PASSWORD_RESET: 'Contraseña restablecida',
   PERMISSION_GRANT: 'Permiso concedido', PERMISSION_REVOKE: 'Permiso retirado', PERMISSION_EXPIRE: 'Permiso vencido',

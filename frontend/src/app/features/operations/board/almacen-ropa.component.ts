@@ -1,4 +1,5 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
+import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
 import { Router } from '@angular/router';
@@ -48,12 +49,35 @@ interface Row {
   status: string;
 }
 
+interface RegLine {
+  linenItemId: string;
+  name: string;
+  type: string;
+  color: string | null;
+  systemQty: number;
+  requestedQty: number;
+  diff: number;
+  available: number | null;
+  shortage: number;
+}
+interface Reg {
+  id: string;
+  floor: string;
+  shift: string;
+  createdAt: string;
+  requestedByName: string | null;
+  diffCount: number;
+  lines: RegLine[];
+  canApprove: boolean;
+}
+
 const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas', EDREDON: 'Edredones', AMENITY: 'Amenities' };
+const SHIFT_LABEL: Record<string, string> = { MANANA: 'Mañana', TARDE: 'Tarde', NOCHE: 'Noche' };
 
 @Component({
   selector: 'app-almacen-ropa',
   standalone: true,
-  imports: [FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule],
+  imports: [DatePipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule],
   template: `
     <section class="ar">
       <header class="top"><div><h1>Almacén de Ropa</h1><p class="muted">Gestiona los artículos del almacén de ropa</p></div></header>
@@ -66,6 +90,7 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
           <button class="pill" [class.on]="typeFilter === t" (click)="toggleType(t)"><i class="pi pi-inbox"></i> {{ typeLabel(t) }}</button>
         }
         <span class="sp"></span>
+        <button class="op regs" (click)="openRegList()"><i class="pi pi-verified"></i> Regularizaciones @if (regCount() > 0) { <span class="rbadge">{{ regCount() }}</span> }</button>
         <button class="op reponer" (click)="goRecepcionar()"><i class="pi pi-arrow-right-arrow-left"></i> Recepcionar Ropa Limpia</button>
         <button class="op enviar" (click)="goEnviar()"><i class="pi pi-arrow-right-arrow-left"></i> Enviar Ropa Solicitada</button>
         <button class="op nuevo" (click)="openNew()"><i class="pi pi-plus"></i> Nuevo Artículo</button>
@@ -210,6 +235,75 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
         <p-button label="Guardar ítem de ropa" icon="pi pi-save" [loading]="busy()" [disabled]="!formValid()" (onClick)="saveItem()" />
       </ng-template>
     </p-dialog>
+
+    <!-- Regularizaciones pendientes (lista) -->
+    <p-dialog [(visible)]="regListVisible" [modal]="true" header="Regularizaciones de inventario · Pendientes" [style]="{ width: '46rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      @if (regLoading()) { <p class="muted">Cargando…</p> }
+      @else if (regList().length === 0) { <p class="empty"><i class="pi pi-check-circle"></i> No hay regularizaciones pendientes.</p> }
+      @else {
+        <div class="rlist">
+          @for (r of regList(); track r.id) {
+            <button class="rcard" (click)="openRegReview(r)">
+              <div class="rc-l">
+                <div class="rc-fl"><i class="pi pi-building"></i> {{ r.floor }}</div>
+                <div class="rc-meta">{{ shiftLabel(r.shift) }} · {{ r.requestedByName || 'Limpieza' }} · {{ r.createdAt | date: 'dd/MM HH:mm' }}</div>
+              </div>
+              <div class="rc-r">
+                <span class="rc-diffs">{{ r.diffCount }} dif.</span>
+                @if (!r.canApprove) { <span class="rc-short"><i class="pi pi-exclamation-triangle"></i> Stock insuf.</span> }
+                <i class="pi pi-chevron-right"></i>
+              </div>
+            </button>
+          }
+        </div>
+      }
+      <ng-template pTemplate="footer">
+        <p-button label="Cerrar" [text]="true" (onClick)="regListVisible = false" />
+      </ng-template>
+    </p-dialog>
+
+    <!-- Revisión de una regularización (aprobar / rechazar) -->
+    <p-dialog [(visible)]="regReviewVisible" [modal]="true" [header]="'Revisar regularización · ' + (regSel()?.floor || '')" [style]="{ width: '52rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      @if (regSel(); as r) {
+        <div class="rv-head">
+          <span><i class="pi pi-user"></i> {{ r.requestedByName || 'Limpieza' }}</span>
+          <span><i class="pi pi-clock"></i> {{ shiftLabel(r.shift) }} · {{ r.createdAt | date: 'dd/MM/yyyy HH:mm' }}</span>
+        </div>
+        <div class="rv-wrap">
+          <table class="rv">
+            <thead><tr><th class="it">Artículo</th><th class="n">Sistema</th><th class="n">Solicitado</th><th class="n">Diferencia</th><th class="n">Disp. central</th><th>Estado</th></tr></thead>
+            <tbody>
+              @for (l of r.lines; track l.linenItemId) {
+                <tr [class.zero]="l.diff === 0">
+                  <td class="it">{{ l.name }}<small class="muted"> · {{ typeLabel(l.type) }}</small></td>
+                  <td class="n">{{ l.systemQty }}</td>
+                  <td class="n"><b>{{ l.requestedQty }}</b></td>
+                  <td class="n" [class.pos]="l.diff > 0" [class.neg]="l.diff < 0">{{ l.diff > 0 ? '+' : '' }}{{ l.diff }}</td>
+                  <td class="n muted">{{ l.diff > 0 ? l.available : '—' }}</td>
+                  <td>
+                    @if (l.diff > 0 && l.shortage > 0) { <span class="badinsuf"><i class="pi pi-times-circle"></i> Faltan {{ l.shortage }}</span> }
+                    @else if (l.diff > 0) { <span class="badok"><i class="pi pi-arrow-down"></i> Descuenta central</span> }
+                    @else if (l.diff < 0) { <span class="badmerma"><i class="pi pi-minus-circle"></i> Merma (baja REM)</span> }
+                    @else { <span class="muted">Sin cambio</span> }
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+        @if (!r.canApprove) {
+          <p class="rv-lock"><i class="pi pi-exclamation-triangle"></i> No se puede aprobar: el Almacén General no tiene stock suficiente para las diferencias positivas. Reponga el central o rechace la solicitud.</p>
+        } @else {
+          <p class="rv-note-txt"><i class="pi pi-info-circle"></i> Al aprobar: las diferencias positivas se descuentan del Almacén General y suben el REM del piso; las negativas bajan el REM (merma). La fila SUM no se modifica.</p>
+        }
+        <div class="fld"><label>Motivo (si rechazas, opcional)</label><input pInputText [(ngModel)]="regNote" placeholder="Ej.: conteo incorrecto; volver a verificar." /></div>
+      }
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="regReviewVisible = false" />
+        <p-button label="Rechazar" icon="pi pi-times-circle" severity="danger" [outlined]="true" [loading]="busy()" (onClick)="rejectReg()" />
+        <p-button label="Aprobar" icon="pi pi-check-circle" severity="success" [loading]="busy()" [disabled]="!regSel()?.canApprove" (onClick)="approveReg()" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -256,6 +350,33 @@ const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toallas', SABANA: 'Sabanas
       :host ::ng-deep .cellq { width: 4.2rem; text-align: center; }
       .over-msg { color: #f87171; font-size: 0.82rem; margin-top: 0.5rem; display: flex; align-items: center; gap: 0.4rem; }
       :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1622; color: #e6e9ef; }
+
+      /* Regularizaciones */
+      .op.regs { background: #0e1626; border: 1px solid #2f6f4a; color: #7ee2a0; position: relative; }
+      .op.regs:hover { background: #12253a; }
+      .rbadge { background: #f00018; color: #fff; border-radius: 999px; font-size: 0.7rem; font-weight: 800; padding: 0.05rem 0.45rem; margin-left: 0.15rem; }
+      .rlist { display: flex; flex-direction: column; gap: 0.5rem; }
+      .rcard { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; background: #0f1a2b; border: 1px solid #223751; border-radius: 12px; padding: 0.7rem 0.9rem; cursor: pointer; text-align: left; color: #e2e8f0; } .rcard:hover { background: #13243a; border-color: #2f6f4a; }
+      .rc-fl { font-weight: 800; display: flex; align-items: center; gap: 0.4rem; } .rc-fl .pi { color: #7ee2a0; }
+      .rc-meta { color: #8aa0bd; font-size: 0.76rem; margin-top: 0.15rem; }
+      .rc-r { display: flex; align-items: center; gap: 0.6rem; }
+      .rc-diffs { background: rgba(0,168,59,0.16); color: #7ee2a0; border-radius: 999px; font-size: 0.72rem; font-weight: 800; padding: 0.1rem 0.55rem; }
+      .rc-short { color: #fbbf24; font-size: 0.72rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; }
+      .empty .pi { color: #34d399; margin-right: 0.3rem; }
+
+      .rv-head { display: flex; gap: 1.2rem; flex-wrap: wrap; color: #cbd5e1; font-size: 0.82rem; margin-bottom: 0.6rem; } .rv-head .pi { color: #8aa0bd; margin-right: 0.3rem; }
+      .rv-wrap { overflow-x: auto; border: 1px solid #1c2c44; border-radius: 10px; }
+      .rv { border-collapse: collapse; width: 100%; }
+      .rv th, .rv td { padding: 0.55rem 0.7rem; border-bottom: 1px solid #16233a; font-size: 0.82rem; white-space: nowrap; }
+      .rv th { color: #8aa0bd; font-weight: 600; font-size: 0.72rem; background: #101a2c; text-align: right; } .rv th.it { text-align: left; }
+      .rv .n { text-align: right; } .rv td.it { font-weight: 600; }
+      .rv tr.zero { opacity: 0.5; }
+      .rv td.pos { color: #34d399; font-weight: 800; } .rv td.neg { color: #f87171; font-weight: 800; }
+      .badinsuf { color: #fca5a5; background: rgba(240,0,24,0.16); border-radius: 999px; font-size: 0.72rem; font-weight: 800; padding: 0.1rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem; }
+      .badok { color: #7ee2a0; background: rgba(0,168,59,0.16); border-radius: 999px; font-size: 0.72rem; font-weight: 700; padding: 0.1rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem; }
+      .badmerma { color: #fbbf24; background: rgba(217,119,6,0.16); border-radius: 999px; font-size: 0.72rem; font-weight: 700; padding: 0.1rem 0.5rem; display: inline-flex; align-items: center; gap: 0.25rem; }
+      .rv-lock { display: flex; align-items: flex-start; gap: 0.45rem; background: rgba(240,0,24,0.1); border: 1px solid rgba(240,0,24,0.35); border-radius: 10px; padding: 0.6rem 0.8rem; color: #f0c9c9; font-size: 0.8rem; margin: 0.7rem 0 0; } .rv-lock .pi { margin-top: 0.1rem; color: #f87171; }
+      .rv-note-txt { display: flex; align-items: flex-start; gap: 0.45rem; background: rgba(0,168,59,0.1); border: 1px solid rgba(0,168,59,0.32); border-radius: 10px; padding: 0.6rem 0.8rem; color: #b7e6c6; font-size: 0.8rem; margin: 0.7rem 0 0; } .rv-note-txt .pi { margin-top: 0.1rem; color: #34d399; }
     `,
   ],
 })
@@ -270,6 +391,15 @@ export class AlmacenRopaComponent implements OnInit {
   readonly busy = signal(false);
   readonly selectedIds = signal<Set<string>>(new Set());
   readonly floors = signal<string[]>([]);
+
+  // ── Regularizaciones de inventario (aprobación admin) ──
+  readonly regCount = signal(0);
+  readonly regList = signal<Reg[]>([]);
+  readonly regLoading = signal(false);
+  readonly regSel = signal<Reg | null>(null);
+  regListVisible = false;
+  regReviewVisible = false;
+  regNote = '';
 
   search = '';
   sortBy: 'code' | 'name' = 'code';
@@ -322,6 +452,7 @@ export class AlmacenRopaComponent implements OnInit {
 
   ngOnInit(): void {
     this.reload();
+    this.loadRegCount();
     // Solo categorías tipo Ropa (con sus tamaños) para el formulario de ítem de ropa.
     this.http.get<ApiResponse<InventoryCategory[]>>(`${this.api}/inventory-categories`, { params: { pageSize: '200', sortBy: 'name' } })
       .subscribe((r) => this.clothingCats.set((r.data ?? []).filter((c) => c.type === 'CLOTHING' && c.status === 'active')));
@@ -334,6 +465,46 @@ export class AlmacenRopaComponent implements OnInit {
   }
 
   typeLabel(t: string): string { return TYPE_LABEL[t] ?? t; }
+  shiftLabel(s: string): string { return SHIFT_LABEL[s] ?? s; }
+
+  // ── Regularizaciones de inventario ──
+  loadRegCount(): void {
+    this.http.get<ApiResponse<{ count: number }>>(`${this.api}/admin/linen/regularizations/pending-count`)
+      .subscribe({ next: (r) => this.regCount.set(r.data?.count ?? 0), error: () => {} });
+  }
+  openRegList(): void {
+    this.regListVisible = true;
+    this.regLoading.set(true);
+    this.http.get<ApiResponse<Reg[]>>(`${this.api}/admin/linen/regularizations`).subscribe({
+      next: (r) => { this.regList.set(r.data ?? []); this.regCount.set((r.data ?? []).length); this.regLoading.set(false); },
+      error: (e: HttpErrorResponse) => { this.regLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo cargar.' }); },
+    });
+  }
+  openRegReview(r: Reg): void { this.regSel.set(r); this.regNote = ''; this.regReviewVisible = true; }
+  approveReg(): void {
+    const r = this.regSel();
+    if (!r || !r.canApprove) return;
+    this.busy.set(true);
+    this.http.post<ApiResponse<unknown>>(`${this.api}/admin/linen/regularizations/${r.id}/approve`, {}).subscribe({
+      next: () => { this.busy.set(false); this.regReviewVisible = false; this.toast.add({ severity: 'success', summary: 'Aprobada', detail: `Regularización de ${r.floor} aplicada.` }); this.afterReview(r.id); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo aprobar.' }); this.openRegList(); },
+    });
+  }
+  rejectReg(): void {
+    const r = this.regSel();
+    if (!r) return;
+    this.busy.set(true);
+    this.http.post<ApiResponse<unknown>>(`${this.api}/admin/linen/regularizations/${r.id}/reject`, { note: this.regNote?.trim() || undefined }).subscribe({
+      next: () => { this.busy.set(false); this.regReviewVisible = false; this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Regularización de ${r.floor} rechazada.` }); this.afterReview(r.id); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo rechazar.' }); },
+    });
+  }
+  /** Tras aprobar/rechazar: quita la solicitud de la lista, refresca contador y stock del almacén. */
+  private afterReview(id: string): void {
+    this.regList.set(this.regList().filter((x) => x.id !== id));
+    this.regCount.set(this.regList().length);
+    this.reload();
+  }
 
   // ── Selección múltiple ──
   isSel(id: string): boolean { return this.selectedIds().has(id); }

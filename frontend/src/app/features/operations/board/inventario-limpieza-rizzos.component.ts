@@ -23,9 +23,9 @@ interface WriteoffRow { id: string; createdAt: string; user: string; floor: stri
 // Colores conocidos por tipo (los ítems de ropa llevan como `type` el NOMBRE de su
 // categoría, que varía por sucursal). Se normaliza a mayúsculas para el match.
 const TYPE_COLORS: Record<string, string> = {
-  TOALLA: '#f97316', TOALLAS: '#f97316',
-  SABANA: '#d946ef', SABANAS: '#d946ef', 'SÁBANAS': '#d946ef', SABANAS_: '#d946ef',
-  EDREDON: '#eab308', EDREDONES: '#eab308',
+  TOALLA: '#2463F6', TOALLAS: '#2463F6',
+  SABANA: '#B000F0', SABANAS: '#B000F0', 'SÁBANAS': '#B000F0', SABANAS_: '#B000F0',
+  EDREDON: '#FFB800', EDREDONES: '#FFB800',
   FUNDA: '#22d3ee', FUNDAS: '#22d3ee', COBERTOR: '#a78bfa', COBERTORES: '#a78bfa',
 };
 const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#34d399', '#fb7185', '#60a5fa'];
@@ -63,48 +63,76 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
               @for (c of cols(); track c.type) {
                 <div class="thead" [style.background]="c.color">{{ c.label }}</div>
               }
-              <!-- Fila REM (remanente del turno anterior; accionable: solicitar / manchada) -->
+              <!-- Fila REM (remanente del turno anterior; accionable: solicitar / manchada / regularizar) -->
               <div class="rowlabel rem">REM</div>
               @for (c of cols(); track c.type) {
                 <div class="cell rem-cell">
-                  @for (r of byType(f, c.type); track r.linenItemId) {
-                    @if (r.rem > 0) {
-                      <label class="chip">
-                        <input type="checkbox" class="cr" [checked]="isSel(f.floor, r.linenItemId, 'rem')" (change)="toggle(f.floor, r.linenItemId, 'rem')" />
-                        <span class="dot" [style.background]="r.color || '#888'"></span><b>{{ r.rem }}</b> {{ r.name }}
-                      </label>
-                    }
-                  } @empty { <span class="empty">—</span> }
+                  @if (regFloor() === f.floor) {
+                    @for (r of regRows(f, c.type); track r.linenItemId) {
+                      <div class="rchip">
+                        <button class="st" type="button" (click)="regDec(r.linenItemId)">−</button>
+                        <b>{{ regProposal[r.linenItemId] ?? 0 }}</b>
+                        <button class="st" type="button" (click)="regInc(r.linenItemId)">+</button>
+                        <span class="rn">{{ r.name }}</span>
+                        @if (r.isNew) { <span class="newb">NUEVO</span> }
+                      </div>
+                    } @empty { <span class="empty">—</span> }
+                  } @else {
+                    @for (r of byType(f, c.type); track r.linenItemId) {
+                      @if (r.rem > 0) {
+                        <label class="chip">
+                          <input type="checkbox" class="cr" [checked]="isSel(f.floor, r.linenItemId, 'rem')" (change)="toggle(f.floor, r.linenItemId, 'rem')" />
+                          <b>{{ r.rem }}</b> {{ r.name }}
+                        </label>
+                      }
+                    } @empty { <span class="empty">—</span> }
+                  }
                 </div>
               }
-              <!-- Fila SUM (suministrado este turno; seleccionable para corregir errores del suministro) -->
+              <!-- Fila SUM (suministrado este turno). En modo regularizar es SOLO referencia (sin controles). -->
               <div class="rowlabel sum">SUM</div>
               @for (c of cols(); track c.type) {
                 <div class="cell sum-cell">
                   @for (r of byType(f, c.type); track r.linenItemId) {
                     @if (r.sum > 0) {
-                      <label class="chip">
-                        <input type="checkbox" class="cs" [checked]="isSel(f.floor, r.linenItemId, 'sum')" (change)="toggle(f.floor, r.linenItemId, 'sum')" />
-                        <span class="dot" [style.background]="r.color || '#888'"></span><b>{{ r.sum }}</b> {{ r.name }}
-                      </label>
+                      @if (regFloor() === f.floor) {
+                        <span class="chip ref"><b>{{ r.sum }}</b> {{ r.name }}</span>
+                      } @else {
+                        <label class="chip">
+                          <input type="checkbox" class="cs" [checked]="isSel(f.floor, r.linenItemId, 'sum')" (change)="toggle(f.floor, r.linenItemId, 'sum')" />
+                          <b>{{ r.sum }}</b> {{ r.name }}
+                        </label>
+                      }
                     }
                   } @empty { <span class="empty">—</span> }
                 </div>
               }
             </div>
-            <div class="fbtns">
-              <button class="solicitar" [disabled]="floorSel(f.floor).length === 0" (click)="openRequest(f.floor)">
-                <i class="pi pi-send"></i> Solicitar ropa ({{ floorSelUnique(f.floor).length }})
-              </button>
-              <button class="manch" [disabled]="floorSel(f.floor).length === 0" (click)="openLaundry(f.floor)">
-                <i class="pi pi-exclamation-triangle"></i> Manchada / Deteriorada
-              </button>
-              @if (canWriteoffLinen()) {
-                <button class="baja" [disabled]="floorSel(f.floor).length === 0" (click)="openBaja(f.floor)">
-                  <i class="pi pi-trash"></i> Dar de baja ({{ floorSel(f.floor).length }})
+            @if (regFloor() === f.floor) {
+              <div class="reg-note"><i class="pi pi-info-circle"></i> SUM se mantiene sin cambios. Si necesitas un ítem que no aparece, usa "Agregar ropa no registrada".</div>
+              <button class="addunreg" (click)="openAddUnreg(f.floor)"><i class="pi pi-plus-circle"></i> Agregar ropa no registrada</button>
+              <div class="fbtns reg">
+                <button class="regcancel" (click)="cancelReg()">Cancelar</button>
+                <button class="regsend" [disabled]="busy()" (click)="sendReg(f.floor)"><i class="pi pi-check"></i> Enviar regularización</button>
+              </div>
+            } @else if (regFloor() === null) {
+              <div class="fbtns">
+                <button class="solicitar" [disabled]="floorSel(f.floor).length === 0" (click)="openRequest(f.floor)">
+                  <i class="pi pi-send"></i> Solicitar ropa ({{ floorSelUnique(f.floor).length }})
                 </button>
-              }
-            </div>
+                @if (canRegularize(f.floor)) {
+                  <button class="regbtn" (click)="startReg(f.floor)"><i class="pi pi-plus-circle"></i> Regularizar stock</button>
+                }
+                <button class="manch" [disabled]="floorSel(f.floor).length === 0" (click)="openLaundry(f.floor)">
+                  <i class="pi pi-exclamation-triangle"></i> Manchada / Deteriorada
+                </button>
+                @if (canWriteoffLinen()) {
+                  <button class="baja" [disabled]="floorSel(f.floor).length === 0" (click)="openBaja(f.floor)">
+                    <i class="pi pi-trash"></i> Dar de baja ({{ floorSel(f.floor).length }})
+                  </button>
+                }
+              </div>
+            }
           </div>
         } @empty { <p class="muted">Sin inventario de ropa configurado.</p> }
       </div>
@@ -165,6 +193,26 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="reqVisible = false" />
         <p-button label="Enviar solicitud" icon="pi pi-send" [loading]="busy()" (onClick)="sendRequest()" />
+      </ng-template>
+    </p-dialog>
+
+    <!-- Agregar ropa no registrada (dentro del modo Regularizar) -->
+    <p-dialog [(visible)]="addUnregVisible" [modal]="true" [header]="'Agregar ropa no registrada · ' + addUnregFloor" [style]="{ width: '28rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      <div class="form">
+        <label class="au-lbl">TOALLA</label>
+        <p-select [options]="catItems('TOALLA')" optionLabel="name" optionValue="id" [(ngModel)]="addSel.toalla" [filter]="true" filterBy="name" [showClear]="true" placeholder="Seleccionar toalla" appendTo="body" styleClass="w" />
+        <div class="qrow2"><span>Cantidad</span><p-inputNumber [(ngModel)]="addSel.toallaQty" [min]="0" [showButtons]="true" buttonLayout="horizontal" /></div>
+        <label class="au-lbl">SÁBANA</label>
+        <p-select [options]="catItems('SABANA')" optionLabel="name" optionValue="id" [(ngModel)]="addSel.sabana" [filter]="true" filterBy="name" [showClear]="true" placeholder="Seleccionar sábana" appendTo="body" styleClass="w" />
+        <div class="qrow2"><span>Cantidad</span><p-inputNumber [(ngModel)]="addSel.sabanaQty" [min]="0" [showButtons]="true" buttonLayout="horizontal" /></div>
+        <label class="au-lbl">EDREDÓN</label>
+        <p-select [options]="catItems('EDREDON')" optionLabel="name" optionValue="id" [(ngModel)]="addSel.edredon" [filter]="true" filterBy="name" [showClear]="true" placeholder="Seleccionar edredón" appendTo="body" styleClass="w" />
+        <div class="qrow2"><span>Cantidad</span><p-inputNumber [(ngModel)]="addSel.edredonQty" [min]="0" [showButtons]="true" buttonLayout="horizontal" /></div>
+        <p class="hint"><i class="pi pi-info-circle"></i> Los ítems agregados se incluirán en la fila REM. La fila SUM no se modifica.</p>
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="addUnregVisible = false" />
+        <p-button label="Agregar" icon="pi pi-plus" (onClick)="confirmAddUnreg()" />
       </ng-template>
     </p-dialog>
 
@@ -266,18 +314,35 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
       .fh .pi { color: #5fd0a3; font-size: 0.9rem; }
       .matrix { display: grid; gap: 2px; background: #24455a; padding: 2px; }
       .corner { background: #0f1e28; }
-      .thead { color: #14100a; font-weight: 800; font-size: 0.7rem; text-align: center; padding: 0.5rem 0.2rem; letter-spacing: 0.04em; text-shadow: 0 1px 0 rgba(255,255,255,0.25); display: flex; align-items: center; justify-content: center; }
+      .thead { color: #fff; font-weight: 800; font-size: 0.7rem; text-align: center; padding: 0.5rem 0.2rem; letter-spacing: 0.04em; text-shadow: 0 1px 2px rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; }
       .rowlabel { display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.76rem; color: #fff; letter-spacing: 0.05em; }
-      .rowlabel.rem { background: linear-gradient(180deg, #dc2626, #b91c1c); } .rowlabel.sum { background: linear-gradient(180deg, #2563eb, #1d4ed8); }
+      .rowlabel.rem { background: linear-gradient(180deg, #F00018, #c40014); } .rowlabel.sum { background: linear-gradient(180deg, #00A83B, #048531); }
       .cell { padding: 0.45rem; display: flex; flex-direction: column; gap: 0.35rem; min-height: 2.6rem; justify-content: center; }
-      .rem-cell { background: #14262f; box-shadow: inset 3px 0 0 rgba(220,38,38,0.55); }
-      .sum-cell { background: #0f2130; box-shadow: inset 3px 0 0 rgba(37,99,235,0.55); }
+      .rem-cell { background: #17213F; box-shadow: inset 3px 0 0 rgba(240,0,24,0.6); }
+      .sum-cell { background: #17213F; box-shadow: inset 3px 0 0 rgba(0,168,59,0.6); }
       .empty { color: #45606c; font-size: 0.8rem; text-align: center; }
       .chip { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.79rem; color: #eaf2ec; cursor: pointer; padding: 0.12rem 0.15rem; border-radius: 6px; transition: background 0.12s; } .chip:hover { background: rgba(255,255,255,0.05); }
       .chip b { color: #fff; font-weight: 800; } .chip.ro { cursor: default; }
-      .chip input[type=checkbox] { accent-color: #dc2626; width: 0.95rem; height: 0.95rem; }
-      .chip input.cs { accent-color: #2563eb; }
-      .dot { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 50%; border: 1px solid rgba(255,255,255,0.35); flex: none; }
+      .chip input[type=checkbox] { accent-color: #F00018; width: 0.95rem; height: 0.95rem; }
+      .chip input.cs { accent-color: #00A83B; }
+      .chip.ref { cursor: default; opacity: 0.8; }
+
+      /* Modo regularizar: stepper de propuesta REM por ítem */
+      .rchip { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.79rem; color: #eaf2ec; padding: 0.1rem 0.15rem; }
+      .rchip b { color: #fff; font-weight: 800; min-width: 1.1rem; text-align: center; }
+      .rchip .rn { color: #cdd8e6; }
+      .st { width: 1.35rem; height: 1.35rem; border: 1px solid #2f4f6b; background: #0f2130; color: #eaf2ec; border-radius: 6px; cursor: pointer; font-weight: 800; line-height: 1; display: inline-flex; align-items: center; justify-content: center; padding: 0; } .st:hover { background: #16324a; }
+      .newb { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.04em; color: #04130d; background: #00A83B; border-radius: 999px; padding: 0.05rem 0.35rem; }
+
+      /* Modo regularizar: nota + acciones */
+      .reg-note { display: flex; align-items: flex-start; gap: 0.4rem; margin: 0.7rem 0.8rem 0; padding: 0.55rem 0.7rem; background: rgba(0,168,59,0.1); border: 1px solid rgba(0,168,59,0.35); border-radius: 10px; color: #b7e6c6; font-size: 0.76rem; } .reg-note .pi { margin-top: 0.1rem; color: #34d399; }
+      .addunreg { margin: 0.6rem 0.8rem 0; background: #17213F; border: 1px dashed #3a5a86; color: #cdd8e6; border-radius: 10px; padding: 0.55rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; font-size: 0.8rem; } .addunreg:hover { background: #1E3474; }
+      .fbtns.reg { flex-direction: row; }
+      .regbtn { background: linear-gradient(180deg, #00A83B, #048531); border: 0; border-radius: 10px; padding: 0.62rem; font-weight: 800; cursor: pointer; font-size: 0.82rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; color: #fff; letter-spacing: 0.02em; transition: filter 0.12s, transform 0.05s; box-shadow: 0 2px 6px rgba(0,0,0,0.3); } .regbtn:hover { filter: brightness(1.1); } .regbtn:active { transform: translateY(1px); }
+      .regcancel { flex: 1; background: #17213F; border: 1px solid #2f4f6b; color: #cdd8e6; border-radius: 10px; padding: 0.62rem; font-weight: 700; cursor: pointer; font-size: 0.82rem; } .regcancel:hover { background: #1E3474; }
+      .regsend { flex: 2; background: linear-gradient(180deg, #00A83B, #048531); border: 0; color: #fff; border-radius: 10px; padding: 0.62rem; font-weight: 800; cursor: pointer; font-size: 0.82rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; } .regsend:hover { filter: brightness(1.1); } .regsend:disabled { opacity: 0.5; cursor: not-allowed; }
+      .au-lbl { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.05em; color: #9fb0c3; margin-top: 0.5rem; }
+      .qrow2 { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; } .qrow2 span { font-size: 0.85rem; color: #cdd8e6; }
       .fbtns { display: flex; flex-direction: column; gap: 0.5rem; padding: 0.8rem; }
       .solicitar, .manch, .baja { border: 0; border-radius: 10px; padding: 0.62rem; font-weight: 800; cursor: pointer; font-size: 0.82rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; color: #fff; letter-spacing: 0.02em; transition: filter 0.12s, transform 0.05s; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }
       .solicitar:hover, .manch:hover, .baja:hover { filter: brightness(1.1); } .solicitar:active, .manch:active, .baja:active { transform: translateY(1px); }
@@ -304,7 +369,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
       .hist td.art b { display: block; } .hist td.art small { color: #8aa499; font-size: 0.72rem; } .hist td.nt { color: #9fb0c3; max-width: 220px; }
       .mtag { font-size: 0.7rem; font-weight: 800; border-radius: 999px; padding: 0.1rem 0.5rem; }
       .mtag.ret { color: #93c5fd; background: rgba(37,99,235,0.18); } .mtag.dan { color: #fbbf24; background: rgba(217,119,6,0.18); } .mtag.rob { color: #fca5a5; background: rgba(180,35,35,0.2); }
-      .src { font-size: 0.62rem; font-weight: 800; border-radius: 999px; padding: 0.05rem 0.4rem; letter-spacing: 0.03em; } .src.rem { color: #fca5a5; background: rgba(220,38,38,0.2); } .src.sum { color: #93c5fd; background: rgba(37,99,235,0.2); }
+      .src { font-size: 0.62rem; font-weight: 800; border-radius: 999px; padding: 0.05rem 0.4rem; letter-spacing: 0.03em; } .src.rem { color: #fca5a5; background: rgba(240,0,24,0.2); } .src.sum { color: #7ee2a0; background: rgba(0,168,59,0.22); }
 
       .amen-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem; margin-bottom: 0.5rem; }
       .amen-card { background: #0c1f1a; border: 1px solid #14603f; border-radius: 14px; overflow: hidden; }
@@ -400,6 +465,96 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
   histVisible = false;
   readonly history = signal<WriteoffRow[]>([]);
 
+  // ── Regularización de stock REM ──
+  readonly blockedFloors = signal<string[]>([]); // pisos que ya regularizaron este turno
+  readonly regFloor = signal<string | null>(null); // piso en modo regularizar (uno a la vez)
+  regProposal: Record<string, number> = {}; // cantidad REM propuesta por linenItemId
+  readonly regExtras = signal<(Row & { isNew: boolean })[]>([]); // ropa no registrada agregada
+  readonly regItems = signal<{ id: string; name: string; type: string; color?: string | null }[]>([]);
+  addUnregVisible = false;
+  addUnregFloor = '';
+  addSel: { toalla: string | null; toallaQty: number; sabana: string | null; sabanaQty: number; edredon: string | null; edredonQty: number } =
+    { toalla: null, toallaQty: 0, sabana: null, sabanaQty: 0, edredon: null, edredonQty: 0 };
+
+  loadBlocked(): void {
+    this.http.get<ApiResponse<string[]>>(`${this.api}/cleaning/linen/regularization/blocked`).subscribe((r) => this.blockedFloors.set(r.data ?? []));
+  }
+  isRegBlocked(floor: string): boolean { return this.blockedFloors().includes(floor); }
+  canRegularize(floor: string): boolean { return !this.isRegBlocked(floor); }
+
+  startReg(floor: string): void {
+    const f = this.floors().find((x) => x.floor === floor);
+    if (!f) return;
+    this.regProposal = {};
+    for (const r of f.rows) if (r.rem > 0) this.regProposal[r.linenItemId] = r.rem;
+    this.regExtras.set([]);
+    this.regFloor.set(floor);
+    if (!this.regItems().length) {
+      this.http.get<ApiResponse<{ id: string; name: string; type: string; color?: string | null }[]>>(`${this.api}/cleaning/linen/regularization/items`)
+        .subscribe((r) => this.regItems.set(r.data ?? []));
+    }
+  }
+  cancelReg(): void { this.regFloor.set(null); this.regProposal = {}; this.regExtras.set([]); }
+  /** Filas REM del piso en modo regularizar: las que tienen REM > 0 + los ítems agregados (NUEVO). */
+  regRows(f: Floor, type: string): (Row & { isNew?: boolean })[] {
+    const u = type.toUpperCase();
+    const base = f.rows.filter((r) => (r.type || '').toUpperCase() === u && r.rem > 0);
+    const baseIds = new Set(base.map((r) => r.linenItemId));
+    const extras = this.regExtras().filter((r) => (r.type || '').toUpperCase() === u && !baseIds.has(r.linenItemId));
+    return [...base, ...extras];
+  }
+  regDec(id: string): void { this.regProposal[id] = Math.max(0, (this.regProposal[id] ?? 0) - 1); }
+  regInc(id: string): void { this.regProposal[id] = (this.regProposal[id] ?? 0) + 1; }
+
+  /** Ítems del desplegable por categoría canónica (Toalla/Sábana/Edredón), ya filtrados por sucursal en backend. */
+  catItems(cat: 'TOALLA' | 'SABANA' | 'EDREDON'): { id: string; name: string }[] {
+    const match = (t: string): boolean => {
+      const u = (t || '').toUpperCase();
+      return cat === 'TOALLA' ? u.includes('TOALLA') : cat === 'SABANA' ? (u.includes('SABANA') || u.includes('SÁBANA')) : u.includes('EDREDON');
+    };
+    return this.regItems().filter((i) => match(i.type)).map((i) => ({ id: i.id, name: i.name }));
+  }
+  openAddUnreg(floor: string): void {
+    this.addUnregFloor = floor;
+    this.addSel = { toalla: null, toallaQty: 0, sabana: null, sabanaQty: 0, edredon: null, edredonQty: 0 };
+    this.addUnregVisible = true;
+  }
+  confirmAddUnreg(): void {
+    const picks = [
+      { id: this.addSel.toalla ?? '', qty: this.addSel.toallaQty },
+      { id: this.addSel.sabana ?? '', qty: this.addSel.sabanaQty },
+      { id: this.addSel.edredon ?? '', qty: this.addSel.edredonQty },
+    ].filter((p) => p.id && p.qty > 0);
+    if (!picks.length) { this.toast.add({ severity: 'warn', summary: 'Nada que agregar', detail: 'Elige al menos un artículo con cantidad.' }); return; }
+    const extras = [...this.regExtras()];
+    const f = this.floors().find((x) => x.floor === this.addUnregFloor);
+    for (const p of picks) {
+      const item = this.regItems().find((i) => i.id === p.id);
+      if (!item) continue;
+      const inBase = !!f?.rows.find((r) => r.linenItemId === p.id && r.rem > 0);
+      if (!inBase && !extras.some((e) => e.linenItemId === p.id)) {
+        extras.push({ linenItemId: item.id, type: item.type, name: item.name, color: item.color, rem: 0, sum: 0, isNew: true });
+      }
+      this.regProposal[p.id] = (this.regProposal[p.id] ?? 0) + p.qty;
+    }
+    this.regExtras.set(extras);
+    this.addUnregVisible = false;
+  }
+  sendReg(floor: string): void {
+    const f = this.floors().find((x) => x.floor === floor);
+    if (!f) return;
+    const ids = new Set<string>();
+    const lines: { linenItemId: string; requestedQty: number }[] = [];
+    for (const r of f.rows) if (r.rem > 0 && !ids.has(r.linenItemId)) { ids.add(r.linenItemId); lines.push({ linenItemId: r.linenItemId, requestedQty: this.regProposal[r.linenItemId] ?? r.rem }); }
+    for (const e of this.regExtras()) if (!ids.has(e.linenItemId)) { ids.add(e.linenItemId); lines.push({ linenItemId: e.linenItemId, requestedQty: this.regProposal[e.linenItemId] ?? 0 }); }
+    if (!lines.length) { this.toast.add({ severity: 'warn', summary: 'Sin datos', detail: 'No hay artículos para regularizar.' }); return; }
+    this.busy.set(true);
+    this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/linen/regularization`, { floor, lines }).subscribe({
+      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Regularización enviada', detail: 'Pendiente de aprobación administrativa.' }); this.cancelReg(); this.loadBlocked(); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo enviar la regularización.' }); },
+    });
+  }
+
   /** Agrupa los suministros pendientes por habitación (una tarjeta por habitación). */
   readonly groups = computed<SupplyGroup[]>(() => {
     const map = new Map<string, SupplyGroup>();
@@ -413,6 +568,7 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
 
   ngOnInit(): void {
     this.reload();
+    this.loadBlocked();
     this.http.get<ApiResponse<{ cleaning?: { linenWriteoff?: boolean } }>>(`${this.api}/operations-config`)
       .subscribe((r) => this.linenWriteoffAllowed.set(!!r.data?.cleaning?.linenWriteoff));
   }
