@@ -1,0 +1,10 @@
+# HTTPS automático (Let's Encrypt) para HotelSuite RIZZOS.
+# www redirige al dominio raíz; el raíz sirve la SPA + /api vía el contenedor frontend.
+www.rizzoshospedaje.com {
+	redir https://rizzoshospedaje.com{uri} permanent
+}
+
+rizzoshospedaje.com {
+	encode zstd gzip
+	reverse_proxy frontend:80
+}
