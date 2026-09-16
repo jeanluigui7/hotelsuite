@@ -84,6 +84,7 @@ model Branch {
   linenItems       LinenItem[]
   linenStocks      LinenStock[]
   linenWriteoffs   LinenWriteoff[]
+  linenRegularizations LinenRegularization[]
   linenMovements   LinenMovement[]
   cleaningShifts   CleaningShift[]
   roomSupplies     RoomSupply[]
@@ -1709,6 +1710,7 @@ model LinenItem {
   movements   LinenMovement[]
   inspections LinenInspection[]
   writeoffs   LinenWriteoff[]
+  regularizationLines LinenRegularizationLine[]
 
   @@index([branchId])
   @@index([type])
@@ -1777,6 +1779,43 @@ model LinenWriteoff {
 
   @@index([branchId])
   @@index([linenItemId])
+}
+
+/// Solicitud de REGULARIZACIÓN de stock REM de ropa por piso (housekeeping propone, admin aprueba).
+/// No modifica el inventario hasta aprobarse. No toca SUM. Una por sucursal+piso+turno.
+model LinenRegularization {
+  id                String   @id @default(uuid())
+  branchId          String
+  floor             String // nombre del subalmacén (piso)
+  shift             String // MANANA | TARDE | NOCHE (turno operativo del solicitante)
+  shiftWindowStart  DateTime // inicio de la ventana del turno (para la regla "una por turno")
+  status            String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  requestedByUserId String
+  reviewedByUserId  String?
+  reviewedAt        DateTime?
+  reviewNote        String?  @db.NVarChar(Max)
+  createdAt         DateTime @default(now())
+
+  branch Branch                     @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  lines  LinenRegularizationLine[]
+
+  @@index([branchId])
+  @@index([status])
+}
+
+/// Línea de una solicitud de regularización: propuesta de cantidad REM para un artículo.
+model LinenRegularizationLine {
+  id               String @id @default(uuid())
+  regularizationId String
+  linenItemId      String
+  systemQty        Int // REM del sistema al momento de solicitar
+  requestedQty     Int // cantidad física propuesta
+  diff             Int // requestedQty − systemQty
+
+  regularization LinenRegularization @relation(fields: [regularizationId], references: [id], onDelete: Cascade)
+  linenItem      LinenItem           @relation(fields: [linenItemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([regularizationId])
 }
 
 /// Turno del personal de limpieza (con reglas de cierre).
