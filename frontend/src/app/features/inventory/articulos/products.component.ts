@@ -9,6 +9,7 @@ import { SelectModule } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ConfirmationService, MessageService } from 'primeng/api';
+import { BarcodeScannerComponent } from '../../../shared/barcode-scanner/barcode-scanner.component';
 import { AuthService } from '../../../core/auth/auth.service';
 import { CatalogApiService } from '../../settings/catalogs/catalog-api.service';
 import type { InventoryCategory } from '../../settings/catalogs/catalog.models';
@@ -43,7 +44,7 @@ const IGV_TYPES = [
 @Component({
   selector: 'app-products',
   standalone: true,
-  imports: [FormsModule, ButtonModule, DialogModule, InputTextModule, InputNumberModule, SelectModule, TableModule, TagModule],
+  imports: [FormsModule, ButtonModule, DialogModule, InputTextModule, InputNumberModule, SelectModule, TableModule, TagModule, BarcodeScannerComponent],
   template: `
     <section>
       <header class="cat-head">
@@ -85,11 +86,12 @@ const IGV_TYPES = [
           @for (code of form.barcodes; track $index; let i = $index) {
             <div class="bc">
               <input pInputText [(ngModel)]="form.barcodes[i]" placeholder="EAN-13, EAN-8, UPC, etc." />
-              <button class="bc-cam" type="button" pTooltip="Escanear" title="Escanear"><i class="pi pi-camera"></i></button>
+              <button class="bc-cam" type="button" (click)="openScan(i)" pTooltip="Escanear" title="Escanear"><i class="pi pi-camera"></i></button>
               <button class="bc-del" type="button" (click)="removeBarcode(i)" pTooltip="Eliminar" title="Eliminar"><i class="pi pi-times"></i></button>
             </div>
           }
           <button class="bc-add" type="button" (click)="addBarcode()"><i class="pi pi-plus"></i> Agregar código</button>
+          <app-barcode-scanner [(visible)]="scanVisible" (code)="onScanned($event)" />
           <small>Un producto puede tener varios códigos (p. ej. sabores/presentaciones). Cada código es único y no puede estar en otro producto. Opcional.</small>
         </div>
 
@@ -237,6 +239,11 @@ export class ProductsComponent implements OnInit {
     const n = [...this.form.barcodes]; n.splice(i, 1);
     this.form.barcodes = n.length ? n : ['']; // siempre queda al menos una fila visible
   }
+  // Escaneo por cámara: escribe el código en la fila que abrió el escáner.
+  scanVisible = false;
+  private scanIndex = 0;
+  openScan(i: number): void { this.scanIndex = i; this.scanVisible = true; }
+  onScanned(code: string): void { const n = [...this.form.barcodes]; n[this.scanIndex] = code; this.form.barcodes = n; }
 
   openEdit(row: Product): void {
     this.form = {

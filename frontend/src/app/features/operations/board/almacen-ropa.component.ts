@@ -9,6 +9,7 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
+import { BarcodeScannerComponent } from '../../../shared/barcode-scanner/barcode-scanner.component';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import type { InventoryCategory } from '../../settings/catalogs/catalog.models';
@@ -77,7 +78,7 @@ const SHIFT_LABEL: Record<string, string> = { MANANA: 'Mañana', TARDE: 'Tarde',
 @Component({
   selector: 'app-almacen-ropa',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule],
+  imports: [DatePipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule, BarcodeScannerComponent],
   template: `
     <section class="ar">
       <header class="top"><div><h1>Almacén de Ropa</h1><p class="muted">Gestiona los artículos del almacén de ropa</p></div></header>
@@ -195,7 +196,8 @@ const SHIFT_LABEL: Record<string, string> = { MANANA: 'Mañana', TARDE: 'Tarde',
         <div class="grid2">
           <div class="fld"><label>Código *</label><input pInputText [(ngModel)]="form.code" placeholder="Ej: TOA-001" /><small>Código único de esta unidad de ropa.</small></div>
           <div class="fld"><label>Código de barras (opcional)</label>
-            <div class="bc"><input pInputText [(ngModel)]="form.barcode" placeholder="EAN-13, EAN-8, UPC, etc." /><button class="bc-cam" type="button" title="Escanear"><i class="pi pi-camera"></i></button></div>
+            <div class="bc"><input pInputText [(ngModel)]="form.barcode" placeholder="EAN-13, EAN-8, UPC, etc." /><button class="bc-cam" type="button" (click)="scanVisible = true" title="Escanear"><i class="pi pi-camera"></i></button></div>
+            <app-barcode-scanner [(visible)]="scanVisible" (code)="form.barcode = $event" />
             <small>Solo si en el futuro deseas escanearla.</small>
           </div>
         </div>
@@ -417,6 +419,7 @@ export class AlmacenRopaComponent implements OnInit {
   matrix: Record<string, Record<string, number | null>> = {};
 
   formVisible = false;
+  scanVisible = false; // escáner de cámara para el código de barras
   form: {
     id?: string; code: string; barcode: string; imageUrl: string; name: string;
     categoryId: string | null; size: string | null; cost: number; salePrice: number; notes: string; areaId: string | null;

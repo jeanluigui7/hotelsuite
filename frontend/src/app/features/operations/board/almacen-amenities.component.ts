@@ -7,6 +7,7 @@ import { InputNumberModule } from 'primeng/inputnumber';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
+import { BarcodeScannerComponent } from '../../../shared/barcode-scanner/barcode-scanner.component';
 import { forkJoin } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
@@ -21,7 +22,7 @@ interface Cat { id: string; name: string; type?: string; status?: string }
 @Component({
   selector: 'app-almacen-amenities',
   standalone: true,
-  imports: [FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule],
+  imports: [FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule, BarcodeScannerComponent],
   template: `
     <section class="ar">
       <header class="top">
@@ -147,7 +148,8 @@ interface Cat { id: string; name: string; type?: string; status?: string }
         <div class="grid2">
           <div class="fld"><label>Código *</label><input pInputText [(ngModel)]="form.sku" placeholder="Ej: AMN-001" /><small>Código único de este amenity.</small></div>
           <div class="fld"><label>Código de barras (opcional)</label>
-            <div class="bc"><input pInputText [(ngModel)]="form.barcode" placeholder="EAN-13, EAN-8, UPC, etc." /><button class="bc-cam" type="button" title="Escanear"><i class="pi pi-camera"></i></button></div>
+            <div class="bc"><input pInputText [(ngModel)]="form.barcode" placeholder="EAN-13, EAN-8, UPC, etc." /><button class="bc-cam" type="button" (click)="scanVisible = true" title="Escanear"><i class="pi pi-camera"></i></button></div>
+            <app-barcode-scanner [(visible)]="scanVisible" (code)="form.barcode = $event" />
           </div>
         </div>
         <div class="fld"><label>Imagen</label>
@@ -269,6 +271,7 @@ export class AlmacenAmenitiesComponent implements OnInit {
   limpVisible = false;
 
   formVisible = false;
+  scanVisible = false; // escáner de cámara para el código de barras
   form = this.emptyForm();
   private emptyForm() {
     return { id: undefined as string | undefined, sku: '', barcode: '', imageUrl: '', name: '', categoryId: null as string | null, reusable: false, cost: 0, salePrice: 0, stock: 0 };

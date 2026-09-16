@@ -19,6 +19,8 @@
     "@angular/platform-browser-dynamic": "^18.2.0",
     "@angular/router": "^18.2.0",
     "@primeng/themes": "^18.0.0",
+    "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.3",
     "exceljs": "^4.4.0",
     "primeicons": "^7.0.0",
     "primeng": "^18.0.0",

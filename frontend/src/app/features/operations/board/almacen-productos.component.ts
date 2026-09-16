@@ -9,6 +9,7 @@ import { SelectModule } from 'primeng/select';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { InputTextModule } from 'primeng/inputtext';
 import { ConfirmationService, MessageService } from 'primeng/api';
+import { BarcodeScannerComponent } from '../../../shared/barcode-scanner/barcode-scanner.component';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { printPdf } from '../../../core/utils/export';
@@ -38,7 +39,7 @@ const IGV_TYPES = [
 @Component({
   selector: 'app-almacen-productos',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, DialogModule, SelectModule, InputNumberModule, InputTextModule],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, DialogModule, SelectModule, InputNumberModule, InputTextModule, BarcodeScannerComponent],
   template: `
     <section class="ap">
       <header class="top">
@@ -105,7 +106,8 @@ const IGV_TYPES = [
       <div class="pf">
         <div class="fld"><label>Código *</label><input pInputText [(ngModel)]="form.sku" placeholder="Ej: AMN-005" /></div>
         <div class="fld"><label>Código de Barras</label>
-          <div class="bc"><input pInputText [(ngModel)]="form.barcode" placeholder="EAN-13, EAN-8, UPC, etc." /><button class="bc-cam" type="button" title="Escanear"><i class="pi pi-camera"></i></button></div>
+          <div class="bc"><input pInputText [(ngModel)]="form.barcode" placeholder="EAN-13, EAN-8, UPC, etc." /><button class="bc-cam" type="button" (click)="scanVisible = true" title="Escanear"><i class="pi pi-camera"></i></button></div>
+          <app-barcode-scanner [(visible)]="scanVisible" (code)="form.barcode = $event" />
           <small>Código de barras para escaneo rápido (opcional)</small>
         </div>
         <div class="fld"><label>Imagen</label>
@@ -343,6 +345,7 @@ export class AlmacenProductosComponent implements OnInit {
   readonly statusOptions = [{ label: 'Productos Activos', value: 'active' }, { label: 'Inactivos', value: 'inactive' }, { label: 'Todos', value: 'all' }];
 
   formVisible = false;
+  scanVisible = false; // escáner de cámara para el código de barras
   form: Form = this.emptyForm();
   movVisible = false;
   movType: 'IN' | 'OUT' = 'IN';
