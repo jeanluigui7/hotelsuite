@@ -61,7 +61,7 @@ function ticketHeader(s: HeaderSession): string[] {
   ];
 }
 
-function ticketPage(title: string, text: string): string {
+function ticketPage(title: string, text: string, fontPx = 12): string {
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${esc(title)}</title>
 <style>
   /* @page margin:0 elimina el encabezado/pie del navegador (fecha, URL, 1/1). El ancho es 80mm y la
@@ -76,7 +76,7 @@ function ticketPage(title: string, text: string): string {
   .toolbar .print { background: #10b981; color: #04130d; }
   .toolbar .close { background: #334155; color: #e2e8f0; }
   .sheet { width: 80mm; max-width: 96vw; margin: 12px auto; background: #fff; padding: 6mm 4mm; box-shadow: 0 2px 14px rgba(0,0,0,.18); }
-  pre.ticket { margin: 0; font-family: 'Courier New', ui-monospace, monospace; font-size: 12px; line-height: 1.25; white-space: pre; color: #000; font-weight: 700; }
+  pre.ticket { margin: 0; font-family: 'Courier New', ui-monospace, monospace; font-size: ${fontPx}px; line-height: 1.3; white-space: pre; color: #000; font-weight: 700; }
   @media print { .toolbar { display: none; } body { background: #fff; } .sheet { box-shadow: none; margin: 0; width: auto; padding: 1mm 2mm; } }
 </style></head>
 <body>
@@ -148,14 +148,15 @@ export function buildCuadreTicket(d: CashDetail): string {
     L.push(line('-'), moneyRow('TOTAL', tot), '');
   };
   if (cats) {
-    // HOSPEDAJE = check-in + renovaciones. Tiempo extra va a SERVICIOS / PENALIDADES.
+    // HOSPEDAJE = check-in + renovaciones. Tiempo extra va a SERVICIOS / PENALIDADES,
+    // que se muestra JUSTO DESPUÉS de HOSPEDAJE (antes de PRODUCTOS).
     aggCat('HOSPEDAJE', 'HOSPEDAJE');
-    aggCat('PRODUCTOS', 'PRODUCTO');
     aggCat('SERVICIOS / PENALIDADES', 'SERVICIO');
+    aggCat('PRODUCTOS', 'PRODUCTO');
   } else {
     aggType('HOSPEDAJE', ['HOSPEDAJE', 'RENOVACION']);
-    aggType('PRODUCTOS', ['PRODUCTO']);
     aggType('SERVICIOS / PENALIDADES', ['SERVICIO']);
+    aggType('PRODUCTOS', ['PRODUCTO']);
   }
 
   L.push(sec('RESUMEN POR METODO'));
@@ -225,44 +226,50 @@ export function buildBlindTicket(t: BlindTicketData): string {
   const dm = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
   const money = (n: number) => 'S/ ' + n.toFixed(2);
   const titleId = t.sessionNumber != null ? ` - ${t.sessionNumber}` : '';
+  // Ancho local más angosto (36) que el resto de tickets (42) para poder imprimir con LETRA MÁS
+  // GRANDE (14px) y que siga cabiendo en el papel de 80 mm. Helpers locales con este ancho.
+  const TWB = 36;
+  const lineB = (ch: string): string => ch.repeat(TWB);
+  const centerB = (s: string): string => { s = s.slice(0, TWB); const l = Math.max(0, Math.floor((TWB - s.length) / 2)); return ' '.repeat(l) + s; };
   // Etiqueta/valor a lo ancho del ticket (valor alineado a la derecha).
-  const lr = (l: string, r: string) => l + ' '.repeat(Math.max(1, TW - l.length - r.length)) + r;
+  const lr = (l: string, r: string) => l + ' '.repeat(Math.max(1, TWB - l.length - r.length)) + r;
   const kv2 = (label: string, value: string) => (label + ':').padEnd(17) + value;
   const denomLbl = (v: number) => (v < 5 ? 'MON. S/ ' : 'S/ ') + v.toFixed(2);
 
   const L: string[] = [];
-  L.push(center(`CIERRE DE CAJA${titleId}`), '');
+  L.push(centerB(`CIERRE DE CAJA${titleId}`), '');
   L.push(lr('DÍA:', 'TURNO:'));
   L.push(lr(dayOf(open), shiftOf(open)));
-  L.push(line('='));
+  L.push(lineB('='));
   L.push(kv2('INICIO DE TURNO', `${dm(open)} ${hhmm(open)}`));
   L.push(kv2('FIN DE TURNO', `${dm(close)} ${hhmm(close)}`));
-  L.push(kv2('CERRADO POR', t.closedByName));
-  L.push(line('='), '');
+  L.push(kv2('CERRADO POR', (t.closedByName || '').slice(0, TWB - 18)));
+  L.push(lineB('='), '');
   // Orden: primero la caja chica (queda en el cajón, NO se cuenta por denominaciones), luego los
   // movimientos en EFECTIVO (los virtuales tipo Yape no entran), y al final el efectivo contado que
   // es el resultado del conteo por denominaciones (la bolsa a entregar).
-  L.push('RESUMEN DEL CONTEO', '-'.repeat(20), '');
-  L.push(lr('Caja chica (queda en caja)', money(t.base)));
-  L.push('  no entra al conteo de denominaciones');
+  L.push('RESUMEN DEL CONTEO', '-'.repeat(18), '');
+  L.push(lr('Caja chica', money(t.base)));
+  L.push('  (queda en caja, no se cuenta)');
   L.push(lr('Ingresos en efectivo', money(t.ingresos)));
   L.push(lr('Egresos en efectivo', money(t.egresos)));
   L.push(lr('Ajuste neto', money(ajusteNeto)));
-  L.push('-'.repeat(TW));
+  L.push('-'.repeat(TWB));
   L.push(lr('Efectivo contado (bolsa)', money(total)));
-  L.push('  resultado del conteo por denominaciones');
-  L.push(line('='), '');
-  L.push('CONTEO POR DENOMINACIONES', '-'.repeat(26), '');
+  L.push('  resultado del conteo');
+  L.push(lineB('='), '');
+  L.push('CONTEO POR DENOMINACIONES', '-'.repeat(25), '');
   // Solo se imprimen las denominaciones con cantidad > 0 (la interfaz sigue mostrando todas para el
   // conteo). El total no cambia: las de cantidad 0 aportan 0.
   const usadas = t.denominations.filter((d) => d.qty > 0);
   for (const d of usadas) {
     const left = denomLbl(d.value).padEnd(13) + 'x ' + String(d.qty).padStart(2);
-    L.push(left + '   = ' + ('S/ ' + (d.value * d.qty).toFixed(2)).padStart(9));
+    L.push(left + '  = ' + ('S/ ' + (d.value * d.qty).toFixed(2)).padStart(9));
   }
-  if (!usadas.length) L.push(center('(Sin efectivo contado)'));
-  L.push(line('-'));
+  if (!usadas.length) L.push(centerB('(Sin efectivo contado)'));
+  L.push(lineB('-'));
   L.push(lr('TOTAL', money(total)), '');
-  L.push(center('Documento sin valor tributario'));
-  return ticketPage(`Cierre de Caja${titleId}`, L.join('\n'));
+  L.push(centerB('Documento sin valor tributario'));
+  // fontPx 14 (vs 12 del resto): letras más grandes; el ancho local 36 asegura que quepa en 80 mm.
+  return ticketPage(`Cierre de Caja${titleId}`, L.join('\n'), 14);
 }
