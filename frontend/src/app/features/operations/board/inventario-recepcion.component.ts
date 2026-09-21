@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, ElementRef, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
@@ -13,7 +13,11 @@ import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { PrintingService } from '../../../core/printing/printing.service';
 import { AuthService } from '../../../core/auth/auth.service';
+import { InventoryApiService } from '../../inventory/services/inventory-api.service';
+import type { Product } from '../../inventory/services/inventory.models';
 import { printPdf } from '../../../core/utils/export';
+
+interface ReqLine { productId: string; name: string; sku: string | null; qty: number; }
 
 interface InvItem { productId: string; name: string; sku?: string | null; categoryId?: string | null; categoryName?: string | null; price?: number; stockInicial: number; stock: number; min: number; ingresos: number; salidas: number; ajustes: number; belowMin: boolean; }
 interface AdjDetail { id: string; at: string; kind: string; productName: string; quantity: number; counterpart: string | null; room: string | null; reason: string | null; user: string | null; approvedBy: string | null; }
@@ -32,12 +36,11 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
         <h1>Inventario de Recepción</h1>
         <div class="acts">
           <button class="btn blue" (click)="recVisible = true"><i class="pi pi-inbox"></i> Recepcionar Productos @if (sentRequests().length) { <span class="b">{{ sentRequests().length }}</span> }</button>
-          <button class="btn green" [disabled]="selected().size === 0" (click)="openRequest()"><i class="pi pi-plus"></i> Solicitar Seleccionados</button>
+          <button class="btn green" (click)="openRequest()"><i class="pi pi-plus"></i> Solicitar Productos</button>
           @if (canWriteOff()) {
             <button class="btn red" [disabled]="selected().size === 0" (click)="openWriteOff()"><i class="pi pi-minus"></i> Dar de Baja Seleccionados</button>
           }
-          <button class="btn ghost" (click)="report(false)"><i class="pi pi-print"></i> Previsualizar Reporte</button>
-          <button class="btn ghost" (click)="report(true)"><i class="pi pi-print"></i> Reporte Verificado</button>
+          <button class="btn ghost" (click)="openConteo()"><i class="pi pi-list-check"></i> Registrar Conteo</button>
         </div>
       </header>
 
@@ -91,20 +94,73 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       </div>
     </section>
 
-    <!-- Solicitud Masiva de Productos -->
-    <p-dialog [(visible)]="reqVisible" [modal]="true" header="Solicitud Masiva de Productos" [style]="{ width: '36rem', maxWidth: '96vw' }" styleClass="dk-dialog">
-      <p class="muted rq-sub">Seleccione los productos y cantidades para solicitar al almacén.</p>
-      @for (it of selectedItems(); track it.productId) {
-        <div class="rq-line">
-          <div class="rq-n"><span class="rq-ico"><i class="pi pi-box"></i></span> {{ it.name }}</div>
-          <p-inputNumber [(ngModel)]="qty[it.productId]" [min]="1" inputStyleClass="rq-qty" />
-          <button class="rq-x" (click)="removeReqLine(it.productId)" title="Quitar"><i class="pi pi-trash"></i></button>
+    <!-- Solicitar Productos (buscador + escáner pistola + resumen) -->
+    <p-dialog [(visible)]="reqVisible" [modal]="true" [style]="{ width: '38rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      <ng-template pTemplate="header"><div class="rq-head"><i class="pi pi-box"></i> <b>Solicitar Productos</b></div></ng-template>
+      <p class="rq-sub">Busca productos, escanea códigos de barras o agrega las cantidades para solicitar al almacén.</p>
+
+      <div class="scan-banner">
+        <div class="sb-l"><i class="pi pi-barcode"></i>
+          <div><b>Escanear con pistola</b> <span class="sb-on"><i class="pi pi-bolt"></i> Escaneo activo</span>
+            <div class="sb-sub">Cada lectura suma +1 unidad del producto.</div></div>
+        </div>
+        @if (lastScan()) { <div class="sb-r"><i class="pi pi-check-circle"></i> <div><span class="sb-hora">Última lectura</span><div class="sb-last">{{ lastScan() }}</div></div></div> }
+      </div>
+
+      <div class="rq-search">
+        <span class="rq-inp"><i class="pi pi-search"></i>
+          <input #scanInput pInputText placeholder="Buscar productos por nombre o código…" [ngModel]="reqSearch" (ngModelChange)="onReqSearch($event)" (keyup.enter)="onReqScan()" autocomplete="off" />
+          @if (reqSearch) { <button class="rq-clr" (click)="reqSearch = ''" title="Limpiar"><i class="pi pi-times"></i></button> }
+        </span>
+        <button class="rq-add" [disabled]="!reqSuggestions().length" (click)="reqAddTop()"><i class="pi pi-plus"></i> Agregar producto</button>
+      </div>
+      @if (reqSearch && reqSuggestions().length) {
+        <div class="rq-sugg">
+          @for (p of reqSuggestions(); track p.id) {
+            <button class="sugg" (click)="reqAdd(p)"><span class="sg-n">{{ p.name }}</span><span class="sg-c">{{ p.sku || '—' }}</span></button>
+          }
         </div>
       }
-      <div class="rq-notes"><span>Notas</span><input pInputText [(ngModel)]="reqNotes" placeholder="Notas adicionales (opcional)" /></div>
+
+      <div class="rq-h2">Productos en la solicitud @if (reqLines().length) { <button class="rq-limp" (click)="reqClear()"><i class="pi pi-trash"></i> Limpiar lista</button> }</div>
+      <div class="rq-list">
+        @for (l of reqLines(); track l.productId) {
+          <div class="rq-row">
+            <div class="rq-n"><span class="rq-ico"><i class="pi pi-box"></i></span><div><b>{{ l.name }}</b><small>{{ l.sku || '—' }}</small></div></div>
+            <p-inputNumber [ngModel]="l.qty" (ngModelChange)="reqSetQty(l.productId, $event)" [min]="1" [showButtons]="true" buttonLayout="horizontal" inputStyleClass="rq-qty" />
+            <button class="rq-x" (click)="reqRemove(l.productId)" title="Quitar"><i class="pi pi-trash"></i></button>
+          </div>
+        } @empty { <p class="rq-empty">Aún no hay productos. Búscalos arriba o escanéalos con la pistola.</p> }
+      </div>
+
+      <div class="rq-sum">
+        <span><i class="pi pi-box"></i> Productos agregados: <b>{{ reqLines().length }}</b></span>
+        <span class="rq-sep"></span>
+        <span><i class="pi pi-chart-bar"></i> Total unidades: <b>{{ reqTotalUnits() }}</b></span>
+      </div>
+      <div class="rq-notes"><span>Notas</span><textarea [(ngModel)]="reqNotes" rows="2" maxlength="500" placeholder="Notas adicionales (opcional)"></textarea><small class="rq-cnt">{{ (reqNotes || '').length }}/500</small></div>
+
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="reqVisible = false" />
-        <p-button label="Enviar Solicitudes" icon="pi pi-send" [loading]="busy()" [disabled]="selectedItems().length === 0" (onClick)="sendRequest()" />
+        <p-button label="Enviar Solicitud" icon="pi pi-send" [loading]="busy()" [disabled]="!reqLines().length" (onClick)="sendRequest()" />
+      </ng-template>
+    </p-dialog>
+
+    <!-- Registrar Conteo (preparado; sin comparación/ajustes todavía) -->
+    <p-dialog [(visible)]="conteoVisible" [modal]="true" header="Registrar Conteo Físico" [style]="{ width: '34rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      <p class="rq-sub">Registra la cantidad física contada por producto. (La comparación con el sistema se habilitará más adelante.)</p>
+      <div class="rq-search"><span class="rq-inp"><i class="pi pi-search"></i><input pInputText placeholder="Filtrar productos…" [(ngModel)]="conteoSearch" autocomplete="off" /></span></div>
+      <div class="ct-list">
+        @for (it of conteoItems(); track it.productId) {
+          <div class="ct-row">
+            <div class="rq-n"><span class="rq-ico"><i class="pi pi-box"></i></span><div><b>{{ it.name }}</b><small>{{ it.sku || '—' }}</small></div></div>
+            <p-inputNumber [(ngModel)]="conteo[it.productId]" [min]="0" [showButtons]="true" buttonLayout="horizontal" inputStyleClass="rq-qty" placeholder="Contado" />
+          </div>
+        } @empty { <p class="rq-empty">Sin productos.</p> }
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cerrar" [text]="true" (onClick)="conteoVisible = false" />
+        <p-button label="Guardar Conteo" icon="pi pi-save" [disabled]="true" pTooltip="Disponible próximamente" />
       </ng-template>
     </p-dialog>
 
@@ -281,8 +337,34 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       .rq-n { flex: 1; display: flex; align-items: center; gap: 0.5rem; font-weight: 600; } .rq-ico { background: #16233a; padding: 0.3rem; border-radius: 6px; color: #8b97a8; }
       :host ::ng-deep .rq-qty { width: 5rem; text-align: center; }
       .rq-x { background: transparent; border: 0; color: #f87171; cursor: pointer; }
-      .rq-notes { display: flex; align-items: center; gap: 0.7rem; margin-top: 0.6rem; } .rq-notes span { color: #8aa0bd; font-size: 0.85rem; min-width: 3.4rem; } .rq-notes input { flex: 1; } :host ::ng-deep .rq-notes .mot { flex: 1; }
+      .rq-notes { display: flex; align-items: flex-start; gap: 0.7rem; margin-top: 0.6rem; position: relative; } .rq-notes span { color: #8aa0bd; font-size: 0.85rem; min-width: 3.4rem; margin-top: 0.4rem; } .rq-notes input { flex: 1; } :host ::ng-deep .rq-notes .mot { flex: 1; }
+      .rq-notes textarea { flex: 1; background: #0b1220; border: 1px solid #26364f; color: #e2e8f0; border-radius: 8px; padding: 0.5rem 0.7rem; font: inherit; resize: vertical; }
+      .rq-cnt { position: absolute; right: 0.2rem; bottom: -1.1rem; color: #64748b; font-size: 0.72rem; }
       .mot-help { color: #8b97a8; font-size: 0.78rem; margin: 0.6rem 0 0; font-style: italic; }
+
+      /* ── Solicitar Productos: cabecera, escáner, buscador, lista, resumen ── */
+      .rq-head { display: flex; align-items: center; gap: 0.5rem; font-size: 1.2rem; } .rq-head .pi { color: #60a5fa; }
+      .scan-banner { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.4); border-radius: 12px; padding: 0.7rem 0.9rem; margin-bottom: 0.8rem; }
+      .sb-l { display: flex; align-items: flex-start; gap: 0.6rem; } .sb-l > .pi { color: #34d399; font-size: 1.3rem; margin-top: 0.1rem; }
+      .sb-l b { color: #e6f7ef; } .sb-sub { color: #8aa89b; font-size: 0.78rem; margin-top: 0.15rem; }
+      .sb-on { display: inline-flex; align-items: center; gap: 0.25rem; background: #10b981; color: #04130d; border-radius: 999px; padding: 0.05rem 0.5rem; font-size: 0.68rem; font-weight: 800; margin-left: 0.35rem; }
+      .sb-r { display: flex; align-items: center; gap: 0.5rem; color: #6ee7b7; } .sb-r .pi { color: #34d399; font-size: 1.2rem; } .sb-hora { font-size: 0.72rem; color: #8aa89b; } .sb-last { font-weight: 800; color: #d1fae5; font-size: 0.9rem; }
+      .rq-search { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+      .rq-inp { flex: 1; display: flex; align-items: center; gap: 0.5rem; background: #0b1220; border: 1px solid #26364f; border-radius: 10px; padding: 0.55rem 0.8rem; color: #8aa0bd; } .rq-inp input { flex: 1; background: transparent; border: 0; color: #e2e8f0; outline: none; font: inherit; }
+      .rq-clr { background: transparent; border: 0; color: #8aa0bd; cursor: pointer; }
+      .rq-add { background: linear-gradient(180deg, #2f6bf0, #2158d8); color: #fff; border: 0; border-radius: 10px; padding: 0.5rem 0.9rem; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; white-space: nowrap; } .rq-add:disabled { opacity: 0.45; cursor: not-allowed; }
+      .rq-sugg { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.7rem; max-height: 12rem; overflow-y: auto; border: 1px solid #1c2c44; border-radius: 10px; padding: 0.3rem; background: #0b1220; }
+      .sugg { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; background: transparent; border: 0; border-radius: 8px; padding: 0.5rem 0.7rem; cursor: pointer; text-align: left; color: #e2e8f0; } .sugg:hover { background: #13243a; }
+      .sg-n { font-weight: 600; } .sg-c { color: #8aa0bd; font-size: 0.78rem; }
+      .rq-h2 { display: flex; align-items: center; justify-content: space-between; font-weight: 800; color: #fff; margin: 0.3rem 0 0.5rem; }
+      .rq-limp { background: transparent; border: 0; color: #93a4bd; cursor: pointer; font-size: 0.8rem; display: inline-flex; align-items: center; gap: 0.3rem; } .rq-limp:hover { color: #f87171; }
+      .rq-list { display: flex; flex-direction: column; gap: 0.5rem; max-height: 34vh; overflow-y: auto; }
+      .rq-row { display: flex; align-items: center; gap: 0.7rem; background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 10px; padding: 0.55rem 0.8rem; }
+      .rq-n small { display: block; color: #8aa0bd; font-size: 0.72rem; font-weight: 400; }
+      .rq-empty { color: #8aa0bd; text-align: center; padding: 1rem; font-size: 0.85rem; }
+      .rq-sum { display: flex; align-items: center; gap: 0.8rem; background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 10px; padding: 0.6rem 0.9rem; margin-top: 0.7rem; font-size: 0.9rem; } .rq-sum b { color: #fff; } .rq-sum .pi { color: #60a5fa; margin-right: 0.2rem; } .rq-sep { flex: 1; border-left: 1px solid #26364f; align-self: stretch; }
+      .ct-list { display: flex; flex-direction: column; gap: 0.5rem; max-height: 46vh; overflow-y: auto; margin-top: 0.5rem; }
+      .ct-row { display: flex; align-items: center; justify-content: space-between; gap: 0.7rem; background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 10px; padding: 0.55rem 0.8rem; }
       .req { border: 1px solid #243245; border-radius: 8px; padding: 0.7rem; margin-bottom: 0.6rem; }
       .req-head { display: flex; justify-content: space-between; margin-bottom: 0.4rem; }
       .req-items { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.5rem; }
@@ -297,6 +379,7 @@ export class InventarioRecepcionComponent implements OnInit {
   private readonly toast = inject(MessageService);
   private readonly printing = inject(PrintingService);
   private readonly auth = inject(AuthService);
+  private readonly inventory = inject(InventoryApiService);
   /** Solo gerente/admin (permiso inventory:delete) pueden dar de baja productos. */
   canWriteOff(): boolean { return this.auth.can('inventory', 'delete'); }
 
@@ -308,6 +391,16 @@ export class InventarioRecepcionComponent implements OnInit {
   qty: Record<string, number> = {};
   woReason = '';
   reqNotes = '';
+  // ── Solicitar Productos (buscador + escáner pistola) ──
+  readonly catalog = signal<Product[]>([]);              // productos de RECEPCIÓN (con códigos de barras)
+  readonly reqLines = signal<ReqLine[]>([]);             // solicitud en construcción (1 fila por producto)
+  readonly lastScan = signal<string | null>(null);       // texto "Última lectura" del banner
+  reqSearch = '';
+  @ViewChild('scanInput') private scanInput?: ElementRef<HTMLInputElement>;
+  // ── Registrar Conteo (stub: sin comparación ni ajustes) ──
+  conteoVisible = false;
+  conteoSearch = '';
+  conteo: Record<string, number> = {};
   woMotivo: 'VENCIDO' | 'PERDIDO' | 'SOBRANTE' = 'VENCIDO';
   // Frecuencia del aviso de stock mínimo (Configuración Operativa); recuerda cada N horas.
   private stockAlertEveryHours = 24;
@@ -586,17 +679,86 @@ export class InventarioRecepcionComponent implements OnInit {
     this.selected.set(s);
   }
 
-  openRequest(): void { for (const it of this.selectedItems()) this.qty[it.productId] = this.qty[it.productId] || 1; this.reqVisible = true; }
+  openRequest(): void {
+    // Precarga lo seleccionado en la tabla (si hay), pero la solicitud se construye dentro del modal.
+    const pre: ReqLine[] = this.selectedItems().map((it) => ({ productId: it.productId, name: it.name, sku: it.sku ?? null, qty: this.qty[it.productId] || 1 }));
+    this.reqLines.set(pre);
+    this.reqSearch = ''; this.reqNotes = ''; this.lastScan.set(null);
+    this.reqVisible = true;
+    // Catálogo de RECEPCIÓN con códigos de barras (para buscar y escanear con pistola).
+    if (!this.catalog().length) {
+      this.inventory.products.list({ pageSize: 500, status: 'active', area: 'RECEPTION' }).subscribe((r) => this.catalog.set(r.data ?? []));
+    }
+    setTimeout(() => this.scanInput?.nativeElement.focus(), 300);
+  }
   openWriteOff(): void { for (const it of this.selectedItems()) this.qty[it.productId] = this.qty[it.productId] || 1; this.woReason = ''; this.woVisible = true; }
-
+  /** Baja masiva: quita un producto de la selección de la tabla. */
   removeReqLine(id: string): void { const s = new Set(this.selected()); s.delete(id); this.selected.set(s); }
+
+  // ── Buscador / escáner de la solicitud ──
+  private codesOf(p: Product): string[] { return p.barcodes ?? (p.barcode ? [p.barcode] : []); }
+  /** Sugerencias por nombre / SKU / código (búsqueda parcial). */
+  reqSuggestions(): Product[] {
+    const q = this.reqSearch.trim().toLowerCase();
+    if (!q) return [];
+    return this.catalog()
+      .filter((p) => p.name.toLowerCase().includes(q) || (p.sku ?? '').toLowerCase().includes(q) || this.codesOf(p).some((c) => c.toLowerCase().includes(q)))
+      .slice(0, 8);
+  }
+  onReqSearch(v: string): void {
+    this.reqSearch = v;
+    const code = v.trim();
+    if (code) this.tryExactAddReq(code); // pistola: al completar el código exacto, agrega +1
+  }
+  onReqScan(): void {
+    const code = this.reqSearch.trim();
+    if (!code) return;
+    if (!this.tryExactAddReq(code)) {
+      // Si parece un código de barras y no existe, avisa; si es texto, se queda como filtro.
+      if (/^\d{6,}$/.test(code)) this.toast.add({ severity: 'warn', summary: 'Producto no encontrado', detail: `Sin producto con el código "${code}".` });
+      else if (this.reqSuggestions().length) this.reqAddTop();
+    }
+  }
+  /** Coincidencia EXACTA (código de barras o SKU) → agrega +1. */
+  private tryExactAddReq(code: string): boolean {
+    const prod = this.catalog().find((p) => this.codesOf(p).some((c) => c.trim() === code))
+      ?? this.catalog().find((p) => (p.sku ?? '').trim().toLowerCase() === code.toLowerCase());
+    if (!prod) return false;
+    this.reqAdd(prod, true);
+    return true;
+  }
+  /** Agrega un producto a la solicitud (+1 si ya existe; nueva fila si no). */
+  reqAdd(p: Product, scanned = false): void {
+    const lines = [...this.reqLines()];
+    const ex = lines.find((l) => l.productId === p.id);
+    if (ex) ex.qty += 1; else lines.push({ productId: p.id, name: p.name, sku: p.sku ?? null, qty: 1 });
+    this.reqLines.set(lines);
+    if (scanned) this.lastScan.set(`${p.name} (+1)`);
+    this.reqSearch = '';
+    setTimeout(() => { const el = this.scanInput?.nativeElement; if (el) { el.value = ''; el.focus(); } }, 0);
+  }
+  reqAddTop(): void { const s = this.reqSuggestions(); if (s.length) this.reqAdd(s[0]); }
+  reqSetQty(id: string, q: number): void { const lines = this.reqLines().map((l) => (l.productId === id ? { ...l, qty: Math.max(1, q || 1) } : l)); this.reqLines.set(lines); }
+  reqRemove(id: string): void { this.reqLines.set(this.reqLines().filter((l) => l.productId !== id)); }
+  reqClear(): void { this.reqLines.set([]); }
+  reqTotalUnits(): number { return this.reqLines().reduce((a, l) => a + (l.qty || 0), 0); }
+
   sendRequest(): void {
+    const lines = this.reqLines();
+    if (!lines.length) return;
     this.busy.set(true);
-    const items = this.selectedItems().map((it) => ({ productId: it.productId, quantity: this.qty[it.productId] || 1 }));
+    const items = lines.map((l) => ({ productId: l.productId, quantity: l.qty || 1 }));
     this.http.post<ApiResponse<unknown>>(`${this.api}/reception-inventory/requests`, { items, notes: this.reqNotes || undefined }).subscribe({
-      next: () => { this.busy.set(false); this.reqVisible = false; this.selected.set(new Set()); this.reqNotes = ''; this.toast.add({ severity: 'success', summary: 'Solicitud enviada', detail: '' }); this.reload(); },
+      next: () => { this.busy.set(false); this.reqVisible = false; this.selected.set(new Set()); this.reqLines.set([]); this.reqNotes = ''; this.toast.add({ severity: 'success', summary: 'Solicitud enviada', detail: `${items.length} producto(s) solicitados al almacén.` }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
     });
+  }
+
+  // ── Registrar Conteo (stub) ──
+  openConteo(): void { this.conteoSearch = ''; this.conteo = {}; this.conteoVisible = true; }
+  conteoItems(): InvItem[] {
+    const q = this.conteoSearch.trim().toLowerCase();
+    return this.items().filter((it) => !q || it.name.toLowerCase().includes(q) || (it.sku ?? '').toLowerCase().includes(q));
   }
 
   doWriteOff(): void {
