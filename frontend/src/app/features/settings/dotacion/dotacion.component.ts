@@ -25,11 +25,14 @@ interface Dotacion {
 }
 interface FloorItem { linenItemId: string; name: string; type: string; size?: string | null; color?: string | null; available: number; enviar: number; }
 interface AmenVariant { productId: string; name: string; reusable: boolean; category?: string | null; available: number; enviar: number; }
+interface FrigoVariant { productId: string; name: string; baseQty: number; available: number; enviar: number; }
+interface Prod { id: string; name: string; categoryId?: string | null; }
 interface PrimeraData {
-  room: { id: string; number: string; floor?: string | null; tower?: string | null; roomType?: { name: string }; linenFloor: string | null; amenitiesWarehouse?: string | null };
+  room: { id: string; number: string; floor?: string | null; tower?: string | null; roomType?: { name: string }; linenFloor: string | null; amenitiesWarehouse?: string | null; frigobarEnabled?: boolean; frigobarWarehouse?: string | null };
   items: { linenItemId: string; name: string; type: string; quantity: number }[];
   floorAvailable: { linenItemId: string; name: string; type: string; size?: string | null; color?: string | null; available: number }[];
   amenitiesAvailable?: { productId: string; name: string; reusable: boolean; category?: string | null; available: number }[];
+  frigobar?: { productId: string; name: string; baseQty: number; available: number }[];
 }
 interface PlanGroup { category: string; size: string | null; required: number; items: FloorItem[]; }
 interface AmenGroup { category: string; required: number; items: AmenVariant[]; }
@@ -37,14 +40,16 @@ interface AmenGroup { category: string; required: number; items: AmenVariant[]; 
 /** Tipo de ítem de la categoría → clase de artículo de la dotación. */
 const TYPE_TO_KIND: Record<string, string> = { CLOTHING: 'LINEN_REUSABLE', AMENITY: 'AMENITY', PRODUCT: 'SALE', CLEANING_SUPPLY: 'ASSET' };
 /** Clase de artículo → grupo visible en la dotación. */
-function kindGroup(kind: string): 'CLOTHING' | 'AMENITIES' | 'OTROS' {
+function kindGroup(kind: string): 'CLOTHING' | 'AMENITIES' | 'FRIGOBAR' | 'OTROS' {
   if (kind === 'LINEN_REUSABLE') return 'CLOTHING';
   if (kind === 'AMENITY') return 'AMENITIES';
+  if (kind === 'FRIGOBAR') return 'FRIGOBAR';
   return 'OTROS';
 }
 const GROUP_META: Record<string, { label: string; cls: string }> = {
   CLOTHING: { label: 'Ropa', cls: 'g-ropa' },
   AMENITIES: { label: 'Amenities', cls: 'g-amen' },
+  FRIGOBAR: { label: 'Frigobar', cls: 'g-frigo' },
   OTROS: { label: 'Otros', cls: 'g-otros' },
 };
 
@@ -55,7 +60,7 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
   template: `
     <section class="dt">
       <header class="top">
-        <div><h1>Items BASE de Limpieza</h1><p class="muted">Configura cuáles ítems de cada categoría se reponen al limpiar cada tipo de habitación. Las categorías salen de Inventario › Configuración › Categorías.</p></div>
+        <div><h1>Dotación Base</h1><p class="muted">Configura los ítems base de ropa, amenities y frigobar que corresponden a cada tipo de habitación.</p></div>
         @if (canEdit) {
           <div class="hdr-actions">
             <button class="primera" (click)="openPrimera()"><i class="pi pi-inbox"></i> Primera Dotación</button>
@@ -94,7 +99,7 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
                   <div class="cg-title" [class]="g.cls">{{ g.label }}</div>
                   <div class="chips">
                     @for (c of g.cats; track c.id) {
-                      <button class="chip" (click)="addCategory(c)"><i class="pi pi-plus"></i> {{ c.name }}</button>
+                      <button class="chip" (click)="onChip(g.key, c)"><i class="pi pi-plus"></i> {{ c.name }}</button>
                     } @empty { <span class="muted sm">Sin categorías en este grupo.</span> }
                   </div>
                 </div>
@@ -194,8 +199,32 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
             </div>
           }
         }
+        <!-- FRIGOBAR -->
+        <div class="pd-sect">Frigobar · {{ p.room.frigobarWarehouse || 'Productos Limpieza' }}</div>
+        @if (!p.room.frigobarEnabled) { <p class="muted">Esta habitación no tiene el frigobar activo. Actívalo en <b>Configuración → Frigobar</b> para poder dotarlo.</p> }
+        @else if (frigoRows().length === 0) { <p class="muted">El tipo <b>{{ p.room.roomType?.name }}</b> no tiene regla de frigobar en la Dotación Base.</p> }
+        @else {
+          <div class="pd-cat">
+            <div class="pd-cat-h">Bebidas / productos <span class="pd-req" [class.ok]="frigoOk()" [class.bad]="frigoOverFlag()">productos {{ frigoRows().length }}</span></div>
+            <table class="pd-tbl">
+              <thead><tr><th>Producto</th><th class="cn">Requerido</th><th class="cn">Disp. limpieza</th><th class="cn">Dotar</th></tr></thead>
+              <tbody>
+                @for (f of frigoRows(); track f.productId) {
+                  <tr [class.pd-shortrow]="f.available < f.baseQty">
+                    <td class="nm">{{ f.name }}</td>
+                    <td class="cn">{{ f.baseQty }}</td>
+                    <td class="cn" [class.zero]="f.available === 0">{{ f.available }}</td>
+                    <td class="cn"><p-inputNumber [(ngModel)]="f.enviar" [min]="0" [max]="f.available" inputStyleClass="qi" /></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+            @if (frigoShortList().length) { <p class="pd-short"><i class="pi pi-exclamation-triangle"></i> Stock insuficiente en Productos Limpieza para: <b>{{ frigoShortList().join(', ') }}</b>. Transfiere desde Almacén de Productos → "Productos Limpieza".</p> }
+          </div>
+        }
+
         @if (primeraOver()) { <p class="pd-over"><i class="pi pi-exclamation-triangle"></i> Alguna cantidad supera el disponible.</p> }
-        @else if (!primeraReady()) { <p class="pd-over"><i class="pi pi-info-circle"></i> La dotación debe cubrir <b>exactamente</b> la regla de cada categoría (ropa y amenities) para habilitar el botón.</p> }
+        @else if (!primeraReady()) { <p class="pd-over"><i class="pi pi-info-circle"></i> La dotación debe cubrir <b>exactamente</b> la regla de cada categoría (ropa, amenities y frigobar) para habilitar el botón.</p> }
       }
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="primeraVisible = false" />
@@ -205,7 +234,7 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
 
     <!-- Setear Habitación: deja la habitación sin ropa ni amenities (retornan al stock). -->
     <p-dialog [(visible)]="setearVisible" [modal]="true" header="Setear Habitación" [style]="{ width: '34rem', maxWidth: '95vw' }" styleClass="dk-dialog">
-      <p class="pd-sub">Deja la habitación <b>sin ropa ni amenities</b>. La ropa <b>regresa al stock disponible del Almacén de Ropa</b> y los amenities a <b>AMENITIES - LIMPIEZA</b>. Úsalo para corregir descuadres o cuando la habitación cambia de tipo, y luego vuelve a dotarla.</p>
+      <p class="pd-sub">Deja la habitación <b>sin ropa, amenities ni frigobar</b>. La ropa <b>regresa al Almacén de Ropa</b>, los amenities a <b>AMENITIES - LIMPIEZA</b> y el frigobar a <b>Productos Limpieza</b>. Úsalo para corregir descuadres o cuando la habitación cambia de tipo, y luego vuelve a dotarla.</p>
       <div class="form">
         <label>Habitación</label>
         <p-select [options]="rooms()" [(ngModel)]="setearRoomId" optionValue="id" [filter]="true" filterBy="number" placeholder="Selecciona una habitación" appendTo="body" styleClass="w">
@@ -218,6 +247,21 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
         <p-button label="Cancelar" [text]="true" (onClick)="setearVisible = false" />
         <p-button label="Setear habitación" icon="pi pi-eraser" severity="danger" [loading]="setearBusy()" [disabled]="!setearRoomId" (onClick)="confirmSetear()" />
       </ng-template>
+    </p-dialog>
+
+    <!-- Selector de productos de FRIGOBAR (agregar a la Dotación Base del tipo) -->
+    <p-dialog [(visible)]="frigoPickVisible" [modal]="true" [header]="'Agregar productos de frigobar · ' + frigoPickCat" [style]="{ width: '32rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      <p class="pd-sub">Elige los productos de esta categoría que se repondrán en el frigobar de {{ selectedTypeName() }}.</p>
+      <span class="fp-search"><i class="pi pi-search"></i><input pInputText placeholder="Buscar producto…" [(ngModel)]="frigoPickSearch" /></span>
+      <div class="fp-list">
+        @for (p of frigoPickProducts(); track p.id) {
+          <button class="fp-row" [disabled]="frigoAlready(p.id)" (click)="addFrigoProduct(p)">
+            <span>{{ p.name }}</span>
+            @if (frigoAlready(p.id)) { <span class="fp-added"><i class="pi pi-check"></i> Agregado</span> } @else { <span class="fp-add"><i class="pi pi-plus"></i> Agregar</span> }
+          </button>
+        } @empty { <p class="muted" style="padding:.6rem">Sin productos en esta categoría.</p> }
+      </div>
+      <ng-template pTemplate="footer"><p-button label="Cerrar" [text]="true" (onClick)="frigoPickVisible = false" /></ng-template>
     </p-dialog>
   `,
   styles: [
@@ -237,7 +281,12 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
       .box > .muted { margin: 0 0 0.8rem; font-size: 0.82rem; }
       .cg { margin-bottom: 0.9rem; }
       .cg-title { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase; margin-bottom: 0.5rem; display: inline-flex; align-items: center; gap: 0.4rem; }
-      .cg-title.g-ropa { color: #f9a8d4; } .cg-title.g-amen { color: #6ee7b7; } .cg-title.g-otros { color: #93a3b8; }
+      .cg-title.g-ropa { color: #f9a8d4; } .cg-title.g-amen { color: #6ee7b7; } .cg-title.g-frigo { color: #7dd3fc; } .cg-title.g-otros { color: #93a3b8; }
+      .fp-search { display: flex; align-items: center; gap: 0.5rem; background: #0b1220; border: 1px solid #26364f; border-radius: 10px; padding: 0.5rem 0.8rem; color: #8aa0bd; margin: 0.3rem 0 0.6rem; } .fp-search input { flex: 1; background: transparent; border: 0; color: #e2e8f0; outline: none; }
+      .fp-list { display: flex; flex-direction: column; gap: 0.35rem; max-height: 46vh; overflow-y: auto; }
+      .fp-row { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 10px; padding: 0.55rem 0.8rem; cursor: pointer; text-align: left; color: #e2e8f0; } .fp-row:hover:not(:disabled) { background: #13243a; } .fp-row:disabled { opacity: 0.55; cursor: default; }
+      .fp-add { color: #7dd3fc; font-weight: 700; font-size: 0.8rem; } .fp-added { color: #34d399; font-weight: 700; font-size: 0.8rem; }
+      .pd-shortrow td { color: #fbbf24; }
       .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
       .chip { display: inline-flex; align-items: center; gap: 0.4rem; background: #131f30; border: 1px solid #26364f; color: #cdd8e6; border-radius: 8px; padding: 0.5rem 0.8rem; cursor: pointer; font-size: 0.84rem; }
       .chip:hover { border-color: #10b981; color: #fff; } .chip i { color: #34d399; font-size: 0.75rem; }
@@ -296,6 +345,14 @@ export class DotacionComponent implements OnInit {
   readonly primeraBusy = signal(false);
   primeraVisible = false;
   primeraRoomId: string | null = null;
+  // Frigobar en Primera Dotación (regla del tipo + disponible en Productos Limpieza).
+  readonly frigoRows = signal<FrigoVariant[]>([]);
+  // Selector de productos de frigobar para la Dotación Base.
+  readonly products = signal<Prod[]>([]);
+  frigoPickVisible = false;
+  frigoPickCat = '';
+  frigoPickCategoryId: string | null = null;
+  frigoPickSearch = '';
 
   ngOnInit(): void {
     this.catalog.roomTypes.list({ pageSize: 100, sortBy: 'name' }).subscribe((res) => {
@@ -305,9 +362,39 @@ export class DotacionComponent implements OnInit {
     this.catalog.inventoryCategories.list({ pageSize: 300, sortBy: 'name' }).subscribe((r) => this.categories.set((r.data ?? []).filter((c) => c.status === 'active')));
     this.http.get<ApiResponse<{ id: string; number: string; floor?: string | null; roomType?: { name: string } }[]>>(`${this.api}/rooms`, { params: { pageSize: '300', sortBy: 'number' } })
       .subscribe((r) => this.rooms.set(r.data ?? []));
+    // Catálogo de productos (para el selector de frigobar): id, nombre y categoría.
+    this.http.get<ApiResponse<Prod[]>>(`${this.api}/products`, { params: { pageSize: '500', status: 'active', sortBy: 'name' } })
+      .subscribe((r) => this.products.set((r.data ?? []).map((p) => ({ id: p.id, name: p.name, categoryId: p.categoryId }))));
   }
 
-  openPrimera(): void { this.primeraVisible = true; this.primeraRoomId = null; this.primera.set(null); this.planGroups.set([]); this.amenGroups.set([]); }
+  // ── Frigobar: selector de productos para la Dotación Base ──
+  onChip(groupKey: string, c: InventoryCategory): void {
+    if (groupKey === 'FRIGOBAR' || groupKey === 'OTROS') this.openFrigoPicker(c);
+    else this.addCategory(c);
+  }
+  openFrigoPicker(c: InventoryCategory): void { this.frigoPickCat = c.name; this.frigoPickCategoryId = c.id; this.frigoPickSearch = ''; this.frigoPickVisible = true; }
+  frigoPickProducts(): Prod[] {
+    const q = this.frigoPickSearch.trim().toLowerCase();
+    return this.products().filter((p) => p.categoryId === this.frigoPickCategoryId && (!q || p.name.toLowerCase().includes(q)));
+  }
+  frigoAlready(productId: string): boolean { return this.items().some((i) => i.articleKind === 'FRIGOBAR' && (i as unknown as { productId?: string }).productId === productId); }
+  addFrigoProduct(p: Prod): void {
+    if (!this.roomTypeId || !this.canEdit || this.frigoAlready(p.id)) return;
+    this.http.post<ApiResponse<Dotacion>>(`${this.api}/dotacion`, {
+      roomTypeId: this.roomTypeId, category: this.frigoPickCat, articleKind: 'FRIGOBAR', name: p.name, productId: p.id, baseQty: 1, status: 'active',
+    }).subscribe({
+      next: () => this.reload(),
+      error: (e: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo agregar.' }),
+    });
+  }
+  // Validación frigobar en Primera Dotación.
+  assignedFrigo(): number { return this.frigoRows().reduce((a, f) => a + (Number(f.enviar) || 0), 0); }
+  frigoActive(): boolean { return this.primera()?.room.frigobarEnabled === true && this.frigoRows().length > 0; }
+  frigoOverFlag(): boolean { return this.frigoRows().some((f) => (Number(f.enviar) || 0) > f.available); }
+  frigoShortList(): string[] { return this.frigoRows().filter((f) => f.available < f.baseQty).map((f) => f.name); }
+  frigoOk(): boolean { return !this.frigoActive() || this.frigoRows().every((f) => (Number(f.enviar) || 0) === f.baseQty); }
+
+  openPrimera(): void { this.primeraVisible = true; this.primeraRoomId = null; this.primera.set(null); this.planGroups.set([]); this.amenGroups.set([]); this.frigoRows.set([]); }
 
   // ── Setear Habitación (deja la habitación sin inventario; retorna al stock) ──
   setearVisible = false;
@@ -318,12 +405,12 @@ export class DotacionComponent implements OnInit {
     const id = this.setearRoomId;
     if (!id) return;
     this.setearBusy.set(true);
-    this.http.post<ApiResponse<{ linen: number; amenities: number; rows: number }>>(`${this.api}/rooms/${id}/reset-inventory`, {}).subscribe({
+    this.http.post<ApiResponse<{ linen: number; amenities: number; frigobar: number; rows: number }>>(`${this.api}/rooms/${id}/reset-inventory`, {}).subscribe({
       next: (r) => {
         this.setearBusy.set(false);
         this.setearVisible = false;
         const d = r.data;
-        this.messages.add({ severity: 'success', summary: 'Habitación seteada', detail: d && d.rows ? `Se retiraron ${d.linen} prenda(s) y ${d.amenities} amenity(s); regresaron al stock.` : 'La habitación ya estaba sin inventario.' });
+        this.messages.add({ severity: 'success', summary: 'Habitación seteada', detail: d && d.rows ? `Se retiraron ${d.linen} prenda(s), ${d.amenities} amenity(s) y ${d.frigobar} de frigobar; regresaron al stock.` : 'La habitación ya estaba sin inventario.' });
       },
       error: (e: HttpErrorResponse) => { this.setearBusy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo setear la habitación.' }); },
     });
@@ -341,6 +428,9 @@ export class DotacionComponent implements OnInit {
     this.http.get<ApiResponse<PrimeraData>>(`${this.api}/rooms/${id}/linen`).subscribe((lin) => {
       const data = lin.data ?? null;
       this.primera.set(data);
+      // Frigobar: solo si la habitación lo tiene activo. Default a la cantidad base (limitada por disponible).
+      const fr = (data?.room.frigobarEnabled ? data?.frigobar ?? [] : []).map((f) => ({ ...f, enviar: Math.min(f.baseQty, f.available) }));
+      this.frigoRows.set(fr);
       // OJO: /rooms/:id/inventory devuelve { room, rows }, no un array plano.
       this.http.get<ApiResponse<{ rows: { name: string; articleKind: string; size?: string | null; baseQty: number; source: string }[] }>>(`${this.api}/rooms/${id}/inventory`).subscribe((invr) => {
         // Reglas del tipo: ropa (categoría + tamaño + cantidad) y amenities (categoría + cantidad).
@@ -383,23 +473,24 @@ export class DotacionComponent implements OnInit {
   assigned(g: PlanGroup): number { return g.items.reduce((a, f) => a + (Number(f.enviar) || 0), 0); }
   assignedAmen(g: AmenGroup): number { return g.items.reduce((a, f) => a + (Number(f.enviar) || 0), 0); }
   amenOver(): boolean { return this.amenGroups().some((g) => g.items.some((a) => (Number(a.enviar) || 0) > a.available)); }
-  primeraOver(): boolean { return this.planGroups().some((g) => g.items.some((f) => (Number(f.enviar) || 0) > f.available)) || this.amenOver(); }
-  /** Cada categoría de la regla (ropa y amenities) debe quedar EXACTA (asignadas === requeridas). */
+  primeraOver(): boolean { return this.planGroups().some((g) => g.items.some((f) => (Number(f.enviar) || 0) > f.available)) || this.amenOver() || this.frigoOverFlag(); }
+  /** Cada categoría de la regla (ropa, amenities y frigobar) debe quedar EXACTA (asignadas === requeridas). */
   primeraReady(): boolean {
     if (this.primeraOver()) return false;
-    const hasRule = this.planGroups().length > 0 || this.amenGroups().length > 0;
+    const hasRule = this.planGroups().length > 0 || this.amenGroups().length > 0 || this.frigoActive();
     const ropaOk = this.planGroups().every((g) => this.assigned(g) === g.required);
     const amenOk = this.amenGroups().every((g) => this.assignedAmen(g) === g.required);
-    return hasRule && ropaOk && amenOk;
+    return hasRule && ropaOk && amenOk && this.frigoOk();
   }
   confirmPrimera(): void {
     const id = this.primeraRoomId;
     if (!id || !this.primeraReady()) return;
     const items = this.planGroups().flatMap((g) => g.items).filter((f) => (Number(f.enviar) || 0) > 0).map((f) => ({ linenItemId: f.linenItemId, quantity: Number(f.enviar) || 0 }));
     const amenities = this.amenGroups().flatMap((g) => g.items).filter((a) => (Number(a.enviar) || 0) > 0).map((a) => ({ productId: a.productId, quantity: Number(a.enviar) || 0 }));
+    const frigobar = this.frigoActive() ? this.frigoRows().filter((f) => (Number(f.enviar) || 0) > 0).map((f) => ({ productId: f.productId, quantity: Number(f.enviar) || 0 })) : [];
     this.primeraBusy.set(true);
-    this.http.post<ApiResponse<{ items: number; amenities: number }>>(`${this.api}/rooms/${id}/dote-linen`, { items, amenities }).subscribe({
-      next: () => { this.primeraBusy.set(false); this.primeraVisible = false; this.messages.add({ severity: 'success', summary: 'Habitación dotada', detail: `${items.length} prenda(s) y ${amenities.length} amenity(s) asignados.` }); },
+    this.http.post<ApiResponse<{ items: number; amenities: number; frigobar: number }>>(`${this.api}/rooms/${id}/dote-linen`, { items, amenities, frigobar }).subscribe({
+      next: () => { this.primeraBusy.set(false); this.primeraVisible = false; this.messages.add({ severity: 'success', summary: 'Habitación dotada', detail: `${items.length} prenda(s), ${amenities.length} amenity(s) y ${frigobar.length} producto(s) de frigobar asignados.` }); },
       error: (e: HttpErrorResponse) => { this.primeraBusy.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo dotar.' }); },
     });
   }
@@ -418,15 +509,16 @@ export class DotacionComponent implements OnInit {
     return [
       { key: 'CLOTHING', label: 'Ropa', cls: 'g-ropa', cats: cats.filter((c) => c.type === 'CLOTHING') },
       { key: 'AMENITIES', label: 'Amenities', cls: 'g-amen', cats: cats.filter((c) => c.type === 'AMENITY') },
-      { key: 'OTROS', label: 'Sin clasificar', cls: 'g-otros', cats: cats.filter((c) => c.type !== 'CLOTHING' && c.type !== 'AMENITY') },
+      { key: 'FRIGOBAR', label: 'Frigobar', cls: 'g-frigo', cats: cats.filter((c) => c.type === 'PRODUCT') },
+      { key: 'OTROS', label: 'Sin clasificar', cls: 'g-otros', cats: cats.filter((c) => c.type !== 'CLOTHING' && c.type !== 'AMENITY' && c.type !== 'PRODUCT') },
     ];
   });
 
-  /** Ítems configurados agrupados por Ropa / Amenities / Otros. */
+  /** Ítems configurados agrupados por Ropa / Amenities / Frigobar / Otros. */
   configuredGroups(): { key: string; label: string; cls: string; items: Dotacion[] }[] {
-    const groups: Record<string, Dotacion[]> = { CLOTHING: [], AMENITIES: [], OTROS: [] };
+    const groups: Record<string, Dotacion[]> = { CLOTHING: [], AMENITIES: [], FRIGOBAR: [], OTROS: [] };
     for (const it of this.items()) groups[kindGroup(it.articleKind)].push(it);
-    return (['CLOTHING', 'AMENITIES', 'OTROS'] as const)
+    return (['CLOTHING', 'AMENITIES', 'FRIGOBAR', 'OTROS'] as const)
       .filter((k) => groups[k].length)
       .map((k) => ({ key: k, label: GROUP_META[k].label, cls: GROUP_META[k].cls, items: groups[k] }));
   }
@@ -434,8 +526,9 @@ export class DotacionComponent implements OnInit {
   summary(): string {
     const ropa = this.items().filter((i) => kindGroup(i.articleKind) === 'CLOTHING').length;
     const amen = this.items().filter((i) => kindGroup(i.articleKind) === 'AMENITIES').length;
+    const frigo = this.items().filter((i) => kindGroup(i.articleKind) === 'FRIGOBAR').length;
     const otros = this.items().filter((i) => kindGroup(i.articleKind) === 'OTROS').length;
-    const parts = [ropa ? `${ropa} ropa` : '', amen ? `${amen} amenities` : '', otros ? `${otros} otros` : ''].filter(Boolean);
+    const parts = [ropa ? `${ropa} ropa` : '', amen ? `${amen} amenitie${amen === 1 ? '' : 's'}` : '', frigo ? `${frigo} frigobar` : '', otros ? `${otros} otros` : ''].filter(Boolean);
     return `${parts.join(' + ') || '0'} = ${this.items().length} ítems BASE`;
   }
 

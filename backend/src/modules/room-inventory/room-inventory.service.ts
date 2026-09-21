@@ -3,6 +3,7 @@ import { NotFoundError, ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { consumeFloorTx, LINEN_CENTRAL } from '../linen-admin/linen-admin.service';
+import { productWarehouses } from '../../shared/product-kardex';
 import type { SaveInitialDto, LoadBaseDto, DoteLinenDto } from './room-inventory.schema';
 
 async function getRoom(scope: RequestScope, roomId: string) {
@@ -195,7 +196,18 @@ export const roomInventoryService = {
       .filter((x) => x.name !== '—')
       .sort((a, b) => a.name.localeCompare(b.name));
 
-    return { room: { id: room.id, number: room.number, floor: room.floor, tower: room.tower, roomType: room.roomType, linenFloor: floor, amenitiesWarehouse: amenLimp?.name ?? null }, items, floorAvailable, amenities, amenitiesAvailable };
+    // Frigobar: regla del tipo (RoomTypeDotacion FRIGOBAR) + disponible en PRODUCTOS LIMPIEZA.
+    const { limpieza } = await productWarehouses(branchId);
+    const frigoBase = await prisma.roomTypeDotacion.findMany({ where: { branchId, roomTypeId: room.roomTypeId, articleKind: 'FRIGOBAR', status: 'active', productId: { not: null } }, select: { productId: true, name: true, baseQty: true } });
+    const frigoIds = frigoBase.map((f) => f.productId as string);
+    const frigoStock = limpieza && frigoIds.length ? await prisma.stock.findMany({ where: { warehouseId: limpieza.id, productId: { in: frigoIds } } }) : [];
+    const frigoAvail = new Map(frigoStock.map((s) => [s.productId, s.quantity]));
+    const frigobar = frigoBase.map((f) => ({ productId: f.productId as string, name: f.name, baseQty: f.baseQty, available: frigoAvail.get(f.productId as string) ?? 0 }));
+
+    return {
+      room: { id: room.id, number: room.number, floor: room.floor, tower: room.tower, roomType: room.roomType, linenFloor: floor, amenitiesWarehouse: amenLimp?.name ?? null, frigobarEnabled: room.frigobarEnabled, frigobarWarehouse: limpieza?.name ?? null },
+      items, floorAvailable, amenities, amenitiesAvailable, frigobar,
+    };
   },
 
   /**
@@ -219,6 +231,22 @@ export const roomInventoryService = {
     const amenProds = await prisma.product.findMany({ where: { id: { in: amenIds }, branchId }, select: { id: true, name: true } });
     if (amenProds.length !== amenIds.length) throw new ValidationError('Amenity no encontrado');
     const apMap = new Map(amenProds.map((p) => [p.id, p]));
+
+    // Frigobar: se toma del almacén PRODUCTOS LIMPIEZA (stock oficial del frigobar). Requiere que
+    // la habitación tenga el frigobar activo (Configuración → Frigobar).
+    const frigo = dto.frigobar ?? [];
+    let frigoWh: { id: string } | null = null;
+    const fpMap = new Map<string, { id: string; name: string }>();
+    if (frigo.length) {
+      if (!room.frigobarEnabled) throw new ValidationError('Esta habitación no tiene el frigobar activo. Actívalo en Configuración → Frigobar.');
+      const { limpieza } = await productWarehouses(branchId);
+      if (!limpieza) throw new ValidationError('No existe el almacén Productos Limpieza (origen del frigobar).');
+      frigoWh = limpieza;
+      const fids = [...new Set(frigo.map((f) => f.productId))];
+      const fprods = await prisma.product.findMany({ where: { id: { in: fids }, branchId }, select: { id: true, name: true } });
+      if (fprods.length !== fids.length) throw new ValidationError('Producto de frigobar no encontrado');
+      for (const p of fprods) fpMap.set(p.id, p);
+    }
 
     await prisma.$transaction(async (tx) => {
       // ── Ropa ──
@@ -256,8 +284,28 @@ export const roomInventoryService = {
           data: { branchId, roomId, type: 'ROOM_LOAD', articleKind: 'AMENITY', name: p.name, quantity: a.quantity, fromLocation: 'AMENITIES - LIMPIEZA', toLocation: `Habitación ${room.number}`, reference: 'Dotación de amenity a la habitación', note: dto.note || null, createdByUserId: scope.userId },
         });
       }
+      // ── Frigobar (desde PRODUCTOS LIMPIEZA) ──
+      for (const f of frigo) {
+        const p = fpMap.get(f.productId)!;
+        const st = await tx.stock.findFirst({ where: { productId: f.productId, warehouseId: frigoWh!.id } });
+        if (!st || st.quantity < f.quantity) throw new ValidationError(`Producto "${p.name}" insuficiente en Productos Limpieza (disponible ${st?.quantity ?? 0}).`);
+        await tx.stock.update({ where: { id: st.id }, data: { quantity: { decrement: f.quantity } } });
+        const key = { roomId_articleKind_name: { roomId, articleKind: 'FRIGOBAR', name: p.name } };
+        const existing = await tx.roomInventory.findUnique({ where: key });
+        await tx.roomInventory.upsert({
+          where: key,
+          update: { quantity: (existing?.quantity ?? 0) + f.quantity, productId: f.productId },
+          create: { branchId, roomId, articleKind: 'FRIGOBAR', name: p.name, productId: f.productId, quantity: f.quantity },
+        });
+        await tx.roomInventoryMovement.create({
+          data: { branchId, roomId, type: 'ROOM_LOAD', articleKind: 'FRIGOBAR', name: p.name, quantity: f.quantity, fromLocation: 'Productos Limpieza', toLocation: `Habitación ${room.number}`, reference: 'Dotación de frigobar a la habitación', note: dto.note || null, createdByUserId: scope.userId },
+        });
+        await tx.inventoryMovement.create({
+          data: { branchId, productId: f.productId, warehouseId: frigoWh!.id, type: 'OUT', quantity: -f.quantity, reference: `Dotación frigobar Hab. ${room.number}`, roomId, createdByUserId: scope.userId },
+        });
+      }
     });
-    return { ok: true, items: dto.items.length, amenities: dto.amenities.length };
+    return { ok: true, items: dto.items.length, amenities: dto.amenities.length, frigobar: frigo.length };
   },
 
   /**
@@ -270,10 +318,13 @@ export const roomInventoryService = {
     const room = await getRoom(scope, roomId);
     const branchId = room.branchId;
     const inv = await prisma.roomInventory.findMany({ where: { roomId, quantity: { gt: 0 } } });
-    if (!inv.length) return { ok: true, linen: 0, amenities: 0, rows: 0 };
+    if (!inv.length) return { ok: true, linen: 0, amenities: 0, frigobar: 0, rows: 0 };
     const amenLimp = await prisma.warehouse.findFirst({ where: { branchId, type: 'AMENITIES', name: 'AMENITIES - LIMPIEZA' } });
+    // Frigobar regresa a PRODUCTOS LIMPIEZA (solo si hay filas de frigobar).
+    const frigoWh = inv.some((i) => i.articleKind === 'FRIGOBAR') ? (await productWarehouses(branchId)).limpieza : null;
     let linen = 0;
     let amenities = 0;
+    let frigobar = 0;
     await prisma.$transaction(async (tx) => {
       for (const i of inv) {
         if (i.articleKind === 'LINEN_REUSABLE' && i.linenItemId) {
@@ -295,13 +346,25 @@ export const roomInventoryService = {
             create: { productId: i.productId, warehouseId: amenLimp.id, quantity: i.quantity },
           });
           amenities += i.quantity;
+        } else if (i.articleKind === 'FRIGOBAR' && i.productId && frigoWh) {
+          // Regresa al stock de PRODUCTOS LIMPIEZA.
+          await tx.stock.upsert({
+            where: { productId_warehouseId: { productId: i.productId, warehouseId: frigoWh.id } },
+            update: { quantity: { increment: i.quantity } },
+            create: { productId: i.productId, warehouseId: frigoWh.id, quantity: i.quantity },
+          });
+          await tx.inventoryMovement.create({
+            data: { branchId, productId: i.productId, warehouseId: frigoWh.id, type: 'IN', quantity: i.quantity, reference: `Seteo frigobar Hab. ${room.number}`, roomId, createdByUserId: scope.userId },
+          });
+          frigobar += i.quantity;
         }
+        const toLoc = i.articleKind === 'AMENITY' ? 'AMENITIES - LIMPIEZA' : i.articleKind === 'FRIGOBAR' ? 'Productos Limpieza' : 'Almacén de Ropa';
         await tx.roomInventoryMovement.create({
-          data: { branchId, roomId, type: 'AJUSTE', articleKind: i.articleKind, name: i.name, quantity: -i.quantity, fromLocation: `Habitación ${room.number}`, toLocation: i.articleKind === 'AMENITY' ? 'AMENITIES - LIMPIEZA' : 'Almacén de Ropa', reference: 'Seteo de habitación (retiro y retorno a stock)', createdByUserId: scope.userId },
+          data: { branchId, roomId, type: 'AJUSTE', articleKind: i.articleKind, name: i.name, quantity: -i.quantity, fromLocation: `Habitación ${room.number}`, toLocation: toLoc, reference: 'Seteo de habitación (retiro y retorno a stock)', createdByUserId: scope.userId },
         });
         await tx.roomInventory.delete({ where: { id: i.id } });
       }
     });
-    return { ok: true, linen, amenities, rows: inv.length };
+    return { ok: true, linen, amenities, frigobar, rows: inv.length };
   },
 };

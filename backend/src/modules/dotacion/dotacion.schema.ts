@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const ARTICLE_KINDS = ['LINEN_REUSABLE', 'AMENITY', 'SALE', 'ASSET'] as const;
+export const ARTICLE_KINDS = ['LINEN_REUSABLE', 'AMENITY', 'SALE', 'ASSET', 'FRIGOBAR'] as const;
 
 export const createDotacionSchema = z.object({
   roomTypeId: z.string().min(1),
