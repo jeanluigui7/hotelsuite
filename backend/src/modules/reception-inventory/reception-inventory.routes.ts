@@ -17,6 +17,8 @@ receptionInventoryRouter.post(`${base}/requests/:id/send`, requirePermission('in
 receptionInventoryRouter.post(`${base}/send-items`, requirePermission('inventory', 'edit'), asyncHandler(receptionInventoryController.sendItems));
 receptionInventoryRouter.post(`${base}/requests/delete-items`, requirePermission('inventory', 'edit'), asyncHandler(receptionInventoryController.deleteItems));
 receptionInventoryRouter.post(`${base}/requests/:id/receive`, requirePermission('inventory', 'edit'), asyncHandler(receptionInventoryController.receiveRequest));
+receptionInventoryRouter.post(`${base}/requests/:id/accept`, requirePermission('inventory', 'edit'), asyncHandler(receptionInventoryController.acceptRequest));
+receptionInventoryRouter.post(`${base}/requests/:id/reject`, requirePermission('inventory', 'edit'), asyncHandler(receptionInventoryController.rejectRequest));
 receptionInventoryRouter.post(`${base}/write-off`, requirePermission('inventory', 'delete'), asyncHandler(receptionInventoryController.writeOff));
 receptionInventoryRouter.get(`${base}/print-queue`, requirePermission('inventory', 'view'), asyncHandler(receptionInventoryController.printQueue));
 receptionInventoryRouter.post(`${base}/print-queue/:id/printed`, requirePermission('inventory', 'edit'), asyncHandler(receptionInventoryController.markPrinted));

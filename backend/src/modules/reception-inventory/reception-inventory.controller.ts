@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { ok } from '../../shared/response';
 import { UnauthorizedError } from '../../shared/errors';
-import { receptionInventoryService, requestSchema, writeOffSchema, sendItemsSchema, deleteItemsSchema } from './reception-inventory.service';
+import { receptionInventoryService, requestSchema, writeOffSchema, sendItemsSchema, deleteItemsSchema, rejectSchema } from './reception-inventory.service';
 
 export const receptionInventoryController = {
   async list(req: Request, res: Response): Promise<void> {
@@ -35,6 +35,14 @@ export const receptionInventoryController = {
   async receiveRequest(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await receptionInventoryService.receiveRequest(req.scope, req.params.id)));
+  },
+  async acceptRequest(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await receptionInventoryService.acceptRequest(req.scope, req.params.id)));
+  },
+  async rejectRequest(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await receptionInventoryService.rejectRequest(req.scope, req.params.id, rejectSchema.parse(req.body))));
   },
   async writeOff(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();

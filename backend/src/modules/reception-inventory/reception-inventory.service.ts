@@ -30,10 +30,15 @@ export const sendItemsSchema = z.object({
 export const deleteItemsSchema = z.object({
   lines: z.array(z.object({ requestId: z.string().min(1), productId: z.string().min(1) })).min(1),
 });
+export const rejectSchema = z.object({
+  reason: z.string().min(1).max(60),
+  note: z.string().max(500).optional().or(z.literal('')),
+});
 export type RequestDto = z.infer<typeof requestSchema>;
 export type WriteOffDto = z.infer<typeof writeOffSchema>;
 export type SendItemsDto = z.infer<typeof sendItemsSchema>;
 export type DeleteItemsDto = z.infer<typeof deleteItemsSchema>;
+export type RejectDto = z.infer<typeof rejectSchema>;
 
 async function receptionWarehouseId(branchId: string): Promise<string> {
   let wh = await prisma.warehouse.findFirst({ where: { branchId, type: 'RECEPTION' } });
@@ -130,20 +135,41 @@ export const receptionInventoryService = {
       include: { items: true },
       orderBy: { createdAt: 'desc' },
     });
+    return this.enrichRequests(rows);
+  },
+
+  /** Enriquecimiento común de órdenes (nombres de productos/usuarios, SOL vs ENV) para lista y ticket. */
+  async enrichRequests(rows: (import('@prisma/client').ProductRequest & { items: import('@prisma/client').ProductRequestItem[] })[]) {
     const productIds = [...new Set(rows.flatMap((r) => r.items.map((i) => i.productId)))];
-    const userIds = [...new Set(rows.map((r) => r.createdByUserId).filter((x): x is string => !!x))];
+    const userIds = [...new Set(rows.flatMap((r) => [r.createdByUserId, r.requestedByUserId, r.dispatchedByUserId, r.receivedByUserId]).filter((x): x is string => !!x))];
     const [products, users] = await Promise.all([
-      prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true, sku: true } }),
+      productIds.length ? prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true, sku: true } }) : Promise.resolve([]),
       userIds.length ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : Promise.resolve([]),
     ]);
     const pmap = new Map(products.map((p) => [p.id, p]));
     const umap = new Map(users.map((u) => [u.id, u.name]));
+    const nm = (id?: string | null) => (id ? umap.get(id) ?? null : null);
     return rows.map((r) => ({
       id: r.id,
       status: r.status,
       createdAt: r.createdAt,
-      requestedBy: r.createdByUserId ? umap.get(r.createdByUserId) ?? null : null,
-      items: r.items.map((i) => ({ productId: i.productId, name: pmap.get(i.productId)?.name ?? '—', code: pmap.get(i.productId)?.sku ?? null, quantity: i.quantity })),
+      notes: r.notes ?? null,
+      // Trazabilidad del flujo (para el ticket de despacho).
+      requestedBy: nm(r.requestedByUserId) ?? nm(r.createdByUserId),
+      requestedAt: r.requestedAt ?? r.createdAt,
+      dispatchedBy: nm(r.dispatchedByUserId),
+      sentAt: r.sentAt,
+      receivedBy: nm(r.receivedByUserId),
+      receivedAt: r.receivedAt,
+      rejectReason: r.rejectReason ?? null,
+      rejectNote: r.rejectNote ?? null,
+      items: r.items.map((i) => ({
+        productId: i.productId,
+        name: pmap.get(i.productId)?.name ?? '—',
+        code: pmap.get(i.productId)?.sku ?? null,
+        quantity: i.quantity, // enviado (en SENT/RECEIVED)
+        requestedQty: i.requestedQty ?? i.quantity, // solicitado
+      })),
     }));
   },
 
@@ -177,9 +203,23 @@ export const receptionInventoryService = {
     for (const [pid, qty] of perProduct) {
       if ((stockMap.get(pid) ?? 0) < qty) throw new ValidationError(`Stock insuficiente para "${nameMap.get(pid) ?? 'producto'}" (disponible ${stockMap.get(pid) ?? 0}, a enviar ${qty}).`);
     }
+    // Cantidad SOLICITADA por producto (de las órdenes REQUESTED de origen) y datos del solicitante,
+    // para conservar el SOL vs ENV y la trazabilidad en la orden SENT.
+    const reqPerProduct = new Map<string, number>();
+    for (const r of reqs) for (const it of r.items) if (perProduct.has(it.productId)) reqPerProduct.set(it.productId, (reqPerProduct.get(it.productId) ?? 0) + it.quantity);
+    const origin = reqs.slice().sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0];
+    const now = new Date();
     await prisma.$transaction(async (tx) => {
       await tx.productRequest.create({
-        data: { branchId, status: 'SENT', notes: 'Envío a recepción', createdByUserId: scope.userId, items: { create: [...perProduct].map(([productId, quantity]) => ({ productId, quantity })) } },
+        data: {
+          branchId, status: 'SENT', notes: 'Envío a recepción',
+          createdByUserId: scope.userId,
+          requestedByUserId: origin?.createdByUserId ?? null,
+          requestedAt: origin?.createdAt ?? now,
+          dispatchedByUserId: scope.userId,
+          sentAt: now,
+          items: { create: [...perProduct].map(([productId, quantity]) => ({ productId, quantity, requestedQty: reqPerProduct.get(productId) ?? quantity })) },
+        },
       });
       for (const [pid, qty] of perProduct) {
         await applyStockTx(tx, pid, central.id, -qty);
@@ -244,20 +284,28 @@ export const receptionInventoryService = {
     return { sent: req.items.length };
   },
 
-  /** Recepción confirma recepción (SENT → RECEIVED): suma stock + movimiento + cola de impresión. */
+  /** Compat: recepción confirma (= ACEPTAR ORDEN completa). */
   async receiveRequest(scope: RequestScope, id: string) {
+    return this.acceptRequest(scope, id);
+  },
+
+  /**
+   * ACEPTAR ORDEN (SENT → RECEIVED): ingresa TODA la orden al stock de recepción, registra
+   * quién/cuándo recepcionó, encola impresión y devuelve la orden enriquecida para el ticket.
+   */
+  async acceptRequest(scope: RequestScope, id: string) {
     const branchId = requireActiveBranch(scope);
     const whId = await receptionWarehouseId(branchId);
     const req = await prisma.productRequest.findUnique({ where: { id }, include: { items: true } });
     if (!req || req.branchId !== branchId) throw new ValidationError('Solicitud no encontrada');
     if (req.status !== 'SENT') throw new ValidationError('La solicitud no está lista para recepcionar');
 
-    // Nombres para el comprobante de impresión (el payload debe ser legible, no GUIDs).
     const names = new Map(
       (await prisma.product.findMany({ where: { id: { in: req.items.map((i) => i.productId) } }, select: { id: true, name: true } }))
         .map((p) => [p.id, p.name] as const),
     );
     const printItems = req.items.map((it) => ({ productId: it.productId, name: names.get(it.productId) ?? it.productId, quantity: it.quantity }));
+    const now = new Date();
 
     await prisma.$transaction(async (tx) => {
       for (const it of req.items) {
@@ -270,12 +318,38 @@ export const receptionInventoryService = {
           data: { branchId, productId: it.productId, warehouseId: whId, type: 'IN', quantity: it.quantity, reference: `Recepción ${id.slice(0, 8)}`, createdByUserId: scope.userId },
         });
       }
-      await tx.productRequest.update({ where: { id }, data: { status: 'RECEIVED' } });
+      await tx.productRequest.update({ where: { id }, data: { status: 'RECEIVED', receivedByUserId: scope.userId, receivedAt: now } });
       await tx.printJob.create({
         data: { branchId, type: 'RECEPCION', title: `Recepción de productos (${req.items.length} ítems)`, payload: JSON.stringify(printItems), status: 'PENDING' },
       });
     });
-    return { received: req.items.length };
+    const [order] = await this.enrichRequests([{ ...req, status: 'RECEIVED', receivedByUserId: scope.userId, receivedAt: now }]);
+    return { received: req.items.length, order };
+  },
+
+  /**
+   * RECHAZAR ORDEN (SENT → REJECTED): NO ingresa al inventario de recepción. Para no perder el
+   * stock (ya salió del central al despachar), lo DEVUELVE al almacén central. Guarda motivo,
+   * observación y quién/cuándo rechazó.
+   */
+  async rejectRequest(scope: RequestScope, id: string, dto: RejectDto) {
+    const branchId = requireActiveBranch(scope);
+    const req = await prisma.productRequest.findUnique({ where: { id }, include: { items: true } });
+    if (!req || req.branchId !== branchId) throw new ValidationError('Solicitud no encontrada');
+    if (req.status !== 'SENT') throw new ValidationError('La solicitud no está lista para rechazar');
+    const central = await productsRepository.defaultWarehouse(branchId);
+    const receptionId = await receptionWarehouseId(branchId);
+    const now = new Date();
+    await prisma.$transaction(async (tx) => {
+      // Devuelve al central lo despachado (revierte el TRANSFER de salida).
+      for (const it of req.items) {
+        await applyStockTx(tx, it.productId, central.id, it.quantity);
+        await createMovementTx(tx, { branchId, productId: it.productId, warehouseId: central.id, type: 'TRANSFER', quantity: it.quantity, reference: `Rechazo recepción ${id.slice(0, 8)} — devuelto`, relatedWarehouseId: receptionId, createdByUserId: scope.userId });
+      }
+      await tx.productRequest.update({ where: { id }, data: { status: 'REJECTED', receivedByUserId: scope.userId, receivedAt: now, rejectReason: dto.reason, rejectNote: dto.note?.trim() || null } });
+    });
+    const [order] = await this.enrichRequests([{ ...req, status: 'REJECTED', receivedByUserId: scope.userId, receivedAt: now, rejectReason: dto.reason, rejectNote: dto.note?.trim() || null }]);
+    return { rejected: req.items.length, order };
   },
 
   /** Dar de baja stock de recepción (requiere permiso de eliminar). */

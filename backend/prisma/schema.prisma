@@ -1875,11 +1875,21 @@ model RoomSupply {
 model ProductRequest {
   id              String   @id @default(uuid())
   branchId        String
-  status          String   @default("REQUESTED") // REQUESTED | SENT | RECEIVED
+  status          String   @default("REQUESTED") // REQUESTED | SENT | RECEIVED | REJECTED
   notes           String?
   createdByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  // Auditoría del flujo solicitar → despachar → recepcionar (para el ticket de despacho).
+  requestedByUserId  String? // quién solicitó (recepción)
+  requestedAt        DateTime? // hora de la solicitud original
+  dispatchedByUserId String? // quién despachó (almacén)
+  sentAt             DateTime? // hora de despacho
+  receivedByUserId   String? // quién aceptó/rechazó (recepción)
+  receivedAt         DateTime? // hora de aceptación/rechazo
+  rejectReason       String? // motivo de rechazo (enum en texto)
+  rejectNote         String? // observación libre del rechazo
 
   branch Branch               @relation(fields: [branchId], references: [id], onDelete: Cascade)
   items  ProductRequestItem[]
@@ -1889,10 +1899,11 @@ model ProductRequest {
 }
 
 model ProductRequestItem {
-  id        String @id @default(uuid())
-  requestId String
-  productId String
-  quantity  Int
+  id           String @id @default(uuid())
+  requestId    String
+  productId    String
+  quantity     Int // cantidad enviada (en órdenes SENT); solicitada (en REQUESTED)
+  requestedQty Int? // cantidad originalmente solicitada (en órdenes SENT, para el SOL vs ENV)
 
   request ProductRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
 

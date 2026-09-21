@@ -23,7 +23,15 @@ interface InvItem { productId: string; name: string; sku?: string | null; catego
 interface AdjDetail { id: string; at: string; kind: string; productName: string; quantity: number; counterpart: string | null; room: string | null; reason: string | null; user: string | null; approvedBy: string | null; }
 interface TurnInfo { shift: string; businessDate: string; startTime: string; endTime: string; isCurrent: boolean; from?: string; to?: string; }
 interface WhOpt { id: string; name: string; type: string; }
-interface Req { id: string; status: string; createdAt: string; items: { productId: string; name: string; quantity: number }[]; }
+interface ReqItem { productId: string; name: string; code?: string | null; quantity: number; requestedQty?: number; }
+interface Req {
+  id: string; status: string; createdAt: string; notes?: string | null;
+  requestedBy?: string | null; requestedAt?: string | null;
+  dispatchedBy?: string | null; sentAt?: string | null;
+  receivedBy?: string | null; receivedAt?: string | null;
+  rejectReason?: string | null; rejectNote?: string | null;
+  items: ReqItem[];
+}
 interface PrintJob { id: string; type: string; title: string; status: string; createdAt: string; payload?: string | null; }
 
 @Component({
@@ -273,17 +281,48 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
     </p-dialog>
 
     <!-- Recepcionar -->
-    <p-dialog [(visible)]="recVisible" [modal]="true" header="Recepcionar productos" [style]="{ width: '34rem' }" styleClass="dk-dialog">
-      <div class="form">
-        @for (r of sentRequests(); track r.id) {
-          <div class="req">
-            <div class="req-head"><span>Solicitud {{ r.id.slice(0,8) }}</span><span class="muted">{{ r.createdAt | date: 'dd/MM HH:mm' }}</span></div>
-            <div class="req-items">@for (i of r.items; track i.productId) { <span class="chip">{{ i.name }} x{{ i.quantity }}</span> }</div>
-            <p-button label="Confirmar recepción" icon="pi pi-check" size="small" [loading]="busy()" (onClick)="receive(r.id)" />
+    <p-dialog [(visible)]="recVisible" [modal]="true" header="Recepcionar Productos" [style]="{ width: '40rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      <p class="rq-sub">Revisa cada orden enviada por el almacén y acéptala o recházala completa.</p>
+      @for (r of sentRequests(); track r.id) {
+        <div class="ord">
+          <div class="ord-h">
+            <div><b>Orden {{ r.id.slice(0,8) }}</b><small>Despachó: {{ r.dispatchedBy || '—' }} · {{ (r.sentAt || r.createdAt) | date: 'dd/MM HH:mm' }}</small></div>
+            <span class="ord-sol">Solicitó: {{ r.requestedBy || '—' }}</span>
           </div>
-        } @empty { <p class="muted">No hay productos enviados por recepcionar.</p> }
-      </div>
+          <table class="ord-t">
+            <thead><tr><th>Producto</th><th class="n">Sol.</th><th class="n">Env.</th></tr></thead>
+            <tbody>
+              @for (i of r.items; track i.productId) {
+                <tr [class.diff]="(i.requestedQty ?? i.quantity) !== i.quantity">
+                  <td>{{ i.name }}</td>
+                  <td class="n">{{ i.requestedQty ?? i.quantity }}</td>
+                  <td class="n"><b>{{ i.quantity }}</b></td>
+                </tr>
+              }
+            </tbody>
+          </table>
+          <div class="ord-acts">
+            <button class="btn red" [disabled]="busy()" (click)="openReject(r)"><i class="pi pi-times-circle"></i> Rechazar Orden</button>
+            <button class="btn green" [disabled]="busy()" (click)="acceptOrder(r)"><i class="pi pi-check-circle"></i> Aceptar Orden</button>
+          </div>
+        </div>
+      } @empty { <p class="muted" style="padding:1rem;text-align:center">No hay órdenes enviadas por recepcionar.</p> }
       <ng-template pTemplate="footer"><p-button label="Cerrar" [text]="true" (onClick)="recVisible = false" /></ng-template>
+    </p-dialog>
+
+    <!-- Rechazar Orden (motivo obligatorio) -->
+    <p-dialog [(visible)]="rejVisible" [modal]="true" header="Rechazar Orden" [style]="{ width: '30rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      <p class="rq-sub">Indica el motivo del rechazo. La orden no ingresará al inventario y volverá al almacén.</p>
+      <label class="rj-lbl">Motivo *</label>
+      <p-select [options]="rejectReasons" optionLabel="label" optionValue="value" [(ngModel)]="rejReason" placeholder="Selecciona un motivo" styleClass="dk" appendTo="body" />
+      @if (rejReason === 'Otro') {
+        <label class="rj-lbl">Observación *</label>
+        <textarea [(ngModel)]="rejNote" rows="2" maxlength="500" placeholder="Describe el motivo…"></textarea>
+      }
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="rejVisible = false" />
+        <p-button label="Confirmar Rechazo" icon="pi pi-times-circle" severity="danger" [loading]="busy()" [disabled]="!rejReason || (rejReason === 'Otro' && !rejNote.trim())" (onClick)="confirmReject()" />
+      </ng-template>
     </p-dialog>
   `,
   styles: [
@@ -370,6 +409,19 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       .req-items { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.5rem; }
       .chip { background: #1b2433; border: 1px solid #2a3850; border-radius: 999px; padding: 0.15rem 0.6rem; font-size: 0.78rem; }
       :host ::ng-deep .dk-dialog .p-dialog-content, :host ::ng-deep .dk-dialog .p-dialog-header, :host ::ng-deep .dk-dialog .p-dialog-footer { background: #0e1622; color: #e6e9ef; }
+
+      /* ── Recepcionar: órdenes con SOL/ENV + aceptar/rechazar ── */
+      .ord { border: 1px solid #24455a; border-radius: 12px; padding: 0.8rem; margin-bottom: 0.8rem; background: #0f1a2b; }
+      .ord-h { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+      .ord-h b { color: #fff; } .ord-h small { display: block; color: #8aa0bd; font-size: 0.75rem; margin-top: 0.1rem; }
+      .ord-sol { color: #93c5fd; font-size: 0.78rem; font-weight: 700; }
+      .ord-t { width: 100%; border-collapse: collapse; margin: 0.3rem 0 0.6rem; }
+      .ord-t th, .ord-t td { padding: 0.35rem 0.5rem; border-bottom: 1px solid #16233a; font-size: 0.82rem; text-align: left; }
+      .ord-t th { color: #8aa0bd; font-weight: 600; font-size: 0.72rem; } .ord-t .n { text-align: right; }
+      .ord-t tr.diff td { color: #fbbf24; } .ord-t tr.diff td b { color: #f59e0b; }
+      .ord-acts { display: flex; gap: 0.5rem; justify-content: flex-end; } .ord-acts .btn { flex: 0 0 auto; }
+      .rj-lbl { display: block; font-size: 0.8rem; color: #8aa0bd; margin: 0.7rem 0 0.3rem; }
+      :host ::ng-deep .dk-dialog textarea { width: 100%; background: #0b1220; border: 1px solid #26364f; color: #e2e8f0; border-radius: 8px; padding: 0.5rem 0.7rem; font: inherit; resize: vertical; }
     `,
   ],
 })
@@ -834,11 +886,111 @@ export class InventarioRecepcionComponent implements OnInit {
       </div>`;
   }
 
-  receive(id: string): void {
+  // ── Aceptar / Rechazar orden (recepción por orden completa) ──
+  readonly rejectReasons = [
+    { label: 'Cantidad incorrecta', value: 'Cantidad incorrecta' },
+    { label: 'Producto incorrecto', value: 'Producto incorrecto' },
+    { label: 'Producto dañado', value: 'Producto dañado' },
+    { label: 'Envío no solicitado', value: 'Envío no solicitado' },
+    { label: 'Otro', value: 'Otro' },
+  ];
+  rejVisible = false;
+  rejOrder: Req | null = null;
+  rejReason: string | null = null;
+  rejNote = '';
+
+  acceptOrder(r: Req): void {
     this.busy.set(true);
-    this.http.post<ApiResponse<unknown>>(`${this.api}/reception-inventory/requests/${id}/receive`, {}).subscribe({
-      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Recepcionado', detail: 'Stock actualizado.' }); this.reload(); },
+    this.http.post<ApiResponse<{ order: Req }>>(`${this.api}/reception-inventory/requests/${r.id}/accept`, {}).subscribe({
+      next: (res) => {
+        this.busy.set(false); this.recVisible = false;
+        this.toast.add({ severity: 'success', summary: 'Orden aceptada', detail: 'Stock de recepción actualizado.' });
+        this.openDespachoTicket(res.data?.order ?? r);
+        this.reload();
+      },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
     });
+  }
+  openReject(r: Req): void { this.rejOrder = r; this.rejReason = null; this.rejNote = ''; this.rejVisible = true; }
+  confirmReject(): void {
+    const r = this.rejOrder;
+    if (!r || !this.rejReason) return;
+    this.busy.set(true);
+    this.http.post<ApiResponse<unknown>>(`${this.api}/reception-inventory/requests/${r.id}/reject`, { reason: this.rejReason, note: this.rejNote?.trim() || undefined }).subscribe({
+      next: () => { this.busy.set(false); this.rejVisible = false; this.recVisible = false; this.toast.add({ severity: 'info', summary: 'Orden rechazada', detail: 'La orden volvió al almacén.' }); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
+    });
+  }
+
+  // ── Ticket de despacho 80mm (vista previa / imprimir / guardar PDF) ──
+  private ticketShift(d: Date): string {
+    const m = d.getHours() * 60 + d.getMinutes();
+    if (m >= 22 * 60 + 30 || m < 6 * 60 + 30) return 'NOCHE';
+    if (m < 14 * 60 + 30) return 'MAÑANA';
+    return 'TARDE';
+  }
+  private openDespachoTicket(o: Req): void {
+    const W = 32;
+    const lineC = (c: string) => c.repeat(W);
+    const center = (s: string) => { s = s.slice(0, W); const l = Math.max(0, Math.floor((W - s.length) / 2)); return ' '.repeat(l) + s; };
+    const DAYS = ['DOMINGO', 'LUNES', 'MARTES', 'MIERCOLES', 'JUEVES', 'VIERNES', 'SABADO'];
+    const hhmm = (v?: string | null) => { if (!v) return '—'; const t = new Date(v); let h = t.getHours(); const mm = String(t.getMinutes()).padStart(2, '0'); const ap = h < 12 ? 'a. m.' : 'p. m.'; h = h % 12 || 12; return `${String(h).padStart(2, '0')}:${mm} ${ap}`; };
+    const rowP = (name: string, sol: number, env: number) => name.slice(0, 18).padEnd(18) + String(sol).padStart(6) + String(env).padStart(6);
+    const now = new Date();
+    const ref = o.receivedAt ? new Date(o.receivedAt) : now;
+    const totSol = o.items.reduce((a, i) => a + (i.requestedQty ?? i.quantity), 0);
+    const totEnv = o.items.reduce((a, i) => a + i.quantity, 0);
+    const diffs = o.items.filter((i) => (i.requestedQty ?? i.quantity) !== i.quantity);
+    const L: string[] = [];
+    L.push(lineC('='), center('RIZZOS - PRODUCTOS - DESPACHO'), lineC('='));
+    L.push(`${this.ticketShift(ref)} - ${DAYS[ref.getDay()]} ${String(ref.getDate()).padStart(2, '0')}/${String(ref.getMonth() + 1).padStart(2, '0')}/${ref.getFullYear()}`);
+    L.push(lineC('-'));
+    L.push('PRODUCTO'.padEnd(18) + 'SOL.'.padStart(6) + 'ENV.'.padStart(6));
+    L.push(lineC('-'));
+    for (const i of o.items) L.push(rowP(i.name, i.requestedQty ?? i.quantity, i.quantity));
+    L.push(lineC('-'));
+    L.push('TOTAL SOLICITADO:'.padEnd(22) + String(totSol).padStart(4));
+    L.push('TOTAL ENVIADO:'.padEnd(22) + String(totEnv).padStart(4));
+    L.push(lineC('-'));
+    L.push(`Solicitado por: ${o.requestedBy || '—'}`);
+    L.push(`Hora solicitud: ${hhmm(o.requestedAt || o.createdAt)}`, '');
+    L.push(`Despachado por: ${o.dispatchedBy || '—'}`);
+    L.push(`Hora despacho: ${hhmm(o.sentAt)}`, '');
+    L.push(`Recepcionado por: ${o.receivedBy || '—'}`);
+    L.push(`Hora recepción: ${hhmm(o.receivedAt) === '—' ? hhmm(now.toISOString()) : hhmm(o.receivedAt)}`);
+    L.push(lineC('-'));
+    if (diffs.length) {
+      const txt = diffs.map((i) => `Se solicitaron ${i.requestedQty ?? i.quantity} ${i.name} y se enviaron ${i.quantity}.`).join(' ');
+      L.push('OBSERVACION:', ...this.wrap(txt, W));
+    } else {
+      L.push('OBSERVACION: Sin diferencias.');
+    }
+    L.push(lineC('-'), '', 'Firma: ____________________', '', lineC('='));
+    this.openTicketWindow('RIZZOS · Despacho de Productos', L.join('\n'));
+  }
+  private wrap(s: string, w: number): string[] {
+    const words = s.split(' '); const out: string[] = []; let cur = '';
+    for (const wd of words) { if ((cur + ' ' + wd).trim().length > w) { if (cur) out.push(cur); cur = wd; } else cur = (cur + ' ' + wd).trim(); }
+    if (cur) out.push(cur);
+    return out;
+  }
+  private openTicketWindow(title: string, text: string): void {
+    const esc = (v: string) => v.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] as string);
+    const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${esc(title)}</title>
+<style>@page{size:80mm auto;margin:0}:root{color-scheme:light}*{box-sizing:border-box}
+body{margin:0;background:#e5e7eb;color:#000;font-family:'Courier New',monospace}
+.tb{position:sticky;top:0;display:flex;gap:.5rem;justify-content:center;padding:.6rem;background:#0f172a}
+.tb button{border:0;border-radius:7px;padding:.5rem 1.1rem;font-weight:700;font-size:.85rem;cursor:pointer;font-family:'Segoe UI',Arial,sans-serif}
+.tb .p{background:#10b981;color:#04130d}.tb .c{background:#334155;color:#e2e8f0}
+.sheet{width:80mm;max-width:96vw;margin:12px auto;background:#fff;padding:6mm 4mm;box-shadow:0 2px 14px rgba(0,0,0,.18)}
+pre{margin:0;font-family:'Courier New',monospace;font-size:12px;line-height:1.3;white-space:pre;font-weight:700}
+@media print{.tb{display:none}body{background:#fff}.sheet{box-shadow:none;margin:0;width:auto;padding:1mm 2mm}}</style></head>
+<body><div class="tb"><button class="p" onclick="dp()">Imprimir / PDF</button><button class="c" onclick="window.close()">Cerrar</button></div>
+<div class="sheet"><pre>${esc(text)}</pre></div>
+<script>function dp(){try{var pre=document.querySelector('pre');var h=Math.ceil(pre.getBoundingClientRect().height)+12;var st=document.createElement('style');st.textContent='@page{size:80mm '+h+'px;margin:0}';document.head.appendChild(st);}catch(e){}window.print();}</script>
+</body></html>`;
+    const w = window.open('', '_blank', 'width=420,height=700');
+    if (w) { w.document.open(); w.document.write(html); w.document.close(); }
+    else this.toast.add({ severity: 'warn', summary: 'Ventana bloqueada', detail: 'Permite las ventanas emergentes para ver el ticket.' });
   }
 }
