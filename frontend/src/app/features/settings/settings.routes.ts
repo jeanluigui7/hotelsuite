@@ -64,6 +64,10 @@ const routes: Routes = [
     loadComponent: () => import('./dotacion/dotacion.component').then((m) => m.DotacionComponent),
   },
   {
+    path: 'frigobar',
+    loadComponent: () => import('./frigobar/frigobar-config.component').then((m) => m.FrigobarConfigComponent),
+  },
+  {
     path: 'lavanderia',
     loadComponent: () => import('./lavanderia/laundry-machines.component').then((m) => m.LaundryMachinesComponent),
   },

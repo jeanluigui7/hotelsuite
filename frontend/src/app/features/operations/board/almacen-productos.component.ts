@@ -221,7 +221,7 @@ const IGV_TYPES = [
       <p class="muted">Transfiriendo {{ transferLines.length }} producto(s)</p>
       <div class="fld"><label>Área Destino:</label>
         <label class="radio"><input type="radio" name="tarea" value="RECEPTION" [(ngModel)]="transferArea" /> <span>Recepción</span></label>
-        <label class="radio"><input type="radio" name="tarea" value="FRIGOBAR" [(ngModel)]="transferArea" /> <span>Almacén Frigobar</span></label>
+        <label class="radio"><input type="radio" name="tarea" value="FRIGOBAR" [(ngModel)]="transferArea" /> <span>Productos Limpieza (Frigobar)</span></label>
       </div>
       @for (l of transferLines; track l.productId) {
         <div class="tline">
@@ -546,7 +546,7 @@ export class AlmacenProductosComponent implements OnInit {
     const send = (i: number): void => {
       if (i >= lines.length) {
         this.busy.set(false); this.transferVisible = false; this.selected.set(new Set());
-        this.toast.add({ severity: 'success', summary: 'Transferencia realizada', detail: `${lines.length} producto(s) enviados a ${this.transferArea === 'RECEPTION' ? 'Recepción' : 'Almacén Frigobar'}.` });
+        this.toast.add({ severity: 'success', summary: 'Transferencia realizada', detail: `${lines.length} producto(s) enviados a ${this.transferArea === 'RECEPTION' ? 'Recepción' : 'Productos Limpieza'}.` });
         this.reload(); return;
       }
       this.inventory.transferArea({ productId: lines[i].productId, quantity: lines[i].qty, toArea: this.transferArea, reference: this.transferNotes || undefined }).subscribe({

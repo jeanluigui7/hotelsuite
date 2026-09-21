@@ -6,6 +6,7 @@ import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { movementsRepository } from './movements.repository';
 import { recordActivity } from '../activity-log/activity.emitter';
+import { productWarehouses } from '../../shared/product-kardex';
 import type { AdjustDto, TransferDto } from './movements.schema';
 
 async function assertProductAndWarehouse(productId: string, warehouseId: string, branchId: string) {
@@ -88,13 +89,22 @@ export const movementsService = {
     const branchId = requireActiveBranch(scope);
     const product = await prisma.product.findUnique({ where: { id: dto.productId } });
     if (!product || product.branchId !== branchId) throw new ValidationError('Producto inválido');
-    // Origen: almacén de productos general (el mismo que muestra la grilla).
-    const from = await prisma.warehouse.findFirst({ where: { branchId, type: 'PRODUCTS' }, orderBy: { createdAt: 'asc' } });
+    // Origen: almacén de productos GENERAL (no el de limpieza).
+    const { general, limpieza } = await productWarehouses(branchId);
+    const from = general ?? (await prisma.warehouse.findFirst({ where: { branchId, type: 'PRODUCTS' }, orderBy: { createdAt: 'asc' } }));
     if (!from) throw new ValidationError('No hay almacén de productos de origen');
-    // Destino: almacén del área (Recepción/Frigobar); se crea si no existe.
-    const areaName = dto.toArea === 'RECEPTION' ? 'Recepción' : 'Almacén Frigobar';
-    let to = await prisma.warehouse.findFirst({ where: { branchId, type: dto.toArea } });
-    if (!to) to = await prisma.warehouse.create({ data: { branchId, name: areaName, type: dto.toArea } });
+    // Destino: Recepción (type RECEPTION) o Productos Limpieza (almacén PRODUCTS cuyo nombre
+    // contiene "LIMPIEZA" = stock oficial del frigobar). Se crea si no existe.
+    let to; let areaName: string;
+    if (dto.toArea === 'RECEPTION') {
+      areaName = 'Recepción';
+      to = (await prisma.warehouse.findFirst({ where: { branchId, type: 'RECEPTION' } }))
+        ?? (await prisma.warehouse.create({ data: { branchId, name: 'Recepción', type: 'RECEPTION' } }));
+    } else {
+      areaName = 'Productos Limpieza';
+      to = limpieza ?? (await prisma.warehouse.create({ data: { branchId, name: 'PRODUCTOS LIMPIEZA', type: 'PRODUCTS' } }));
+    }
+    if (to.id === from.id) throw new ValidationError('El almacén de origen y destino no pueden ser el mismo.');
     try {
       const trOut = await movementsRepository.transfer({
         branchId,

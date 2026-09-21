@@ -250,6 +250,7 @@ export const ADMIN_MENU: MenuItem[] = [
       { label: 'Tarifa Personalizada', route: '/settings/tarifas' },
       { label: 'Permisos por Categoría', route: '/settings/permisos' },
       { label: 'Dotación Base (Habitaciones)', route: '/settings/dotacion' },
+      { label: 'Frigobar', route: '/settings/frigobar' },
       { label: 'Inspección de Limpieza', route: '/settings/inspeccion' },
       { label: 'Horarios', route: '/settings/horarios' },
       { label: 'Autenticación por Roles', route: '/settings/roles' },

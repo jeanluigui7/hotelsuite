@@ -83,6 +83,7 @@ import { receptionInventoryRouter } from './modules/reception-inventory/receptio
 import { cleaningRouter } from './modules/cleaning/cleaning.routes';
 import { linenAdminRouter } from './modules/linen-admin/linen-admin.routes';
 import { linenRegularizationRouter } from './modules/linen-regularization/linen-regularization.routes';
+import { frigobarRouter } from './modules/frigobar/frigobar.routes';
 import { receptionPermsRouter } from './modules/reception-permissions/reception-permissions.routes';
 
 export function createApp(): Application {
@@ -183,6 +184,7 @@ export function createApp(): Application {
   app.use('/api', cleaningRouter);
   app.use('/api', linenAdminRouter);
   app.use('/api', linenRegularizationRouter);
+  app.use('/api', frigobarRouter);
   app.use('/api', receptionPermsRouter);
   app.use('/api', landingRouter);
 
