@@ -26,7 +26,7 @@ interface Dotacion {
 interface FloorItem { linenItemId: string; name: string; type: string; size?: string | null; color?: string | null; available: number; enviar: number; }
 interface AmenVariant { productId: string; name: string; reusable: boolean; category?: string | null; available: number; enviar: number; }
 interface FrigoVariant { productId: string; name: string; baseQty: number; available: number; enviar: number; }
-interface Prod { id: string; name: string; categoryId?: string | null; }
+interface Prod { id: string; name: string; categoryId?: string | null; frigobarEnabled?: boolean; }
 interface PrimeraData {
   room: { id: string; number: string; floor?: string | null; tower?: string | null; roomType?: { name: string }; linenFloor: string | null; amenitiesWarehouse?: string | null; frigobarEnabled?: boolean; frigobarWarehouse?: string | null };
   items: { linenItemId: string; name: string; type: string; quantity: number }[];
@@ -364,7 +364,7 @@ export class DotacionComponent implements OnInit {
       .subscribe((r) => this.rooms.set(r.data ?? []));
     // Catálogo de productos (para el selector de frigobar): id, nombre y categoría.
     this.http.get<ApiResponse<Prod[]>>(`${this.api}/products`, { params: { pageSize: '500', status: 'active', sortBy: 'name' } })
-      .subscribe((r) => this.products.set((r.data ?? []).map((p) => ({ id: p.id, name: p.name, categoryId: p.categoryId }))));
+      .subscribe((r) => this.products.set((r.data ?? []).map((p) => ({ id: p.id, name: p.name, categoryId: p.categoryId, frigobarEnabled: p.frigobarEnabled }))));
   }
 
   // ── Frigobar: selector de productos para la Dotación Base ──
@@ -375,7 +375,8 @@ export class DotacionComponent implements OnInit {
   openFrigoPicker(c: InventoryCategory): void { this.frigoPickCat = c.name; this.frigoPickCategoryId = c.id; this.frigoPickSearch = ''; this.frigoPickVisible = true; }
   frigoPickProducts(): Prod[] {
     const q = this.frigoPickSearch.trim().toLowerCase();
-    return this.products().filter((p) => p.categoryId === this.frigoPickCategoryId && (!q || p.name.toLowerCase().includes(q)));
+    // Solo productos habilitados para Frigobar (Configuración de Uso en Inventario › Artículos).
+    return this.products().filter((p) => p.frigobarEnabled && p.categoryId === this.frigoPickCategoryId && (!q || p.name.toLowerCase().includes(q)));
   }
   frigoAlready(productId: string): boolean { return this.items().some((i) => i.articleKind === 'FRIGOBAR' && (i as unknown as { productId?: string }).productId === productId); }
   addFrigoProduct(p: Prod): void {

@@ -22,12 +22,12 @@ interface Form {
   name: string; sku: string; barcodes: string[]; imageUrl: string; brand: string;
   reusable: boolean; categoryId: string | null; productType: string;
   initialWarehouseId: string | null; unit: string; igvType: string; igvPercent: number;
-  taxable: boolean; active: boolean;
+  taxable: boolean; active: boolean; receptionEnabled: boolean; frigobarEnabled: boolean;
   salePrice: number | null; cost: number | null;
   reorderPoint: number; receptionReorderPoint: number; stock: number;
 }
 function emptyForm(): Form {
-  return { name: '', sku: '', barcodes: [''], imageUrl: '', brand: '', reusable: false, categoryId: null, productType: 'PRODUCTO', initialWarehouseId: null, unit: 'NIU', igvType: 'GRAVADO', igvPercent: 18, taxable: true, active: true, salePrice: null, cost: 0, reorderPoint: 0, receptionReorderPoint: 0, stock: 0 };
+  return { name: '', sku: '', barcodes: [''], imageUrl: '', brand: '', reusable: false, categoryId: null, productType: 'PRODUCTO', initialWarehouseId: null, unit: 'NIU', igvType: 'GRAVADO', igvPercent: 18, taxable: true, active: true, receptionEnabled: true, frigobarEnabled: false, salePrice: null, cost: 0, reorderPoint: 0, receptionReorderPoint: 0, stock: 0 };
 }
 const PRODUCT_TYPES = [
   { label: 'Producto', value: 'PRODUCTO' }, { label: 'Servicio', value: 'SERVICIO' },
@@ -129,6 +129,11 @@ const IGV_TYPES = [
 
         <label class="chk"><input type="checkbox" [(ngModel)]="form.taxable" /> <span>¿Es tributable? (Sí)</span></label>
         <label class="chk"><input type="checkbox" [(ngModel)]="form.active" /> <span>¿Está activo? (Sí - visible en reportes)</span></label>
+        <div class="use-flags">
+          <span class="uf-t">Uso del producto</span>
+          <label class="chk"><input type="checkbox" [(ngModel)]="form.receptionEnabled" /> <span>Recepción <small>(stock y venta en Recepción)</small></span></label>
+          <label class="chk"><input type="checkbox" [(ngModel)]="form.frigobarEnabled" /> <span>Frigobar <small>(Productos Limpieza y dotación de frigobar)</small></span></label>
+        </div>
 
         <div class="grid2">
           <div class="f"><label>Precio de venta *</label><p-inputNumber [(ngModel)]="form.salePrice" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w-full" /></div>
@@ -158,6 +163,9 @@ const IGV_TYPES = [
       .pf .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
       .pf input[pInputText], :host ::ng-deep .pf .w-full { width: 100%; }
       .pf .chk { flex-direction: row; align-items: center; gap: 0.5rem; font-weight: 500; cursor: pointer; }
+      .pf .use-flags { display: flex; flex-direction: column; gap: 0.4rem; border: 1px solid var(--p-content-border-color, #26364f); border-radius: 8px; padding: 0.6rem 0.8rem; }
+      .pf .use-flags .uf-t { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase; color: var(--p-text-muted-color, #8aa0bd); }
+      .pf .use-flags .chk small { color: var(--p-text-muted-color, #8aa0bd); font-weight: 400; }
       .bc { display: flex; gap: 0.4rem; margin-bottom: 0.35rem; } .bc input { flex: 1; }
       .bc-cam { background: var(--p-content-hover-background, #1b2433); border: 1px solid var(--p-content-border-color, #2b3a4f); color: inherit; border-radius: 8px; padding: 0 0.8rem; cursor: pointer; }
       .bc-del { background: transparent; border: 1px solid var(--p-content-border-color, #2b3a4f); color: #f87171; border-radius: 8px; padding: 0 0.7rem; cursor: pointer; }
@@ -252,6 +260,7 @@ export class ProductsComponent implements OnInit {
       reusable: !!row.reusable, categoryId: row.categoryId ?? null, productType: row.productType ?? 'PRODUCTO',
       initialWarehouseId: null, unit: row.unit ?? 'NIU', igvType: row.igvType ?? 'GRAVADO', igvPercent: row.igvPercent != null ? Number(row.igvPercent) : 18,
       taxable: row.taxable ?? true, active: row.status === 'active',
+      receptionEnabled: (row as unknown as { receptionEnabled?: boolean }).receptionEnabled ?? (row.status === 'active'), frigobarEnabled: (row as unknown as { frigobarEnabled?: boolean }).frigobarEnabled ?? false,
       salePrice: Number(row.salePrice), cost: row.cost != null ? Number(row.cost) : 0,
       reorderPoint: row.reorderPoint, receptionReorderPoint: row.receptionReorderPoint ?? 0, stock: row.stock,
     };
@@ -272,6 +281,7 @@ export class ProductsComponent implements OnInit {
       salePrice: this.form.salePrice, cost: this.form.cost ?? 0,
       reorderPoint: this.form.reorderPoint, receptionReorderPoint: this.form.receptionReorderPoint,
       status: (this.form.active ? 'active' : 'inactive') as 'active' | 'inactive',
+      receptionEnabled: this.form.receptionEnabled, frigobarEnabled: this.form.frigobarEnabled,
       stock: this.form.stock,
       initialWarehouseId: this.form.initialWarehouseId ?? undefined,
     };

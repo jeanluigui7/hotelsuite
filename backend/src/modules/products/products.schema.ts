@@ -19,6 +19,9 @@ export const createProductSchema = z.object({
   reorderPoint: z.coerce.number().int().min(0).default(0),
   receptionReorderPoint: z.coerce.number().int().min(0).optional().default(0),
   status: z.enum(['active', 'inactive']).default('active'),
+  // Uso del producto (independiente de "activo"): flujos de Recepción y/o Frigobar.
+  receptionEnabled: z.coerce.boolean().optional(),
+  frigobarEnabled: z.coerce.boolean().optional(),
   stock: z.coerce.number().int().min(0).default(0),
   // Área inicial: almacén donde se coloca el stock inicial (por defecto, el de productos).
   initialWarehouseId: z.string().min(1).optional(),

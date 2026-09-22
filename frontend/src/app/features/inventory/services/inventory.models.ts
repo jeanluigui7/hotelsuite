@@ -19,6 +19,8 @@ export interface Product {
   reorderPoint: number;
   receptionReorderPoint?: number;
   status: string;
+  receptionEnabled?: boolean; // participa del flujo de Recepción (stock + venta)
+  frigobarEnabled?: boolean; // participa del flujo de Frigobar (Productos Limpieza + dotación)
   stock: number;
   warehouseId?: string;
 }
@@ -42,6 +44,8 @@ export interface ProductUpsert {
   reorderPoint?: number;
   receptionReorderPoint?: number;
   status: 'active' | 'inactive';
+  receptionEnabled?: boolean;
+  frigobarEnabled?: boolean;
   stock?: number;
   initialWarehouseId?: string;
 }

@@ -39,6 +39,8 @@ function serialize(p: ProductWithRelations, warehouseId: string) {
     reorderPoint: p.reorderPoint,
     receptionReorderPoint: p.receptionReorderPoint,
     status: p.status,
+    receptionEnabled: p.receptionEnabled,
+    frigobarEnabled: p.frigobarEnabled,
     stock: stockRow?.quantity ?? 0,
     // Almacén cuyo stock se muestra (para que Ingresar/Baja escriban en el MISMO almacén).
     warehouseId,
@@ -157,6 +159,8 @@ export const productsService = {
         reorderPoint: dto.reorderPoint,
         receptionReorderPoint: dto.receptionReorderPoint,
         status: dto.status,
+        receptionEnabled: dto.receptionEnabled,
+        frigobarEnabled: dto.frigobarEnabled,
       },
       initialWh.id,
       dto.stock,
@@ -192,6 +196,8 @@ export const productsService = {
         reorderPoint: dto.reorderPoint,
         receptionReorderPoint: dto.receptionReorderPoint,
         status: dto.status,
+        receptionEnabled: dto.receptionEnabled,
+        frigobarEnabled: dto.frigobarEnabled,
         ...(dto.categoryId !== undefined
           ? dto.categoryId
             ? { category: { connect: { id: dto.categoryId } } }

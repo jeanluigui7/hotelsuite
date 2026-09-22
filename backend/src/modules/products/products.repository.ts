@@ -63,6 +63,8 @@ export const productsRepository = {
       reorderPoint: number;
       receptionReorderPoint: number;
       status: string;
+      receptionEnabled?: boolean;
+      frigobarEnabled?: boolean;
     },
     warehouseId: string,
     stock: number,

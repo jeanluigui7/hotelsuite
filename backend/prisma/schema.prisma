@@ -903,6 +903,10 @@ model Product {
   reorderPoint Int      @default(0) // stock mínimo en el almacén
   receptionReorderPoint Int @default(0) // stock mínimo en el almacén de recepción
   status       String   @default("active")
+  // Uso del producto (independiente de "activo"). Recepción: stock + venta en Recepción.
+  // Frigobar: Productos Limpieza + dotación/reposición de frigobar. Un producto puede tener ambos.
+  receptionEnabled Boolean @default(false)
+  frigobarEnabled  Boolean @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
