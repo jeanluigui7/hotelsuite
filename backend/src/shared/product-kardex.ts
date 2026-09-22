@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../config/prisma';
 
 /**
@@ -67,11 +68,12 @@ export interface KardexItem {
 /** Construye las filas del kardex para un almacén dentro de la ventana de turno. */
 export async function buildProductKardex(opts: {
   branchId: string; whId: string; win: KardexWindow; generalIds: string[]; minField: MinField;
+  productWhere?: Prisma.ProductWhereInput;
 }): Promise<KardexItem[]> {
-  const { branchId, whId, win, generalIds, minField } = opts;
+  const { branchId, whId, win, generalIds, minField, productWhere } = opts;
   const [products, stocks, movs] = await Promise.all([
-    // Solo productos (excluye amenities).
-    prisma.product.findMany({ where: { branchId, status: 'active', NOT: { OR: [{ productType: 'AMENITY' }, { category: { type: 'AMENITY' } }] } }, include: { category: { select: { name: true } } }, orderBy: { sku: 'asc' } }),
+    // Solo productos (excluye amenities). `productWhere` permite filtros extra (ej. receptionEnabled).
+    prisma.product.findMany({ where: { branchId, status: 'active', NOT: { OR: [{ productType: 'AMENITY' }, { category: { type: 'AMENITY' } }] }, ...(productWhere ?? {}) }, include: { category: { select: { name: true } } }, orderBy: { sku: 'asc' } }),
     prisma.stock.findMany({ where: { warehouseId: whId } }),
     prisma.inventoryMovement.findMany({ where: { branchId, warehouseId: whId, createdAt: { gte: win.from } }, select: { productId: true, quantity: true, createdAt: true, type: true, relatedWarehouseId: true, adjustType: true } }),
   ]);

@@ -98,7 +98,8 @@ export const receptionInventoryService = {
     const shifts = await prisma.roleShift.findMany({ where: { branchId, role: 'RECEPCION' } });
     const win = this.turnWindow(shifts, opts?.date, opts?.shift);
     const { generalIds } = await productWarehouses(branchId);
-    const items = await buildProductKardex({ branchId, whId, win, generalIds, minField: 'receptionReorderPoint' });
+    // Solo productos habilitados para Recepción (los exclusivos de Frigobar no forman parte de este stock).
+    const items = await buildProductKardex({ branchId, whId, win, generalIds, minField: 'receptionReorderPoint', productWhere: { receptionEnabled: true } });
     return {
       warehouseId: whId,
       turn: { shift: win.shift, businessDate: win.businessDate, startTime: win.startTime, endTime: win.endTime, isCurrent: win.isCurrent, from: win.from, to: win.to },

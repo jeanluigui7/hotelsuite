@@ -18,7 +18,8 @@ export const productsCleaningService = {
     if (!limpieza) return { warehouseId: null, turn: null, items: [] };
     const shifts = await prisma.roleShift.findMany({ where: { branchId, role: 'LIMPIEZA' } });
     const win = computeTurnWindow(shifts, opts?.date, opts?.shift);
-    const items = await buildProductKardex({ branchId, whId: limpieza.id, win, generalIds, minField: 'reorderPoint' });
+    // Solo productos habilitados para Frigobar (Productos Limpieza es el stock oficial del frigobar).
+    const items = await buildProductKardex({ branchId, whId: limpieza.id, win, generalIds, minField: 'reorderPoint', productWhere: { frigobarEnabled: true } });
     return {
       warehouseId: limpieza.id,
       turn: { shift: win.shift, businessDate: win.businessDate, startTime: win.startTime, endTime: win.endTime, isCurrent: win.isCurrent, from: win.from, to: win.to },

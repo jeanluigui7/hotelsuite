@@ -89,6 +89,10 @@ export const movementsService = {
     const branchId = requireActiveBranch(scope);
     const product = await prisma.product.findUnique({ where: { id: dto.productId } });
     if (!product || product.branchId !== branchId) throw new ValidationError('Producto inválido');
+    // Restricción por uso del producto: a Recepción solo los de Recepción; a Productos Limpieza
+    // (Frigobar) solo los de Frigobar.
+    if (dto.toArea === 'RECEPTION' && !product.receptionEnabled) throw new ValidationError(`"${product.name}" no está habilitado para Recepción (actívalo en Inventario › Artículos).`);
+    if (dto.toArea === 'FRIGOBAR' && !product.frigobarEnabled) throw new ValidationError(`"${product.name}" no está habilitado para Frigobar (actívalo en Inventario › Artículos).`);
     // Origen: almacén de productos GENERAL (no el de limpieza).
     const { general, limpieza } = await productWarehouses(branchId);
     const from = general ?? (await prisma.warehouse.findFirst({ where: { branchId, type: 'PRODUCTS' }, orderBy: { createdAt: 'asc' } }));

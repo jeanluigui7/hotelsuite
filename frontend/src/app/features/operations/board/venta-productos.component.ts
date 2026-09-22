@@ -164,10 +164,10 @@ const DOC_TYPES = [
               <div class="pan-h"><span class="pan-t"><i class="pi pi-box"></i> Productos Disponibles</span><span class="pan-s">Busca y selecciona un producto del inventario</span></div>
               <div class="plist">
                 @for (p of filteredProducts(); track p.id) {
-                  <button class="pcard" [class.low]="isLow(p)" (click)="inc(p)" [disabled]="(qty[p.id]||0) >= p.stock">
-                    <div class="pc-l"><div class="pn">{{ p.name }}</div>@if (p.category) { <div class="pc">Categoría: {{ p.category.name }}</div> }</div>
-                    <div class="pc-r"><div class="pp">S/ {{ +p.salePrice | number: '1.2-2' }}</div><div class="ps" [class.low]="isLow(p)">Stock: {{ p.stock }}</div></div>
-                    <span class="pc-add"><i class="pi pi-plus"></i></span>
+                  <button class="pcard" [class.low]="isLow(p)" [class.ro]="!sellable(p)" (click)="inc(p)" [disabled]="!sellable(p) || (qty[p.id]||0) >= p.stock">
+                    <div class="pc-l"><div class="pn">{{ p.name }} @if (!sellable(p)) { <span class="fb-badge"><i class="pi pi-inbox"></i> Frigobar</span> }</div>@if (p.category) { <div class="pc">Categoría: {{ p.category.name }}</div> }</div>
+                    <div class="pc-r"><div class="pp">S/ {{ +p.salePrice | number: '1.2-2' }}</div>@if (sellable(p)) { <div class="ps" [class.low]="isLow(p)">Stock: {{ p.stock }}</div> } @else { <div class="ps ro">Solo consulta</div> }</div>
+                    @if (sellable(p)) { <span class="pc-add"><i class="pi pi-plus"></i></span> }
                   </button>
                 } @empty { <p class="muted center">Sin productos.</p> }
               </div>
@@ -280,6 +280,10 @@ const DOC_TYPES = [
       .pcard { position: relative; display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; text-align: left; background: #101a28; border: 1px solid #1c2a3a; border-radius: 10px; padding: 0.6rem 0.75rem; cursor: pointer; color: #e6e9ef; }
       .pcard:hover:not(:disabled) { border-color: #10b981; }
       .pcard:disabled { opacity: 0.45; cursor: not-allowed; }
+      .pcard.ro { opacity: 0.8; border-style: dashed; border-color: #2f4f6b; }
+      .pcard.ro:disabled { opacity: 0.8; }
+      .fb-badge { display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.6rem; font-weight: 800; letter-spacing: 0.03em; color: #7dd3fc; background: rgba(37,99,235,0.18); border-radius: 999px; padding: 0.05rem 0.4rem; margin-left: 0.35rem; }
+      .ps.ro { color: #7dd3fc; font-style: italic; }
       .pc-l { min-width: 0; } .pc-l .pn { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .pc-r { text-align: right; white-space: nowrap; }
       .pp { color: #34d399; font-weight: 700; font-size: 0.85rem; } .ps { font-size: 0.72rem; color: #8b97a8; } .ps.low { color: #fbbf24; }
@@ -372,12 +376,16 @@ export class VentaProductosComponent {
   filteredProducts(): Product[] {
     const q = this.search.toLowerCase().trim();
     return this.products().filter((p) => {
+      // Solo productos de Recepción (vendibles) o de Frigobar (solo consulta). Ocultar el resto.
+      if (p.receptionEnabled === false && p.frigobarEnabled !== true) return false;
       if (q && !(p.name.toLowerCase().includes(q) || (p.sku ?? '').toLowerCase().includes(q) || this.codesOf(p).some((c) => c.toLowerCase().includes(q)))) return false;
       if (this.categoryFilter && p.category?.name !== this.categoryFilter) return false;
       if (this.lowStockOnly && !this.isLow(p)) return false;
       return true;
     }).sort((a, b) => (a.sku ?? '').localeCompare(b.sku ?? '')); // orden por código, no alfabético
   }
+  /** ¿Se puede vender desde Recepción? Los exclusivos de Frigobar son solo para consulta. */
+  sellable(p: Product): boolean { return p.receptionEnabled !== false; }
 
   /**
    * Escaneo con lector (Zebra DS22 = teclado: teclea el código + Enter). Al presionar Enter, si el texto
@@ -416,6 +424,11 @@ export class VentaProductosComponent {
   /** Todos los códigos de barras del producto (usa `barcodes`; cae al legacy `barcode` si aplica). */
   private codesOf(p: Product): string[] { return p.barcodes ?? (p.barcode ? [p.barcode] : []); }
   private addByScan(prod: Product): void {
+    if (!this.sellable(prod)) {
+      this.toast.add({ severity: 'warn', summary: 'Solo consulta', detail: `${prod.name} es producto de Frigobar: no se puede vender desde Recepción.` });
+      this.search = ''; setTimeout(() => { const el = this.scanInput?.nativeElement; if (el) { el.value = ''; el.focus(); } }, 0);
+      return;
+    }
     const before = this.qty[prod.id] || 0;
     this.inc(prod); // inc ya respeta el stock disponible
     if ((this.qty[prod.id] || 0) === before) this.toast.add({ severity: 'warn', summary: 'Sin stock', detail: `${prod.name}: sin stock disponible.` });
@@ -478,7 +491,7 @@ export class VentaProductosComponent {
     });
   }
 
-  inc(p: Product): void { if ((this.qty[p.id] || 0) < p.stock) { this.qty[p.id] = (this.qty[p.id] || 0) + 1; this.qtyTick.update((v) => v + 1); this.syncTotalPay(); } }
+  inc(p: Product): void { if (!this.sellable(p)) return; if ((this.qty[p.id] || 0) < p.stock) { this.qty[p.id] = (this.qty[p.id] || 0) + 1; this.qtyTick.update((v) => v + 1); this.syncTotalPay(); } }
   dec(p: Product): void { if ((this.qty[p.id] || 0) > 0) { this.qty[p.id] = this.qty[p.id] - 1; this.qtyTick.update((v) => v + 1); this.syncTotalPay(); } }
   /** Quita una línea completa de la bolsa (cantidad a 0). */
   removeLine(p: Product): void { this.qty[p.id] = 0; this.qtyTick.update((v) => v + 1); this.syncTotalPay(); }
