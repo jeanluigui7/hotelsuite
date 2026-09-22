@@ -453,6 +453,43 @@ export const staysService = {
     };
   },
 
+  /**
+   * Auditoría de la estancia: bitácora cronológica real (ActivityLog) de todo lo relacionado con
+   * la estancia — por entityId=stayId, por meta.stayId, o por eventos de la habitación desde el
+   * check-in (limpiezas). Devuelve fecha/hora exacta, usuario, acción, área y detalle.
+   */
+  async activity(scope: RequestScope, id: string) {
+    const branchId = requireActiveBranch(scope);
+    const stay = await staysRepository.findById(id);
+    if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
+    const rows = await prisma.activityLog.findMany({
+      where: {
+        branchId,
+        activity: { not: null }, // solo eventos de dominio (no logs HTTP legacy)
+        createdAt: { gte: stay.checkInAt },
+        OR: [
+          { entityId: id },
+          { metaJson: { contains: id } },
+          { roomId: stay.roomId },
+        ],
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 500,
+    });
+    const uids = [...new Set(rows.map((r) => r.userId).filter((x): x is string => !!x))];
+    const users = uids.length ? await prisma.user.findMany({ where: { id: { in: uids } }, select: { id: true, name: true } }) : [];
+    const umap = new Map(users.map((u) => [u.id, u.name]));
+    return rows.map((r) => ({
+      at: r.createdAt,
+      user: r.userId ? umap.get(r.userId) ?? r.userEmail ?? '—' : (r.userEmail ?? 'Sistema'),
+      activity: r.activity,
+      area: r.area,
+      reference: r.reference,
+      detail: r.detail,
+      shift: r.shift,
+    }));
+  },
+
   /** Renueva/extiende la pernocta: agrega otra duración de tarifa y suma su precio al adeudo. */
   /**
    * Renovación de pernocta: extiende la salida, registra el cargo (cobrado ahora o pendiente),

@@ -24,4 +24,5 @@ staysRouter.post('/stays/:id/pay', requireAnyPermission(['finance', 'create'], [
 staysRouter.post('/stays/:id/renewal-cleaning/:action', requirePermission('operations', 'edit'), asyncHandler(staysController.renewalCleaning));
 staysRouter.post('/stays/:id/request-renewal-cleaning', requirePermission('operations', 'edit'), asyncHandler(staysController.requestRenewalCleaning));
 staysRouter.get('/stays/:id/folio', requirePermission('operations', 'view'), asyncHandler(staysController.folio));
+staysRouter.get('/stays/:id/activity', requirePermission('operations', 'view'), asyncHandler(staysController.activity));
 staysRouter.post('/stays/:id/details', requirePermission('operations', 'edit'), asyncHandler(staysController.updateDetails));

@@ -22,6 +22,10 @@ export const staysController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await staysService.folio(req.scope, req.params.id)));
   },
+  async activity(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await staysService.activity(req.scope, req.params.id)));
+  },
 
   async updateDetails(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();

@@ -21,13 +21,24 @@ interface Folio {
   simulator: { hospedaje: number; productos: number; ratio: number; limit: number; exceeded: boolean; exceso: number; igvAdicional: number; suggested: number };
 }
 type Tab = 'resumen' | 'folio' | 'historial' | 'operacion';
+interface AuditEvent { at: string; user: string; activity: string | null; area: string | null; reference: string | null; detail: string | null; shift: string | null; }
+/** Etiquetas legibles de eventos para la Auditoría. */
+const ACT_LABEL: Record<string, string> = {
+  CHECK_IN: 'Registró el check-in', CHECK_OUT: 'Registró el check-out', RENEWAL: 'Registró una renovación',
+  DEBT_PAYMENT: 'Registró un cobro', ROOM_CHANGE: 'Cambió de habitación',
+  SALE: 'Registró una venta', SALE_VOID: 'Anuló una venta', SALE_CORRECTION: 'Corrigió una venta', FRIGOBAR: 'Registró consumo de frigobar',
+  CLEANING: 'Limpieza', INSPECTION: 'Inspección de limpieza',
+  CASH_IN: 'Ingreso de caja', CASH_OUT: 'Egreso de caja',
+};
+const AREA_ORIGIN: Record<string, string> = { HOSPEDAJE: 'Recepción', VENTAS: 'Recepción', CAJA: 'Recepción', LIMPIEZA: 'Housekeeping', INVENTARIO: 'Housekeeping' };
+interface HistDay { key: string; label: string; renovaciones: { charge: number }[]; limpiezas: { action: string }[]; productos: { name: string; quantity: number; amount: number }[]; productosTotal: number; }
 
 @Component({
   selector: 'app-folio-estancia',
   standalone: true,
   imports: [DatePipe, DecimalPipe, DialogModule, ButtonModule],
   template: `
-    <p-dialog [visible]="visible" (visibleChange)="onVis($event)" [modal]="true" [style]="{ width: '1000px', maxWidth: '97vw' }" [showHeader]="false" styleClass="fl-dialog" (onShow)="load()">
+    <p-dialog [visible]="visible" (visibleChange)="onVis($event)" [modal]="true" [style]="{ width: '96vw', maxWidth: '1400px', height: '94vh' }" [showHeader]="false" styleClass="fl-dialog" (onShow)="load()">
       @if (data(); as f) {
         <div class="fl">
           <header class="fl-head">
@@ -43,7 +54,7 @@ type Tab = 'resumen' | 'folio' | 'historial' | 'operacion';
             <button [class.on]="tab() === 'resumen'" (click)="tab.set('resumen')"><i class="pi pi-eye"></i> Resumen</button>
             <button [class.on]="tab() === 'folio'" (click)="tab.set('folio')"><i class="pi pi-chart-line"></i> Folio</button>
             <button [class.on]="tab() === 'historial'" (click)="tab.set('historial')"><i class="pi pi-list"></i> Historial</button>
-            <button [class.on]="tab() === 'operacion'" (click)="tab.set('operacion')"><i class="pi pi-clock"></i> Operación</button>
+            <button [class.on]="tab() === 'operacion'" (click)="tab.set('operacion')"><i class="pi pi-clock"></i> Auditoría</button>
           </div>
 
           <div class="fl-body">
@@ -128,40 +139,44 @@ type Tab = 'resumen' | 'folio' | 'historial' | 'operacion';
               </div>
             }
 
-            <!-- HISTORIAL -->
+            <!-- HISTORIAL (resumen por día calendario) -->
             @if (tab() === 'historial') {
-              <div class="panel">
-                <h4><i class="pi pi-clock"></i> SEGMENTOS DE ESTADÍA</h4>
-                <div class="seg"><span class="sn">1</span><div class="si"><strong>Pernocta</strong><small>Habitación base</small></div><span class="sa">S/ {{ f.amounts.habitacion | number: '1.2-2' }}</span></div>
-                @if (f.amounts.renovaciones > 0) {
-                  <div class="seg"><span class="sn r">2</span><div class="si"><strong>Renovación</strong><small>{{ f.renewals }} período(s)</small></div><span class="sa">S/ {{ f.amounts.renovaciones | number: '1.2-2' }}</span></div>
-                }
-              </div>
-              <div class="panel">
-                <h4><i class="pi pi-shopping-bag"></i> PRODUCTOS <span class="hl">S/ {{ f.amounts.consumos | number: '1.2-2' }}</span></h4>
-                @for (p of f.products; track $index) {
-                  <div class="prow"><div><strong>{{ p.name }}</strong><small>{{ p.quantity }} unidad(es) · {{ p.at | date: 'dd/MM/yyyy, hh:mm a' }}</small></div>
-                    <div class="pr-r"><span class="pa">S/ {{ p.amount | number: '1.2-2' }}</span><span class="pg" [class.ok]="p.paid">{{ p.paid ? 'Pagado' : 'Pendiente' }}</span></div></div>
-                } @empty { <p class="muted">Sin productos.</p> }
-              </div>
-              <div class="panel">
-                <h4><i class="pi pi-sparkles"></i> LIMPIEZAS — {{ f.cleaning.done }} / {{ f.cleaning.possible }} programadas ({{ f.cleaning.allowed - f.cleaning.done > 0 ? (f.cleaning.allowed - f.cleaning.done) + ' disponible(s) hoy' : 'ninguna disponible aún' }})</h4>
-                @for (c of f.cleaningLog; track $index) {
-                  <div class="crow"><span>{{ c.at | date: 'dd/MM/yyyy, hh:mm a' }} · <strong>{{ c.action }}</strong></span><span class="muted">{{ c.by }}</span></div>
-                } @empty { <p class="muted">Sin registros de limpieza.</p> }
-              </div>
+              <p class="hint2"><i class="pi pi-info-circle"></i> Resumen por día calendario (00:00 a 23:59). Las horas exactas están en Auditoría.</p>
+              @for (d of historialDays(f); track d.key) {
+                <div class="panel">
+                  <h4><i class="pi pi-calendar"></i> {{ d.label }}</h4>
+                  @if (d.renovaciones.length) {
+                    <div class="h-cat"><span class="h-lbl reno"><i class="pi pi-refresh"></i> Renovación</span>
+                      <ul>@for (r of d.renovaciones; track $index) { <li>1 período adicional · S/ {{ r.charge | number: '1.2-2' }}</li> }</ul></div>
+                  }
+                  @if (d.limpiezas.length) {
+                    <div class="h-cat"><span class="h-lbl limp"><i class="pi pi-sparkles"></i> Limpieza</span>
+                      <ul>@for (c of d.limpiezas; track $index) { <li>{{ c.action }}</li> }</ul></div>
+                  }
+                  @if (d.productos.length) {
+                    <div class="h-cat"><span class="h-lbl vent"><i class="pi pi-shopping-bag"></i> Venta de productos</span>
+                      <ul>@for (p of d.productos; track $index) { <li>{{ p.name }} ×{{ p.quantity }} · S/ {{ p.amount | number: '1.2-2' }}</li> }</ul>
+                      <div class="h-tot">Total: S/ {{ d.productosTotal | number: '1.2-2' }}</div></div>
+                  }
+                </div>
+              } @empty { <p class="muted center" style="padding:1.5rem">Sin actividad registrada aún.</p> }
             }
 
-            <!-- OPERACIÓN -->
+            <!-- AUDITORÍA (bitácora cronológica real) -->
             @if (tab() === 'operacion') {
               <div class="panel">
-                <h4><i class="pi pi-clock"></i> OPERACIÓN (SOLO EVENTOS)</h4>
-                <div class="evt"><span class="ev-ico in"><i class="pi pi-sign-in"></i></span>
-                  <div class="ev-card"><strong>Check-In Original</strong><div class="muted">{{ f.checkInAt | date: 'dd/MM/yyyy, hh:mm a' }}</div><div class="muted">DÍA HOTELERO — Hab. #{{ f.room.number }}</div></div></div>
-                @for (p of f.products; track $index) {
-                  <div class="evt"><span class="ev-ico sale"><i class="pi pi-dollar"></i></span>
-                    <div class="ev-card"><strong>Venta: {{ p.name }}</strong><div class="muted">{{ p.at | date: 'dd/MM/yyyy, hh:mm a' }}</div><div class="muted">{{ p.quantity }} unidad(es)</div></div></div>
-                }
+                <h4><i class="pi pi-clock"></i> AUDITORÍA — SECUENCIA CRONOLÓGICA</h4>
+                @for (e of audit(); track $index) {
+                  <div class="au-row">
+                    <span class="au-t">{{ e.at | date: 'dd/MM HH:mm' }}</span>
+                    <span class="au-dot" [class]="auClass(e)"></span>
+                    <div class="au-c">
+                      <div class="au-h"><strong>{{ e.user }}</strong> — {{ actLabel(e) }}</div>
+                      @if (e.detail) { <div class="au-d">{{ e.detail }}</div> }
+                      <div class="au-m"><span class="au-org">{{ origin(e) }}</span>@if (e.reference) { <span class="au-ref">{{ e.reference }}</span> }</div>
+                    </div>
+                  </div>
+                } @empty { <p class="muted center">Sin eventos de auditoría para esta estancia.</p> }
               </div>
             }
           </div>
@@ -178,8 +193,9 @@ type Tab = 'resumen' | 'folio' | 'historial' | 'operacion';
   `,
   styles: [
     `
-      :host ::ng-deep .fl-dialog .p-dialog-content { background: #0a0e1a; color: #e6edf5; padding: 0; }
-      .fl { display: flex; flex-direction: column; }
+      :host ::ng-deep .fl-dialog .p-dialog { display: flex; flex-direction: column; }
+      :host ::ng-deep .fl-dialog .p-dialog-content { background: #0a0e1a; color: #e6edf5; padding: 0; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+      .fl { display: flex; flex-direction: column; flex: 1; min-height: 0; }
       .fl-head { display: flex; align-items: center; justify-content: space-between; padding: 1.1rem 1.4rem; background: #0f1a2b; border-bottom: 1px solid #1c2c44; }
       .fl-id { display: flex; align-items: center; gap: 0.8rem; }
       .ico { background: #5b21b6; color: #fff; width: 42px; height: 42px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.2rem; }
@@ -191,9 +207,26 @@ type Tab = 'resumen' | 'folio' | 'historial' | 'operacion';
       .tabs { display: flex; gap: 0.2rem; padding: 0 1.4rem; background: #0f1a2b; border-bottom: 1px solid #1c2c44; }
       .tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; color: #8aa0bd; padding: 0.8rem 1rem; cursor: pointer; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.4rem; }
       .tabs button.on { color: #60a5fa; border-bottom-color: #60a5fa; font-weight: 700; }
-      .fl-body { padding: 1.2rem 1.4rem; max-height: 62vh; overflow-y: auto; }
-      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-      .panel { background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 12px; padding: 1.1rem; margin-bottom: 1rem; }
+      .fl-body { padding: 1rem 1.3rem; flex: 1; min-height: 0; overflow-y: auto; }
+      .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; }
+      .panel { background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 12px; padding: 0.85rem; margin-bottom: 0.7rem; }
+      /* Historial por día */
+      .hint2 { display: flex; align-items: center; gap: 0.4rem; color: #8aa0bd; font-size: 0.8rem; margin: 0 0 0.7rem; } .hint2 .pi { color: #60a5fa; }
+      .h-cat { margin-bottom: 0.6rem; } .h-cat:last-child { margin-bottom: 0; }
+      .h-lbl { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase; }
+      .h-lbl.reno { color: #5eead4; } .h-lbl.limp { color: #93c5fd; } .h-lbl.vent { color: #fbbf24; }
+      .h-cat ul { margin: 0.3rem 0 0; padding-left: 1.1rem; color: #cbd5e1; font-size: 0.85rem; } .h-cat li { margin: 0.1rem 0; }
+      .h-tot { color: #fbbf24; font-weight: 700; font-size: 0.82rem; margin-top: 0.25rem; }
+      /* Auditoría timeline */
+      .au-row { display: flex; gap: 0.7rem; align-items: flex-start; padding: 0.4rem 0; border-bottom: 1px solid #16202e; }
+      .au-t { flex: 0 0 4.6rem; color: #8aa0bd; font-size: 0.76rem; font-variant-numeric: tabular-nums; padding-top: 0.15rem; }
+      .au-dot { flex: 0 0 auto; width: 0.7rem; height: 0.7rem; border-radius: 50%; background: #64748b; margin-top: 0.3rem; }
+      .au-dot.hosp { background: #34d399; } .au-dot.limp { background: #60a5fa; } .au-dot.vent { background: #fbbf24; } .au-dot.sys { background: #a78bfa; }
+      .au-c { flex: 1; min-width: 0; } .au-h { font-size: 0.88rem; } .au-h strong { color: #fff; }
+      .au-d { color: #9fb0c3; font-size: 0.8rem; margin-top: 0.1rem; }
+      .au-m { display: flex; gap: 0.5rem; margin-top: 0.15rem; flex-wrap: wrap; }
+      .au-org { font-size: 0.68rem; font-weight: 700; color: #93c5fd; background: rgba(37,99,235,0.15); border-radius: 999px; padding: 0.05rem 0.5rem; }
+      .au-ref { font-size: 0.68rem; color: #8aa0bd; }
       h4 { margin: 0 0 0.8rem; font-size: 0.82rem; color: #8aa0bd; letter-spacing: 0.03em; display: flex; align-items: center; gap: 0.4rem; }
       h4 .hl { margin-left: auto; color: #fbbf24; } h4 .pi { color: #60a5fa; }
       .g-name { font-size: 1.2rem; font-weight: 800; }
@@ -271,6 +304,7 @@ export class FolioEstanciaComponent implements OnDestroy {
   @Output() changed = new EventEmitter<void>();
 
   readonly data = signal<Folio | null>(null);
+  readonly audit = signal<AuditEvent[]>([]);
   readonly tab = signal<Tab>('resumen');
   readonly nowTick = signal(Date.now());
   readonly busy = signal(false);
@@ -295,9 +329,47 @@ export class FolioEstanciaComponent implements OnDestroy {
   load(): void {
     this.tab.set('resumen');
     this.data.set(null);
+    this.audit.set([]);
     if (!this.stayId) return;
     this.http.get<ApiResponse<Folio>>(`${this.api}/stays/${this.stayId}/folio`).subscribe((r) => this.data.set(r.data));
+    this.http.get<ApiResponse<AuditEvent[]>>(`${this.api}/stays/${this.stayId}/activity`).subscribe((r) => this.audit.set(r.data ?? []));
     if (!this.clock) this.clock = setInterval(() => this.nowTick.set(Date.now()), 1000);
+  }
+
+  // ── Auditoría ──
+  actLabel(e: AuditEvent): string { return (e.activity && ACT_LABEL[e.activity]) || e.detail || e.activity || 'Evento'; }
+  origin(e: AuditEvent): string { return (e.area && AREA_ORIGIN[e.area]) || 'Sistema'; }
+  auClass(e: AuditEvent): string {
+    const a = e.area ?? '';
+    if (a === 'HOSPEDAJE') return 'au-dot hosp';
+    if (a === 'LIMPIEZA' || a === 'INVENTARIO') return 'au-dot limp';
+    if (a === 'VENTAS' || a === 'CAJA') return 'au-dot vent';
+    return 'au-dot sys';
+  }
+
+  // ── Historial por día calendario ──
+  private dayKey(iso: string): string { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+  private dayLabel(iso: string): string {
+    const d = new Date(iso);
+    const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    return `${days[d.getDay()]} ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  }
+  private isRenewalDesc(s: string): boolean { return /renov|tiempo extra|extensi/i.test(s || ''); }
+  historialDays(f: Folio): HistDay[] {
+    const map = new Map<string, HistDay>();
+    const get = (iso: string): HistDay => {
+      const k = this.dayKey(iso);
+      let d = map.get(k);
+      if (!d) { d = { key: k, label: this.dayLabel(iso), renovaciones: [], limpiezas: [], productos: [], productosTotal: 0 }; map.set(k, d); }
+      return d;
+    };
+    // Renovaciones: cargos de renovación en los movimientos (con fecha real).
+    for (const m of f.movements) if (m.charge > 0 && this.isRenewalDesc(m.description)) get(m.at).renovaciones.push({ charge: m.charge });
+    // Limpiezas: bitácora de tareas.
+    for (const c of f.cleaningLog) get(c.at).limpiezas.push({ action: c.action });
+    // Productos consumidos.
+    for (const p of f.products) { const d = get(p.at); d.productos.push({ name: p.name, quantity: p.quantity, amount: p.amount }); d.productosTotal += p.amount; }
+    return [...map.values()].sort((a, b) => a.key.localeCompare(b.key));
   }
 
   onVis(v: boolean): void { this.visible = v; this.visibleChange.emit(v); }
