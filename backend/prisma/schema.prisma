@@ -757,6 +757,7 @@ model Stay {
   renewalCleaningStatus String @default("NONE") // NONE | SOLICITADA | EN_CURSO (limpieza de renovación)
   renewalCleaningStep   Int    @default(0) // progreso por pasos de la limpieza de renovación
   renewalCleaningDone   Int    @default(0) // limpiezas de renovación completadas (progreso done/allowed)
+  renewalCleaningExpired Int   @default(0) // limpiezas vencidas (no solicitadas), marcadas al pasar su día (00:00)
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 

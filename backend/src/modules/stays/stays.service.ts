@@ -69,16 +69,28 @@ const RENEWAL_DAY_MS = 24 * 60 * 60 * 1000;
  *    mientras el huésped sigue alojado (no se entregan todas por adelantado).
  * Independiente de la cantidad de pagos/renovaciones, montos o si fue deuda o pago inmediato.
  */
+const CLEAN_AVAIL_HOUR = 6; // 06:30
+const CLEAN_AVAIL_MIN = 30;
+/**
+ * Disponibilidad de la limpieza k (1..possible): desde las 06:30 del día calendario (k+1) contado
+ * desde el check-in (Día 2 → limpieza 1, Día 3 → limpieza 2, …). Devuelve el timestamp de inicio.
+ */
+function cleaningAvailAt(checkInAt: Date, k: number): number {
+  const ci = new Date(checkInAt);
+  const d = new Date(ci.getFullYear(), ci.getMonth(), ci.getDate(), CLEAN_AVAIL_HOUR, CLEAN_AVAIL_MIN, 0, 0);
+  d.setDate(d.getDate() + k); // Día (k+1) a las 06:30
+  return d.getTime();
+}
 function renewalCleaningCounts(stay: { checkInAt: Date; plannedCheckoutAt: Date }): { possible: number; enabled: number } {
   const ci = new Date(stay.checkInAt).getTime();
   const pco = new Date(stay.plannedCheckoutAt).getTime();
   const totalNights = Math.max(1, Math.round((pco - ci) / RENEWAL_DAY_MS));
   const possible = Math.max(0, totalNights - 1);
   if (possible === 0) return { possible: 0, enabled: 0 };
-  // Checkout de la noche 1 = checkout final − (noches−1) días. Cada limpieza k habilita en el checkout de la noche k.
-  const firstNightCheckout = pco - (totalNights - 1) * RENEWAL_DAY_MS;
+  // Cada limpieza k habilita a las 06:30 de su día calendario. `enabled` = cuántas ya llegaron a esa hora.
   const now = Date.now();
-  const enabled = now < firstNightCheckout ? 0 : Math.min(possible, Math.floor((now - firstNightCheckout) / RENEWAL_DAY_MS) + 1);
+  let enabled = 0;
+  for (let k = 1; k <= possible; k++) if (now >= cleaningAvailAt(new Date(stay.checkInAt), k)) enabled++;
   return { possible, enabled };
 }
 
@@ -400,7 +412,10 @@ export const staysService = {
 
     // Limpiezas de RENOVACIÓN por NOCHES acumuladas + avance real de la estadía (no por eventos):
     // allowed = limpiezas habilitadas hasta hoy; possible = total según noches; done = completadas.
-    const { possible: cleaningPossible, enabled: cleaningAllowed } = renewalCleaningCounts(stay);
+    const { possible: cleaningPossible, enabled: cleaningEnabled } = renewalCleaningCounts(stay);
+    const cleaningExpired = stay.renewalCleaningExpired ?? 0;
+    // Disponibles = habilitadas por 06:30 − vencidas (no acumulan; las no solicitadas vencen a las 00:00).
+    const cleaningAllowed = Math.max(0, cleaningEnabled - cleaningExpired);
     const cleaningDone = stay.renewalCleaningDone ?? 0;
     const cleaningLog = tasks.map((t) => ({ at: t.completedAt ?? t.createdAt, action: t.status === 'PENDING' ? 'Solicitó' : t.status === 'IN_PROGRESS' ? 'Inició' : 'Finalizó', by: uname(t.assignedToUserId) }));
 

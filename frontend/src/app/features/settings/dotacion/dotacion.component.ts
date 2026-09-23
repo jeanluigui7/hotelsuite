@@ -118,6 +118,8 @@ const GROUP_META: Record<string, { label: string; cls: string }> = {
                       <span class="rn">{{ it.name }}</span>
                       @if (g.key === 'CLOTHING') {
                         <p-select class="size" [options]="sizesFor(it.name)" [(ngModel)]="it.size" (onChange)="saveField(it)" [placeholder]="sizesFor(it.name).length ? 'Tamaño' : 'Sin tamaños'" [showClear]="true" appendTo="body" styleClass="size-sel" />
+                      } @else if (g.key === 'FRIGOBAR') {
+                        <p-select class="size" [options]="frigoLocations" optionLabel="label" optionValue="value" [(ngModel)]="it.size" (onChange)="saveField(it)" placeholder="Ubicación" appendTo="body" styleClass="size-sel" />
                       }
                       <span class="q">Cant. <p-inputNumber [(ngModel)]="it.baseQty" [min]="1" [showButtons]="true" buttonLayout="horizontal" (onBlur)="saveField(it)" inputStyleClass="qi" /></span>
                       @if (canDelete) { <button class="del" (click)="removeItem(it)" title="Quitar"><i class="pi pi-trash"></i></button> }
@@ -379,10 +381,12 @@ export class DotacionComponent implements OnInit {
     return this.products().filter((p) => p.frigobarEnabled && p.categoryId === this.frigoPickCategoryId && (!q || p.name.toLowerCase().includes(q)));
   }
   frigoAlready(productId: string): boolean { return this.items().some((i) => i.articleKind === 'FRIGOBAR' && (i as unknown as { productId?: string }).productId === productId); }
+  // Ubicación del producto de frigobar (se guarda en el campo `size` de la dotación).
+  readonly frigoLocations = [{ label: 'Frigobar', value: 'FRIGOBAR' }, { label: 'Bandeja', value: 'BANDEJA' }];
   addFrigoProduct(p: Prod): void {
     if (!this.roomTypeId || !this.canEdit || this.frigoAlready(p.id)) return;
     this.http.post<ApiResponse<Dotacion>>(`${this.api}/dotacion`, {
-      roomTypeId: this.roomTypeId, category: this.frigoPickCat, articleKind: 'FRIGOBAR', name: p.name, productId: p.id, baseQty: 1, status: 'active',
+      roomTypeId: this.roomTypeId, category: this.frigoPickCat, articleKind: 'FRIGOBAR', name: p.name, productId: p.id, size: 'FRIGOBAR', baseQty: 1, status: 'active',
     }).subscribe({
       next: () => this.reload(),
       error: (e: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo agregar.' }),
