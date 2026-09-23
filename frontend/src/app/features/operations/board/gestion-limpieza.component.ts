@@ -8,8 +8,9 @@ import { MessageService } from 'primeng/api';
 import { forkJoin } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
+import { FrigobarInspectionComponent } from './frigobar-inspection.component';
 
-interface CleanRoom { id: string; number: string; floor?: string | null; status: string; typeName: string; repaso: boolean; mantenimiento?: boolean; enCurso: boolean; revision?: boolean; renewal?: boolean; taskId: string | null; startedAt?: string | null; }
+interface CleanRoom { id: string; number: string; floor?: string | null; status: string; typeName: string; repaso: boolean; mantenimiento?: boolean; enCurso: boolean; revision?: boolean; renewal?: boolean; taskId: string | null; startedAt?: string | null; frigobarEnabled?: boolean; stayId?: string | null; }
 interface Supply { id: string; roomId: string; room: string; floor?: string | null; roomType?: string; description: string; category?: string; quantity: number; }
 interface SupplyGroup { roomId: string; room: string; floor?: string | null; roomType?: string; items: Supply[]; }
 interface LinenItem { id: string; type: string; name: string; color?: string | null; reusable: boolean; }
@@ -74,7 +75,7 @@ const ACCIONES_PERIODICAS = [
 @Component({
   selector: 'app-gestion-limpieza',
   standalone: true,
-  imports: [FormsModule, ButtonModule, DialogModule, SelectModule],
+  imports: [FormsModule, ButtonModule, DialogModule, SelectModule, FrigobarInspectionComponent],
   template: `
     <section class="gl">
       <header class="top"><h1>Gestión de Habitaciones</h1><button class="refresh" (click)="reload()"><i class="pi pi-refresh"></i> Actualizar</button></header>
@@ -155,6 +156,9 @@ const ACCIONES_PERIODICAS = [
               <div class="st">Limpieza en espera</div>
               <button class="cta" (click)="openIniciar(r)"><i class="pi pi-play"></i> Iniciar Limpieza</button>
               @if (r.renewal) { <button class="cta reject" [disabled]="busy()" (click)="rechazar(r)"><i class="pi pi-times"></i> Rechazar limpieza</button> }
+            }
+            @if (r.frigobarEnabled && r.stayId) {
+              <button class="cta frigo" (click)="openFrigoInsp(r)"><i class="pi pi-inbox"></i> Revisar frigobar</button>
             }
           </article>
         } @empty { <p class="muted">No hay habitaciones pendientes de limpieza.</p> }
@@ -397,6 +401,9 @@ const ACCIONES_PERIODICAS = [
         <p-button label="Confirmar Entrega" icon="pi pi-check-circle" severity="success" [loading]="busy()" (onClick)="confirmDeliver()" />
       </ng-template>
     </p-dialog>
+
+    <!-- Inspección de frigobar (mismo modal que usa Recepción en el folio; aquí origen = HOUSEKEEPING) -->
+    <app-frigobar-inspection [(visible)]="inspVisible" [stayId]="inspStayId" [roomNumber]="inspRoomNumber" origin="HOUSEKEEPING" (confirmed)="reload()" />
   `,
   styles: [
     `
@@ -452,6 +459,7 @@ const ACCIONES_PERIODICAS = [
       .cta { margin-top: 0.6rem; width: 100%; background: #ec4899; color: #fff; border: 0; border-radius: 10px; padding: 0.6rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; justify-content: center; }
       .cta.done { background: #10b981; }
       .cta.reject { margin-top: 0.4rem; background: transparent; border: 1px solid rgba(248,113,113,0.6); color: #fecaca; } .cta.reject:hover { background: rgba(248,113,113,0.12); } .cta.reject:disabled { opacity: 0.5; cursor: not-allowed; }
+      .cta.frigo { margin-top: 0.4rem; background: transparent; border: 1px solid rgba(59,130,246,0.6); color: #bfdbfe; } .cta.frigo:hover { background: rgba(59,130,246,0.14); }
       .hint { background: #0e241c; border: 1px solid #1f3a2c; color: #9fe7c4; padding: 0.55rem 0.8rem; border-radius: 8px; font-size: 0.82rem; }
       .insp { width: 100%; border-collapse: collapse; margin-top: 0.6rem; }
       .insp th { text-align: left; padding: 0.5rem; color: #8aa499; font-size: 0.8rem; border-bottom: 1px solid #1f3a2c; } .insp th.ck, .insp td.ck { text-align: center; width: 5rem; }
@@ -583,6 +591,10 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   readonly linen = signal<LinenItem[]>([]);
   readonly rows = signal<UnitRow[]>([]);
   readonly busy = signal(false);
+  // Inspección de frigobar (reusa el modal del folio; origen HOUSEKEEPING)
+  inspVisible = false;
+  inspStayId: string | null = null;
+  inspRoomNumber = '';
   // Incidencia (Robada/Deteriorada) por unidad
   incVisible = false;
   incUnit: UnitRow | null = null;
@@ -682,6 +694,14 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     const sec = s % 60;
     const p = (n: number): string => String(n).padStart(2, '0');
     return `${p(h)}:${p(m)}:${p(sec)}`;
+  }
+
+  /** Abre el modal de inspección de frigobar para la estancia activa de la habitación (origen HOUSEKEEPING). */
+  openFrigoInsp(r: CleanRoom): void {
+    if (!r.stayId) return;
+    this.inspStayId = r.stayId;
+    this.inspRoomNumber = r.number;
+    this.inspVisible = true;
   }
 
   reload(): void {

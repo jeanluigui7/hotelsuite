@@ -4,12 +4,12 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
 import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
-import { InputNumberModule } from 'primeng/inputnumber';
 import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { docLabel, natLabel } from '../services/operations.models';
+import { FrigobarInspectionComponent } from './frigobar-inspection.component';
 
 interface Folio {
   folio: { code: string; status: string };
@@ -29,7 +29,6 @@ interface Folio {
     lines?: { name: string; quantity: number; amount: number }[]; consumido?: number; pagado?: number; pendiente?: number;
   };
 }
-interface ReviewLine { productId: string; name: string; imageUrl?: string | null; location: 'FRIGOBAR' | 'BANDEJA'; expectedQty: number; unitPrice: number; consumo: number; }
 type Tab = 'resumen' | 'folio' | 'historial' | 'operacion';
 interface AuditEvent { at: string; user: string; activity: string | null; area: string | null; reference: string | null; detail: string | null; shift: string | null; }
 /** Etiquetas legibles de eventos para la Auditoría. */
@@ -46,7 +45,7 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
 @Component({
   selector: 'app-folio-estancia',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, DialogModule, ButtonModule, InputNumberModule, SelectModule],
+  imports: [DatePipe, DecimalPipe, FormsModule, DialogModule, ButtonModule, SelectModule, FrigobarInspectionComponent],
   template: `
     <p-dialog [visible]="visible" (visibleChange)="onVis($event)" [modal]="true" [style]="{ width: '96vw', maxWidth: '1400px', height: '94vh' }" [showHeader]="false" styleClass="fl-dialog" (onShow)="load()">
       @if (data(); as f) {
@@ -237,46 +236,8 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
       } @else { <p class="loading">Cargando folio…</p> }
     </p-dialog>
 
-    <!-- Inspección de frigobar -->
-    <p-dialog [(visible)]="reviewVisible" [modal]="true" [header]="(data()?.room?.number || '') + ' - INSPECCIÓN FRIGOBAR'" [style]="{ width: '52rem', maxWidth: '97vw' }" styleClass="fl-dialog2">
-      @if (!reviewLines().length) {
-        <p class="muted" style="padding:1rem">La habitación no tiene dotación de frigobar. Dótala primero en <b>Dotación Base → Primera Dotación</b>.</p>
-      } @else {
-        <div class="insp">
-          <div class="insp-l">
-            @for (g of reviewGroups(); track g.key) {
-              <div class="ig">
-                <div class="ig-h" [class.bandeja]="g.key === 'BANDEJA'"><i class="pi" [class.pi-inbox]="g.key === 'FRIGOBAR'" [class.pi-shopping-cart]="g.key === 'BANDEJA'"></i> <div><b>{{ g.label }}</b><small>{{ g.key === 'FRIGOBAR' ? 'Productos dentro del frigobar' : 'Productos sobre la bandeja / mesa' }}</small></div></div>
-                <div class="ig-cols"><span>PRODUCTO</span><span class="c">BASE</span><span class="c">IMAGEN</span><span class="c">CONSUMO</span></div>
-                @for (l of g.rows; track l.productId) {
-                  <div class="ig-row" [class.on]="l.consumo > 0">
-                    <span class="ig-n">{{ l.name }}</span>
-                    <span class="c ig-b">{{ l.expectedQty }}</span>
-                    <button class="c ig-img" type="button" [disabled]="l.consumo >= l.expectedQty" (click)="revInc(l)" title="Tocar para marcar consumo">@if (l.imageUrl) { <img [src]="l.imageUrl" alt="" /> } @else { <i class="pi pi-image"></i> }</button>
-                    <span class="c ig-step">
-                      <button class="st" [disabled]="l.consumo <= 0" (click)="revDec(l)" title="Reducir">−</button>
-                      <b [class.on]="l.consumo > 0">{{ l.consumo > 0 ? ('−' + l.consumo) : '0' }}</b>
-                    </span>
-                  </div>
-                }
-              </div>
-            }
-          </div>
-          <div class="insp-r">
-            <div class="ir-h"><i class="pi pi-file-edit"></i> <div><b>PRODUCTOS CONSUMIDOS</b><small>Se cargarán al folio</small></div></div>
-            <div class="ir-list">
-              @for (l of reviewConsumed(); track l.productId) { <div class="ir-l"><span class="ir-q">{{ l.consumo }} ×</span> {{ l.name }}</div> }
-              @if (!reviewConsumed().length) { <p class="muted sm">Sin consumo aún.</p> }
-            </div>
-            <div class="ir-tot"><i class="pi pi-chart-bar"></i> <div><small>TOTAL CONSUMIDO</small><strong>{{ reviewTotalUnits() }} unidad(es)</strong></div></div>
-          </div>
-        </div>
-      }
-      <ng-template pTemplate="footer">
-        <p-button label="Cancelar" [text]="true" (onClick)="reviewVisible = false" />
-        <p-button label="Confirmar Inspección" icon="pi pi-check" severity="success" [loading]="busy()" [disabled]="!reviewLines().length" (onClick)="submitReview()" />
-      </ng-template>
-    </p-dialog>
+    <!-- Inspección de frigobar (componente reutilizable; Housekeeping usa el mismo con origin=HOUSEKEEPING) -->
+    <app-frigobar-inspection [(visible)]="reviewVisible" [stayId]="stayId" [roomNumber]="data()?.room?.number || ''" origin="RECEPCION" (confirmed)="onReviewDone()" />
 
     <!-- Cobrar frigobar (reusa el cobro de la estancia) -->
     <p-dialog [(visible)]="cobroVisible" [modal]="true" header="Cobrar Frigobar" [style]="{ width: '24rem', maxWidth: '95vw' }" styleClass="fl-dialog2">
@@ -467,7 +428,6 @@ export class FolioEstanciaComponent implements OnDestroy {
 
   // ── Frigobar: revisar / cobrar / reponer ──
   reviewVisible = false;
-  readonly reviewLines = signal<ReviewLine[]>([]);
   cobroVisible = false;
   cobroAmount = 0;
   cobroMethod = 'CASH';
@@ -475,33 +435,8 @@ export class FolioEstanciaComponent implements OnDestroy {
     { label: 'Efectivo', value: 'CASH' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Transferencia', value: 'TRANSFER' },
     { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' }, { label: 'Billetera', value: 'WALLET' },
   ];
-  openReview(): void {
-    if (!this.stayId) return;
-    this.reviewLines.set([]);
-    this.http.get<ApiResponse<{ lines: ReviewLine[] }>>(`${this.api}/frigobar/review/${this.stayId}/start`).subscribe({
-      next: (r) => { this.reviewLines.set((r.data?.lines ?? []).map((l) => ({ ...l, location: l.location === 'BANDEJA' ? 'BANDEJA' : 'FRIGOBAR', consumo: 0 }))); this.reviewVisible = true; },
-      error: (e: HttpErrorResponse) => this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo iniciar la revisión.' }),
-    });
-  }
-  reviewGroups(): { key: string; label: string; rows: ReviewLine[] }[] {
-    const fr = this.reviewLines().filter((l) => l.location !== 'BANDEJA');
-    const ba = this.reviewLines().filter((l) => l.location === 'BANDEJA');
-    return [{ key: 'FRIGOBAR', label: 'Frigobar', rows: fr }, { key: 'BANDEJA', label: 'Bandeja', rows: ba }].filter((g) => g.rows.length);
-  }
-  revInc(l: ReviewLine): void { if (l.consumo < l.expectedQty) { l.consumo++; this.reviewLines.set([...this.reviewLines()]); } }
-  revDec(l: ReviewLine): void { if (l.consumo > 0) { l.consumo--; this.reviewLines.set([...this.reviewLines()]); } }
-  reviewConsumed(): ReviewLine[] { return this.reviewLines().filter((l) => l.consumo > 0); }
-  reviewTotalUnits(): number { return this.reviewLines().reduce((a, l) => a + l.consumo, 0); }
-  submitReview(): void {
-    if (!this.stayId || !this.reviewLines().length) return;
-    this.busy.set(true);
-    // El backend recibe "quedan" (found) = base − consumo. Origen RECEPCION (Housekeeping usará el mismo modal luego).
-    const lines = this.reviewLines().map((l) => ({ productId: l.productId, foundQty: Math.max(0, l.expectedQty - l.consumo) }));
-    this.http.post<ApiResponse<{ consumedTotal: number }>>(`${this.api}/frigobar/review/${this.stayId}`, { lines, origin: 'RECEPCION' }).subscribe({
-      next: (r) => { this.busy.set(false); this.reviewVisible = false; const c = r.data?.consumedTotal ?? 0; this.toast.add({ severity: 'success', summary: 'Frigobar revisado', detail: c > 0 ? `Consumo registrado: S/ ${c.toFixed(2)}` : 'Sin consumo.' }); this.load(); this.changed.emit(); },
-      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo registrar la revisión.' }); },
-    });
-  }
+  openReview(): void { this.reviewVisible = true; }
+  onReviewDone(): void { this.load(); this.changed.emit(); }
   openCobro(amount: number): void { this.cobroAmount = amount; this.cobroMethod = 'CASH'; this.cobroVisible = true; }
   confirmCobro(): void {
     if (!this.stayId || this.cobroAmount <= 0) return;
