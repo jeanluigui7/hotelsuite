@@ -1923,6 +1923,7 @@ model FrigobarReview {
   stayId            String
   roomId            String
   status            String    @default("REVIEWED") // REVIEWED (sin consumo) | CHARGED (consumo cargado)
+  origin            String    @default("RECEPCION") // RECEPCION | HOUSEKEEPING (origen de la inspección)
   reviewedByUserId  String?
   reviewedAt        DateTime  @default(now())
   saleId            String? // cargo del consumo (venta OPEN ligada a la estancia)

@@ -10,6 +10,7 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 export const submitReviewSchema = z.object({
   lines: z.array(z.object({ productId: z.string().min(1), foundQty: z.coerce.number().int().min(0) })).min(1),
+  origin: z.enum(['RECEPCION', 'HOUSEKEEPING']).default('RECEPCION'),
   note: z.string().max(300).optional().or(z.literal('')),
 });
 export type SubmitReviewDto = z.infer<typeof submitReviewSchema>;
@@ -95,7 +96,7 @@ export const frigobarReviewService = {
       }
       const review = await tx.frigobarReview.create({
         data: {
-          branchId, stayId, roomId: room.id, status: consumedTotal > 0 ? 'CHARGED' : 'REVIEWED',
+          branchId, stayId, roomId: room.id, status: consumedTotal > 0 ? 'CHARGED' : 'REVIEWED', origin: dto.origin,
           reviewedByUserId: scope.userId, reviewedAt: now, saleId, consumedTotal, repositionPending: consumedTotal > 0,
           lines: { create: lines.map((l) => ({ productId: l.productId, name: l.name, expectedQty: l.expected, foundQty: l.found, consumedQty: l.consumed, unitPrice: l.unitPrice, amount: l.amount })) },
         },

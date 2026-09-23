@@ -238,7 +238,7 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
     </p-dialog>
 
     <!-- Inspección de frigobar -->
-    <p-dialog [(visible)]="reviewVisible" [modal]="true" [header]="'Inspección Frigobar · Hab. ' + (data()?.room?.number || '')" [style]="{ width: '52rem', maxWidth: '97vw' }" styleClass="fl-dialog2">
+    <p-dialog [(visible)]="reviewVisible" [modal]="true" [header]="(data()?.room?.number || '') + ' - INSPECCIÓN FRIGOBAR'" [style]="{ width: '52rem', maxWidth: '97vw' }" styleClass="fl-dialog2">
       @if (!reviewLines().length) {
         <p class="muted" style="padding:1rem">La habitación no tiene dotación de frigobar. Dótala primero en <b>Dotación Base → Primera Dotación</b>.</p>
       } @else {
@@ -252,11 +252,10 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
                   <div class="ig-row" [class.on]="l.consumo > 0">
                     <span class="ig-n">{{ l.name }}</span>
                     <span class="c ig-b">{{ l.expectedQty }}</span>
-                    <span class="c ig-img">@if (l.imageUrl) { <img [src]="l.imageUrl" alt="" /> } @else { <i class="pi pi-image"></i> }</span>
+                    <button class="c ig-img" type="button" [disabled]="l.consumo >= l.expectedQty" (click)="revInc(l)" title="Tocar para marcar consumo">@if (l.imageUrl) { <img [src]="l.imageUrl" alt="" /> } @else { <i class="pi pi-image"></i> }</button>
                     <span class="c ig-step">
-                      <button class="st" [disabled]="l.consumo <= 0" (click)="revDec(l)">−</button>
-                      <b [class.on]="l.consumo > 0">{{ l.consumo }}</b>
-                      <button class="st" [disabled]="l.consumo >= l.expectedQty" (click)="revInc(l)">+</button>
+                      <button class="st" [disabled]="l.consumo <= 0" (click)="revDec(l)" title="Reducir">−</button>
+                      <b [class.on]="l.consumo > 0">{{ l.consumo > 0 ? ('−' + l.consumo) : '0' }}</b>
                     </span>
                   </div>
                 }
@@ -390,17 +389,20 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
       .cb-amt { display: flex; flex-direction: column; align-items: center; gap: 0.2rem; color: #8aa0bd; font-size: 0.8rem; margin-bottom: 0.8rem; } .cb-amt strong { font-size: 1.8rem; color: #6ee7b7; }
       .cb-lbl { display: block; font-size: 0.8rem; color: #8aa0bd; margin-bottom: 0.3rem; } :host ::ng-deep .fl-dialog2 .w { width: 100%; }
       /* Inspección de frigobar (2 columnas) */
-      .insp { display: grid; grid-template-columns: 1fr 15rem; gap: 0.9rem; }
+      .insp { display: grid; grid-template-columns: 1fr 15rem; gap: 0.9rem; align-items: start; }
+      .insp-l { max-height: 64vh; overflow-y: auto; padding-right: 0.3rem; }
+      .insp-r { position: sticky; top: 0; }
       .ig { background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 12px; margin-bottom: 0.8rem; overflow: hidden; }
       .ig-h { display: flex; align-items: center; gap: 0.6rem; padding: 0.7rem 0.9rem; background: rgba(59,130,246,0.12); color: #93c5fd; } .ig-h.bandeja { background: rgba(245,158,11,0.12); color: #fbbf24; } .ig-h b { display: block; } .ig-h small { color: #8aa0bd; font-size: 0.72rem; } .ig-h .pi { font-size: 1.2rem; }
       .ig-cols { display: grid; grid-template-columns: 1fr 4rem 4rem 6rem; gap: 0.4rem; padding: 0.35rem 0.9rem; font-size: 0.64rem; color: #8aa0bd; font-weight: 700; letter-spacing: 0.03em; } .ig-cols .c { text-align: center; }
       .ig-row { display: grid; grid-template-columns: 1fr 4rem 4rem 6rem; gap: 0.4rem; align-items: center; padding: 0.4rem 0.9rem; border-top: 1px solid #16202e; } .ig-row.on { background: rgba(244,63,94,0.06); }
-      .ig-n { font-weight: 700; font-size: 0.85rem; } .ig-b { text-align: center; font-weight: 700; } .ig-img { text-align: center; } .ig-img img { width: 2rem; height: 2rem; object-fit: contain; border-radius: 4px; } .ig-img .pi { color: #46617a; }
+      .ig-n { font-weight: 800; font-size: 0.98rem; text-transform: uppercase; letter-spacing: 0.02em; color: #fff; } .ig-b { text-align: center; font-weight: 800; font-size: 1rem; }
+      .ig-img { display: inline-flex; align-items: center; justify-content: center; background: #0b1220; border: 1px solid #274468; border-radius: 8px; padding: 0.2rem; cursor: pointer; width: 2.6rem; height: 2.6rem; margin: 0 auto; } .ig-img:hover:not(:disabled) { border-color: #3b82f6; } .ig-img:disabled { opacity: 0.6; cursor: not-allowed; } .ig-img img { max-width: 2rem; max-height: 2rem; object-fit: contain; } .ig-img .pi { color: #46617a; }
       .ig-step { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
-      .ig-step .st { width: 1.7rem; height: 1.7rem; border: 1px solid #7f1d1d; background: rgba(244,63,94,0.12); color: #fca5a5; border-radius: 7px; cursor: pointer; font-weight: 800; line-height: 1; } .ig-step .st:disabled { opacity: 0.35; cursor: not-allowed; } .ig-step b { min-width: 1.1rem; text-align: center; color: #64748b; } .ig-step b.on { color: #f87171; }
+      .ig-step .st { width: 1.9rem; height: 1.9rem; border: 1px solid #7f1d1d; background: rgba(244,63,94,0.12); color: #fca5a5; border-radius: 7px; cursor: pointer; font-weight: 800; line-height: 1; } .ig-step .st:disabled { opacity: 0.35; cursor: not-allowed; } .ig-step b { min-width: 2rem; text-align: center; color: #64748b; font-size: 1.1rem; } .ig-step b.on { color: #f87171; }
       .insp-r { background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 12px; padding: 0.8rem; display: flex; flex-direction: column; }
       .ir-h { display: flex; align-items: flex-start; gap: 0.5rem; color: #fca5a5; margin-bottom: 0.6rem; } .ir-h b { display: block; font-size: 0.78rem; } .ir-h small { color: #8aa0bd; font-size: 0.68rem; } .ir-h .pi { color: #f87171; }
-      .ir-list { flex: 1; min-height: 4rem; } .ir-l { padding: 0.35rem 0; border-bottom: 1px solid #16202e; font-size: 0.85rem; } .ir-q { color: #f87171; font-weight: 800; } .sm { font-size: 0.78rem; }
+      .ir-list { flex: 1; min-height: 4rem; } .ir-l { padding: 0.35rem 0; border-bottom: 1px solid #16202e; font-size: 0.85rem; text-transform: uppercase; } .ir-q { color: #f87171; font-weight: 800; } .sm { font-size: 0.78rem; text-transform: none; }
       .ir-tot { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.6rem; background: rgba(244,63,94,0.12); border: 1px solid #7f1d1d; border-radius: 10px; padding: 0.6rem 0.8rem; color: #fca5a5; } .ir-tot small { display: block; font-size: 0.62rem; } .ir-tot strong { font-size: 1.2rem; color: #fff; } .ir-tot .pi { font-size: 1.3rem; }
       @media (max-width: 680px) { .insp { grid-template-columns: 1fr; } }
       .tablewrap { overflow-x: auto; border: 1px solid #1c2c44; border-radius: 12px; }
@@ -493,9 +495,9 @@ export class FolioEstanciaComponent implements OnDestroy {
   submitReview(): void {
     if (!this.stayId || !this.reviewLines().length) return;
     this.busy.set(true);
-    // El backend recibe "quedan" (found) = base − consumo.
+    // El backend recibe "quedan" (found) = base − consumo. Origen RECEPCION (Housekeeping usará el mismo modal luego).
     const lines = this.reviewLines().map((l) => ({ productId: l.productId, foundQty: Math.max(0, l.expectedQty - l.consumo) }));
-    this.http.post<ApiResponse<{ consumedTotal: number }>>(`${this.api}/frigobar/review/${this.stayId}`, { lines }).subscribe({
+    this.http.post<ApiResponse<{ consumedTotal: number }>>(`${this.api}/frigobar/review/${this.stayId}`, { lines, origin: 'RECEPCION' }).subscribe({
       next: (r) => { this.busy.set(false); this.reviewVisible = false; const c = r.data?.consumedTotal ?? 0; this.toast.add({ severity: 'success', summary: 'Frigobar revisado', detail: c > 0 ? `Consumo registrado: S/ ${c.toFixed(2)}` : 'Sin consumo.' }); this.load(); this.changed.emit(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo registrar la revisión.' }); },
     });
