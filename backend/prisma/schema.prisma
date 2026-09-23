@@ -1914,6 +1914,45 @@ model ProductRequestItem {
   @@index([requestId])
 }
 
+/// Revisión/consumo del frigobar de una habitación durante una estancia. Cada revisión compara
+/// la dotación (RoomInventory FRIGOBAR) contra el conteo físico; lo faltante = consumido.
+model FrigobarReview {
+  id                String    @id @default(uuid())
+  branchId          String
+  stayId            String
+  roomId            String
+  status            String    @default("REVIEWED") // REVIEWED (sin consumo) | CHARGED (consumo cargado)
+  reviewedByUserId  String?
+  reviewedAt        DateTime  @default(now())
+  saleId            String? // cargo del consumo (venta OPEN ligada a la estancia)
+  consumedTotal     Decimal   @default(0) @db.Decimal(10, 2)
+  repositionPending Boolean   @default(false)
+  repositionDoneAt  DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  lines FrigobarReviewLine[]
+
+  @@index([branchId])
+  @@index([stayId])
+}
+
+model FrigobarReviewLine {
+  id          String  @id @default(uuid())
+  reviewId    String
+  productId   String
+  name        String
+  expectedQty Int
+  foundQty    Int
+  consumedQty Int
+  unitPrice   Decimal @db.Decimal(10, 2)
+  amount      Decimal @db.Decimal(10, 2)
+
+  review FrigobarReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId])
+}
+
 /// Baja de stock de recepción (dar de baja).
 model StockWriteOff {
   id              String   @id @default(uuid())

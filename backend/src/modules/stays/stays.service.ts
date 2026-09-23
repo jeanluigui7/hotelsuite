@@ -16,6 +16,7 @@ import { wifiService } from '../wifi/wifi.service';
 import { changeCreditsService } from '../change-credits/change-credits.service';
 import { cashRepository } from '../cash/cash.repository';
 import { recordActivity } from '../activity-log/activity.emitter';
+import { frigobarReviewService } from '../frigobar-review/frigobar-review.service';
 import { staysRepository, type StayWithRelations } from './stays.repository';
 import type { ChangeRoomDto, CheckInDto, CheckOutDto, PayStayDto, RenewDto, UpdateStayDetailsDto } from './stays.schema';
 
@@ -382,7 +383,7 @@ export const staysService = {
       for (const it of s.items) {
         const sub = Number(it.subtotal);
         const isRenewal = /renovaci|tiempo extra|extensi/i.test(it.description);
-        movs.push({ at: s.createdAt, type: isRoomLine(it.description) ? 'Estadía' : 'Producto', description: it.description, charge: sub, payment: 0, by: uname(s.createdByUserId) });
+        movs.push({ at: s.createdAt, type: isRoomLine(it.description) ? 'Estadía' : (/^frigobar/i.test(it.description) ? 'Frigobar' : 'Producto'), description: it.description, charge: sub, payment: 0, by: uname(s.createdByUserId) });
         if (isRenewal) { renovacionesSales += sub; renewalCount += it.quantity; }
         else if (!isRoomLine(it.description)) {
           consumos += sub;
@@ -423,6 +424,9 @@ export const staysService = {
     });
     const invoicedAmount = round2(stayInvoices.reduce((a, inv) => a + Number(inv.total), 0));
     const billingStatus = invoicedAmount <= 0 ? 'PENDIENTE' : invoicedAmount + 0.01 >= total ? 'FACTURADO' : 'PARCIAL';
+
+    // Frigobar (estado de la revisión/consumo para el Resumen del folio).
+    const frigobar = await frigobarReviewService.stateForStay(branchId, id, room?.frigobarEnabled ?? false);
     const billing = {
       status: billingStatus,
       invoicedAmount,
@@ -440,6 +444,7 @@ export const staysService = {
       renewals: renewalCount > 0 ? renewalCount : (renovaciones > 0 ? Math.max(1, Math.round(renovaciones / (habitacion || 1))) : 0),
       amounts: { habitacion, renovaciones, consumos: round2(consumos), total, paid },
       billing,
+      frigobar,
       cleaning: { done: cleaningDone, allowed: cleaningAllowed, possible: cleaningPossible, status: stay.renewalCleaningStatus, pernocta: stay.durationMinutes >= 1440 },
       cleaningLog,
       movements,

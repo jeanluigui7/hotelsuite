@@ -1,8 +1,11 @@
 import { Component, EventEmitter, Input, OnDestroy, Output, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
 import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
+import { InputNumberModule } from 'primeng/inputnumber';
+import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
@@ -19,7 +22,14 @@ interface Folio {
   movements: { at: string; type: string; description: string; method?: string; charge: number; payment: number; balance: number; by: string }[];
   products: { name: string; quantity: number; amount: number; at: string; paid: boolean }[];
   simulator: { hospedaje: number; productos: number; ratio: number; limit: number; exceeded: boolean; exceso: number; igvAdicional: number; suggested: number };
+  frigobar?: {
+    enabled: boolean;
+    status: 'NO_APLICA' | 'SIN_REVISAR' | 'REVISADO' | 'CONSUMO_REGISTRADO' | 'PAGADO';
+    reviewId?: string; reviewedBy?: string | null; reviewedAt?: string; repositionPending?: boolean;
+    lines?: { name: string; quantity: number; amount: number }[]; consumido?: number; pagado?: number; pendiente?: number;
+  };
 }
+interface ReviewLine { productId: string; name: string; expectedQty: number; unitPrice: number; foundQty: number; }
 type Tab = 'resumen' | 'folio' | 'historial' | 'operacion';
 interface AuditEvent { at: string; user: string; activity: string | null; area: string | null; reference: string | null; detail: string | null; shift: string | null; }
 /** Etiquetas legibles de eventos para la Auditoría. */
@@ -36,7 +46,7 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
 @Component({
   selector: 'app-folio-estancia',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, DialogModule, ButtonModule],
+  imports: [DatePipe, DecimalPipe, FormsModule, DialogModule, ButtonModule, InputNumberModule, SelectModule],
   template: `
     <p-dialog [visible]="visible" (visibleChange)="onVis($event)" [modal]="true" [style]="{ width: '96vw', maxWidth: '1400px', height: '94vh' }" [showHeader]="false" styleClass="fl-dialog" (onShow)="load()">
       @if (data(); as f) {
@@ -101,6 +111,42 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
                 <div class="mc"><span class="l"><i class="pi pi-refresh"></i> RENOVACIONES</span><span class="v">S/ {{ f.amounts.renovaciones | number: '1.2-2' }}</span><span class="s">{{ f.renewals }} período(s)</span></div>
                 <div class="mc"><span class="l"><i class="pi pi-shopping-bag"></i> CONSUMOS</span><span class="v">S/ {{ f.amounts.consumos | number: '1.2-2' }}</span><span class="s">{{ f.products.length }} ítem(s)</span></div>
               </div>
+              @if (f.frigobar?.enabled) {
+                <div class="fb-sec" [class.cons]="f.frigobar!.status === 'CONSUMO_REGISTRADO'">
+                  <div class="fb-h"><span class="fb-t"><i class="pi pi-inbox"></i> FRIGOBAR</span>
+                    @switch (f.frigobar!.status) {
+                      @case ('CONSUMO_REGISTRADO') { <span class="fb-badge cons">CONSUMO REGISTRADO</span> }
+                      @case ('PAGADO') { <span class="fb-badge pay">PAGADO</span> }
+                      @case ('REVISADO') { <span class="fb-badge rev">REVISADO</span> }
+                      @default { <span class="fb-badge sr">SIN REVISAR</span> }
+                    }
+                    @if (f.frigobar!.repositionPending) { <span class="fb-repo"><i class="pi pi-exclamation-triangle"></i> Reposición pendiente</span> }
+                  </div>
+                  @switch (f.frigobar!.status) {
+                    @case ('SIN_REVISAR') {
+                      <div class="fb-body"><span class="fb-st">Estado: <b>SIN REVISAR</b></span>
+                        <button class="fb-btn blue" [disabled]="busy()" (click)="openReview()"><i class="pi pi-search"></i> Revisar frigobar</button></div>
+                    }
+                    @case ('REVISADO') {
+                      <div class="fb-body"><div><span class="fb-st">Estado: <b>REVISADO</b> · Sin productos consumidos</span><small>Revisado por: {{ f.frigobar!.reviewedBy || '—' }} · {{ f.frigobar!.reviewedAt | date: 'dd/MM/yyyy hh:mm a' }}</small></div>
+                        @if (f.frigobar!.repositionPending) { <button class="fb-btn ghost" [disabled]="busy()" (click)="reponer(f.frigobar!.reviewId)"><i class="pi pi-refresh"></i> Reponer</button> }</div>
+                    }
+                    @case ('CONSUMO_REGISTRADO') {
+                      <div class="fb-cons">
+                        <div class="fb-lines">@for (l of f.frigobar!.lines; track $index) { <div class="fb-l"><span>{{ l.name }} ×{{ l.quantity }}</span><span class="fb-la">S/ {{ l.amount | number: '1.2-2' }}</span></div> }</div>
+                        <div class="fb-r"><div class="fb-pend"><span>TOTAL PENDIENTE</span><strong>S/ {{ f.frigobar!.pendiente | number: '1.2-2' }}</strong></div>
+                          <button class="fb-btn green" [disabled]="busy()" (click)="openCobro(f.frigobar!.pendiente || 0)"><i class="pi pi-credit-card"></i> Cobrar S/ {{ f.frigobar!.pendiente | number: '1.2-2' }}</button></div>
+                      </div>
+                      @if (f.frigobar!.repositionPending) { <button class="fb-btn ghost sm" [disabled]="busy()" (click)="reponer(f.frigobar!.reviewId)"><i class="pi pi-refresh"></i> Reponer frigobar</button> }
+                    }
+                    @case ('PAGADO') {
+                      <div class="fb-body"><div><span class="fb-st">Estado: <b>PAGADO</b></span><small>Consumo: S/ {{ f.frigobar!.consumido | number: '1.2-2' }} · Saldo: S/ 0.00</small></div>
+                        @if (f.frigobar!.repositionPending) { <button class="fb-btn ghost" [disabled]="busy()" (click)="reponer(f.frigobar!.reviewId)"><i class="pi pi-refresh"></i> Reponer</button> }</div>
+                    }
+                  }
+                </div>
+              }
+
               <div class="total-row"><span><i class="pi pi-dollar"></i> TOTAL DE ESTADÍA</span><div class="tr-r"><span class="big">S/ {{ f.amounts.total | number: '1.2-2' }}</span><small>Pagado: S/ {{ f.amounts.paid | number: '1.2-2' }}</small></div></div>
 
               <div class="sim" [class.bad]="f.simulator.exceeded">
@@ -190,6 +236,34 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
         </div>
       } @else { <p class="loading">Cargando folio…</p> }
     </p-dialog>
+
+    <!-- Revisar frigobar -->
+    <p-dialog [(visible)]="reviewVisible" [modal]="true" header="Revisar Frigobar" [style]="{ width: '30rem', maxWidth: '95vw' }" styleClass="fl-dialog2">
+      <p class="rv-sub">Indica cuántas unidades de cada producto quedan físicamente. Lo faltante se registra como consumo del huésped.</p>
+      @for (l of reviewLines(); track l.productId) {
+        <div class="rv-row">
+          <div class="rv-n"><b>{{ l.name }}</b><small>Dotación: {{ l.expectedQty }} · S/ {{ l.unitPrice | number: '1.2-2' }} c/u</small></div>
+          <span class="rv-q">Quedan <p-inputNumber [(ngModel)]="l.foundQty" [min]="0" [max]="l.expectedQty" [showButtons]="true" buttonLayout="horizontal" inputStyleClass="rv-in" /></span>
+          <span class="rv-c" [class.on]="l.expectedQty - l.foundQty > 0">−{{ l.expectedQty - l.foundQty }}</span>
+        </div>
+      } @empty { <p class="muted">La habitación no tiene dotación de frigobar. Dótala primero en Dotación Base → Primera Dotación.</p> }
+      @if (reviewLines().length) { <div class="rv-tot">Consumo estimado: <b>S/ {{ reviewConsumo() | number: '1.2-2' }}</b></div> }
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="reviewVisible = false" />
+        <p-button label="Registrar revisión" icon="pi pi-check" [loading]="busy()" [disabled]="!reviewLines().length" (onClick)="submitReview()" />
+      </ng-template>
+    </p-dialog>
+
+    <!-- Cobrar frigobar (reusa el cobro de la estancia) -->
+    <p-dialog [(visible)]="cobroVisible" [modal]="true" header="Cobrar Frigobar" [style]="{ width: '24rem', maxWidth: '95vw' }" styleClass="fl-dialog2">
+      <div class="cb-amt">Total a cobrar<strong>S/ {{ cobroAmount | number: '1.2-2' }}</strong></div>
+      <label class="cb-lbl">Método de pago</label>
+      <p-select [options]="payMethods" optionLabel="label" optionValue="value" [(ngModel)]="cobroMethod" appendTo="body" styleClass="w" />
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="cobroVisible = false" />
+        <p-button label="Confirmar cobro" icon="pi pi-check" severity="success" [loading]="busy()" (onClick)="confirmCobro()" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -266,6 +340,30 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
       .sw-row { display: flex; justify-content: space-between; margin-top: 0.3rem; } .sw-hint { margin-top: 0.4rem; color: #fcd34d; }
       .alerts { background: #0f1a2b; border: 1px solid #1c2c44; border-radius: 12px; padding: 1rem; font-size: 0.85rem; }
       .al-t { font-size: 0.7rem; color: #8aa0bd; display: block; margin-bottom: 0.4rem; } .al-y { color: #fbbf24; margin-top: 0.3rem; }
+      /* Frigobar */
+      .fb-sec { background: linear-gradient(180deg,#161e3a,#111834); border: 1px solid #2a3a6a; border-radius: 12px; padding: 0.9rem 1rem; margin-bottom: 0.7rem; }
+      .fb-sec.cons { border-color: #3a5a86; }
+      .fb-h { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.6rem; flex-wrap: wrap; }
+      .fb-t { font-weight: 800; letter-spacing: 0.03em; display: inline-flex; align-items: center; gap: 0.4rem; } .fb-t .pi { color: #a78bfa; }
+      .fb-badge { border-radius: 999px; padding: 0.12rem 0.6rem; font-size: 0.66rem; font-weight: 800; }
+      .fb-badge.cons { background: rgba(59,130,246,0.2); color: #93c5fd; } .fb-badge.pay { background: rgba(16,185,129,0.2); color: #6ee7b7; }
+      .fb-badge.rev { background: rgba(148,163,184,0.2); color: #cbd5e1; } .fb-badge.sr { background: rgba(245,158,11,0.2); color: #fbbf24; }
+      .fb-repo { margin-left: auto; font-size: 0.72rem; color: #fbbf24; display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.35); border-radius: 999px; padding: 0.1rem 0.55rem; }
+      .fb-body { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; } .fb-st small, .fb-body small { display: block; color: #8aa0bd; font-size: 0.78rem; }
+      .fb-cons { display: flex; align-items: stretch; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+      .fb-lines { flex: 1; min-width: 200px; } .fb-l { display: flex; justify-content: space-between; padding: 0.3rem 0; border-bottom: 1px solid #1c2c44; font-size: 0.86rem; } .fb-la { color: #fbbf24; font-weight: 700; }
+      .fb-r { display: flex; flex-direction: column; gap: 0.4rem; align-items: flex-end; justify-content: center; } .fb-pend { text-align: right; } .fb-pend span { display: block; font-size: 0.68rem; color: #8aa0bd; } .fb-pend strong { font-size: 1.4rem; }
+      .fb-btn { border: 0; border-radius: 9px; padding: 0.55rem 0.9rem; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; white-space: nowrap; } .fb-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+      .fb-btn.blue { background: linear-gradient(135deg,#2563eb,#3b82f6); color: #fff; } .fb-btn.green { background: linear-gradient(135deg,#059669,#10b981); color: #04130d; }
+      .fb-btn.ghost { background: #0b1220; border: 1px solid #274468; color: #93c5fd; } .fb-btn.sm { margin-top: 0.6rem; font-size: 0.78rem; padding: 0.4rem 0.7rem; }
+      :host ::ng-deep .fl-dialog2 .p-dialog-content, :host ::ng-deep .fl-dialog2 .p-dialog-header, :host ::ng-deep .fl-dialog2 .p-dialog-footer { background: #0e1a2b; color: #e6edf5; }
+      .rv-sub { color: #8aa0bd; font-size: 0.82rem; margin: 0 0 0.8rem; }
+      .rv-row { display: flex; align-items: center; gap: 0.7rem; background: #0b1220; border: 1px solid #1c2c44; border-radius: 10px; padding: 0.55rem 0.8rem; margin-bottom: 0.5rem; }
+      .rv-n { flex: 1; } .rv-n small { display: block; color: #8aa0bd; font-size: 0.72rem; } .rv-q { font-size: 0.78rem; color: #8aa0bd; display: inline-flex; align-items: center; gap: 0.4rem; }
+      .rv-c { min-width: 2.2rem; text-align: right; font-weight: 800; color: #64748b; } .rv-c.on { color: #f87171; }
+      .rv-tot { text-align: right; margin-top: 0.5rem; color: #cbd5e1; } .rv-tot b { color: #fbbf24; }
+      .cb-amt { display: flex; flex-direction: column; align-items: center; gap: 0.2rem; color: #8aa0bd; font-size: 0.8rem; margin-bottom: 0.8rem; } .cb-amt strong { font-size: 1.8rem; color: #6ee7b7; }
+      .cb-lbl { display: block; font-size: 0.8rem; color: #8aa0bd; margin-bottom: 0.3rem; } :host ::ng-deep .fl-dialog2 .w { width: 100%; }
       .tablewrap { overflow-x: auto; border: 1px solid #1c2c44; border-radius: 12px; }
       .ftbl { width: 100%; border-collapse: collapse; font-size: 0.82rem; min-width: 760px; }
       .ftbl th { text-align: left; padding: 0.7rem 0.9rem; color: #8aa0bd; font-weight: 600; border-bottom: 1px solid #1c2c44; background: #0f1a2b; }
@@ -323,6 +421,52 @@ export class FolioEstanciaComponent implements OnDestroy {
     this.http.post<ApiResponse<unknown>>(`${this.api}/stays/${this.stayId}/request-renewal-cleaning`, {}).subscribe({
       next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Limpieza solicitada', detail: 'La habitación se envió al personal de limpieza.' }); this.load(); this.changed.emit(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo solicitar la limpieza.' }); },
+    });
+  }
+
+  // ── Frigobar: revisar / cobrar / reponer ──
+  reviewVisible = false;
+  readonly reviewLines = signal<ReviewLine[]>([]);
+  cobroVisible = false;
+  cobroAmount = 0;
+  cobroMethod = 'CASH';
+  readonly payMethods = [
+    { label: 'Efectivo', value: 'CASH' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Transferencia', value: 'TRANSFER' },
+    { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' }, { label: 'Billetera', value: 'WALLET' },
+  ];
+  openReview(): void {
+    if (!this.stayId) return;
+    this.reviewLines.set([]);
+    this.http.get<ApiResponse<{ lines: ReviewLine[] }>>(`${this.api}/frigobar/review/${this.stayId}/start`).subscribe({
+      next: (r) => { this.reviewLines.set((r.data?.lines ?? []).map((l) => ({ ...l, foundQty: l.expectedQty }))); this.reviewVisible = true; },
+      error: (e: HttpErrorResponse) => this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo iniciar la revisión.' }),
+    });
+  }
+  reviewConsumo(): number { return this.reviewLines().reduce((a, l) => a + Math.max(0, l.expectedQty - l.foundQty) * l.unitPrice, 0); }
+  submitReview(): void {
+    if (!this.stayId || !this.reviewLines().length) return;
+    this.busy.set(true);
+    const lines = this.reviewLines().map((l) => ({ productId: l.productId, foundQty: l.foundQty }));
+    this.http.post<ApiResponse<{ consumedTotal: number }>>(`${this.api}/frigobar/review/${this.stayId}`, { lines }).subscribe({
+      next: (r) => { this.busy.set(false); this.reviewVisible = false; const c = r.data?.consumedTotal ?? 0; this.toast.add({ severity: 'success', summary: 'Frigobar revisado', detail: c > 0 ? `Consumo registrado: S/ ${c.toFixed(2)}` : 'Sin consumo.' }); this.load(); this.changed.emit(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo registrar la revisión.' }); },
+    });
+  }
+  openCobro(amount: number): void { this.cobroAmount = amount; this.cobroMethod = 'CASH'; this.cobroVisible = true; }
+  confirmCobro(): void {
+    if (!this.stayId || this.cobroAmount <= 0) return;
+    this.busy.set(true);
+    this.http.post<ApiResponse<unknown>>(`${this.api}/stays/${this.stayId}/pay`, { amount: this.cobroAmount, method: this.cobroMethod }).subscribe({
+      next: () => { this.busy.set(false); this.cobroVisible = false; this.toast.add({ severity: 'success', summary: 'Cobro registrado', detail: `S/ ${this.cobroAmount.toFixed(2)} cobrados.` }); this.load(); this.changed.emit(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo cobrar.' }); },
+    });
+  }
+  reponer(reviewId?: string): void {
+    if (!reviewId) return;
+    this.busy.set(true);
+    this.http.post<ApiResponse<unknown>>(`${this.api}/frigobar/review/${reviewId}/reposition`, {}).subscribe({
+      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Frigobar repuesto', detail: 'Los productos se repusieron desde Productos Limpieza.' }); this.load(); this.changed.emit(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo reponer.' }); },
     });
   }
 
