@@ -7,6 +7,7 @@ import { notifyAdmin } from '../../shared/notify';
 import { shiftLogsService } from '../shift-logs/shift-logs.service';
 import { consumeFloorTx } from '../linen-admin/linen-admin.service';
 import { resolveRoomFloor } from '../room-inventory/room-inventory.service';
+import { frigobarReviewService } from '../frigobar-review/frigobar-review.service';
 
 /** Flujo de limpieza RIZZOS: iniciar limpieza (recoger ropa con estado OK/ROBADA/DETERIORADA)
  *  → habitación EN CURSO → finalizar limpieza → Disponible. */
@@ -111,6 +112,8 @@ export const cleaningService = {
     // Estancia activa por habitación (para que Housekeeping abra la inspección de frigobar del folio).
     const openStays = await prisma.stay.findMany({ where: { branchId, status: 'OPEN', roomId: { in: rooms.map((r) => r.id) } }, select: { id: true, roomId: true } });
     const stayByRoom = new Map(openStays.map((s) => [s.roomId, s.id]));
+    // Reposición de frigobar pendiente por falta de stock (para el bloque «Reponer» en Housekeeping).
+    const frigoPending = await frigobarReviewService.pendingRepositionByRoom(branchId, rooms.map((r) => r.id));
     return rooms.map((r) => ({
       id: r.id,
       number: r.number,
@@ -126,6 +129,10 @@ export const cleaningService = {
       startedAt: startedByRoom.get(r.id) ?? revStartByRoom.get(r.id) ?? null,
       frigobarEnabled: r.frigobarEnabled,
       stayId: stayByRoom.get(r.id) ?? null,
+      frigobarReposition: (() => {
+        const fp = frigoPending.get(r.id);
+        return fp ? { reviewId: fp.reviewId, pending: fp.pending, count: fp.pending.reduce((a, l) => a + l.qty, 0) } : null;
+      })(),
     }));
   },
 

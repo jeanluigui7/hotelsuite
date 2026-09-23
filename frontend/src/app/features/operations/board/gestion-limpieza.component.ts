@@ -9,8 +9,9 @@ import { forkJoin } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { FrigobarInspectionComponent } from './frigobar-inspection.component';
+import { FrigobarRepositionComponent } from './frigobar-reposition.component';
 
-interface CleanRoom { id: string; number: string; floor?: string | null; status: string; typeName: string; repaso: boolean; mantenimiento?: boolean; enCurso: boolean; revision?: boolean; renewal?: boolean; taskId: string | null; startedAt?: string | null; frigobarEnabled?: boolean; stayId?: string | null; }
+interface CleanRoom { id: string; number: string; floor?: string | null; status: string; typeName: string; repaso: boolean; mantenimiento?: boolean; enCurso: boolean; revision?: boolean; renewal?: boolean; taskId: string | null; startedAt?: string | null; frigobarEnabled?: boolean; stayId?: string | null; frigobarReposition?: { reviewId: string; pending: { name: string; qty: number }[]; count: number } | null; }
 interface Supply { id: string; roomId: string; room: string; floor?: string | null; roomType?: string; description: string; category?: string; quantity: number; }
 interface SupplyGroup { roomId: string; room: string; floor?: string | null; roomType?: string; items: Supply[]; }
 interface LinenItem { id: string; type: string; name: string; color?: string | null; reusable: boolean; }
@@ -75,7 +76,7 @@ const ACCIONES_PERIODICAS = [
 @Component({
   selector: 'app-gestion-limpieza',
   standalone: true,
-  imports: [FormsModule, ButtonModule, DialogModule, SelectModule, FrigobarInspectionComponent],
+  imports: [FormsModule, ButtonModule, DialogModule, SelectModule, FrigobarInspectionComponent, FrigobarRepositionComponent],
   template: `
     <section class="gl">
       <header class="top"><h1>Gestión de Habitaciones</h1><button class="refresh" (click)="reload()"><i class="pi pi-refresh"></i> Actualizar</button></header>
@@ -159,6 +160,15 @@ const ACCIONES_PERIODICAS = [
             }
             @if (r.frigobarEnabled && r.stayId) {
               <button class="cta frigo" (click)="openFrigoInsp(r)"><i class="pi pi-inbox"></i> Revisar frigobar</button>
+            }
+            @if (r.frigobarReposition?.pending?.length) {
+              <div class="repo-card">
+                <div class="repo-h"><i class="pi pi-exclamation-triangle"></i><div><b>REPOSICIÓN PENDIENTE</b><small>FRIGOBAR</small></div></div>
+                <div class="repo-sub">PRODUCTOS POR REPONER:</div>
+                @for (p of r.frigobarReposition!.pending; track p.name) { <div class="repo-l"><span>{{ p.name }}</span><span class="repo-q">×{{ p.qty }}</span></div> }
+                <div class="repo-msg"><i class="pi pi-info-circle"></i> Detectado en revisión de frigobar</div>
+                <button class="cta repo-btn" (click)="openRepo(r)"><i class="pi pi-box"></i> Reponer ahora</button>
+              </div>
             }
           </article>
         } @empty { <p class="muted">No hay habitaciones pendientes de limpieza.</p> }
@@ -404,6 +414,9 @@ const ACCIONES_PERIODICAS = [
 
     <!-- Inspección de frigobar (mismo modal que usa Recepción en el folio; aquí origen = HOUSEKEEPING) -->
     <app-frigobar-inspection [(visible)]="inspVisible" [stayId]="inspStayId" [roomNumber]="inspRoomNumber" origin="HOUSEKEEPING" (confirmed)="reload()" />
+
+    <!-- Reposición de frigobar (mismo modal parcial que el folio/rack) -->
+    <app-frigobar-reposition [(visible)]="repoVisible" [reviewId]="repoReviewId" [roomNumber]="repoRoomNumber" contextLabel="Limpieza" (confirmed)="reload()" />
   `,
   styles: [
     `
@@ -460,6 +473,12 @@ const ACCIONES_PERIODICAS = [
       .cta.done { background: #10b981; }
       .cta.reject { margin-top: 0.4rem; background: transparent; border: 1px solid rgba(248,113,113,0.6); color: #fecaca; } .cta.reject:hover { background: rgba(248,113,113,0.12); } .cta.reject:disabled { opacity: 0.5; cursor: not-allowed; }
       .cta.frigo { margin-top: 0.4rem; background: transparent; border: 1px solid rgba(59,130,246,0.6); color: #bfdbfe; } .cta.frigo:hover { background: rgba(59,130,246,0.14); }
+      .repo-card { margin-top: 0.55rem; background: rgba(127,29,29,0.28); border: 1px solid rgba(248,113,113,0.4); border-radius: 12px; padding: 0.65rem 0.75rem; text-align: left; }
+      .repo-h { display: flex; align-items: center; gap: 0.5rem; } .repo-h > .pi { font-size: 1.2rem; color: #fbbf24; } .repo-h b { display: block; font-size: 0.86rem; } .repo-h small { opacity: 0.85; font-size: 0.68rem; letter-spacing: 0.04em; }
+      .repo-sub { margin: 0.5rem 0 0.3rem; font-size: 0.66rem; font-weight: 700; opacity: 0.85; letter-spacing: 0.04em; }
+      .repo-l { display: flex; justify-content: space-between; gap: 0.5rem; background: rgba(0,0,0,0.22); border-radius: 7px; padding: 0.35rem 0.55rem; margin-bottom: 0.25rem; font-weight: 600; font-size: 0.9rem; } .repo-q { font-weight: 800; }
+      .repo-msg { margin: 0.4rem 0 0.1rem; font-size: 0.72rem; font-style: italic; color: #fde68a; display: flex; align-items: center; gap: 0.3rem; }
+      .cta.repo-btn { margin-top: 0.5rem; background: rgba(248,113,113,0.16); border: 1px solid rgba(248,113,113,0.5); color: #fecaca; } .cta.repo-btn:hover { background: rgba(248,113,113,0.26); }
       .hint { background: #0e241c; border: 1px solid #1f3a2c; color: #9fe7c4; padding: 0.55rem 0.8rem; border-radius: 8px; font-size: 0.82rem; }
       .insp { width: 100%; border-collapse: collapse; margin-top: 0.6rem; }
       .insp th { text-align: left; padding: 0.5rem; color: #8aa499; font-size: 0.8rem; border-bottom: 1px solid #1f3a2c; } .insp th.ck, .insp td.ck { text-align: center; width: 5rem; }
@@ -595,6 +614,10 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   inspVisible = false;
   inspStayId: string | null = null;
   inspRoomNumber = '';
+  // Reposición de frigobar pendiente (reusa el modal de reposición)
+  repoVisible = false;
+  repoReviewId: string | null = null;
+  repoRoomNumber = '';
   // Incidencia (Robada/Deteriorada) por unidad
   incVisible = false;
   incUnit: UnitRow | null = null;
@@ -702,6 +725,14 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     this.inspStayId = r.stayId;
     this.inspRoomNumber = r.number;
     this.inspVisible = true;
+  }
+
+  /** Abre el modal de reposición (parcial) para la reposición pendiente de la habitación. */
+  openRepo(r: CleanRoom): void {
+    if (!r.frigobarReposition?.reviewId) return;
+    this.repoReviewId = r.frigobarReposition.reviewId;
+    this.repoRoomNumber = r.number;
+    this.repoVisible = true;
   }
 
   reload(): void {
