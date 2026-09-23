@@ -1,0 +1,25 @@
+BEGIN TRY
+
+BEGIN TRAN;
+
+-- El payload del PrintJob (JSON de la orden) puede superar los 1000 chars por defecto
+-- de NVARCHAR en ordenes con muchos items → P2000. Se amplía a NVARCHAR(MAX).
+IF EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'PrintJob' AND COLUMN_NAME = 'payload'
+      AND (CHARACTER_MAXIMUM_LENGTH IS NULL OR CHARACTER_MAXIMUM_LENGTH <> -1)
+)
+    ALTER TABLE [dbo].[PrintJob] ALTER COLUMN [payload] NVARCHAR(MAX) NULL;
+
+COMMIT TRAN;
+
+END TRY
+BEGIN CATCH
+
+IF @@TRANCOUNT > 0
+BEGIN
+    ROLLBACK TRAN;
+END;
+THROW
+
+END CATCH

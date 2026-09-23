@@ -1976,7 +1976,7 @@ model PrintJob {
   branchId  String
   type      String // DESPACHO | TICKET | RECEPCION
   title     String
-  payload   String? // JSON serializado
+  payload   String?  @db.NVarChar(Max) // JSON serializado (puede superar 1000 chars en ordenes grandes)
   status    String   @default("PENDING") // PENDING | PRINTED
   createdAt DateTime @default(now())
 
