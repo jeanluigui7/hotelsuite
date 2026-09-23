@@ -73,6 +73,8 @@ export interface RoomMapItem {
   notes?: string | null;
   imageUrl?: string | null;
   frigobarEnabled?: boolean;
+  // Reposición de frigobar pendiente por falta de stock (la habitación NO se bloquea).
+  frigobarReposition?: { reviewId: string; stayId: string; pending: { name: string; qty: number }[]; count: number } | null;
   activeStay: ActiveStay | null;
 }
 

@@ -1947,8 +1947,11 @@ model FrigobarReviewLine {
   expectedQty Int
   foundQty    Int
   consumedQty Int
-  unitPrice   Decimal @db.Decimal(10, 2)
-  amount      Decimal @db.Decimal(10, 2)
+  // Reposición parcial: cuánto de lo consumido ya se repuso al frigobar (0..consumedQty).
+  // Pendiente por línea = consumedQty − repositionedQty. La habitación NO se bloquea si queda pendiente.
+  repositionedQty Int     @default(0)
+  unitPrice       Decimal @db.Decimal(10, 2)
+  amount          Decimal @db.Decimal(10, 2)
 
   review FrigobarReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
 

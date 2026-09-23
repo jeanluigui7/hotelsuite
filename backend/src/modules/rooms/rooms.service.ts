@@ -7,6 +7,7 @@ import { prisma } from '../../config/prisma';
 import { roomsRepository, type RoomForMap } from './rooms.repository';
 import { roomTypesRepository } from '../room-types/room-types.repository';
 import { subWarehousesService } from '../subwarehouses/subwarehouses.service';
+import { frigobarReviewService } from '../frigobar-review/frigobar-review.service';
 import type { ChangeRoomStatusDto, CreateRoomDto, UpdateRoomDto } from './rooms.schema';
 
 async function assertRoomTypeInBranch(roomTypeId: string, branchId: string): Promise<void> {
@@ -90,15 +91,19 @@ export const roomsService = {
       const extras = s.items.filter((it) => !isBaseRoom(it.description)).reduce((a, it) => a + Number(it.subtotal), 0);
       consumos.set(s.stayId, (consumos.get(s.stayId) ?? 0) + extras);
     }
+    // Reposición de frigobar pendiente por falta de stock (se muestra en la card aunque esté Disponible).
+    const frigoPending = await frigobarReviewService.pendingRepositionByRoom(branchId, rooms.map((r) => r.id));
     return rooms.map((r) => {
       const m = serializeMap(r);
+      const fp = frigoPending.get(r.id);
+      const frigobarReposition = fp ? { reviewId: fp.reviewId, stayId: fp.stayId, pending: fp.pending, count: fp.pending.reduce((a, l) => a + l.qty, 0) } : null;
       if (m.activeStay) {
         const bd = m.activeStay.balanceDue ? Number(m.activeStay.balanceDue) : 0;
         const sp = salesPending.get(m.activeStay.id) ?? 0;
         const cons = Math.round((consumos.get(m.activeStay.id) ?? 0) * 100) / 100;
-        return { ...m, activeStay: { ...m.activeStay, pending: Math.round((bd + sp) * 100) / 100, consumosTotal: cons, renewalCleaningTotal: cleaningTotal } };
+        return { ...m, frigobarReposition, activeStay: { ...m.activeStay, pending: Math.round((bd + sp) * 100) / 100, consumosTotal: cons, renewalCleaningTotal: cleaningTotal } };
       }
-      return m;
+      return { ...m, frigobarReposition };
     });
   },
 

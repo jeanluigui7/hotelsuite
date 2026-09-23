@@ -25,6 +25,7 @@ import { CheckInDialogComponent } from '../habitaciones/check-in-dialog.componen
 import { VentaProductosComponent } from './venta-productos.component';
 import { ServiciosPenalidadesComponent } from './servicios-penalidades.component';
 import { FolioEstanciaComponent } from './folio-estancia.component';
+import { FrigobarRepositionComponent } from './frigobar-reposition.component';
 import { roomState } from './room-states';
 
 type ViewMode = 'normal' | 'compacta' | 'real';
@@ -56,7 +57,7 @@ const MANT_CATS = [
 @Component({
   selector: 'app-habitaciones-board',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, InputNumberModule, DatePickerModule, TooltipModule, DialogModule, CheckInDialogComponent, VentaProductosComponent, ServiciosPenalidadesComponent, FolioEstanciaComponent],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, InputNumberModule, DatePickerModule, TooltipModule, DialogModule, CheckInDialogComponent, VentaProductosComponent, ServiciosPenalidadesComponent, FolioEstanciaComponent, FrigobarRepositionComponent],
   template: `
     <section class="board">
       <header class="top">
@@ -188,6 +189,18 @@ const MANT_CATS = [
               </div>
               <div class="rc-line"></div>
               <div class="rc-body"><i [class]="st(r).icon"></i><div class="caption">{{ st(r).caption }}</div></div>
+              @if (r.frigobarReposition?.pending?.length) {
+                <div class="frc">
+                  <div class="frc-h"><i class="pi pi-exclamation-triangle"></i><div><b>REPOSICIÓN PENDIENTE</b><small>FRIGOBAR INCOMPLETO</small></div></div>
+                  <div class="frc-sub">{{ r.frigobarReposition!.pending.length > 1 ? 'PRODUCTOS FALTANTES:' : 'PRODUCTO FALTANTE:' }}</div>
+                  <div class="frc-list">
+                    @for (p of r.frigobarReposition!.pending; track p.name) { <div class="frc-l"><span>{{ p.name }}</span><span class="frc-q">×{{ p.qty }}</span></div> }
+                  </div>
+                  <div class="frc-msg"><i class="pi pi-info-circle"></i> Pendiente por falta de stock</div>
+                  <div class="frc-ok"><i class="pi pi-check-circle"></i> La habitación puede alquilarse</div>
+                  <button class="frc-btn" (click)="openRepo(r)"><i class="pi pi-box"></i> Ver detalle</button>
+                </div>
+              }
               <div class="rc-foot">
                 <span class="rc-attrs">
                   @if (r.attributes?.length) { {{ attrLabel(r) }} } @else { Sin atributos }
@@ -222,6 +235,8 @@ const MANT_CATS = [
     </p-dialog>
     <app-venta-productos [(visible)]="ventaVisible" (done)="reload()" />
     <app-servicios-penalidades [(visible)]="serviciosVisible" (done)="reload()" />
+    <!-- Reposición de frigobar pendiente (desde el rack; no bloquea el alquiler) -->
+    <app-frigobar-reposition [(visible)]="repoVisible" [reviewId]="repoReviewId" [roomNumber]="repoRoomNumber" contextLabel="Rack" (confirmed)="reload()" />
 
     <p-dialog [(visible)]="checkoutVisible" [modal]="true" [header]="'Check-out · Hab. ' + (checkoutRoom?.number || '')" [style]="{ width: '28rem' }" styleClass="dk-dialog">
       @if (checkoutData(); as d) {
@@ -626,6 +641,14 @@ const MANT_CATS = [
       @media (max-width: 680px) { .ccard { width: calc(50% - 0.5rem); } }
       .caption { font-size: 1.05rem; font-weight: 600; }
       .rc-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding-top: 0.6rem; flex-wrap: wrap; }
+      /* Bloque de reposición pendiente de frigobar (informativo; NO bloquea el alquiler). */
+      .frc { margin: 0.6rem 0; background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.16); border-radius: 12px; padding: 0.7rem 0.8rem; color: #fff; text-align: left; }
+      .frc-h { display: flex; align-items: center; gap: 0.55rem; } .frc-h > .pi { font-size: 1.3rem; color: #fbbf24; } .frc-h b { display: block; font-size: 0.92rem; } .frc-h small { opacity: 0.8; font-size: 0.72rem; letter-spacing: 0.04em; }
+      .frc-sub { margin: 0.55rem 0 0.35rem; font-size: 0.7rem; font-weight: 700; opacity: 0.85; letter-spacing: 0.04em; }
+      .frc-list { display: flex; flex-direction: column; gap: 0.3rem; }
+      .frc-l { display: flex; justify-content: space-between; gap: 0.5rem; background: rgba(0,0,0,0.25); border-radius: 8px; padding: 0.4rem 0.6rem; font-weight: 600; } .frc-q { font-weight: 800; }
+      .frc-msg, .frc-ok { margin-top: 0.4rem; font-size: 0.76rem; display: flex; align-items: center; gap: 0.35rem; } .frc-msg { font-style: italic; color: #fde68a; } .frc-ok { color: #bbf7d0; }
+      .frc-btn { margin-top: 0.55rem; width: 100%; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.22); color: #fff; border-radius: 9px; padding: 0.55rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
       .rc-attrs { font-style: italic; font-size: 0.8rem; opacity: 0.85; }
       .rc-acts { display: inline-flex; gap: 0.45rem; }
       .cta.light { background: rgba(255,255,255,0.95); color: #0b1018; }
@@ -1020,6 +1043,9 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   checkInVisible = false;
   ventaVisible = false;
   serviciosVisible = false;
+  repoVisible = false;
+  repoReviewId: string | null = null;
+  repoRoomNumber = '';
   checkoutVisible = false;
   vehiculosVisible = false;
   readonly checkingOut = signal(false);
@@ -1605,6 +1631,14 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   openCheckIn(r: RoomMapItem): void {
     this.selectedRoom = r;
     this.checkInVisible = true;
+  }
+
+  /** Abre el detalle de reposición pendiente de frigobar (parcial; no bloquea el alquiler). */
+  openRepo(r: RoomMapItem): void {
+    if (!r.frigobarReposition?.reviewId) return;
+    this.repoReviewId = r.frigobarReposition.reviewId;
+    this.repoRoomNumber = r.number;
+    this.repoVisible = true;
   }
 
   @ViewChild(CheckInDialogComponent) private checkInDlg?: CheckInDialogComponent;

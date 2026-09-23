@@ -10,6 +10,7 @@ import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { docLabel, natLabel } from '../services/operations.models';
 import { FrigobarInspectionComponent } from './frigobar-inspection.component';
+import { FrigobarRepositionComponent } from './frigobar-reposition.component';
 
 interface Folio {
   folio: { code: string; status: string };
@@ -45,7 +46,7 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
 @Component({
   selector: 'app-folio-estancia',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, DialogModule, ButtonModule, SelectModule, FrigobarInspectionComponent],
+  imports: [DatePipe, DecimalPipe, FormsModule, DialogModule, ButtonModule, SelectModule, FrigobarInspectionComponent, FrigobarRepositionComponent],
   template: `
     <p-dialog [visible]="visible" (visibleChange)="onVis($event)" [modal]="true" [style]="{ width: '96vw', maxWidth: '1400px', height: '94vh' }" [showHeader]="false" styleClass="fl-dialog" (onShow)="load()">
       @if (data(); as f) {
@@ -239,6 +240,9 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
     <!-- Inspección de frigobar (componente reutilizable; Housekeeping usa el mismo con origin=HOUSEKEEPING) -->
     <app-frigobar-inspection [(visible)]="reviewVisible" [stayId]="stayId" [roomNumber]="data()?.room?.number || ''" origin="RECEPCION" (confirmed)="onReviewDone()" />
 
+    <!-- Reposición parcial de frigobar (Recepción/Limpieza; movimiento = ajuste Transferencia interna) -->
+    <app-frigobar-reposition [(visible)]="repoVisible" [reviewId]="repoReviewId" [roomNumber]="data()?.room?.number || ''" contextLabel="Folio" (confirmed)="onRepoDone()" />
+
     <!-- Cobrar frigobar (reusa el cobro de la estancia) -->
     <p-dialog [(visible)]="cobroVisible" [modal]="true" header="Cobrar Frigobar" [style]="{ width: '24rem', maxWidth: '95vw' }" styleClass="fl-dialog2">
       <div class="cb-amt">Total a cobrar<strong>S/ {{ cobroAmount | number: '1.2-2' }}</strong></div>
@@ -428,6 +432,8 @@ export class FolioEstanciaComponent implements OnDestroy {
 
   // ── Frigobar: revisar / cobrar / reponer ──
   reviewVisible = false;
+  repoVisible = false;
+  repoReviewId: string | null = null;
   cobroVisible = false;
   cobroAmount = 0;
   cobroMethod = 'CASH';
@@ -446,14 +452,13 @@ export class FolioEstanciaComponent implements OnDestroy {
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo cobrar.' }); },
     });
   }
+  /** Abre el modal de reposición (parcial, desde Recepción/Limpieza) para la revisión pendiente. */
   reponer(reviewId?: string): void {
     if (!reviewId) return;
-    this.busy.set(true);
-    this.http.post<ApiResponse<unknown>>(`${this.api}/frigobar/review/${reviewId}/reposition`, {}).subscribe({
-      next: () => { this.busy.set(false); this.toast.add({ severity: 'success', summary: 'Frigobar repuesto', detail: 'Los productos se repusieron desde Productos Limpieza.' }); this.load(); this.changed.emit(); },
-      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo reponer.' }); },
-    });
+    this.repoReviewId = reviewId;
+    this.repoVisible = true;
   }
+  onRepoDone(): void { this.load(); this.changed.emit(); }
 
   load(): void {
     this.tab.set('resumen');
