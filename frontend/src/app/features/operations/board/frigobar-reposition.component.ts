@@ -70,12 +70,6 @@ type Origin = 'RECEPCION' | 'LIMPIEZA';
             <button class="fr-print-btn" [disabled]="!toRepo().length" (click)="view.set('ticket')"><i class="pi pi-print"></i> Imprimir ticket</button>
           </div>
         }
-
-        <ng-template pTemplate="footer">
-          <p-button label="Cancelar" [text]="true" (onClick)="onVis(false)" />
-          <p-button label="Finalizar reposición" icon="pi pi-check" severity="success" [loading]="busy()" [disabled]="!printed() || !toRepo().length" (onClick)="finalize()" />
-          @if (!printed()) { <small class="fr-hint">Se habilita después de imprimir</small> }
-        </ng-template>
       } @else {
         <!-- Vista de ticket 80mm -->
         <div class="fr-ticket" id="fr-ticket">
@@ -92,11 +86,17 @@ type Origin = 'RECEPCION' | 'LIMPIEZA';
             <div class="tk-kv">{{ now | date: 'dd/MM/yyyy · hh:mm a' }}</div>
           </div>
         </div>
-        <ng-template pTemplate="footer">
+      }
+      <ng-template pTemplate="footer">
+        @if (view() === 'form') {
+          <p-button label="Cancelar" [text]="true" (onClick)="onVis(false)" />
+          <p-button label="Finalizar reposición" icon="pi pi-check" severity="success" [loading]="busy()" [disabled]="!printed() || !toRepo().length" (onClick)="finalize()" />
+          @if (!printed()) { <small class="fr-hint">Se habilita después de imprimir</small> }
+        } @else {
           <p-button label="Volver" [text]="true" (onClick)="view.set('form')" />
           <p-button label="Imprimir ticket" icon="pi pi-print" severity="warn" (onClick)="printTicket()" />
-        </ng-template>
-      }
+        }
+      </ng-template>
     </p-dialog>
   `,
   styles: [
