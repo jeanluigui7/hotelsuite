@@ -20,7 +20,7 @@ import { printPdf } from '../../../core/utils/export';
 interface ReqLine { productId: string; name: string; sku: string | null; qty: number; }
 
 interface InvItem { productId: string; name: string; sku?: string | null; categoryId?: string | null; categoryName?: string | null; price?: number; stockInicial: number; stock: number; min: number; ingresos: number; salidas: number; ajustes: number; belowMin: boolean; }
-interface BlindInfo { active: boolean; reason: 'AUTO' | 'MANUAL' | 'MANUAL_OFF' | 'NONE'; by?: string | null; at?: string | null; }
+interface BlindInfo { active: boolean; reason: 'AUTO' | 'MANUAL' | 'KEEP' | 'MANUAL_OFF' | 'COUNT_DONE' | 'NONE'; by?: string | null; at?: string | null; }
 interface AdjDetail { id: string; at: string; kind: string; productName: string; quantity: number; counterpart: string | null; room: string | null; reason: string | null; user: string | null; approvedBy: string | null; }
 interface TurnInfo { shift: string; businessDate: string; startTime: string; endTime: string; isCurrent: boolean; from?: string; to?: string; }
 interface WhOpt { id: string; name: string; type: string; }
@@ -77,6 +77,7 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
             <span>Las cantidades del inventario están temporalmente ocultas para realizar el conteo físico.</span>
             @if (blind()?.reason === 'AUTO') { <small>Activado automáticamente por proximidad al cierre del turno.</small> }
             @else if (blind()?.reason === 'MANUAL') { <small>Activado manualmente por administrador{{ blind()?.by ? ' (' + blind()?.by + ')' : '' }}.</small> }
+            @else if (blind()?.reason === 'KEEP') { <small>Permanece oculto hasta finalizar el conteo del turno (Registrar Conteo → Finalizar Conteo).</small> }
           </div>
         </div>
       }
@@ -173,7 +174,7 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
 
     <!-- Registrar Conteo (preparado; sin comparación/ajustes todavía) -->
     <p-dialog [(visible)]="conteoVisible" [modal]="true" header="Registrar Conteo Físico" [style]="{ width: '34rem', maxWidth: '96vw' }" styleClass="dk-dialog">
-      <p class="rq-sub">Registra la cantidad física contada por producto. (La comparación con el sistema se habilitará más adelante.)</p>
+      <p class="rq-sub">Registra la cantidad física contada por producto. Al <b>Finalizar Conteo</b> se marca el conteo del turno como completo y se revela el inventario. Cerrar el modal no revela.</p>
       <div class="rq-search"><span class="rq-inp"><i class="pi pi-search"></i><input pInputText placeholder="Filtrar productos…" [(ngModel)]="conteoSearch" autocomplete="off" /></span></div>
       <div class="ct-list">
         @for (it of conteoItems(); track it.productId) {
@@ -185,7 +186,7 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Cerrar" [text]="true" (onClick)="conteoVisible = false" />
-        <p-button label="Guardar Conteo" icon="pi pi-save" [disabled]="true" pTooltip="Disponible próximamente" />
+        <p-button label="Finalizar Conteo" icon="pi pi-check" severity="success" [loading]="busy()" (onClick)="finalizeConteo()" />
       </ng-template>
     </p-dialog>
 
@@ -828,11 +829,22 @@ export class InventarioRecepcionComponent implements OnInit {
     });
   }
 
-  // ── Registrar Conteo (stub) ──
+  // ── Registrar Conteo ──
   openConteo(): void { this.conteoSearch = ''; this.conteo = {}; this.conteoVisible = true; }
   conteoItems(): InvItem[] {
     const q = this.conteoSearch.trim().toLowerCase();
     return this.items().filter((it) => !q || it.name.toLowerCase().includes(q) || (it.sku ?? '').toLowerCase().includes(q));
+  }
+  /** Finaliza el conteo del turno: marca completado y REVELA el inventario (solo esta acción revela). */
+  finalizeConteo(): void {
+    const items = Object.entries(this.conteo)
+      .filter(([, v]) => v !== null && v !== undefined)
+      .map(([productId, counted]) => ({ productId, counted: Number(counted) }));
+    this.busy.set(true);
+    this.http.post<ApiResponse<BlindInfo>>(`${this.api}/reception-inventory/count`, { items }).subscribe({
+      next: (r) => { this.busy.set(false); this.conteoVisible = false; this.blind.set(r.data ?? null); this.toast.add({ severity: 'success', summary: 'Conteo finalizado', detail: 'Inventario revelado para este turno.' }); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo finalizar el conteo.' }); },
+    });
   }
 
   doWriteOff(): void {

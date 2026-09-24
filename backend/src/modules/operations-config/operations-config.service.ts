@@ -40,6 +40,7 @@ export const RECEPTION_BLIND_KEYS = {
   minutes: KEYS.recBlindMinutes,
   keep: KEYS.recBlindKeep,
   override: 'reception.blind.override', // estado manual del turno (JSON), solo operativo
+  countDone: 'reception.blind.countDone', // conteo del turno finalizado (JSON), revela el inventario
 } as const;
 
 const posMethodSchema = z.object({ enabled: z.boolean(), pct: z.coerce.number().min(0).max(100) });

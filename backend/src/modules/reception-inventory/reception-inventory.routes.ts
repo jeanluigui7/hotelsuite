@@ -23,5 +23,7 @@ receptionInventoryRouter.post(`${base}/write-off`, requirePermission('inventory'
 // Modo ciego de recepción: estado (cualquier rol con acceso al inventario) y toggle manual (Admin en el service).
 receptionInventoryRouter.get(`${base}/blind`, requirePermission('inventory', 'view'), asyncHandler(receptionInventoryController.blindStatus));
 receptionInventoryRouter.post(`${base}/blind`, requirePermission('inventory', 'view'), asyncHandler(receptionInventoryController.setBlind));
+// Finalizar el conteo físico del turno → revela el inventario (Recepción puede hacerlo).
+receptionInventoryRouter.post(`${base}/count`, requirePermission('inventory', 'edit'), asyncHandler(receptionInventoryController.finalizeCount));
 receptionInventoryRouter.get(`${base}/print-queue`, requirePermission('inventory', 'view'), asyncHandler(receptionInventoryController.printQueue));
 receptionInventoryRouter.post(`${base}/print-queue/:id/printed`, requirePermission('inventory', 'edit'), asyncHandler(receptionInventoryController.markPrinted));

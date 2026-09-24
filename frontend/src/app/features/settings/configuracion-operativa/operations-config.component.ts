@@ -28,7 +28,7 @@ interface OperationsConfig {
   reception: { declareStay: boolean; roomChange: boolean; productWriteoff: boolean; creditNote: boolean };
   cleaning: { linenWriteoff: boolean };
 }
-interface BlindStatus { active: boolean; reason: 'AUTO' | 'MANUAL' | 'MANUAL_OFF' | 'NONE'; by?: string | null; at?: string | null; }
+interface BlindStatus { active: boolean; reason: 'AUTO' | 'MANUAL' | 'KEEP' | 'MANUAL_OFF' | 'COUNT_DONE' | 'NONE'; by?: string | null; at?: string | null; }
 
 const DEFAULTS: OperationsConfig = {
   branchName: '',
@@ -170,6 +170,7 @@ const DEFAULTS: OperationsConfig = {
                 <div class="bm-state">Estado actual: <strong [class.on]="blind()?.active">Modo ciego {{ blind()?.active ? 'ACTIVO' : 'INACTIVO' }}</strong>
                   @if (blind()?.active && blind()?.reason === 'AUTO') { <span class="bm-tag auto">automático</span> }
                   @else if (blind()?.active && blind()?.reason === 'MANUAL') { <span class="bm-tag manual">manual{{ blind()?.by ? ' · ' + blind()?.by : '' }}</span> }
+                  @else if (blind()?.active && blind()?.reason === 'KEEP') { <span class="bm-tag auto">hasta conteo</span> }
                 </div>
                 @if (blind()?.active) {
                   <button class="bm-btn off" [disabled]="blindBusy()" (click)="toggleBlind('DEACTIVATE')"><i class="pi pi-eye"></i> Desactivar ahora</button>

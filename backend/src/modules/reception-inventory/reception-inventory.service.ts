@@ -44,6 +44,11 @@ export type RejectDto = z.infer<typeof rejectSchema>;
 export const blindActionSchema = z.object({ action: z.enum(['ACTIVATE', 'DEACTIVATE']) });
 export type BlindActionDto = z.infer<typeof blindActionSchema>;
 
+export const countSchema = z.object({
+  items: z.array(z.object({ productId: z.string().min(1), counted: z.coerce.number().int().min(0) })).default([]),
+});
+export type CountDto = z.infer<typeof countSchema>;
+
 async function receptionWarehouseId(branchId: string): Promise<string> {
   let wh = await prisma.warehouse.findFirst({ where: { branchId, type: 'RECEPTION' } });
   if (!wh) wh = await prisma.warehouse.create({ data: { branchId, name: 'Recepción', type: 'RECEPTION' } });
@@ -57,6 +62,9 @@ async function getSetting(branchId: string, key: string): Promise<string | null>
 }
 async function setSetting(branchId: string, key: string, value: string): Promise<void> {
   await prisma.setting.upsert({ where: { branchId_key: { branchId, key } }, update: { value }, create: { branchId, key, value } });
+}
+async function deleteSetting(branchId: string, key: string): Promise<void> {
+  await prisma.setting.deleteMany({ where: { branchId, key } });
 }
 
 export const receptionInventoryService = {
@@ -137,24 +145,33 @@ export const receptionInventoryService = {
   /** Calcula si el inventario de recepción está oculto: override manual del turno o automático por
    *  proximidad al fin del turno (fin − N min). NO cambia la configuración automática. */
   async computeBlind(branchId: string, win: TurnWin) {
-    const [autoRaw, minRaw, overRaw] = await Promise.all([
+    const [autoRaw, minRaw, keepRaw, overRaw, countRaw] = await Promise.all([
       getSetting(branchId, RECEPTION_BLIND_KEYS.auto),
       getSetting(branchId, RECEPTION_BLIND_KEYS.minutes),
+      getSetting(branchId, RECEPTION_BLIND_KEYS.keep),
       getSetting(branchId, RECEPTION_BLIND_KEYS.override),
+      getSetting(branchId, RECEPTION_BLIND_KEYS.countDone),
     ]);
     const auto = autoRaw === 'true';
+    const keep = keepRaw === 'true';
     const minutes = minRaw ? Number(minRaw) : 45;
     const now = Date.now();
     const turn = { shift: win.shift, businessDate: win.businessDate, startTime: win.startTime, endTime: win.endTime };
-    if (overRaw) {
-      try {
-        const ov = JSON.parse(overRaw) as { state?: string; businessDate?: string; shift?: string; at?: string; byName?: string | null };
-        if (ov.businessDate === win.businessDate && ov.shift === win.shift) {
-          if (ov.state === 'OFF') return { active: false, reason: 'MANUAL_OFF' as const, by: ov.byName ?? null, at: ov.at ?? null, turn };
-          if (ov.state === 'ON') return { active: true, reason: 'MANUAL' as const, by: ov.byName ?? null, at: ov.at ?? null, turn };
-        }
-      } catch { /* override inválido: se ignora */ }
+    const matches = (o: { businessDate?: string; shift?: string } | null) => !!o && o.businessDate === win.businessDate && o.shift === win.shift;
+    const parse = (raw: string | null) => { if (!raw) return null; try { return JSON.parse(raw); } catch { return null; } };
+    // 1. Override manual del turno (ACTIVAR/DESACTIVAR AHORA): tiene prioridad para el turno actual.
+    const ov = parse(overRaw) as { state?: string; businessDate?: string; shift?: string; at?: string; byName?: string | null } | null;
+    if (matches(ov)) {
+      if (ov!.state === 'OFF') return { active: false, reason: 'MANUAL_OFF' as const, by: ov!.byName ?? null, at: ov!.at ?? null, turn };
+      if (ov!.state === 'ON') return { active: true, reason: 'MANUAL' as const, by: ov!.byName ?? null, at: ov!.at ?? null, turn };
     }
+    // 2. Conteo del turno finalizado → revela el inventario el resto del turno.
+    const cd = parse(countRaw) as { businessDate?: string; shift?: string } | null;
+    if (matches(cd)) return { active: false, reason: 'COUNT_DONE' as const, turn };
+    // 3. "Mantener oculto hasta finalizar conteo": con auto ON el turno anterior terminó ciego, así que el
+    //    nuevo turno sigue ciego desde el inicio hasta que se finalice el conteo (pasos 1/2 lo revelan).
+    if (keep && auto) return { active: true, reason: 'KEEP' as const, turn };
+    // 4. Automático por proximidad al fin del turno (fin − N min).
     if (auto) {
       const end = win.to.getTime();
       const threshold = end - minutes * 60000;
@@ -180,6 +197,24 @@ export const receptionInventoryService = {
       activity: 'MODO_CIEGO', area: 'INVENTARIO', reference: 'Inventario de Recepción',
       detail: `Modo ciego ${state === 'ON' ? 'ACTIVADO' : 'DESACTIVADO'} manualmente · turno ${win.shift}`,
       meta: { action: dto.action, state, shift: win.shift, businessDate: win.businessDate },
+    });
+    return this.computeBlind(branchId, win);
+  },
+
+  /** Finaliza el conteo físico del turno actual: lo marca como completado (revela el inventario) y
+   *  limpia el override manual. Guardar progreso/cerrar NO llama esto (solo Finalizar). Auditado. */
+  async finalizeCount(scope: RequestScope, dto: CountDto) {
+    const branchId = requireActiveBranch(scope);
+    const shifts = await prisma.roleShift.findMany({ where: { branchId, role: 'RECEPCION' } });
+    const win = this.turnWindow(shifts);
+    const user = await prisma.user.findUnique({ where: { id: scope.userId }, select: { name: true } });
+    const done = { businessDate: win.businessDate, shift: win.shift, at: new Date().toISOString(), byUserId: scope.userId, byName: user?.name ?? null };
+    await setSetting(branchId, RECEPTION_BLIND_KEYS.countDone, JSON.stringify(done));
+    await deleteSetting(branchId, RECEPTION_BLIND_KEYS.override); // el conteo revela: no queda override colgado
+    void recordActivity(scope, {
+      activity: 'CONTEO', area: 'INVENTARIO', reference: 'Inventario de Recepción',
+      detail: `Conteo físico finalizado · turno ${win.shift} · ${dto.items.length} ítem(s)`,
+      meta: { shift: win.shift, businessDate: win.businessDate, items: dto.items },
     });
     return this.computeBlind(branchId, win);
   },
