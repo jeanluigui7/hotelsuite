@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { RequestScope } from '../../shared/context';
-import { ValidationError, ForbiddenError } from '../../shared/errors';
+import { ValidationError, ForbiddenError, NotFoundError } from '../../shared/errors';
 import { buildProductKardex, productWarehouses } from '../../shared/product-kardex';
 import { requireActiveBranch } from '../../shared/scope';
 import { requireReceptionFlag, RECEPTION_BLIND_KEYS } from '../operations-config/operations-config.service';
@@ -46,8 +46,30 @@ export type BlindActionDto = z.infer<typeof blindActionSchema>;
 
 export const countSchema = z.object({
   items: z.array(z.object({ productId: z.string().min(1), counted: z.coerce.number().int().min(0) })).default([]),
+  startedAt: z.string().optional(),
 });
 export type CountDto = z.infer<typeof countSchema>;
+
+export const auditReviewSchema = z.object({
+  businessDate: z.string().min(1),
+  shift: z.enum(['MANANA', 'TARDE', 'NOCHE']),
+  observation: z.string().max(1000).optional().or(z.literal('')),
+  status: z.enum(['PENDIENTE', 'REVISADO', 'REGULARIZADO', 'SIN_ACCION']),
+});
+export type AuditReviewDto = z.infer<typeof auditReviewSchema>;
+
+/** Turno que SIGUE a uno dado (cuyo conteo audita al turno dado). NOCHE → MAÑANA del día siguiente. */
+function nextShiftOf(shift: string, businessDate: string): { shift: string; businessDate: string } {
+  if (shift === 'MANANA') return { shift: 'TARDE', businessDate };
+  if (shift === 'TARDE') return { shift: 'NOCHE', businessDate };
+  const d = new Date(`${businessDate}T12:00:00`);
+  d.setDate(d.getDate() + 1);
+  const next = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return { shift: 'MANANA', businessDate: next };
+}
+function isAdminScope(scope: RequestScope): boolean {
+  return scope.isSuperAdmin || scope.permissions.includes('settings:edit');
+}
 
 async function receptionWarehouseId(branchId: string): Promise<string> {
   let wh = await prisma.warehouse.findFirst({ where: { branchId, type: 'RECEPTION' } });
@@ -211,12 +233,119 @@ export const receptionInventoryService = {
     const done = { businessDate: win.businessDate, shift: win.shift, at: new Date().toISOString(), byUserId: scope.userId, byName: user?.name ?? null };
     await setSetting(branchId, RECEPTION_BLIND_KEYS.countDone, JSON.stringify(done));
     await deleteSetting(branchId, RECEPTION_BLIND_KEYS.override); // el conteo revela: no queda override colgado
+    // Persiste el conteo del turno (fuente de la Auditoría del turno anterior). Un conteo por turno:
+    // si ya existía, se reemplaza (borra el anterior del mismo businessDate+shift).
+    await prisma.receptionCount.deleteMany({ where: { branchId, businessDate: win.businessDate, shift: win.shift } });
+    await prisma.receptionCount.create({
+      data: {
+        branchId, businessDate: win.businessDate, shift: win.shift, countedByUserId: scope.userId,
+        startedAt: dto.startedAt ? new Date(dto.startedAt) : null, finishedAt: new Date(),
+        lines: { create: dto.items.map((i) => ({ productId: i.productId, counted: i.counted })) },
+      },
+    });
     void recordActivity(scope, {
       activity: 'CONTEO', area: 'INVENTARIO', reference: 'Inventario de Recepción',
       detail: `Conteo físico finalizado · turno ${win.shift} · ${dto.items.length} ítem(s)`,
       meta: { shift: win.shift, businessDate: win.businessDate, items: dto.items },
     });
     return this.computeBlind(branchId, win);
+  },
+
+  /** ¿Hay auditoría para el turno (businessDate, shift)? Existe si el turno SIGUIENTE registró conteo. */
+  async auditAvailable(scope: RequestScope, businessDate: string, shift: string) {
+    const branchId = requireActiveBranch(scope);
+    if (!isAdminScope(scope)) throw new ForbiddenError('Solo un administrador puede ver la auditoría de conteo.');
+    const src = nextShiftOf(shift, businessDate);
+    const count = await prisma.receptionCount.findFirst({ where: { branchId, businessDate: src.businessDate, shift: src.shift } });
+    return { available: !!count, source: src };
+  },
+
+  /** Auditoría del turno (businessDate, shift auditado), derivada del conteo del turno SIGUIENTE (fuente).
+   *  SOLO LECTURA: no toca stock ni ajustes. */
+  async auditData(scope: RequestScope, businessDate: string, shift: string) {
+    const branchId = requireActiveBranch(scope);
+    if (!isAdminScope(scope)) throw new ForbiddenError('Solo un administrador puede ver la auditoría de conteo.');
+    const src = nextShiftOf(shift, businessDate);
+    const count = await prisma.receptionCount.findFirst({
+      where: { branchId, businessDate: src.businessDate, shift: src.shift },
+      include: { lines: true }, orderBy: { finishedAt: 'desc' },
+    });
+    if (!count) throw new NotFoundError('No hay auditoría disponible: el turno siguiente aún no registró el conteo.');
+
+    const [branch, whId, shifts] = await Promise.all([
+      prisma.branch.findUnique({ where: { id: branchId }, select: { name: true } }),
+      receptionWarehouseId(branchId),
+      prisma.roleShift.findMany({ where: { branchId, role: 'RECEPCION' } }),
+    ]);
+    const auditedWin = this.turnWindow(shifts, businessDate, shift);
+    const srcWin = this.turnWindow(shifts, src.businessDate, src.shift);
+    const { generalIds } = await productWarehouses(branchId);
+    // Sistema esperado = stock teórico al FIN del turno auditado = stock inicial del turno fuente.
+    const kardex = await buildProductKardex({ branchId, whId, win: srcWin, generalIds, minField: 'receptionReorderPoint', productWhere: { receptionEnabled: true } });
+    const kmap = new Map(kardex.map((k) => [k.productId, k]));
+
+    const pids = count.lines.map((l) => l.productId);
+    const salesMovs = pids.length
+      ? await prisma.inventoryMovement.findMany({ where: { branchId, warehouseId: whId, productId: { in: pids }, type: 'SALE', createdAt: { gte: srcWin.from, lte: count.finishedAt } }, select: { productId: true, quantity: true } })
+      : [];
+    const salesMap = new Map<string, number>();
+    for (const m of salesMovs) if (m.productId) salesMap.set(m.productId, (salesMap.get(m.productId) ?? 0) + Math.abs(m.quantity));
+
+    const counter = count.countedByUserId ? (await prisma.user.findUnique({ where: { id: count.countedByUserId }, select: { name: true } }))?.name ?? null : null;
+    const reviewer = count.auditReviewedByUserId ? (await prisma.user.findUnique({ where: { id: count.auditReviewedByUserId }, select: { name: true } }))?.name ?? null : null;
+
+    const rows = count.lines.map((l) => {
+      const k = kmap.get(l.productId);
+      const contado = l.counted;
+      const vendidos = salesMap.get(l.productId) ?? 0;
+      const recibido = contado + vendidos;
+      const esperado = k?.stockInicial ?? 0;
+      const dif = recibido - esperado;
+      return {
+        productId: l.productId, name: k?.name ?? l.productId, code: k?.sku ?? null,
+        recibidoInicio: recibido, sistemaEsperado: esperado, diferencia: dif,
+        interpretacion: dif > 0 ? `SOBRA ${dif} EN FÍSICO` : dif < 0 ? `FALTA ${Math.abs(dif)} EN FÍSICO` : 'CONFORME',
+        contadoFisico: contado, vendidosAntes: vendidos, horaConteo: count.finishedAt,
+      };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+
+    const conDiferencia = rows.filter((r) => r.diferencia !== 0).length;
+    const sobrantes = rows.filter((r) => r.diferencia > 0).length;
+    const faltantes = rows.filter((r) => r.diferencia < 0).length;
+    const totalReception = kardex.length;
+
+    return {
+      header: {
+        branchName: branch?.name ?? '',
+        auditedDate: businessDate,
+        auditedShift: shift, auditedStart: auditedWin.startTime, auditedEnd: auditedWin.endTime,
+        sourceShift: src.shift, sourceStart: srcWin.startTime, sourceEnd: srcWin.endTime,
+        countedBy: counter, countStartedAt: count.startedAt, countFinishedAt: count.finishedAt,
+        productsCounted: rows.length, productsTotal: totalReception, status: 'COMPLETADO',
+      },
+      summary: { conformes: rows.length - conDiferencia, conDiferencia, sobrantes, faltantes },
+      rows,
+      review: { observation: count.auditObservation ?? '', status: count.auditStatus, reviewedBy: reviewer, reviewedAt: count.auditReviewedAt },
+    };
+  },
+
+  /** Guarda la revisión administrativa (observación + estado) de una auditoría. SOLO LECTURA sobre stock. */
+  async saveAuditReview(scope: RequestScope, dto: AuditReviewDto) {
+    const branchId = requireActiveBranch(scope);
+    if (!isAdminScope(scope)) throw new ForbiddenError('Solo un administrador puede revisar la auditoría de conteo.');
+    const src = nextShiftOf(dto.shift, dto.businessDate);
+    const count = await prisma.receptionCount.findFirst({ where: { branchId, businessDate: src.businessDate, shift: src.shift }, orderBy: { finishedAt: 'desc' } });
+    if (!count) throw new NotFoundError('No hay auditoría para revisar.');
+    await prisma.receptionCount.update({
+      where: { id: count.id },
+      data: { auditObservation: dto.observation?.trim() || null, auditStatus: dto.status, auditReviewedByUserId: scope.userId, auditReviewedAt: new Date() },
+    });
+    void recordActivity(scope, {
+      activity: 'AUDITORIA_CONTEO', area: 'INVENTARIO', reference: `Auditoría turno ${dto.shift} ${dto.businessDate}`,
+      detail: `Auditoría de conteo · estado ${dto.status}`,
+      meta: { businessDate: dto.businessDate, shift: dto.shift, status: dto.status },
+    });
+    return { ok: true };
   },
 
   async createRequest(scope: RequestScope, dto: RequestDto) {

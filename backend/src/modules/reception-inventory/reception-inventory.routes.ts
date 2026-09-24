@@ -25,5 +25,9 @@ receptionInventoryRouter.get(`${base}/blind`, requirePermission('inventory', 'vi
 receptionInventoryRouter.post(`${base}/blind`, requirePermission('inventory', 'view'), asyncHandler(receptionInventoryController.setBlind));
 // Finalizar el conteo físico del turno → revela el inventario (Recepción puede hacerlo).
 receptionInventoryRouter.post(`${base}/count`, requirePermission('inventory', 'edit'), asyncHandler(receptionInventoryController.finalizeCount));
+// Auditoría de conteo (solo Admin/Gerente — validado también en el service). Solo lectura.
+receptionInventoryRouter.get(`${base}/audit/available`, requirePermission('inventory', 'view'), asyncHandler(receptionInventoryController.auditAvailable));
+receptionInventoryRouter.get(`${base}/audit`, requirePermission('inventory', 'view'), asyncHandler(receptionInventoryController.auditData));
+receptionInventoryRouter.post(`${base}/audit/review`, requirePermission('inventory', 'view'), asyncHandler(receptionInventoryController.auditReview));
 receptionInventoryRouter.get(`${base}/print-queue`, requirePermission('inventory', 'view'), asyncHandler(receptionInventoryController.printQueue));
 receptionInventoryRouter.post(`${base}/print-queue/:id/printed`, requirePermission('inventory', 'edit'), asyncHandler(receptionInventoryController.markPrinted));

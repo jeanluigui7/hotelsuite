@@ -1,7 +1,9 @@
 import type { Request, Response } from 'express';
 import { ok } from '../../shared/response';
 import { UnauthorizedError } from '../../shared/errors';
-import { receptionInventoryService, requestSchema, writeOffSchema, sendItemsSchema, deleteItemsSchema, rejectSchema, blindActionSchema, countSchema } from './reception-inventory.service';
+import { receptionInventoryService, requestSchema, writeOffSchema, sendItemsSchema, deleteItemsSchema, rejectSchema, blindActionSchema, countSchema, auditReviewSchema } from './reception-inventory.service';
+
+function qstr(v: unknown): string { return typeof v === 'string' ? v : ''; }
 
 export const receptionInventoryController = {
   async list(req: Request, res: Response): Promise<void> {
@@ -68,5 +70,17 @@ export const receptionInventoryController = {
   async finalizeCount(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await receptionInventoryService.finalizeCount(req.scope, countSchema.parse(req.body))));
+  },
+  async auditAvailable(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await receptionInventoryService.auditAvailable(req.scope, qstr(req.query.businessDate), qstr(req.query.shift))));
+  },
+  async auditData(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await receptionInventoryService.auditData(req.scope, qstr(req.query.businessDate), qstr(req.query.shift))));
+  },
+  async auditReview(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await receptionInventoryService.saveAuditReview(req.scope, auditReviewSchema.parse(req.body))));
   },
 };
