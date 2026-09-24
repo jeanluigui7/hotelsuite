@@ -28,6 +28,18 @@ const KEYS = {
   preCheckout: 'ops.preCheckoutEnabled',
   stockAlertEvery: 'ops.stockAlertEveryHours',
   linenWriteoff: 'cleaning.linenWriteoff',
+  // Modo ciego de Inventario de Recepción (para el conteo físico).
+  recBlindAuto: 'reception.blind.auto',
+  recBlindMinutes: 'reception.blind.minutesBefore',
+  recBlindKeep: 'reception.blind.keepUntilCount',
+} as const;
+
+/** Claves de settings del modo ciego de recepción (las lee/escribe también reception-inventory). */
+export const RECEPTION_BLIND_KEYS = {
+  auto: KEYS.recBlindAuto,
+  minutes: KEYS.recBlindMinutes,
+  keep: KEYS.recBlindKeep,
+  override: 'reception.blind.override', // estado manual del turno (JSON), solo operativo
 } as const;
 
 const posMethodSchema = z.object({ enabled: z.boolean(), pct: z.coerce.number().min(0).max(100) });
@@ -59,6 +71,13 @@ export const updateOperationsConfigSchema = z.object({
   inspectionEnabled: z.boolean().optional(),
   preCheckoutEnabled: z.boolean().optional(),
   stockAlertEveryHours: z.coerce.number().int().min(0).max(720).optional(),
+  receptionBlind: z
+    .object({
+      auto: z.boolean().optional(),
+      minutesBefore: z.coerce.number().int().min(0).max(240).optional(),
+      keepUntilCount: z.boolean().optional(),
+    })
+    .optional(),
   reception: z
     .object({
       declareStay: z.boolean().optional(),
@@ -89,7 +108,7 @@ export const operationsConfigService = {
   async get(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);
     const branch = await prisma.branch.findUnique({ where: { id: branchId }, select: { name: true, adminPresent: true } });
-    const [cutoff, resv, minP, comm, posRaw, cTime, insp, preCo, stock, recRoom, recProd, recDeclare, recNote, linen] = await Promise.all([
+    const [cutoff, resv, minP, comm, posRaw, cTime, insp, preCo, stock, recRoom, recProd, recDeclare, recNote, linen, blindAuto, blindMin, blindKeep] = await Promise.all([
       read(branchId, KEYS.cutoffHour),
       read(branchId, KEYS.reservaMargin),
       read(branchId, KEYS.minPrice),
@@ -104,6 +123,9 @@ export const operationsConfigService = {
       read(branchId, KEYS.recDeclareStay),
       read(branchId, KEYS.recCreditNote),
       read(branchId, KEYS.linenWriteoff),
+      read(branchId, KEYS.recBlindAuto),
+      read(branchId, KEYS.recBlindMinutes),
+      read(branchId, KEYS.recBlindKeep),
     ]);
     let pos: Pos = DEFAULT_POS;
     if (posRaw) {
@@ -122,6 +144,11 @@ export const operationsConfigService = {
       inspectionEnabled: bool(insp, true),
       preCheckoutEnabled: bool(preCo, false),
       stockAlertEveryHours: num(stock, 24),
+      receptionBlind: {
+        auto: bool(blindAuto, false),
+        minutesBefore: num(blindMin, 45),
+        keepUntilCount: bool(blindKeep, false),
+      },
       reception: {
         declareStay: bool(recDeclare, false),
         roomChange: bool(recRoom, false),
@@ -147,6 +174,9 @@ export const operationsConfigService = {
     if (dto.inspectionEnabled !== undefined) await write(branchId, KEYS.inspection, b(dto.inspectionEnabled));
     if (dto.preCheckoutEnabled !== undefined) await write(branchId, KEYS.preCheckout, b(dto.preCheckoutEnabled));
     if (dto.stockAlertEveryHours !== undefined) await write(branchId, KEYS.stockAlertEvery, String(dto.stockAlertEveryHours));
+    if (dto.receptionBlind?.auto !== undefined) await write(branchId, KEYS.recBlindAuto, b(dto.receptionBlind.auto));
+    if (dto.receptionBlind?.minutesBefore !== undefined) await write(branchId, KEYS.recBlindMinutes, String(dto.receptionBlind.minutesBefore));
+    if (dto.receptionBlind?.keepUntilCount !== undefined) await write(branchId, KEYS.recBlindKeep, b(dto.receptionBlind.keepUntilCount));
     if (dto.reception?.roomChange !== undefined) await write(branchId, KEYS.recRoomChange, b(dto.reception.roomChange));
     if (dto.reception?.productWriteoff !== undefined) await write(branchId, KEYS.recProductWriteoff, b(dto.reception.productWriteoff));
     if (dto.reception?.declareStay !== undefined) await write(branchId, KEYS.recDeclareStay, b(dto.reception.declareStay));

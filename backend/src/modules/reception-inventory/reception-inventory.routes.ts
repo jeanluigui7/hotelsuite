@@ -20,5 +20,8 @@ receptionInventoryRouter.post(`${base}/requests/:id/receive`, requirePermission(
 receptionInventoryRouter.post(`${base}/requests/:id/accept`, requirePermission('inventory', 'edit'), asyncHandler(receptionInventoryController.acceptRequest));
 receptionInventoryRouter.post(`${base}/requests/:id/reject`, requirePermission('inventory', 'edit'), asyncHandler(receptionInventoryController.rejectRequest));
 receptionInventoryRouter.post(`${base}/write-off`, requirePermission('inventory', 'delete'), asyncHandler(receptionInventoryController.writeOff));
+// Modo ciego de recepción: estado (cualquier rol con acceso al inventario) y toggle manual (Admin en el service).
+receptionInventoryRouter.get(`${base}/blind`, requirePermission('inventory', 'view'), asyncHandler(receptionInventoryController.blindStatus));
+receptionInventoryRouter.post(`${base}/blind`, requirePermission('inventory', 'view'), asyncHandler(receptionInventoryController.setBlind));
 receptionInventoryRouter.get(`${base}/print-queue`, requirePermission('inventory', 'view'), asyncHandler(receptionInventoryController.printQueue));
 receptionInventoryRouter.post(`${base}/print-queue/:id/printed`, requirePermission('inventory', 'edit'), asyncHandler(receptionInventoryController.markPrinted));

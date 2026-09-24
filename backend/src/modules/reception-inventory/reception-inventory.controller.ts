@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { ok } from '../../shared/response';
 import { UnauthorizedError } from '../../shared/errors';
-import { receptionInventoryService, requestSchema, writeOffSchema, sendItemsSchema, deleteItemsSchema, rejectSchema } from './reception-inventory.service';
+import { receptionInventoryService, requestSchema, writeOffSchema, sendItemsSchema, deleteItemsSchema, rejectSchema, blindActionSchema } from './reception-inventory.service';
 
 export const receptionInventoryController = {
   async list(req: Request, res: Response): Promise<void> {
@@ -56,5 +56,13 @@ export const receptionInventoryController = {
   async markPrinted(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await receptionInventoryService.markPrinted(req.scope, req.params.id)));
+  },
+  async blindStatus(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await receptionInventoryService.blindStatus(req.scope)));
+  },
+  async setBlind(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await receptionInventoryService.setBlindOverride(req.scope, blindActionSchema.parse(req.body))));
   },
 };

@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import type { RequestScope } from '../../shared/context';
-import { ValidationError } from '../../shared/errors';
+import { ValidationError, ForbiddenError } from '../../shared/errors';
 import { buildProductKardex, productWarehouses } from '../../shared/product-kardex';
 import { requireActiveBranch } from '../../shared/scope';
-import { requireReceptionFlag } from '../operations-config/operations-config.service';
+import { requireReceptionFlag, RECEPTION_BLIND_KEYS } from '../operations-config/operations-config.service';
 import { prisma } from '../../config/prisma';
 import { notifyAdmin } from '../../shared/notify';
+import { recordActivity } from '../activity-log/activity.emitter';
 import { applyStockTx, createMovementTx } from '../movements/movements.repository';
 import { productsRepository } from '../products/products.repository';
 
@@ -40,10 +41,22 @@ export type SendItemsDto = z.infer<typeof sendItemsSchema>;
 export type DeleteItemsDto = z.infer<typeof deleteItemsSchema>;
 export type RejectDto = z.infer<typeof rejectSchema>;
 
+export const blindActionSchema = z.object({ action: z.enum(['ACTIVATE', 'DEACTIVATE']) });
+export type BlindActionDto = z.infer<typeof blindActionSchema>;
+
 async function receptionWarehouseId(branchId: string): Promise<string> {
   let wh = await prisma.warehouse.findFirst({ where: { branchId, type: 'RECEPTION' } });
   if (!wh) wh = await prisma.warehouse.create({ data: { branchId, name: 'Recepción', type: 'RECEPTION' } });
   return wh.id;
+}
+type TurnWin = { from: Date; to: Date; shift: string; businessDate: string; startTime: string; endTime: string; isCurrent: boolean };
+
+async function getSetting(branchId: string, key: string): Promise<string | null> {
+  const s = await prisma.setting.findUnique({ where: { branchId_key: { branchId, key } } });
+  return s?.value ?? null;
+}
+async function setSetting(branchId: string, key: string, value: string): Promise<void> {
+  await prisma.setting.upsert({ where: { branchId_key: { branchId, key } }, update: { value }, create: { branchId, key, value } });
 }
 
 export const receptionInventoryService = {
@@ -100,11 +113,75 @@ export const receptionInventoryService = {
     const { generalIds } = await productWarehouses(branchId);
     // Solo productos habilitados para Recepción (los exclusivos de Frigobar no forman parte de este stock).
     const items = await buildProductKardex({ branchId, whId, win, generalIds, minField: 'receptionReorderPoint', productWhere: { receptionEnabled: true } });
+    // Modo ciego: solo aplica sobre el turno ACTUAL. Enmascara las cantidades en el SERVIDOR (no viajan al
+    // cliente); mantiene nombre y código. No afecta ventas/movimientos, solo la visualización.
+    const blind = win.isCurrent ? await this.computeBlind(branchId, win) : { active: false, reason: 'NONE' as const };
+    const outItems = blind.active
+      ? items.map((i) => ({ productId: i.productId, name: i.name, sku: i.sku, categoryId: i.categoryId, categoryName: i.categoryName, price: null, stockInicial: null, ingresos: null, salidas: null, ajustes: null, stock: null, min: null, belowMin: false }))
+      : items;
     return {
       warehouseId: whId,
       turn: { shift: win.shift, businessDate: win.businessDate, startTime: win.startTime, endTime: win.endTime, isCurrent: win.isCurrent, from: win.from, to: win.to },
-      items,
+      blind,
+      items: outItems,
     };
+  },
+
+  /** Estado del modo ciego para el turno de recepción actual. */
+  async blindStatus(scope: RequestScope) {
+    const branchId = requireActiveBranch(scope);
+    const shifts = await prisma.roleShift.findMany({ where: { branchId, role: 'RECEPCION' } });
+    return this.computeBlind(branchId, this.turnWindow(shifts));
+  },
+
+  /** Calcula si el inventario de recepción está oculto: override manual del turno o automático por
+   *  proximidad al fin del turno (fin − N min). NO cambia la configuración automática. */
+  async computeBlind(branchId: string, win: TurnWin) {
+    const [autoRaw, minRaw, overRaw] = await Promise.all([
+      getSetting(branchId, RECEPTION_BLIND_KEYS.auto),
+      getSetting(branchId, RECEPTION_BLIND_KEYS.minutes),
+      getSetting(branchId, RECEPTION_BLIND_KEYS.override),
+    ]);
+    const auto = autoRaw === 'true';
+    const minutes = minRaw ? Number(minRaw) : 45;
+    const now = Date.now();
+    const turn = { shift: win.shift, businessDate: win.businessDate, startTime: win.startTime, endTime: win.endTime };
+    if (overRaw) {
+      try {
+        const ov = JSON.parse(overRaw) as { state?: string; businessDate?: string; shift?: string; at?: string; byName?: string | null };
+        if (ov.businessDate === win.businessDate && ov.shift === win.shift) {
+          if (ov.state === 'OFF') return { active: false, reason: 'MANUAL_OFF' as const, by: ov.byName ?? null, at: ov.at ?? null, turn };
+          if (ov.state === 'ON') return { active: true, reason: 'MANUAL' as const, by: ov.byName ?? null, at: ov.at ?? null, turn };
+        }
+      } catch { /* override inválido: se ignora */ }
+    }
+    if (auto) {
+      const end = win.to.getTime();
+      const threshold = end - minutes * 60000;
+      if (now >= threshold && now < end) return { active: true, reason: 'AUTO' as const, minutesBefore: minutes, at: new Date(threshold).toISOString(), turn };
+    }
+    return { active: false, reason: 'NONE' as const, turn };
+  },
+
+  /** Activa/desactiva el modo ciego manualmente para el turno actual (solo Admin/Gerente). Auditado.
+   *  No modifica la configuración automática (se mantiene para los siguientes turnos). */
+  async setBlindOverride(scope: RequestScope, dto: BlindActionDto) {
+    const branchId = requireActiveBranch(scope);
+    if (!(scope.isSuperAdmin || scope.permissions.includes('settings:edit'))) {
+      throw new ForbiddenError('Solo un administrador puede cambiar el modo ciego de recepción.');
+    }
+    const shifts = await prisma.roleShift.findMany({ where: { branchId, role: 'RECEPCION' } });
+    const win = this.turnWindow(shifts);
+    const user = await prisma.user.findUnique({ where: { id: scope.userId }, select: { name: true } });
+    const state = dto.action === 'ACTIVATE' ? 'ON' : 'OFF';
+    const override = { state, businessDate: win.businessDate, shift: win.shift, at: new Date().toISOString(), byUserId: scope.userId, byName: user?.name ?? null };
+    await setSetting(branchId, RECEPTION_BLIND_KEYS.override, JSON.stringify(override));
+    void recordActivity(scope, {
+      activity: 'MODO_CIEGO', area: 'INVENTARIO', reference: 'Inventario de Recepción',
+      detail: `Modo ciego ${state === 'ON' ? 'ACTIVADO' : 'DESACTIVADO'} manualmente · turno ${win.shift}`,
+      meta: { action: dto.action, state, shift: win.shift, businessDate: win.businessDate },
+    });
+    return this.computeBlind(branchId, win);
   },
 
   async createRequest(scope: RequestScope, dto: RequestDto) {

@@ -20,6 +20,7 @@ import { printPdf } from '../../../core/utils/export';
 interface ReqLine { productId: string; name: string; sku: string | null; qty: number; }
 
 interface InvItem { productId: string; name: string; sku?: string | null; categoryId?: string | null; categoryName?: string | null; price?: number; stockInicial: number; stock: number; min: number; ingresos: number; salidas: number; ajustes: number; belowMin: boolean; }
+interface BlindInfo { active: boolean; reason: 'AUTO' | 'MANUAL' | 'MANUAL_OFF' | 'NONE'; by?: string | null; at?: string | null; }
 interface AdjDetail { id: string; at: string; kind: string; productName: string; quantity: number; counterpart: string | null; room: string | null; reason: string | null; user: string | null; approvedBy: string | null; }
 interface TurnInfo { shift: string; businessDate: string; startTime: string; endTime: string; isCurrent: boolean; from?: string; to?: string; }
 interface WhOpt { id: string; name: string; type: string; }
@@ -65,8 +66,20 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
         </div>
         <button class="t-nav" (click)="shiftTurno(1)" [disabled]="turn()?.isCurrent">Siguiente Turno <i class="pi pi-chevron-right"></i></button>
         <span class="spacer"></span>
-        <span class="counts"><i class="pi pi-box"></i> {{ filtered().length }} productos | <span class="low-c"><i class="pi pi-exclamation-triangle"></i> {{ lowStockCount() }} bajo stock</span></span>
+        <span class="counts"><i class="pi pi-box"></i> {{ filtered().length }} productos @if (!blind()?.active) { | <span class="low-c"><i class="pi pi-exclamation-triangle"></i> {{ lowStockCount() }} bajo stock</span> }</span>
       </div>
+
+      @if (blind()?.active) {
+        <div class="blind-banner">
+          <i class="pi pi-lock"></i>
+          <div>
+            <strong>MODO CIEGO ACTIVO</strong>
+            <span>Las cantidades del inventario están temporalmente ocultas para realizar el conteo físico.</span>
+            @if (blind()?.reason === 'AUTO') { <small>Activado automáticamente por proximidad al cierre del turno.</small> }
+            @else if (blind()?.reason === 'MANUAL') { <small>Activado manualmente por administrador{{ blind()?.by ? ' (' + blind()?.by + ')' : '' }}.</small> }
+          </div>
+        </div>
+      }
 
       <table class="tbl">
         <thead><tr>
@@ -78,11 +91,15 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
             <tr [class.low]="it.belowMin">
               <td class="ck"><input type="checkbox" [checked]="selected().has(it.productId)" (change)="toggle(it.productId)" /></td>
               <td class="name"><span class="ico"><i class="pi pi-box"></i></span><div><div>{{ it.name }}</div><small class="muted">{{ it.sku || '—' }}</small></div></td>
-              <td class="n init">{{ it.stockInicial }}</td>
-              <td class="n pos">{{ it.ingresos }}</td>
-              <td class="n neg">{{ it.salidas }}</td>
-              <td class="n adj" [class.clk]="it.ajustes !== 0" (click)="it.ajustes !== 0 && openAjustes(it)"><span [class.pos]="it.ajustes > 0" [class.neg]="it.ajustes < 0">{{ it.ajustes > 0 ? '+' : '' }}{{ it.ajustes }}</span>@if (it.ajustes !== 0) { <i class="pi pi-search-plus av"></i> }</td>
-              <td class="n">@if (it.belowMin) { <span class="warn"><i class="pi pi-exclamation-triangle"></i> {{ it.stock }} u.</span> } @else { <span>{{ it.stock }} u.</span> }</td>
+              @if (blind()?.active) {
+                <td class="n bl">🔒 —</td><td class="n bl">—</td><td class="n bl">—</td><td class="n bl">—</td><td class="n bl">—</td>
+              } @else {
+                <td class="n init">{{ it.stockInicial }}</td>
+                <td class="n pos">{{ it.ingresos }}</td>
+                <td class="n neg">{{ it.salidas }}</td>
+                <td class="n adj" [class.clk]="it.ajustes !== 0" (click)="it.ajustes !== 0 && openAjustes(it)"><span [class.pos]="it.ajustes > 0" [class.neg]="it.ajustes < 0">{{ it.ajustes > 0 ? '+' : '' }}{{ it.ajustes }}</span>@if (it.ajustes !== 0) { <i class="pi pi-search-plus av"></i> }</td>
+                <td class="n">@if (it.belowMin) { <span class="warn"><i class="pi pi-exclamation-triangle"></i> {{ it.stock }} u.</span> } @else { <span>{{ it.stock }} u.</span> }</td>
+              }
               <td class="g"><button class="gear" (click)="openAdjust(it)" title="Registrar ajuste"><i class="pi pi-sliders-h"></i></button></td>
             </tr>
           } @empty { <tr><td colspan="8" class="muted center">Sin productos.</td></tr> }
@@ -341,6 +358,9 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       .search input { width: 100%; background: #131d2b; border: 1px solid #243245; color: #e6e9ef; border-radius: 8px; padding: 0.6rem 0.7rem 0.6rem 2rem; }
       :host ::ng-deep .dk .p-select { background: #131d2b; border-color: #243245; min-width: 220px; }
       .turno { display: flex; align-items: center; gap: 1rem; background: #0e1622; border: 1px solid #1f2a3a; border-radius: 12px; padding: 0.8rem 1rem; margin-bottom: 1rem; flex-wrap: wrap; }
+      .blind-banner { display: flex; align-items: flex-start; gap: 0.7rem; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.45); border-radius: 12px; padding: 0.8rem 1rem; margin-bottom: 1rem; }
+      .blind-banner > .pi { color: #fbbf24; font-size: 1.5rem; margin-top: 0.1rem; } .blind-banner strong { display: block; color: #fcd34d; letter-spacing: 0.03em; } .blind-banner span { display: block; color: #cbd5e1; font-size: 0.85rem; } .blind-banner small { display: block; color: #94a3b8; font-size: 0.76rem; font-style: italic; margin-top: 0.2rem; }
+      .n.bl { color: #64748b; font-weight: 700; letter-spacing: 0.05em; }
       .t-nav { background: #131d2b; border: 1px solid #243245; color: #cdd8e6; border-radius: 8px; padding: 0.5rem 0.8rem; cursor: pointer; font-size: 0.82rem; }
       .t-nav:disabled { opacity: 0.4; cursor: not-allowed; }
       .t-info { text-align: center; } .t-info strong { display: block; text-transform: capitalize; }
@@ -470,6 +490,7 @@ export class InventarioRecepcionComponent implements OnInit {
   categoryFilter: string | null = null;
   // Turno seleccionado (día + turno). El backend calcula el actual en la 1ª carga.
   readonly turn = signal<TurnInfo | null>(null);
+  readonly blind = signal<BlindInfo | null>(null);
   readonly whId = signal<string>('');
   // Registrar ajuste
   readonly warehouses = signal<WhOpt[]>([]);
@@ -715,10 +736,11 @@ export class InventarioRecepcionComponent implements OnInit {
   reload(): void {
     const params: Record<string, string> = {};
     if (this.fDay && this.curShift) { params['date'] = this.fDay; params['shift'] = this.curShift; }
-    this.http.get<ApiResponse<{ items: InvItem[]; turn: TurnInfo; warehouseId: string }>>(`${this.api}/reception-inventory`, { params }).subscribe((r) => {
+    this.http.get<ApiResponse<{ items: InvItem[]; turn: TurnInfo; warehouseId: string; blind?: BlindInfo }>>(`${this.api}/reception-inventory`, { params }).subscribe((r) => {
       if (r.data?.warehouseId) this.whId.set(r.data.warehouseId);
       this.items.set(r.data?.items ?? []);
-      this.maybeAlertLowStock(r.data?.items ?? []);
+      this.blind.set(r.data?.blind ?? null);
+      if (!r.data?.blind?.active) this.maybeAlertLowStock(r.data?.items ?? []);
       if (r.data?.turn) { this.turn.set(r.data.turn); this.fDay = r.data.turn.businessDate; this.curShift = r.data.turn.shift; }
     });
     this.http.get<ApiResponse<Req[]>>(`${this.api}/reception-inventory/requests`).subscribe((r) => this.requests.set(r.data ?? []));

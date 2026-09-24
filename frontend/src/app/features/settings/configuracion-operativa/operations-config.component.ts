@@ -24,9 +24,11 @@ interface OperationsConfig {
   inspectionEnabled: boolean;
   preCheckoutEnabled: boolean;
   stockAlertEveryHours: number;
+  receptionBlind: { auto: boolean; minutesBefore: number; keepUntilCount: boolean };
   reception: { declareStay: boolean; roomChange: boolean; productWriteoff: boolean; creditNote: boolean };
   cleaning: { linenWriteoff: boolean };
 }
+interface BlindStatus { active: boolean; reason: 'AUTO' | 'MANUAL' | 'MANUAL_OFF' | 'NONE'; by?: string | null; at?: string | null; }
 
 const DEFAULTS: OperationsConfig = {
   branchName: '',
@@ -46,6 +48,7 @@ const DEFAULTS: OperationsConfig = {
   inspectionEnabled: true,
   preCheckoutEnabled: false,
   stockAlertEveryHours: 24,
+  receptionBlind: { auto: false, minutesBefore: 45, keepUntilCount: false },
   reception: { declareStay: false, roomChange: false, productWriteoff: false, creditNote: false },
   cleaning: { linenWriteoff: false },
 };
@@ -155,6 +158,30 @@ const DEFAULTS: OperationsConfig = {
             <p-inputNumber [(ngModel)]="cfg.stockAlertEveryHours" [min]="0" [max]="720" suffix=" h" [disabled]="!canEdit" styleClass="w" />
           </article>
 
+          <article class="card wide">
+            <h3>Conteo / Modo Ciego de Recepción</h3>
+            <p class="desc">Configura el modo ciego para el conteo de inventario en recepción. Ayuda a garantizar un registro objetivo y evita que el personal se guíe por las cantidades del sistema durante el conteo físico.</p>
+            <div class="sw-row"><p-toggleswitch [(ngModel)]="cfg.receptionBlind.auto" [disabled]="!canEdit" /><div><strong>Modo ciego automático</strong><small class="block">Oculta automáticamente las cantidades del Inventario de Recepción antes del cierre del turno para evitar que el personal se guíe por el stock del sistema durante el conteo físico.</small></div></div>
+            <label>Ocultar stock automáticamente antes del fin del turno (minutos)</label>
+            <p-inputNumber [(ngModel)]="cfg.receptionBlind.minutesBefore" [min]="0" [max]="240" suffix=" min" [disabled]="!canEdit || !cfg.receptionBlind.auto" styleClass="w" />
+            <div class="sw-row"><p-toggleswitch [(ngModel)]="cfg.receptionBlind.keepUntilCount" [disabled]="!canEdit" /><div><strong>Mantener inventario oculto al iniciar turno hasta finalizar conteo</strong><small class="block">Si está activo, el nuevo turno continuará sin visualizar las cantidades del inventario hasta completar “Registrar Conteo”.</small></div></div>
+            @if (canEdit) {
+              <div class="blind-manual">
+                <div class="bm-state">Estado actual: <strong [class.on]="blind()?.active">Modo ciego {{ blind()?.active ? 'ACTIVO' : 'INACTIVO' }}</strong>
+                  @if (blind()?.active && blind()?.reason === 'AUTO') { <span class="bm-tag auto">automático</span> }
+                  @else if (blind()?.active && blind()?.reason === 'MANUAL') { <span class="bm-tag manual">manual{{ blind()?.by ? ' · ' + blind()?.by : '' }}</span> }
+                </div>
+                @if (blind()?.active) {
+                  <button class="bm-btn off" [disabled]="blindBusy()" (click)="toggleBlind('DEACTIVATE')"><i class="pi pi-eye"></i> Desactivar ahora</button>
+                } @else {
+                  <button class="bm-btn on" [disabled]="blindBusy()" (click)="toggleBlind('ACTIVATE')"><i class="pi pi-eye-slash"></i> Activar ahora</button>
+                }
+                <small class="bm-note">El control manual no cambia la configuración automática (sigue rigiendo para los siguientes turnos).</small>
+              </div>
+            }
+            <div class="ref-row"><i class="pi pi-info-circle"></i> Afecta únicamente al módulo Inventario de Recepción. Solo Admin / Gerente puede activarlo o desactivarlo manualmente.</div>
+          </article>
+
           <!-- ===== BLOQUE E ===== -->
           <div class="block-title">E · Permisos de Recepción</div>
 
@@ -206,6 +233,13 @@ const DEFAULTS: OperationsConfig = {
       .ref-row { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.9rem; padding: 0.5rem 0.7rem; border-radius: 8px; background: rgba(148,163,184,0.14); font-size: 0.82rem; color: var(--p-text-muted-color, #64748b); }
       .link-btn { display: inline-flex; align-items: center; gap: 0.4rem; margin-top: 0.9rem; font-size: 0.85rem; font-weight: 600; color: var(--p-primary-color, #3b82f6); text-decoration: none; }
       .link-btn:hover { text-decoration: underline; }
+      .blind-manual { margin-top: 0.9rem; padding-top: 0.8rem; border-top: 1px dashed var(--p-content-border-color, #e5e7eb); display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; }
+      .bm-state { font-size: 0.9rem; } .bm-state strong { color: #64748b; } .bm-state strong.on { color: #f43f5e; }
+      .bm-tag { font-size: 0.7rem; font-weight: 700; border-radius: 999px; padding: 0.1rem 0.5rem; margin-left: 0.4rem; } .bm-tag.auto { background: rgba(59,130,246,0.16); color: #2563eb; } .bm-tag.manual { background: rgba(245,158,11,0.16); color: #b45309; }
+      .bm-btn { display: inline-flex; align-items: center; gap: 0.45rem; border-radius: 9px; padding: 0.55rem 1rem; font-weight: 700; cursor: pointer; border: 1px solid transparent; } .bm-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+      .bm-btn.on { background: #f43f5e; color: #fff; } .bm-btn.on:hover:not(:disabled) { background: #e11d48; }
+      .bm-btn.off { background: transparent; border-color: #22c55e; color: #16a34a; } .bm-btn.off:hover:not(:disabled) { background: rgba(34,197,94,0.12); }
+      .bm-note { color: var(--p-text-muted-color, #64748b); font-size: 0.75rem; }
       .pos-tbl { display: flex; flex-direction: column; gap: 0.1rem; }
       .pos-row { display: grid; grid-template-columns: 1.5fr 0.8fr 1fr 1fr; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid var(--p-content-border-color, #f1f5f9); font-size: 0.86rem; }
       .pos-row .c { text-align: center; } .pos-row .r { text-align: right; font-variant-numeric: tabular-nums; }
@@ -230,6 +264,8 @@ export class OperationsConfigComponent {
   readonly canEdit = this.auth.can('settings', 'edit');
 
   cfg: OperationsConfig = structuredClone(DEFAULTS);
+  readonly blind = signal<BlindStatus | null>(null);
+  readonly blindBusy = signal(false);
 
   // "Modo Administrador" es la cara visible de la config; internamente se guarda como blindCash (= !adminMode).
   // Modo Administrador ON  → caja normal / supervisada (blindCash = false).
@@ -260,6 +296,21 @@ export class OperationsConfigComponent {
       next: (res) => { if (res.data) this.cfg = { ...structuredClone(DEFAULTS), ...res.data, pos: { ...DEFAULTS.pos, ...res.data.pos } }; this.loading.set(false); },
       error: () => this.loading.set(false),
     });
+    this.loadBlind();
+  }
+  private loadBlind(): void {
+    this.http.get<ApiResponse<BlindStatus>>(`${this.api}/reception-inventory/blind`).subscribe({
+      next: (r) => this.blind.set(r.data ?? null),
+      error: () => this.blind.set(null),
+    });
+  }
+  /** Control manual del modo ciego (solo Admin/Gerente). No cambia la configuración automática. */
+  toggleBlind(action: 'ACTIVATE' | 'DEACTIVATE'): void {
+    this.blindBusy.set(true);
+    this.http.post<ApiResponse<BlindStatus>>(`${this.api}/reception-inventory/blind`, { action }).subscribe({
+      next: (r) => { this.blind.set(r.data ?? null); this.blindBusy.set(false); this.toast.add({ severity: 'success', summary: 'Modo ciego', detail: r.data?.active ? 'Modo ciego ACTIVADO en Inventario de Recepción.' : 'Modo ciego DESACTIVADO.' }); },
+      error: (e: HttpErrorResponse) => { this.blindBusy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo cambiar el modo ciego.' }); },
+    });
   }
 
   save(): void {
@@ -269,6 +320,7 @@ export class OperationsConfigComponent {
         if (res.data) this.cfg = { ...structuredClone(DEFAULTS), ...res.data, pos: { ...DEFAULTS.pos, ...res.data.pos } };
         this.saving.set(false);
         this.toast.add({ severity: 'success', summary: 'Guardado', detail: 'Configuración operativa actualizada.' });
+        this.loadBlind(); // el automático pudo cambiar
         // La Caja Ciega vive en la sucursal (adminPresent); refrescar para que el módulo de caja la vea.
         this.auth.loadBranches().subscribe();
       },
