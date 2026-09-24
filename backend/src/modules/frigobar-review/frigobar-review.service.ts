@@ -40,7 +40,7 @@ export const frigobarReviewService = {
     const inv = await prisma.roomInventory.findMany({ where: { roomId: room.id, articleKind: 'FRIGOBAR' }, select: { productId: true, name: true, quantity: true } });
     const pids = inv.map((i) => i.productId).filter((x): x is string => !!x);
     const [prods, dot] = await Promise.all([
-      pids.length ? prisma.product.findMany({ where: { id: { in: pids }, branchId }, select: { id: true, name: true, salePrice: true, imageUrl: true } }) : Promise.resolve([]),
+      pids.length ? prisma.product.findMany({ where: { id: { in: pids }, branchId }, select: { id: true, name: true, salePrice: true, imageUrl: true, sku: true } }) : Promise.resolve([]),
       // Ubicación (FRIGOBAR|BANDEJA) guardada en el campo `size` de la Dotación Base de frigobar.
       prisma.roomTypeDotacion.findMany({ where: { branchId, roomTypeId: room.roomTypeId, articleKind: 'FRIGOBAR', status: 'active', productId: { not: null } }, select: { productId: true, size: true } }),
     ]);
@@ -49,11 +49,14 @@ export const frigobarReviewService = {
     const lines = inv.filter((i) => i.productId).map((i) => ({
       productId: i.productId as string,
       name: pmap.get(i.productId as string)?.name ?? i.name,
+      code: pmap.get(i.productId as string)?.sku ?? '',
       imageUrl: pmap.get(i.productId as string)?.imageUrl ?? null,
       location: locByProd.get(i.productId as string) ?? 'FRIGOBAR',
       expectedQty: i.quantity,
       unitPrice: Number(pmap.get(i.productId as string)?.salePrice ?? 0),
     }));
+    // Orden por CÓDIGO (no alfabético) dentro de cada sección; el frontend agrupa BANDEJA/FRIGOBAR preservando este orden.
+    lines.sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true, sensitivity: 'base' }));
     return { room: { id: room.id, number: room.number }, lines };
   },
 

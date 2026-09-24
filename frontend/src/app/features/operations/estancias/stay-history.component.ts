@@ -60,9 +60,9 @@ function currentShiftIdx(): number {
       <h1>Historial de Estancias</h1>
 
       <div class="bar">
-        <div class="search"><i class="pi pi-search"></i><input [(ngModel)]="search" placeholder="Buscar por cliente o DNI" (keyup.enter)="applySearch()" /></div>
+        <div class="search"><i class="pi pi-search"></i><input [(ngModel)]="search" placeholder="Buscar por cliente o DNI" (keyup.enter)="applySearch()" />@if (appliedSearch()) { <i class="pi pi-times clr" (click)="clearSearch()" title="Limpiar búsqueda"></i> }</div>
         <div class="f"><label>Tipo</label>
-          <select [(ngModel)]="fTipo">
+          <select [ngModel]="fTipo()" (ngModelChange)="fTipo.set($event)">
             <option value="">Todos</option><option value="ESTADIA_CORTA">Estadía Corta</option><option value="RENOVACION">Renovación</option><option value="PERNOCTA">Pernocta</option>
           </select>
         </div>
@@ -71,19 +71,21 @@ function currentShiftIdx(): number {
         <button class="act excel" (click)="exportCsv()"><i class="pi pi-download"></i> Exportar Excel</button>
       </div>
 
-      <div class="turnnav">
-        <button class="t-nav" (click)="prevTurn()"><i class="pi pi-chevron-left"></i> Turno Anterior</button>
-        <div class="t-cur">
-          <strong>{{ turnDate() | date: 'EEEE, dd \\'De\\' MMMM \\'De\\' y' }}</strong>
-          <span class="muted">{{ turnLabel() }} @if (isCurrentTurn()) { <span class="t-act">ACTUAL</span> }</span>
+      @if (!appliedSearch()) {
+        <div class="turnnav">
+          <button class="t-nav" (click)="prevTurn()"><i class="pi pi-chevron-left"></i> Turno Anterior</button>
+          <div class="t-cur">
+            <strong>{{ turnDate() | date: 'EEEE, dd \\'De\\' MMMM \\'De\\' y' }}</strong>
+            <span class="muted">{{ turnLabel() }} @if (isCurrentTurn()) { <span class="t-act">ACTUAL</span> }</span>
+          </div>
+          <button class="t-nav" (click)="nextTurn()" [disabled]="isCurrentTurn()">Siguiente Turno <i class="pi pi-chevron-right"></i></button>
         </div>
-        <button class="t-nav" (click)="nextTurn()" [disabled]="isCurrentTurn()">Siguiente Turno <i class="pi pi-chevron-right"></i></button>
-      </div>
+      }
 
       @if (loading()) { <p class="muted">Cargando…</p> }
       @else {
         @let rows = turnRows();
-        <div class="cnt">{{ rows.length }} estancia(s) en este turno</div>
+        <div class="cnt">@if (appliedSearch()) { {{ rows.length }} resultado(s) para «{{ appliedSearch() }}» } @else { {{ rows.length }} estancia(s) en este turno }</div>
         <div class="tbl-wrap">
           <table class="tbl">
             <thead><tr>
@@ -128,6 +130,7 @@ function currentShiftIdx(): number {
       .bar { display: flex; align-items: flex-end; gap: 0.8rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
       .search { display: flex; align-items: center; gap: 0.5rem; background: #0e1626; border: 1px solid #26364f; border-radius: 10px; padding: 0.55rem 0.9rem; color: #8aa0bd; min-width: 240px; flex: 1; }
       .search input { flex: 1; background: transparent; border: 0; color: #e2e8f0; outline: none; }
+      .search .clr { cursor: pointer; color: #8aa0bd; } .search .clr:hover { color: #f87171; }
       .f { display: flex; flex-direction: column; gap: 0.3rem; } .f label { font-size: 0.72rem; color: #8aa0bd; }
       .f select, .f input { background: #0e1626; border: 1px solid #26364f; border-radius: 8px; color: #e2e8f0; padding: 0.5rem; }
       .sp { flex: 1; }
@@ -164,7 +167,8 @@ export class StayHistoryComponent implements OnInit {
   readonly loading = signal(false);
 
   search = '';
-  fTipo = '';
+  readonly appliedSearch = signal('');
+  readonly fTipo = signal('');
   fDay = ymd(new Date());
   curShift = signal(currentShiftIdx());
 
@@ -185,11 +189,18 @@ export class StayHistoryComponent implements OnInit {
   isCurrentTurn(): boolean { return this.fDay >= ymd(new Date()) && this.curShift() >= currentShiftIdx(); }
 
   readonly turnRows = computed<StayRow[]>(() => {
-    const key = SHIFTS[this.curShift()];
-    return this.dayItems()
-      .filter((r) => r.businessDate === this.fDay && r.shift === key)
-      .filter((r) => !this.fTipo || r.tipo === this.fTipo)
-      .sort((a, b) => (a.checkInAt < b.checkInAt ? 1 : -1));
+    const q = this.appliedSearch().toLowerCase();
+    const tipo = this.fTipo();
+    let list = this.dayItems();
+    if (q) {
+      // Modo búsqueda: resultados de TODAS las fechas/turnos que coincidan por DNI o cliente.
+      list = list.filter((r) => (r.dni ?? '').toLowerCase().includes(q) || (r.customer ?? '').toLowerCase().includes(q));
+    } else {
+      // Modo turno: solo el día + turno seleccionados en la navegación.
+      const key = SHIFTS[this.curShift()];
+      list = list.filter((r) => r.businessDate === this.fDay && r.shift === key);
+    }
+    return list.filter((r) => !tipo || r.tipo === tipo).sort((a, b) => (a.checkInAt < b.checkInAt ? 1 : -1));
   });
 
   paymentLabel(r: StayRow): string {
@@ -209,15 +220,25 @@ export class StayHistoryComponent implements OnInit {
     if (s > 2) { s = 0; const d = this.turnDate(); d.setDate(d.getDate() + 1); this.fDay = ymd(d); this.curShift.set(s); this.load(); return; }
     this.curShift.set(s);
   }
-  applySearch(): void { this.load(); }
+  applySearch(): void { this.appliedSearch.set(this.search.trim()); this.load(); }
+  clearSearch(): void { this.search = ''; this.appliedSearch.set(''); this.load(); }
 
   load(): void {
     this.loading.set(true);
-    const from = this.fDay + 'T00:00:00';
-    const next = new Date(this.fDay + 'T12:00:00'); next.setDate(next.getDate() + 1);
-    const to = ymd(next) + 'T08:00:00';
+    const q = this.search.trim();
+    let from: string, to: string;
+    if (q) {
+      // Búsqueda global: rango amplio para no acotar a un solo día/turno.
+      from = '2000-01-01T00:00:00';
+      const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+      to = ymd(tomorrow) + 'T23:59:59';
+    } else {
+      from = this.fDay + 'T00:00:00';
+      const next = new Date(this.fDay + 'T12:00:00'); next.setDate(next.getDate() + 1);
+      to = ymd(next) + 'T08:00:00';
+    }
     const params: Record<string, string> = { from, to };
-    if (this.search.trim()) params['search'] = this.search.trim();
+    if (q) params['search'] = q;
     this.http.get<ApiResponse<{ items: StayRow[] }>>(`${this.api}/stays/history`, { params }).subscribe({
       next: (res) => { this.dayItems.set(res.data?.items ?? []); this.loading.set(false); },
       error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el historial.' }); },

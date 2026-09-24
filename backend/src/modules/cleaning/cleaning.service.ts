@@ -5,7 +5,7 @@ import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { notifyAdmin } from '../../shared/notify';
 import { shiftLogsService } from '../shift-logs/shift-logs.service';
-import { consumeFloorTx } from '../linen-admin/linen-admin.service';
+import { consumeFloorTx, closeLinenShiftForBranch } from '../linen-admin/linen-admin.service';
 import { resolveRoomFloor } from '../room-inventory/room-inventory.service';
 import { frigobarReviewService } from '../frigobar-review/frigobar-review.service';
 
@@ -382,6 +382,10 @@ export const cleaningService = {
     if (inProgress > 0) throw new ValidationError('No puedes finalizar el turno con limpiezas en curso');
     if (!shift.laundrySent) throw new ValidationError('Debes enviar la ropa a lavandería antes de finalizar el turno');
     const closed = await prisma.cleaningShift.update({ where: { id: shift.id }, data: { status: 'CLOSED', closedAt: new Date() } });
+    // Consolida la ropa del turno: lo SUMINISTRADO restante pasa a REMANENTE (NUEVO REM = REM + SUM).
+    // Se llama DIRECTO (no solo dentro de recordCut) porque el guard de idempotencia de recordCut
+    // puede saltarse el traspaso si ya existía un corte del día; es idempotente (SUM=0 → no-op).
+    await closeLinenShiftForBranch(branchId).catch(() => undefined);
     // Graba el corte de turno (snapshot de inventario/actividad) en el historial.
     await shiftLogsService.recordCut({ branchId, role: 'LIMPIEZA', shift: shift.shiftType, auto: false, userId: scope.userId }).catch(() => undefined);
     return closed;
@@ -737,6 +741,12 @@ export const cleaningService = {
       if (h >= 15 && h < 23) return { key: 'T', label: 'Tarde', hours: '15:00 - 23:00', order: 1 };
       return { key: 'N', label: 'Noche', hours: '23:00 - 07:00', order: 2 };
     };
+    // El turno NOCHE (23:00–07:00) cruza medianoche: una limpieza de 00:00–06:59 pertenece al DÍA
+    // ANTERIOR (el turno que empezó a las 23:00). Devuelve la fecha de negocio para agrupar/etiquetar.
+    const anchorOf = (d: Date): Date => {
+      if (d.getHours() < 7) { const a = new Date(d); a.setDate(a.getDate() - 1); return a; }
+      return d;
+    };
     const groupCount = (arr: { description: string }[]) => {
       const m = new Map<string, number>();
       for (const i of arr) m.set(i.description, (m.get(i.description) ?? 0) + 1);
@@ -793,9 +803,10 @@ export const cleaningService = {
     for (const row of rows) {
       const d = row.dateTime;
       const t = turnoOf(d);
-      const key = `${dateKey(d)}|${t.key}`;
+      const a = anchorOf(d); // fecha de negocio (día anterior si es NOCHE de madrugada)
+      const key = `${dateKey(a)}|${t.key}`;
       if (!shiftMap.has(key)) {
-        shiftMap.set(key, { dateISO: d.toISOString(), dateLabel: dateLabel(d), turnoKey: t.key, turnoLabel: t.label, hours: t.hours, sortAt: new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() + t.order, rows: [] });
+        shiftMap.set(key, { dateISO: a.toISOString(), dateLabel: dateLabel(a), turnoKey: t.key, turnoLabel: t.label, hours: t.hours, sortAt: new Date(a.getFullYear(), a.getMonth(), a.getDate()).getTime() + t.order, rows: [] });
       }
       shiftMap.get(key)!.rows.push(row);
     }

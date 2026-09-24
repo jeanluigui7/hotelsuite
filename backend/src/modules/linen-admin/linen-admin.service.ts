@@ -51,20 +51,20 @@ async function supplyToFloorTx(tx: LinenTx, branchId: string, linenItemId: strin
 }
 
 /**
- * Consume ropa del disponible de un piso (REM + SUM). Descuenta primero de SUM (lo
- * suministrado en el turno actual) y solo si no alcanza, del REM (remanente). Usado por
- * lavandería (manchada) y por la entrega de suministros a habitación.
+ * Consume ropa del disponible de un piso (REM + SUM). Descuenta primero de REM (remanente)
+ * y solo cuando el REM se agota, del SUM (lo suministrado en el turno). Usado por lavandería
+ * (manchada) y por la entrega de suministros a habitación.
  * Devuelve el detalle descontado. Lanza si el disponible es insuficiente.
  */
 export async function consumeFloorTx(tx: LinenTx, linenItemId: string, floor: string, quantity: number) {
   const stock = await tx.linenStock.findUnique({ where: { linenItemId_floor: { linenItemId, floor } } });
   const avail = (stock?.rem ?? 0) + (stock?.sum ?? 0);
   if (!stock || avail < quantity) throw new ValidationError(`Cantidad insuficiente en el piso (disponible ${avail}, solicitado ${quantity}).`);
-  const fromSum = Math.min(stock.sum, quantity);
-  const fromRem = quantity - fromSum;
+  const fromRem = Math.min(stock.rem, quantity);
+  const fromSum = quantity - fromRem;
   await tx.linenStock.update({
     where: { linenItemId_floor: { linenItemId, floor } },
-    data: { sum: { decrement: fromSum }, rem: { decrement: fromRem } },
+    data: { rem: { decrement: fromRem }, sum: { decrement: fromSum } },
   });
   return { fromSum, fromRem };
 }

@@ -6,7 +6,7 @@ import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 
-interface ReviewLine { productId: string; name: string; imageUrl?: string | null; location: 'FRIGOBAR' | 'BANDEJA'; expectedQty: number; unitPrice: number; consumo: number; }
+interface ReviewLine { productId: string; name: string; code?: string; imageUrl?: string | null; location: 'FRIGOBAR' | 'BANDEJA'; expectedQty: number; unitPrice: number; consumo: number; }
 
 /**
  * Modal REUTILIZABLE de inspección de frigobar. Lo abren:
@@ -112,9 +112,11 @@ export class FrigobarInspectionComponent {
     });
   }
   groups(): { key: string; label: string; rows: ReviewLine[] }[] {
-    const fr = this.lines().filter((l) => l.location !== 'BANDEJA');
-    const ba = this.lines().filter((l) => l.location === 'BANDEJA');
-    return [{ key: 'FRIGOBAR', label: 'Frigobar', rows: fr }, { key: 'BANDEJA', label: 'Bandeja', rows: ba }].filter((g) => g.rows.length);
+    // Orden por CÓDIGO (no alfabético) dentro de cada sección; primero BANDEJA, luego FRIGOBAR.
+    const byCode = (a: ReviewLine, b: ReviewLine) => (a.code ?? '').localeCompare(b.code ?? '', undefined, { numeric: true, sensitivity: 'base' });
+    const ba = this.lines().filter((l) => l.location === 'BANDEJA').sort(byCode);
+    const fr = this.lines().filter((l) => l.location !== 'BANDEJA').sort(byCode);
+    return [{ key: 'BANDEJA', label: 'Bandeja', rows: ba }, { key: 'FRIGOBAR', label: 'Frigobar', rows: fr }].filter((g) => g.rows.length);
   }
   inc(l: ReviewLine): void { if (l.consumo < l.expectedQty) { l.consumo++; this.lines.set([...this.lines()]); } }
   dec(l: ReviewLine): void { if (l.consumo > 0) { l.consumo--; this.lines.set([...this.lines()]); } }
