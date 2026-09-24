@@ -242,12 +242,22 @@ const MANT_CATS = [
     <!-- Reposición de frigobar pendiente (desde el rack; no bloquea el alquiler) -->
     <app-frigobar-reposition [(visible)]="repoVisible" [reviewId]="repoReviewId" [roomNumber]="repoRoomNumber" contextLabel="Rack" (confirmed)="reload()" />
 
-    <p-dialog [(visible)]="checkoutVisible" [modal]="true" [header]="'Pre Check-out · Hab. ' + (checkoutRoom?.number || '')" [style]="{ width: '30rem' }" styleClass="dk-dialog">
+    <p-dialog [(visible)]="checkoutVisible" [modal]="true" [header]="'Pre Check-out · Hab. ' + (checkoutRoom?.number || '')" [style]="{ width: '38rem', maxWidth: '96vw' }" styleClass="dk-dialog">
       @if (checkoutData(); as d) {
-        <div class="co-guest">
-          <span class="lbl">Detalles del huésped</span>
-          <strong>{{ checkoutRoom?.activeStay?.guestName }}</strong>
-          @if (checkoutRoom?.activeStay?.vehiclePlate) { <span class="muted">Placa: {{ checkoutRoom?.activeStay?.vehiclePlate }}</span> }
+        <!-- Huésped -->
+        <div class="co-guest2">
+          <div class="co-g-left">
+            <span class="lbl">DETALLES DEL HUÉSPED</span>
+            <strong class="co-g-name">{{ checkoutRoom?.activeStay?.guestName }}</strong>
+            <div class="co-g-doc">
+              <span><i class="pi pi-id-card"></i> {{ checkoutRoom?.activeStay?.documentType || 'DOC' }} {{ checkoutRoom?.activeStay?.documentNumber || '—' }}</span>
+              @if (checkoutRoom?.activeStay?.phone) { <span><i class="pi pi-phone"></i> {{ checkoutRoom?.activeStay?.phone }}</span> }
+            </div>
+          </div>
+          <div class="co-g-dates">
+            <div class="co-date"><small>Entrada</small><b>{{ checkoutRoom?.activeStay?.checkInAt | date: 'dd/MM HH:mm' }}</b></div>
+            <div class="co-date"><small>Salida programada</small><b>{{ d.plannedCheckoutAt | date: 'dd/MM HH:mm' }}</b></div>
+          </div>
         </div>
         @if (vueltoOf(checkoutRoom?.activeStay?.id) > 0) {
           <div class="co-vuelto">
@@ -257,51 +267,74 @@ const MANT_CATS = [
           </div>
         }
 
-        <!-- TIEMPO EXCEDIDO (no bloquea; sin cobrar no genera deuda) -->
+        <!-- TIEMPO EXCEDIDO -->
         @if (d.lateCharge > 0) {
-          <div class="co-sec late">
-            <div class="co-sec-h"><i class="pi pi-clock"></i> TIEMPO EXCEDIDO</div>
-            <div class="co-kv"><span>Salida programada</span><span>{{ d.plannedCheckoutAt | date: 'shortTime' }}</span></div>
-            <div class="co-kv"><span>Salida actual</span><span>{{ checkoutNow | date: 'shortTime' }}</span></div>
-            <div class="co-kv"><span>{{ d.lateHours }} h excedida(s)</span><strong>S/ {{ d.lateCharge | number: '1.2-2' }}</strong></div>
-            <small class="co-note">No bloquea el check-out. Si continúas sin cobrarlo, no genera deuda.</small>
+          <div class="co-row late">
+            <span class="co-ic red"><i class="pi pi-clock"></i></span>
+            <div class="co-row-b">
+              <div class="co-row-t">Tiempo excedido <span class="co-badge red">Sin cobrar</span></div>
+              <small>Salida programada: {{ d.plannedCheckoutAt | date: 'shortTime' }} · Salida actual: {{ checkoutNow | date: 'shortTime' }}</small>
+              <small>{{ lateExcedidoLabel(d) }}</small>
+            </div>
+            <span class="co-amt red">S/ {{ d.lateCharge | number: '1.2-2' }}</span>
           </div>
+          <div class="co-banner warn"><i class="pi pi-exclamation-triangle"></i><div>El cliente tiene <b>tiempo excedido</b>. Este monto <b>no se guardará como deuda</b> en su perfil. Puedes cobrarlo ahora o continuar sin cobrar.</div></div>
         }
 
         <!-- CARGOS POR COBRAR -->
-        <div class="co-sec">
-          <div class="co-sec-h"><i class="pi pi-shopping-bag"></i> CARGOS POR COBRAR</div>
-          <div class="co-kv total2"><span>Total</span><strong>S/ {{ d.total | number: '1.2-2' }}</strong></div>
-          <small class="co-note">Productos, servicios, renovaciones, penalidades y consumos. No bloquean el check-out.</small>
+        <div class="co-row">
+          <span class="co-ic green"><i class="pi pi-shopping-bag"></i></span>
+          <div class="co-row-b">
+            <div class="co-row-t">Cargos por cobrar</div>
+            <small>Servicios, productos, renovaciones y penalidades.</small>
+          </div>
+          <span class="co-amt">S/ {{ d.total | number: '1.2-2' }}</span>
         </div>
 
         <!-- FRIGOBAR (solo si tiene frigobar; SIN_REVISAR bloquea) -->
         @if (d.frigobar?.enabled) {
-          <div class="co-sec frigo" [class.warn]="d.frigobar!.status === 'SIN_REVISAR'">
-            <div class="co-sec-h"><i class="pi pi-inbox"></i> FRIGOBAR</div>
-            @switch (d.frigobar!.status) {
-              @case ('SIN_REVISAR') {
-                <div class="co-frigo-p"><b>PENDIENTE DE INSPECCIÓN</b><small>Debes revisarlo para continuar el check-out.</small></div>
-                <button class="co-frigo-btn" (click)="openCheckoutInsp()"><i class="pi pi-search"></i> Revisar frigobar ›</button>
+          <div class="co-row frigo" [class.warn]="d.frigobar!.status === 'SIN_REVISAR'">
+            <span class="co-ic blue"><i class="pi pi-inbox"></i></span>
+            <div class="co-row-b">
+              <div class="co-row-t">Frigobar
+                @switch (d.frigobar!.status) {
+                  @case ('SIN_REVISAR') { <span class="co-badge yellow">Pendiente de inspección</span> }
+                  @case ('CONSUMO_REGISTRADO') { <span class="co-badge blue">Consumo S/ {{ d.frigobar!.consumido | number: '1.2-2' }}</span> }
+                  @default { <span class="co-badge green">Revisado</span> }
+                }
+              </div>
+              @switch (d.frigobar!.status) {
+                @case ('SIN_REVISAR') { <small>Debe revisar los consumos del frigobar antes de continuar.</small> }
+                @case ('REVISADO') { <small>Revisado — sin consumo.</small> }
+                @case ('CONSUMO_REGISTRADO') { <small>Consumo cargado a «Cargos por cobrar».</small> }
+                @case ('PAGADO') { <small>Revisado — pagado.</small> }
               }
-              @case ('REVISADO') { <div class="co-frigo-ok"><i class="pi pi-check-circle"></i> REVISADO — SIN CONSUMO</div> }
-              @case ('CONSUMO_REGISTRADO') { <div class="co-frigo-ok"><i class="pi pi-check-circle"></i> REVISADO — CONSUMO S/ {{ d.frigobar!.consumido | number: '1.2-2' }}</div> }
-              @case ('PAGADO') { <div class="co-frigo-ok"><i class="pi pi-check-circle"></i> REVISADO — PAGADO</div> }
-            }
+            </div>
+            @if (d.frigobar!.status === 'SIN_REVISAR') {
+              <button class="co-link" (click)="openCheckoutInsp()">Revisar frigobar <i class="pi pi-angle-right"></i></button>
+            } @else { <span class="co-ok"><i class="pi pi-check-circle"></i></span> }
           </div>
+          @if (d.frigobar!.status === 'SIN_REVISAR') {
+            <div class="co-banner info"><i class="pi pi-info-circle"></i><div>El check-out estará <b>bloqueado</b> hasta completar la inspección del frigobar.</div></div>
+          }
         }
 
         <!-- TOTAL PENDIENTE -->
-        <div class="co-kv total" [class.debt]="d.totalWithLate > 0"><span>TOTAL PENDIENTE</span><strong>S/ {{ d.totalWithLate | number: '1.2-2' }}</strong></div>
+        <div class="co-total">
+          <div><div class="co-total-t">TOTAL PENDIENTE</div><small>Incluye cargos por cobrar. El tiempo excedido no se guarda como deuda.</small></div>
+          <span class="co-total-a">S/ {{ d.totalWithLate | number: '1.2-2' }}</span>
+        </div>
       } @else {
         <p class="muted">Calculando…</p>
       }
       <ng-template pTemplate="footer">
-        <p-button label="Cancelar" [text]="true" (onClick)="checkoutVisible = false" />
-        @if ((checkoutData()?.total || 0) > 0 || (checkoutData()?.lateCharge || 0) > 0) {
-          <p-button label="Cobrar pendientes" icon="pi pi-wallet" severity="secondary" (onClick)="goProcesarPago()" />
-        }
-        <p-button label="Continuar Check-out" icon="pi pi-sign-out" [loading]="checkingOut()" [disabled]="checkoutFrigoBlocked()" (onClick)="doCheckout()" />
+        <div class="co-actions">
+          <button class="co-btn cancel" (click)="checkoutVisible = false"><i class="pi pi-times"></i> Cancelar</button>
+          @if ((checkoutData()?.total || 0) > 0 || (checkoutData()?.lateCharge || 0) > 0) {
+            <button class="co-btn pay" (click)="goProcesarPago()"><i class="pi pi-wallet"></i><div>Cobrar pendientes<small>Registrar pagos de la estadía</small></div></button>
+          }
+          <button class="co-btn go" [disabled]="checkoutFrigoBlocked() || checkingOut()" (click)="doCheckout()"><i class="pi pi-sign-in"></i><div>Continuar Check-out<small>{{ checkoutFrigoBlocked() ? 'Complete la inspección del frigobar' : 'Cerrar la estadía' }}</small></div></button>
+        </div>
       </ng-template>
     </p-dialog>
 
@@ -747,16 +780,26 @@ const MANT_CATS = [
       .co-kv { display: flex; justify-content: space-between; padding: 0.35rem 0; font-size: 0.95rem; }
       .co-kv.total { border-top: 1px solid #243245; margin-top: 0.4rem; padding-top: 0.55rem; font-weight: 700; }
       .co-kv.total.debt strong { color: #fbbf24; }
-      /* PRE CHECK-OUT: secciones */
-      .co-sec { background: #0e1622; border: 1px solid #1f2a3a; border-radius: 10px; padding: 0.55rem 0.8rem; margin-bottom: 0.6rem; }
-      .co-sec.late { background: #2a1d12; border-color: #6b4f2a; } .co-sec.late .co-sec-h { color: #fbbf24; }
-      .co-sec.frigo.warn { background: #2a1216; border-color: #7f1d1d; } .co-sec.frigo.warn .co-sec-h { color: #fca5a5; }
-      .co-sec-h { display: flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em; color: #9fb0c3; margin-bottom: 0.35rem; }
-      .co-note { display: block; color: #7c8ba0; font-size: 0.7rem; font-style: italic; margin-top: 0.2rem; }
-      .co-kv.total2 { border-top: 1px dashed #243245; margin-top: 0.25rem; padding-top: 0.4rem; font-weight: 700; }
-      .co-frigo-p b { display: block; color: #fca5a5; font-size: 0.9rem; } .co-frigo-p small { color: #9fb0c3; font-size: 0.72rem; }
-      .co-frigo-btn { margin-top: 0.5rem; width: 100%; background: rgba(59,130,246,0.16); border: 1px solid rgba(59,130,246,0.5); color: #bfdbfe; border-radius: 9px; padding: 0.55rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; } .co-frigo-btn:hover { background: rgba(59,130,246,0.26); }
-      .co-frigo-ok { display: flex; align-items: center; gap: 0.4rem; color: #34d399; font-weight: 700; font-size: 0.9rem; }
+      /* PRE CHECK-OUT (rediseño por filas con tile de color) */
+      .co-guest2 { display: flex; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; background: #0e1622; border: 1px solid #1f2a3a; border-radius: 12px; padding: 0.7rem 0.9rem; margin-bottom: 0.7rem; }
+      .co-g-name { display: block; font-size: 1.05rem; color: #fff; margin: 0.1rem 0; } .co-g-doc { display: flex; gap: 0.9rem; flex-wrap: wrap; color: #9fb0c3; font-size: 0.82rem; } .co-g-doc .pi { color: #6b7f96; }
+      .co-g-dates { display: flex; gap: 0.5rem; } .co-date { background: #0b1220; border: 1px solid #22304a; border-radius: 8px; padding: 0.35rem 0.6rem; text-align: center; } .co-date small { display: block; color: #8aa0bd; font-size: 0.64rem; } .co-date b { font-size: 0.9rem; }
+      .co-row { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.7rem; background: #0e1622; border: 1px solid #1f2a3a; border-radius: 12px; padding: 0.7rem 0.85rem; margin-bottom: 0.5rem; }
+      .co-row.late { border-color: #6b2a2a; } .co-row.frigo.warn { border-color: #7a5b1e; }
+      .co-ic { width: 2.5rem; height: 2.5rem; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.2rem; } .co-ic.red { background: rgba(244,63,94,0.16); color: #fb7185; } .co-ic.green { background: rgba(16,185,129,0.16); color: #34d399; } .co-ic.blue { background: rgba(59,130,246,0.18); color: #60a5fa; }
+      .co-row-b { min-width: 0; } .co-row-t { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-weight: 800; color: #fff; font-size: 1rem; } .co-row-b small { display: block; color: #8aa0bd; font-size: 0.76rem; margin-top: 0.1rem; }
+      .co-badge { font-size: 0.66rem; font-weight: 800; padding: 0.15rem 0.5rem; border-radius: 999px; text-transform: none; letter-spacing: 0.02em; } .co-badge.red { background: rgba(244,63,94,0.2); color: #fda4af; } .co-badge.yellow { background: rgba(245,158,11,0.2); color: #fcd34d; } .co-badge.green { background: rgba(16,185,129,0.2); color: #6ee7b7; } .co-badge.blue { background: rgba(59,130,246,0.2); color: #93c5fd; }
+      .co-amt { font-size: 1.15rem; font-weight: 800; color: #fff; white-space: nowrap; } .co-amt.red { color: #fb7185; }
+      .co-link { background: none; border: 0; color: #60a5fa; font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem; white-space: nowrap; font-size: 0.92rem; } .co-link:hover { color: #93c5fd; }
+      .co-ok { color: #34d399; font-size: 1.4rem; }
+      .co-banner { display: flex; gap: 0.5rem; align-items: flex-start; border-radius: 10px; padding: 0.55rem 0.7rem; margin: -0.1rem 0 0.6rem; font-size: 0.78rem; line-height: 1.35; } .co-banner .pi { margin-top: 0.1rem; } .co-banner.warn { background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.35); color: #fcd34d; } .co-banner.info { background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.3); color: #93c5fd; }
+      .co-total { display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; background: #0b1220; border: 1px solid #243245; border-radius: 12px; padding: 0.7rem 0.9rem; margin-top: 0.5rem; } .co-total-t { font-size: 0.9rem; font-weight: 800; color: #fff; letter-spacing: 0.02em; } .co-total small { display: block; color: #8aa0bd; font-size: 0.72rem; } .co-total-a { font-size: 1.5rem; font-weight: 800; color: #fb7185; white-space: nowrap; }
+      .co-actions { display: flex; gap: 0.5rem; width: 100%; }
+      .co-btn { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; border-radius: 10px; padding: 0.6rem 0.8rem; font-weight: 800; cursor: pointer; border: 1px solid transparent; } .co-btn div { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.1; } .co-btn small { font-weight: 500; font-size: 0.66rem; opacity: 0.85; }
+      .co-btn.cancel { background: transparent; border-color: #2c3a4e; color: #cbd5e1; } .co-btn.cancel:hover { background: #16202e; }
+      .co-btn.pay { background: rgba(245,158,11,0.14); border-color: #b45309; color: #fcd34d; } .co-btn.pay:hover { background: rgba(245,158,11,0.24); }
+      .co-btn.go { background: #2563eb; color: #fff; } .co-btn.go:hover:not(:disabled) { background: #1d4ed8; } .co-btn.go:disabled { background: #1e2a3d; color: #64748b; cursor: not-allowed; }
+      @media (max-width: 560px) { .co-actions { flex-direction: column; } .co-g-dates { width: 100%; } }
       .pay-form { display: flex; flex-direction: column; gap: 0.4rem; } .pay-form label { font-size: 0.82rem; color: #9fb0c3; margin-top: 0.3rem; }
       .pay-form input[pInputText], :host ::ng-deep .pay-form .w { width: 100%; }
       .pay-total { display: flex; justify-content: space-between; align-items: center; background: #10233c; border: 1px solid #274468; border-radius: 8px; padding: 0.5rem 0.8rem; font-size: 0.9rem; } .pay-total strong { color: #fbbf24; }
@@ -1795,6 +1838,15 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     this.ops.checkoutSummary(r.activeStay.id).subscribe((res) => this.checkoutData.set(res.data));
   }
 
+  /** "1 h 05 min (se cobra 1 hora)" para el tiempo excedido. */
+  lateExcedidoLabel(d: CheckoutSummary): string {
+    const planned = new Date(d.plannedCheckoutAt).getTime();
+    const mins = Math.max(0, Math.round((this.checkoutNow.getTime() - planned) / 60000));
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    const dur = h > 0 ? `${h} h ${String(m).padStart(2, '0')} min` : `${m} min`;
+    return `${dur} (se cobra ${d.lateHours} ${d.lateHours === 1 ? 'hora' : 'horas'})`;
+  }
   /** Único bloqueo del check-out: frigobar con inspección pendiente. */
   checkoutFrigoBlocked(): boolean {
     const f = this.checkoutData()?.frigobar;
