@@ -50,6 +50,9 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
             <button class="btn red" [disabled]="selected().size === 0" (click)="openWriteOff()"><i class="pi pi-minus"></i> Dar de Baja Seleccionados</button>
           }
           <button class="btn ghost" (click)="openConteo()"><i class="pi pi-list-check"></i> Registrar Conteo</button>
+          @if (canAudit()) {
+            <button class="btn ghost" [disabled]="!auditAvailable()" (click)="openAudit()" [title]="auditAvailable() ? 'Abrir auditoría del turno' : 'Sin auditoría disponible (el turno siguiente aún no registró conteo)'"><i class="pi pi-verified"></i> {{ auditAvailable() ? 'Auditoría de Conteo' : 'Sin auditoría disponible' }}</button>
+          }
         </div>
       </header>
 
@@ -455,6 +458,18 @@ export class InventarioRecepcionComponent implements OnInit {
   private readonly inventory = inject(InventoryApiService);
   /** Solo gerente/admin (permiso inventory:delete) pueden dar de baja productos. */
   canWriteOff(): boolean { return this.auth.can('inventory', 'delete'); }
+  canAudit(): boolean { return this.auth.can('settings', 'edit'); }
+  readonly auditAvailable = signal(false);
+  private checkAuditAvailable(): void {
+    const businessDate = this.fDay ?? '', shift = this.curShift ?? '';
+    if (!this.canAudit() || !businessDate || !shift) { this.auditAvailable.set(false); return; }
+    this.http.get<ApiResponse<{ available: boolean }>>(`${this.api}/reception-inventory/audit/available`, { params: { businessDate, shift } })
+      .subscribe({ next: (r) => this.auditAvailable.set(!!r.data?.available), error: () => this.auditAvailable.set(false) });
+  }
+  openAudit(): void {
+    if (!this.auditAvailable()) return;
+    window.open(`/operations/inventario-recepcion/auditoria-conteo?fecha=${encodeURIComponent(this.fDay ?? '')}&turno=${encodeURIComponent(this.curShift ?? '')}`, '_blank');
+  }
 
   readonly items = signal<InvItem[]>([]);
   readonly requests = signal<Req[]>([]);
@@ -743,6 +758,7 @@ export class InventarioRecepcionComponent implements OnInit {
       this.blind.set(r.data?.blind ?? null);
       if (!r.data?.blind?.active) this.maybeAlertLowStock(r.data?.items ?? []);
       if (r.data?.turn) { this.turn.set(r.data.turn); this.fDay = r.data.turn.businessDate; this.curShift = r.data.turn.shift; }
+      this.checkAuditAvailable();
     });
     this.http.get<ApiResponse<Req[]>>(`${this.api}/reception-inventory/requests`).subscribe((r) => this.requests.set(r.data ?? []));
     this.http.get<ApiResponse<PrintJob[]>>(`${this.api}/reception-inventory/print-queue`).subscribe((r) => this.queue.set(r.data ?? []));

@@ -92,6 +92,11 @@ const routes: Routes = [
     loadComponent: () => import('./board/inventario-recepcion.component').then((m) => m.InventarioRecepcionComponent),
   },
   {
+    // Auditoría de conteo (solo Admin/Gerente — validado en backend). Se abre en pestaña nueva.
+    path: 'inventario-recepcion/auditoria-conteo',
+    loadComponent: () => import('./board/auditoria-conteo.component').then((m) => m.AuditoriaConteoComponent),
+  },
+  {
     path: 'productos-limpieza',
     loadComponent: () => import('./board/productos-limpieza.component').then((m) => m.ProductosLimpiezaComponent),
   },
