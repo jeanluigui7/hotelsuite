@@ -60,6 +60,13 @@ export interface CheckoutSummary {
   lateCharge: number;
   plannedCheckoutAt: string;
   totalWithLate: number;
+  // Estado del frigobar para el PRE CHECK-OUT (solo SIN_REVISAR bloquea "Continuar").
+  frigobar?: {
+    enabled: boolean;
+    status: 'NO_APLICA' | 'SIN_REVISAR' | 'REVISADO' | 'CONSUMO_REGISTRADO' | 'PAGADO';
+    consumido?: number;
+    pendiente?: number;
+  };
 }
 
 export interface RoomMapItem {

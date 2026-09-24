@@ -326,7 +326,10 @@ export const staysService = {
       lateCharge = q.lateCharge;
     }
     const p = await computePending(id, stay.balanceDue);
-    return { ...p, lateHours, lateCharge, plannedCheckoutAt: stay.plannedCheckoutAt, totalWithLate: round2(p.total + lateCharge) };
+    // Estado del frigobar para el PRE CHECK-OUT (bloquea "Continuar" solo si SIN_REVISAR).
+    const room = await prisma.room.findUnique({ where: { id: stay.roomId }, select: { frigobarEnabled: true } });
+    const frigobar = await frigobarReviewService.stateForStay(stay.branchId, id, room?.frigobarEnabled ?? false);
+    return { ...p, lateHours, lateCharge, plannedCheckoutAt: stay.plannedCheckoutAt, totalWithLate: round2(p.total + lateCharge), frigobar };
   },
 
   async checkOut(scope: RequestScope, id: string, dto: CheckOutDto) {
@@ -334,17 +337,27 @@ export const staysService = {
     const stay = await staysRepository.findById(id);
     if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
     if (stay.status !== 'OPEN') throw new ConflictError('La estancia ya está cerrada');
-    // Late check-out: si es día hotelero y la salida supera la prevista, se cobra como adeudo.
+    // BLOQUEO: si la habitación tiene frigobar y aún no se inspeccionó, no se puede cerrar.
+    const coRoom = await prisma.room.findUnique({ where: { id: stay.roomId }, select: { frigobarEnabled: true } });
+    if (coRoom?.frigobarEnabled) {
+      const fb = await frigobarReviewService.stateForStay(branchId, id, true);
+      if (fb.status === 'SIN_REVISAR') throw new ConflictError('Debes inspeccionar el frigobar antes del check-out.');
+    }
+    // Tiempo excedido (día hotelero): se muestra en el PRE CHECK-OUT y se puede cobrar por el flujo de
+    // pagos existente. Al CONTINUAR sin cobrarlo NO se convierte en deuda; solo se registra en la bitácora.
     let lateCharge = 0;
     if (stay.durationMinutes >= 1440) {
       const q = await pernoctaService.quoteCheckOut(scope, stay.plannedCheckoutAt, new Date());
-      if (q.lateCharge > 0) {
-        lateCharge = q.lateCharge;
-        const bd = stay.balanceDue ? Number(stay.balanceDue) : 0;
-        await prisma.stay.update({ where: { id }, data: { balanceDue: round2(bd + q.lateCharge) } });
-      }
+      if (q.lateCharge > 0) lateCharge = q.lateCharge;
     }
     const result = await staysRepository.checkOut(id, stay.roomId, dto.roomStatus, scope.userId, lateCharge > 0 ? lateCharge : null);
+    if (lateCharge > 0) {
+      void recordActivity(scope, {
+        activity: 'CHECK_OUT', area: 'HOSPEDAJE', roomId: stay.roomId, entityId: id,
+        reference: `Hab. ${stay.room?.number ?? '?'}`, detail: `Tiempo excedido sin cobrar · S/ ${lateCharge.toFixed(2)}`,
+        meta: { stayId: id, lateChargeWaived: lateCharge },
+      });
+    }
     // Al checkout, la credencial WiFi asignada a la estancia se consume ("Usada"), liberando el pool.
     await wifiService.releaseByStay(id);
     // Red de seguridad: si quedó vuelto pendiente sin entregar, se cierra como NO_RECLAMADO
@@ -354,7 +367,7 @@ export const staysService = {
     void recordActivity(scope, {
       activity: 'CHECK_OUT', area: 'HOSPEDAJE', roomId: stay.roomId, entityId: id,
       reference: `Hab. ${stay.room?.number ?? '?'}`,
-      detail: `${coGuest || 'Huésped'} · Salida${lateCharge > 0 ? ` · Late check-out S/ ${lateCharge.toFixed(2)}` : ''}`,
+      detail: `${coGuest || 'Huésped'} · Salida${lateCharge > 0 ? ` · Tiempo excedido S/ ${lateCharge.toFixed(2)} (sin cobrar)` : ''}`,
       meta: { room: stay.room?.number ?? null, guest: coGuest || null, lateCharge: lateCharge || 0, roomStatus: dto.roomStatus, stayId: id },
     });
     return serialize(result as StayWithRelations);

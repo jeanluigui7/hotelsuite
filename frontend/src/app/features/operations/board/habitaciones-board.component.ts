@@ -26,6 +26,7 @@ import { VentaProductosComponent } from './venta-productos.component';
 import { ServiciosPenalidadesComponent } from './servicios-penalidades.component';
 import { FolioEstanciaComponent } from './folio-estancia.component';
 import { FrigobarRepositionComponent } from './frigobar-reposition.component';
+import { FrigobarInspectionComponent } from './frigobar-inspection.component';
 import { roomState } from './room-states';
 
 type ViewMode = 'normal' | 'compacta' | 'real';
@@ -57,7 +58,7 @@ const MANT_CATS = [
 @Component({
   selector: 'app-habitaciones-board',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, InputNumberModule, DatePickerModule, TooltipModule, DialogModule, CheckInDialogComponent, VentaProductosComponent, ServiciosPenalidadesComponent, FolioEstanciaComponent, FrigobarRepositionComponent],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, InputNumberModule, DatePickerModule, TooltipModule, DialogModule, CheckInDialogComponent, VentaProductosComponent, ServiciosPenalidadesComponent, FolioEstanciaComponent, FrigobarRepositionComponent, FrigobarInspectionComponent],
   template: `
     <section class="board">
       <header class="top">
@@ -131,6 +132,9 @@ const MANT_CATS = [
                 <span class="oc-num"># {{ r.number }} <span class="oc-tag">{{ isPernocta(r.activeStay) ? '🌙 PERNOCTANDO' : 'HOSPEDAJE' }}</span></span>
                 <span class="oc-piso"><i class="pi pi-building"></i> {{ r.floor || '-' }}º piso</span>
               </div>
+              @if (r.frigobarEnabled) {
+                <div class="frigo-row"><span class="frigo-ind pulse" title="Esta habitación tiene frigobar">❄️ FRIGOBAR</span></div>
+              }
               @if (isAdminProfile()) {
                 <div class="oc-badges">
                   <span class="ob type">{{ r.roomType.name }}</span>
@@ -185,7 +189,7 @@ const MANT_CATS = [
             <article class="card" [style.background]="st(r).gradient">
               <div class="rc-head">
                 <span class="rc-left"><span class="num"># {{ r.number }}</span><span class="piso"><i class="pi pi-building"></i> {{ r.floor || '-' }}º piso</span></span>
-                <span class="rc-badges"><span class="rc-type">{{ r.roomType.name }}</span><span class="rc-state">● {{ st(r).badge ?? st(r).label }}</span></span>
+                <span class="rc-badges"><span class="rc-type">{{ r.roomType.name }}</span>@if (r.frigobarEnabled) { <span class="frigo-ind sm" title="Esta habitación tiene frigobar">❄️ FRIGOBAR</span> }<span class="rc-state">● {{ st(r).badge ?? st(r).label }}</span></span>
               </div>
               <div class="rc-line"></div>
               <div class="rc-body"><i [class]="st(r).icon"></i><div class="caption">{{ st(r).caption }}</div></div>
@@ -238,14 +242,13 @@ const MANT_CATS = [
     <!-- Reposición de frigobar pendiente (desde el rack; no bloquea el alquiler) -->
     <app-frigobar-reposition [(visible)]="repoVisible" [reviewId]="repoReviewId" [roomNumber]="repoRoomNumber" contextLabel="Rack" (confirmed)="reload()" />
 
-    <p-dialog [(visible)]="checkoutVisible" [modal]="true" [header]="'Check-out · Hab. ' + (checkoutRoom?.number || '')" [style]="{ width: '28rem' }" styleClass="dk-dialog">
+    <p-dialog [(visible)]="checkoutVisible" [modal]="true" [header]="'Pre Check-out · Hab. ' + (checkoutRoom?.number || '')" [style]="{ width: '30rem' }" styleClass="dk-dialog">
       @if (checkoutData(); as d) {
-        @if (d.totalWithLate > 0) {
-          <div class="co-pend">
-            <h3><i class="pi pi-exclamation-triangle"></i> Pagos Pendientes</h3>
-            <p>La habitación tiene pagos pendientes por un total de <strong class="amt">S/ {{ d.totalWithLate | number: '1.2-2' }}</strong>.</p>
-          </div>
-        }
+        <div class="co-guest">
+          <span class="lbl">Detalles del huésped</span>
+          <strong>{{ checkoutRoom?.activeStay?.guestName }}</strong>
+          @if (checkoutRoom?.activeStay?.vehiclePlate) { <span class="muted">Placa: {{ checkoutRoom?.activeStay?.vehiclePlate }}</span> }
+        </div>
         @if (vueltoOf(checkoutRoom?.activeStay?.id) > 0) {
           <div class="co-vuelto">
             <h3><i class="pi pi-wallet"></i> Vuelto sin entregar</h3>
@@ -253,35 +256,57 @@ const MANT_CATS = [
             <p-button label="Entregar vuelto ahora" icon="pi pi-wallet" severity="warn" size="small" [loading]="deliveringVuelto()" (onClick)="deliverFromCheckout()" />
           </div>
         }
-        <div class="co-guest">
-          <span class="lbl">Detalles del huésped</span>
-          <strong>{{ checkoutRoom?.activeStay?.guestName }}</strong>
-          @if (checkoutRoom?.activeStay?.vehiclePlate) { <span class="muted">Placa: {{ checkoutRoom?.activeStay?.vehiclePlate }}</span> }
-        </div>
+
+        <!-- TIEMPO EXCEDIDO (no bloquea; sin cobrar no genera deuda) -->
         @if (d.lateCharge > 0) {
-          <div class="co-late"><i class="pi pi-clock"></i> Late check-out: {{ d.lateHours }}h = {{ d.lateCharge | number: '1.2-2' }} (se agrega al adeudo)</div>
-        }
-        <div class="co-kv"><span>Recargos (early/late)</span><strong>{{ d.balanceDue + d.lateCharge | number: '1.2-2' }}</strong></div>
-        <div class="co-kv"><span>Consumos sin pagar</span><strong>{{ d.salesPending | number: '1.2-2' }}</strong></div>
-        <div class="co-kv total" [class.debt]="d.totalWithLate > 0"><span>Total pendiente</span><strong>{{ d.totalWithLate | number: '1.2-2' }}</strong></div>
-        @if (d.totalWithLate > 0) {
-          <div class="co-opts">
-            <strong>Opciones:</strong>
-            <p><b>Procesar Pago:</b> registra el cobro del pendiente (renovaciones, consumos, recargos).</p>
-            <p><b>Continuar Checkout:</b> el monto pendiente se registra como deuda del cliente.</p>
+          <div class="co-sec late">
+            <div class="co-sec-h"><i class="pi pi-clock"></i> TIEMPO EXCEDIDO</div>
+            <div class="co-kv"><span>Salida programada</span><span>{{ d.plannedCheckoutAt | date: 'shortTime' }}</span></div>
+            <div class="co-kv"><span>Salida actual</span><span>{{ checkoutNow | date: 'shortTime' }}</span></div>
+            <div class="co-kv"><span>{{ d.lateHours }} h excedida(s)</span><strong>S/ {{ d.lateCharge | number: '1.2-2' }}</strong></div>
+            <small class="co-note">No bloquea el check-out. Si continúas sin cobrarlo, no genera deuda.</small>
           </div>
         }
+
+        <!-- CARGOS POR COBRAR -->
+        <div class="co-sec">
+          <div class="co-sec-h"><i class="pi pi-shopping-bag"></i> CARGOS POR COBRAR</div>
+          <div class="co-kv total2"><span>Total</span><strong>S/ {{ d.total | number: '1.2-2' }}</strong></div>
+          <small class="co-note">Productos, servicios, renovaciones, penalidades y consumos. No bloquean el check-out.</small>
+        </div>
+
+        <!-- FRIGOBAR (solo si tiene frigobar; SIN_REVISAR bloquea) -->
+        @if (d.frigobar?.enabled) {
+          <div class="co-sec frigo" [class.warn]="d.frigobar!.status === 'SIN_REVISAR'">
+            <div class="co-sec-h"><i class="pi pi-inbox"></i> FRIGOBAR</div>
+            @switch (d.frigobar!.status) {
+              @case ('SIN_REVISAR') {
+                <div class="co-frigo-p"><b>PENDIENTE DE INSPECCIÓN</b><small>Debes revisarlo para continuar el check-out.</small></div>
+                <button class="co-frigo-btn" (click)="openCheckoutInsp()"><i class="pi pi-search"></i> Revisar frigobar ›</button>
+              }
+              @case ('REVISADO') { <div class="co-frigo-ok"><i class="pi pi-check-circle"></i> REVISADO — SIN CONSUMO</div> }
+              @case ('CONSUMO_REGISTRADO') { <div class="co-frigo-ok"><i class="pi pi-check-circle"></i> REVISADO — CONSUMO S/ {{ d.frigobar!.consumido | number: '1.2-2' }}</div> }
+              @case ('PAGADO') { <div class="co-frigo-ok"><i class="pi pi-check-circle"></i> REVISADO — PAGADO</div> }
+            }
+          </div>
+        }
+
+        <!-- TOTAL PENDIENTE -->
+        <div class="co-kv total" [class.debt]="d.totalWithLate > 0"><span>TOTAL PENDIENTE</span><strong>S/ {{ d.totalWithLate | number: '1.2-2' }}</strong></div>
       } @else {
         <p class="muted">Calculando…</p>
       }
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="checkoutVisible = false" />
-        @if ((checkoutData()?.totalWithLate || 0) > 0) {
-          <p-button label="Procesar Pago" icon="pi pi-wallet" severity="secondary" (onClick)="goProcesarPago()" />
+        @if ((checkoutData()?.total || 0) > 0 || (checkoutData()?.lateCharge || 0) > 0) {
+          <p-button label="Cobrar pendientes" icon="pi pi-wallet" severity="secondary" (onClick)="goProcesarPago()" />
         }
-        <p-button label="Continuar Checkout" icon="pi pi-sign-out" [loading]="checkingOut()" (onClick)="doCheckout()" />
+        <p-button label="Continuar Check-out" icon="pi pi-sign-out" [loading]="checkingOut()" [disabled]="checkoutFrigoBlocked()" (onClick)="doCheckout()" />
       </ng-template>
     </p-dialog>
+
+    <!-- Inspección de frigobar desde el PRE CHECK-OUT (reusa el modal existente; origen RECEPCION) -->
+    <app-frigobar-inspection [(visible)]="coInspVisible" [stayId]="coInspStayId" [roomNumber]="checkoutRoom?.number || ''" origin="RECEPCION" (confirmed)="onCheckoutInspDone()" />
 
     <!-- Cobro del pendiente de la estancia (deuda de renovación, consumos, recargos) -->
     <p-dialog [(visible)]="payVisible" [modal]="true" [header]="'Cobrar Pendiente · Hab. ' + (checkoutRoom?.number || '')" [style]="{ width: '26rem' }" styleClass="dk-dialog">
@@ -615,6 +640,13 @@ const MANT_CATS = [
       .piso { font-size: 0.75rem; background: rgba(0,0,0,0.28); padding: 0.22rem 0.6rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 0.3rem; }
       .rc-type { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; background: rgba(0,0,0,0.32); padding: 0.28rem 0.7rem; border-radius: 999px; }
       .rc-state { font-size: 0.78rem; font-weight: 700; background: rgba(255,255,255,0.16); padding: 0.28rem 0.7rem; border-radius: 999px; white-space: nowrap; }
+      /* Indicador FRIGOBAR (solo comunica que la habitación tiene frigobar). */
+      .frigo-row { margin: 0.3rem 0 0.1rem; }
+      .frigo-ind { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em; color: #bae6fd; background: rgba(56,189,248,0.16); border: 1px solid rgba(56,189,248,0.4); padding: 0.24rem 0.6rem; border-radius: 999px; white-space: nowrap; }
+      .frigo-ind.sm { font-size: 0.66rem; padding: 0.2rem 0.5rem; }
+      .frigo-ind.pulse { animation: frigoPulse 1.8s ease-in-out infinite; }
+      @keyframes frigoPulse { 0%, 100% { transform: scale(1); box-shadow: 0 0 0 rgba(56,189,248,0); } 50% { transform: scale(1.06); box-shadow: 0 0 12px rgba(56,189,248,0.65); border-color: rgba(125,211,252,0.9); } }
+      @media (prefers-reduced-motion: reduce) { .frigo-ind.pulse { animation: none; } }
       .rc-line { height: 1px; background: rgba(255,255,255,0.22); margin: 0.35rem 0; }
       .rc-body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem; text-align: center; }
       .rc-body > i { font-size: 1.7rem; opacity: 0.9; }
@@ -713,8 +745,18 @@ const MANT_CATS = [
       .co-opts p { margin: 0.2rem 0 0; } .co-opts b { color: #fbbf24; }
       .co-late { background: #2a1d12; border: 1px solid #6b4f2a; color: #fbbf24; padding: 0.5rem 0.7rem; border-radius: 8px; font-size: 0.82rem; margin-bottom: 0.6rem; }
       .co-kv { display: flex; justify-content: space-between; padding: 0.35rem 0; font-size: 0.95rem; }
-      .co-kv.total { border-top: 1px solid #243245; margin-top: 0.4rem; padding-top: 0.55rem; }
+      .co-kv.total { border-top: 1px solid #243245; margin-top: 0.4rem; padding-top: 0.55rem; font-weight: 700; }
       .co-kv.total.debt strong { color: #fbbf24; }
+      /* PRE CHECK-OUT: secciones */
+      .co-sec { background: #0e1622; border: 1px solid #1f2a3a; border-radius: 10px; padding: 0.55rem 0.8rem; margin-bottom: 0.6rem; }
+      .co-sec.late { background: #2a1d12; border-color: #6b4f2a; } .co-sec.late .co-sec-h { color: #fbbf24; }
+      .co-sec.frigo.warn { background: #2a1216; border-color: #7f1d1d; } .co-sec.frigo.warn .co-sec-h { color: #fca5a5; }
+      .co-sec-h { display: flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em; color: #9fb0c3; margin-bottom: 0.35rem; }
+      .co-note { display: block; color: #7c8ba0; font-size: 0.7rem; font-style: italic; margin-top: 0.2rem; }
+      .co-kv.total2 { border-top: 1px dashed #243245; margin-top: 0.25rem; padding-top: 0.4rem; font-weight: 700; }
+      .co-frigo-p b { display: block; color: #fca5a5; font-size: 0.9rem; } .co-frigo-p small { color: #9fb0c3; font-size: 0.72rem; }
+      .co-frigo-btn { margin-top: 0.5rem; width: 100%; background: rgba(59,130,246,0.16); border: 1px solid rgba(59,130,246,0.5); color: #bfdbfe; border-radius: 9px; padding: 0.55rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; } .co-frigo-btn:hover { background: rgba(59,130,246,0.26); }
+      .co-frigo-ok { display: flex; align-items: center; gap: 0.4rem; color: #34d399; font-weight: 700; font-size: 0.9rem; }
       .pay-form { display: flex; flex-direction: column; gap: 0.4rem; } .pay-form label { font-size: 0.82rem; color: #9fb0c3; margin-top: 0.3rem; }
       .pay-form input[pInputText], :host ::ng-deep .pay-form .w { width: 100%; }
       .pay-total { display: flex; justify-content: space-between; align-items: center; background: #10233c; border: 1px solid #274468; border-radius: 8px; padding: 0.5rem 0.8rem; font-size: 0.9rem; } .pay-total strong { color: #fbbf24; }
@@ -1051,6 +1093,10 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   readonly checkingOut = signal(false);
   checkoutRoom: RoomMapItem | null = null;
   readonly checkoutData = signal<CheckoutSummary | null>(null);
+  checkoutNow = new Date();
+  // Inspección de frigobar desde el PRE CHECK-OUT (reusa el modal existente)
+  coInspVisible = false;
+  coInspStayId: string | null = null;
   selectedRoom: RoomMapItem | null = null;
   changeVisible = false;
   originVisible = false;
@@ -1744,8 +1790,28 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     if (!r.activeStay) return;
     this.checkoutRoom = r;
     this.checkoutData.set(null);
+    this.checkoutNow = new Date();
     this.checkoutVisible = true;
     this.ops.checkoutSummary(r.activeStay.id).subscribe((res) => this.checkoutData.set(res.data));
+  }
+
+  /** Único bloqueo del check-out: frigobar con inspección pendiente. */
+  checkoutFrigoBlocked(): boolean {
+    const f = this.checkoutData()?.frigobar;
+    return !!f?.enabled && f.status === 'SIN_REVISAR';
+  }
+  /** Abre el modal de inspección existente para el frigobar de la estancia en check-out. */
+  openCheckoutInsp(): void {
+    const stayId = this.checkoutRoom?.activeStay?.id;
+    if (!stayId) return;
+    this.coInspStayId = stayId;
+    this.coInspVisible = true;
+  }
+  /** Tras inspeccionar, refresca el resumen: el consumo aparece en CARGOS POR COBRAR y se desbloquea. */
+  onCheckoutInspDone(): void {
+    const stayId = this.checkoutRoom?.activeStay?.id;
+    if (stayId) this.ops.checkoutSummary(stayId).subscribe((res) => this.checkoutData.set(res.data));
+    this.reload();
   }
 
   doCheckout(): void {
