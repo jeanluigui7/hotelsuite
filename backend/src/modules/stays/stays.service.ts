@@ -645,7 +645,12 @@ export const staysService = {
         const pay = round2(Math.min(saldo, remaining));
         const snap = commissionSnapshot(settleCfg, dto.method, pay);
         await tx.payment.create({ data: { branchId, saleId: s.id, method: dto.method, amount: pay, reference: dto.reference || null, cashSessionId: session.id, createdByUserId: scope.userId, commissionPct: snap.commissionPct, commissionAmount: snap.commissionAmount, grossCharged: snap.grossCharged } });
-        if (paid + pay >= Number(s.total) - 0.001) await tx.sale.update({ where: { id: s.id }, data: { status: 'PAID' } });
+        // La venta de deuda de estancia (frigobar/consumo/renovación) nace SIN turno; al cobrarla se
+        // atribuye al turno donde se recauda para que figure con su concepto en Movimientos/Conciliación.
+        const saleUpd: { status?: string; cashSessionId?: string } = {};
+        if (paid + pay >= Number(s.total) - 0.001) saleUpd.status = 'PAID';
+        if (!s.cashSessionId) saleUpd.cashSessionId = session.id;
+        if (Object.keys(saleUpd).length) await tx.sale.update({ where: { id: s.id }, data: saleUpd });
         remaining = round2(remaining - pay);
       }
       // Sobrante: cubre el adeudo legacy (early/late) guardado en balanceDue.
