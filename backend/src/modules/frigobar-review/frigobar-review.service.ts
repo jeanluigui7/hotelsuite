@@ -124,10 +124,11 @@ export const frigobarReviewService = {
     return { reviewId, consumedTotal };
   },
 
-  /** Resuelve el almacén origen por nombre lógico (RECEPCION = general de productos; LIMPIEZA). */
+  /** Resuelve el almacén origen: RECEPCION = almacén de Recepción (tipo RECEPTION, el de
+   *  /operations/inventario-recepcion); LIMPIEZA = Productos Limpieza. */
   async originWarehouse(branchId: string, origin: 'RECEPCION' | 'LIMPIEZA') {
-    const { general, limpieza } = await productWarehouses(branchId);
-    return origin === 'LIMPIEZA' ? limpieza : general;
+    if (origin === 'LIMPIEZA') return (await productWarehouses(branchId)).limpieza;
+    return prisma.warehouse.findFirst({ where: { branchId, type: 'RECEPTION' }, select: { id: true, name: true } });
   },
 
   /**
@@ -139,7 +140,10 @@ export const frigobarReviewService = {
     const review = await prisma.frigobarReview.findUnique({ where: { id: reviewId }, include: { lines: true } });
     if (!review || review.branchId !== branchId) throw new NotFoundError('Revisión no encontrada');
     const room = await prisma.room.findUnique({ where: { id: review.roomId }, select: { id: true, number: true } });
-    const { general, limpieza } = await productWarehouses(branchId);
+    const [recepcion, { limpieza }] = await Promise.all([
+      prisma.warehouse.findFirst({ where: { branchId, type: 'RECEPTION' }, select: { id: true, name: true } }),
+      productWarehouses(branchId),
+    ]);
     const pending = review.lines
       .map((l) => ({ productId: l.productId, name: l.name, pendingQty: Math.max(0, l.consumedQty - l.repositionedQty) }))
       .filter((l) => l.pendingQty > 0);
@@ -147,7 +151,7 @@ export const frigobarReviewService = {
     const [prods, stocks] = await Promise.all([
       pids.length ? prisma.product.findMany({ where: { id: { in: pids }, branchId }, select: { id: true, imageUrl: true } }) : Promise.resolve([]),
       pids.length
-        ? prisma.stock.findMany({ where: { productId: { in: pids }, warehouseId: { in: [general?.id, limpieza?.id].filter((x): x is string => !!x) } }, select: { productId: true, warehouseId: true, quantity: true } })
+        ? prisma.stock.findMany({ where: { productId: { in: pids }, warehouseId: { in: [recepcion?.id, limpieza?.id].filter((x): x is string => !!x) } }, select: { productId: true, warehouseId: true, quantity: true } })
         : Promise.resolve([]),
     ]);
     const img = new Map(prods.map((p) => [p.id, p.imageUrl]));
@@ -157,13 +161,13 @@ export const frigobarReviewService = {
       name: l.name,
       imageUrl: img.get(l.productId) ?? null,
       pendingQty: l.pendingQty,
-      availRecepcion: availOf(l.productId, general?.id),
+      availRecepcion: availOf(l.productId, recepcion?.id),
       availLimpieza: availOf(l.productId, limpieza?.id),
     }));
     return {
       reviewId: review.id,
       room: { id: room?.id, number: room?.number ?? '' },
-      warehouses: { recepcion: general ? { id: general.id, name: general.name } : null, limpieza: limpieza ? { id: limpieza.id, name: limpieza.name } : null },
+      warehouses: { recepcion: recepcion ? { id: recepcion.id, name: recepcion.name } : null, limpieza: limpieza ? { id: limpieza.id, name: limpieza.name } : null },
       lines,
     };
   },
@@ -203,7 +207,7 @@ export const frigobarReviewService = {
         await tx.roomInventory.upsert({ where: key, update: { quantity: (ex?.quantity ?? 0) + qty, productId: l.productId }, create: { branchId, roomId: review.roomId, articleKind: 'FRIGOBAR', name: l.name, productId: l.productId, quantity: qty } });
         await tx.roomInventoryMovement.create({ data: { branchId, roomId: review.roomId, type: 'REPOSICION', articleKind: 'FRIGOBAR', name: l.name, quantity: qty, fromLocation: originLabel, toLocation: `Habitación ${room?.number ?? ''}`, reference: 'Reposición de frigobar', createdByUserId: scope.userId } });
         // AJUSTE «Transferencia interna»: baja el stock del almacén origen sin cruzarse con ventas ni caja.
-        await tx.inventoryMovement.create({ data: { branchId, productId: l.productId, warehouseId: wh.id, type: 'TRANSFER', adjustType: 'TRANSFER', quantity: -qty, reference: `Transferencia interna — reposición frigobar Hab. ${room?.number ?? ''}`, roomId: review.roomId, createdByUserId: scope.userId } });
+        await tx.inventoryMovement.create({ data: { branchId, productId: l.productId, warehouseId: wh.id, type: 'TRANSFER', adjustType: 'TRANSFER', quantity: -qty, reference: `Reposición frigobar Hab. ${room?.number ?? ''}`, roomId: review.roomId, createdByUserId: scope.userId } });
         await tx.frigobarReviewLine.update({ where: { id: l.id }, data: { repositionedQty: l.repositionedQty + qty } });
         l.repositionedQty += qty; // refleja en memoria para recomputar el pendiente
         done.push({ name: l.name, qty });
