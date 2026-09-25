@@ -549,6 +549,10 @@ const MANT_CATS = [
             <div class="hours-row">
               @for (h of [1,2,3,4,6,12]; track h) { <button class="hbtn" [class.on]="renovarHours === h" (click)="renovarHours = h; recalcRenovar()">+{{ h }}h</button> }
             </div>
+            <div class="fld"><label>Otra cantidad de horas</label>
+              <p-inputNumber [(ngModel)]="renovarHours" [min]="1" [max]="48" [showButtons]="true" buttonLayout="horizontal" suffix=" h" (ngModelChange)="recalcRenovar()" styleClass="w" />
+              <small>Ingresa cualquier cantidad de horas (ej. 5), además de los botones rápidos.</small>
+            </div>
             <div class="rnv-kv"><span>Tarifa por hora</span><strong>S/ {{ hourlyRate() | number: '1.2-2' }}</strong>@if (hourlyRate() === 0) { <small class="warn">sin tarifa configurada</small> }</div>
             <div class="rnv-kv"><span>Nueva salida</span><strong>{{ renovarNewCheckout() | date: 'dd/MM/yyyy, h:mm a' }}</strong></div>
           }
@@ -1415,12 +1419,12 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   }
   renovarNewCheckout(): Date {
     const co = new Date(this.renovarRoom!.activeStay!.plannedCheckoutAt);
-    if (this.renovarMode === 'HOURS') return new Date(co.getTime() + this.renovarHours * 3_600_000);
+    if (this.renovarMode === 'HOURS') return new Date(co.getTime() + (this.renovarHours || 0) * 3_600_000);
     const d = this.renovarDate ?? co;
     return new Date(d.getFullYear(), d.getMonth(), d.getDate(), co.getHours(), co.getMinutes());
   }
   renovarGuide(): number {
-    return this.renovarMode === 'NIGHTS' ? Math.round(this.renovarUnits() * this.nightlyRate() * 100) / 100 : Math.round(this.renovarHours * this.hourlyRate() * 100) / 100;
+    return this.renovarMode === 'NIGHTS' ? Math.round(this.renovarUnits() * this.nightlyRate() * 100) / 100 : Math.round((this.renovarHours || 0) * this.hourlyRate() * 100) / 100;
   }
   recalcRenovar(): void { this.renovarAmount = this.renovarGuide() || null; this.onPayModeChange(); }
   paidNow(): number { return Math.round(this.renovarPays.reduce((a, p) => a + (p.amount || 0), 0) * 100) / 100; }
