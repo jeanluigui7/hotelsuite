@@ -7,6 +7,7 @@ import { forkJoin, of } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { PrintingService } from '../../../core/printing/printing.service';
+import { AuthService } from '../../../core/auth/auth.service';
 import { buildComandaTicket, type ComandaIdentity, type ComandaData } from '../../settings/tickets/comanda-ticket';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
@@ -397,6 +398,17 @@ const PAY_TYPES = [
         <p-button label="Imprimir" icon="pi pi-print" (onClick)="printComanda()" />
       </ng-template>
     </p-dialog>
+
+    <!-- Autorización Admin/Gerente para tarifa personalizada bloqueada -->
+    <p-dialog [(visible)]="blockAuthVisible" [modal]="true" [style]="{ width: '30rem', maxWidth: '95vw' }" [closable]="false" header="Autorización de tarifa personalizada">
+      <p class="vknote">La tarifa personalizada está <b>bloqueada</b> para este tipo de habitación. Como administrador, puedes autorizar esta operación indicando el motivo (quedará registrado).</p>
+      <label style="font-size:0.8rem;color:#94a3b8">Motivo de la autorización</label>
+      <textarea [(ngModel)]="blockAuthReason" rows="3" style="width:100%;background:#0b1220;border:1px solid #26364f;border-radius:8px;color:#e2e8f0;padding:0.55rem;font:inherit" placeholder="Ej.: huésped frecuente, ajuste puntual autorizado por gerencia…"></textarea>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="cancelCustomRateAuth()" />
+        <p-button label="Autorizar y continuar" icon="pi pi-check" severity="warn" (onClick)="confirmCustomRateAuth()" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -543,6 +555,12 @@ export class CheckInDialogComponent {
   private readonly http = inject(HttpClient);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly printing = inject(PrintingService);
+  private readonly auth = inject(AuthService);
+  // Bloqueo de tarifa personalizada: autorización Admin/Gerente con motivo.
+  blockAuthVisible = false;
+  blockAuthReason = '';
+  private lastAddlGuestIds: string[] = [];
+  canAuthorizeCustomRate(): boolean { return this.auth.can('settings', 'edit'); }
 
   // Comanda de bienvenida (vista previa tras el check-in)
   comandaVisible = false;
@@ -1117,9 +1135,11 @@ export class CheckInDialogComponent {
 
   private doCheckIn(additionalGuestIds: string[]): void {
     const custom = this.isCustom();
+    this.lastAddlGuestIds = additionalGuestIds;
     const input: CheckInInput = {
       roomId: this.targetRoomId ?? this.room!.id,
       rateId: custom ? undefined : this.selectedRateId!,
+      customRateReason: custom && this.blockAuthReason.trim() ? this.blockAuthReason.trim() : undefined,
       tierId: this.selectedTierId ?? null,
       additionalGuestIds,
       adults: 1 + additionalGuestIds.length,
@@ -1175,10 +1195,26 @@ export class CheckInDialogComponent {
       },
       error: (err: HttpErrorResponse) => {
         this.saving.set(false);
-        this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo registrar el check-in.' });
+        const msg = err.error?.error?.message ?? 'No se pudo registrar el check-in.';
+        // Bloqueo de tarifa personalizada: si el usuario puede autorizar, ofrecer autorización con motivo.
+        if (err.status === 403 && /tarifa personalizada bloqueada/i.test(msg) && this.canAuthorizeCustomRate() && !this.blockAuthReason.trim()) {
+          this.blockAuthVisible = true;
+          return;
+        }
+        this.blockAuthReason = '';
+        this.messages.add({ severity: 'error', summary: 'Error', detail: msg });
       },
     });
   }
+
+  /** Confirma la autorización Admin/Gerente y reintenta el check-in con el motivo. */
+  confirmCustomRateAuth(): void {
+    if (!this.blockAuthReason.trim()) { this.messages.add({ severity: 'warn', summary: 'Motivo requerido', detail: 'Indica el motivo de la autorización.' }); return; }
+    this.blockAuthVisible = false;
+    this.saving.set(true);
+    this.doCheckIn(this.lastAddlGuestIds);
+  }
+  cancelCustomRateAuth(): void { this.blockAuthVisible = false; this.blockAuthReason = ''; }
 
   /**
    * Tras el check-in, obtiene el voucher WiFi asignado a la estancia (ruta de impresión autorizada) y
@@ -1252,6 +1288,7 @@ export class CheckInDialogComponent {
 
   private finish(detail: string): void {
     this.saving.set(false);
+    this.blockAuthReason = '';
     this.messages.add({ severity: 'success', summary: 'Check-in', detail });
     this.onVisibleChange(false);
     this.done.emit();

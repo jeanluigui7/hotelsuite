@@ -132,6 +132,8 @@ export interface CheckInInput {
   customCheckoutAt?: string;
   /** Reserva que se cumple (exime el bloqueo por margen de esa reserva). */
   reservationId?: string;
+  /** Autorización Admin/Gerente para usar personalizada bloqueada (motivo obligatorio). */
+  customRateReason?: string;
 }
 
 export type ReservationStatus = 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'FULFILLED';

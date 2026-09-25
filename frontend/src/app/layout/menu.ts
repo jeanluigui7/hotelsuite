@@ -248,6 +248,7 @@ export const ADMIN_MENU: MenuItem[] = [
       { label: 'Tipos de Habitación', route: '/settings/tipos-habitacion' },
       { label: 'Atributos de Habitación', route: '/settings/atributos' },
       { label: 'Tarifa Personalizada', route: '/settings/tarifas' },
+      { label: 'Bloqueo de Tarifa Personalizada', route: '/settings/bloqueo-tarifa' },
       { label: 'Permisos por Categoría', route: '/settings/permisos' },
       { label: 'Dotación Base (Habitaciones)', route: '/settings/dotacion' },
       { label: 'Frigobar', route: '/settings/frigobar' },

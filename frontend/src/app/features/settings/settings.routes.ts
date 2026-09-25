@@ -48,6 +48,10 @@ const routes: Routes = [
     loadComponent: () => import('./tarifas/custom-rates.component').then((m) => m.CustomRatesComponent),
   },
   {
+    path: 'bloqueo-tarifa',
+    loadComponent: () => import('./tarifas/bloqueo-tarifa.component').then((m) => m.BloqueoTarifaComponent),
+  },
+  {
     path: 'items',
     loadComponent: () => import('./items/items.component').then((m) => m.ItemsComponent),
   },
