@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import type { RequestScope } from '../../shared/context';
-import { ConflictError, NotFoundError, ValidationError } from '../../shared/errors';
+import { ConflictError, NotFoundError, ValidationError, ForbiddenError } from '../../shared/errors';
 import {
   buildOrderBy,
   pageMeta,
@@ -17,6 +17,7 @@ import { changeCreditsService } from '../change-credits/change-credits.service';
 import { cashRepository } from '../cash/cash.repository';
 import { recordActivity } from '../activity-log/activity.emitter';
 import { frigobarReviewService } from '../frigobar-review/frigobar-review.service';
+import { customRateBlockService } from '../custom-rate-block/custom-rate-block.service';
 import { staysRepository, type StayWithRelations } from './stays.repository';
 import type { ChangeRoomDto, CheckInDto, CheckOutDto, PayStayDto, RenewDto, UpdateStayDetailsDto } from './stays.schema';
 
@@ -133,6 +134,28 @@ export const staysService = {
       }
     } else if (!dto.customCheckoutAt || dto.priceOverride == null) {
       throw new ValidationError('Tarifa personalizada: indica la fecha de salida y el precio');
+    }
+
+    // Regla de bloqueo de tarifa personalizada (solo aplica a la personalizada = sin rateId).
+    // Se re-evalúa aquí (server-side) con la disponibilidad y el horario del momento del alquiler.
+    let customRateCondition: string | null = null;
+    let customRateReasonText: string | null = null;
+    let customRateRegisterAuto = false;
+    if (!dto.rateId) {
+      const ev = await customRateBlockService.evaluate(branchId, room.roomTypeId, new Date());
+      customRateRegisterAuto = ev.registerReasonAuto;
+      if (ev.allowed) {
+        customRateCondition = ev.reason;
+      } else {
+        const reason = (dto.customRateReason ?? '').trim();
+        const isAdmin = scope.isSuperAdmin || scope.permissions.includes('settings:edit');
+        if (ev.allowAdminException && isAdmin && reason) {
+          customRateCondition = 'AUTORIZACION_ADMIN';
+          customRateReasonText = reason;
+        } else {
+          throw new ForbiddenError('Tarifa personalizada bloqueada para este tipo de habitación. Utilice una tarifa habitual.');
+        }
+      }
     }
 
     let discount = 0;
@@ -290,6 +313,16 @@ export const staysService = {
       detail: `${gName || 'Huésped'} · ${rate?.label ?? 'Estancia'} · S/ ${Number(created.priceAgreed).toFixed(2)}`,
       meta: { room: room.number, guest: gName || null, rate: rate?.label ?? null, price: Number(created.priceAgreed), stayId: created.id, checkOutAt: created.plannedCheckoutAt },
     });
+    // Registro del motivo por el que se permitió la tarifa personalizada (auto o autorización admin).
+    if (customRateCondition && (customRateRegisterAuto || customRateCondition === 'AUTORIZACION_ADMIN')) {
+      const condLabel: Record<string, string> = { HORARIO: 'por horario autorizado', DISPONIBILIDAD: 'por disponibilidad', BLOQUEO_OFF: 'bloqueo desactivado', AUTORIZACION_ADMIN: 'autorización Admin/Gerente' };
+      void recordActivity(scope, {
+        activity: 'TARIFA_PERSONALIZADA', area: 'HOSPEDAJE', roomId: room.id, entityId: created.id,
+        reference: `Hab. ${room.number}`,
+        detail: `Tarifa personalizada permitida · ${condLabel[customRateCondition] ?? customRateCondition}${customRateReasonText ? ` · motivo: ${customRateReasonText}` : ''}`,
+        meta: { stayId: created.id, room: room.number, roomTypeId: room.roomTypeId, condition: customRateCondition, reason: customRateReasonText, authorizedBy: customRateCondition === 'AUTORIZACION_ADMIN' ? scope.userId : null },
+      });
+    }
     // Descuento / cortesía: si el precio final quedó por debajo de la tarifa base (o en S/0).
     const finalP = Number(created.priceAgreed);
     if (finalP < basePrice - 0.01) {

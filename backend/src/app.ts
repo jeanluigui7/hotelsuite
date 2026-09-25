@@ -85,6 +85,7 @@ import { linenAdminRouter } from './modules/linen-admin/linen-admin.routes';
 import { linenRegularizationRouter } from './modules/linen-regularization/linen-regularization.routes';
 import { frigobarRouter } from './modules/frigobar/frigobar.routes';
 import { frigobarReviewRouter } from './modules/frigobar-review/frigobar-review.routes';
+import { customRateBlockRouter } from './modules/custom-rate-block/custom-rate-block.routes';
 import { receptionPermsRouter } from './modules/reception-permissions/reception-permissions.routes';
 
 export function createApp(): Application {
@@ -187,6 +188,7 @@ export function createApp(): Application {
   app.use('/api', linenRegularizationRouter);
   app.use('/api', frigobarRouter);
   app.use('/api', frigobarReviewRouter);
+  app.use('/api', customRateBlockRouter);
   app.use('/api', receptionPermsRouter);
   app.use('/api', landingRouter);
 
