@@ -304,15 +304,17 @@ export const cashRepository = {
       where: { id: { in: ids } },
       select: { id: true, folioCode: true, room: { select: { number: true } }, guest: { select: { firstName: true, lastName: true } } },
     });
-    // Nombre corto = primer nombre + primer apellido (ej. "Juan Carlos Namoc Rodríguez" → "Juan Namoc").
-    const first = (s?: string | null) => (s ?? '').trim().split(/\s+/)[0] ?? '';
+    // Nombre corto = primeras dos palabras del nombre completo (nombre + apellido). Los huéspedes suelen
+    // registrarse con todo el nombre en firstName (lastName vacío), por eso se toma del combinado.
+    const shortOf = (fn?: string | null, ln?: string | null) =>
+      `${fn ?? ''} ${ln ?? ''}`.trim().split(/\s+/).filter(Boolean).slice(0, 2).join(' ');
     return new Map(
       rows.map((s) => [
         s.id,
         {
           room: s.room?.number ?? '',
           guest: `${s.guest?.firstName ?? ''} ${s.guest?.lastName ?? ''}`.trim(),
-          guestShort: `${first(s.guest?.firstName)} ${first(s.guest?.lastName)}`.trim(),
+          guestShort: shortOf(s.guest?.firstName, s.guest?.lastName),
           folioCode: s.folioCode ?? null,
         },
       ]),
