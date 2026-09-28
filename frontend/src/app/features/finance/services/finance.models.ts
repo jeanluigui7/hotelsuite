@@ -94,6 +94,11 @@ export interface CashDetailMovement {
   saleId: string | null;
   time: string;
   type: 'HOSPEDAJE' | 'RENOVACION' | 'PRODUCTO' | 'SERVICIO' | 'INGRESO' | 'EGRESO' | 'DEUDA';
+  /** Nivel 1 (CONCEPTO): HOSPEDAJE | PRODUCTOS | SERVICIOS | AJUSTES | PENALIDADES. */
+  concepto?: string;
+  /** Nivel 2 (TIPO): CHECK-IN, RENOVACIÓN, VENTA DIRECTA, FRIGOBAR, INGRESO, ENTREGA DE VUELTO, … */
+  tipo?: string;
+  guest?: string | null;
   description: string;
   amount: number;
   method: string;

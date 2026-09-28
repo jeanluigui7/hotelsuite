@@ -31,6 +31,21 @@ const TYPE_COLOR: Record<string, [string, string]> = {
   SERVICIO: ['rgba(20,184,166,0.2)', '#2dd4bf'], INGRESO: ['rgba(16,185,129,0.18)', '#34d399'], EGRESO: ['rgba(248,113,113,0.18)', '#f87171'],
   DEUDA: ['rgba(248,113,113,0.2)', '#f87171'],
 };
+// Nivel 1 CONCEPTO (color del badge).
+const CONCEPTO_LABEL: Record<string, string> = { HOSPEDAJE: 'Hospedaje', PRODUCTOS: 'Productos', SERVICIOS: 'Servicios', AJUSTES: 'Ajustes', PENALIDADES: 'Penalidades' };
+const CONCEPTO_COLOR: Record<string, [string, string]> = {
+  HOSPEDAJE: ['rgba(59,130,246,0.18)', '#60a5fa'], PRODUCTOS: ['rgba(245,158,11,0.2)', '#fbbf24'], SERVICIOS: ['rgba(20,184,166,0.2)', '#2dd4bf'],
+  AJUSTES: ['rgba(148,163,184,0.2)', '#cbd5e1'], PENALIDADES: ['rgba(244,63,94,0.2)', '#fb7185'],
+};
+/** Concepto (nivel 1) de un movimiento: usa el del backend o lo deriva del type legado. */
+function conceptoOf(m: { concepto?: string; type: string; unregistered?: boolean }): string {
+  if (m.concepto) return m.concepto;
+  if (m.type === 'HOSPEDAJE' || m.type === 'RENOVACION') return 'HOSPEDAJE';
+  if (m.type === 'PRODUCTO') return m.unregistered ? 'AJUSTES' : 'PRODUCTOS';
+  if (m.type === 'SERVICIO') return 'SERVICIOS';
+  return 'AJUSTES'; // INGRESO/EGRESO/DEUDA
+}
+function tipoOf(m: { tipo?: string; type: string }): string { return m.tipo || m.type; }
 
 @Component({
   selector: 'app-cash-movements-page',
@@ -166,9 +181,9 @@ const TYPE_COLOR: Record<string, [string, string]> = {
         }
 
         <div class="filters">
-          <label>Tipo: <p-select [options]="typeFilterOpts" optionLabel="label" optionValue="value" [ngModel]="typeFilter()" (ngModelChange)="onTypeFilter($event)" styleClass="flt-sm" /></label>
-          @if (typeFilter() === 'AJUSTES') {
-            <label>Subtipo: <p-select [options]="ajusteSubOpts" optionLabel="label" optionValue="value" [ngModel]="ajusteSub()" (ngModelChange)="ajusteSub.set($event)" styleClass="flt-sm" /></label>
+          <label>Concepto: <p-select [options]="conceptoFilterOpts" optionLabel="label" optionValue="value" [ngModel]="conceptoFilter()" (ngModelChange)="onConceptoFilter($event)" styleClass="flt-sm" /></label>
+          @if (tipoFilterOpts().length > 1) {
+            <label>Tipo: <p-select [options]="tipoFilterOpts()" optionLabel="label" optionValue="value" [ngModel]="tipoFilter()" (ngModelChange)="tipoFilter.set($event)" styleClass="flt-sm" /></label>
           }
           <label>Método: <p-select [options]="methodFilterOpts" optionLabel="label" optionValue="value" [ngModel]="methodFilter()" (ngModelChange)="methodFilter.set($event)" styleClass="flt-sm" /></label>
           <span class="count">Mostrando {{ filteredMovements().length }} de {{ d.movements.length }} movimientos</span>
@@ -176,13 +191,14 @@ const TYPE_COLOR: Record<string, [string, string]> = {
 
         <div class="tbl-wrap">
           <table class="tbl">
-            <thead><tr><th>Hora</th><th class="c">Hab.</th><th>Tipo</th><th>Descripción</th><th class="r">Monto</th><th class="c">Método</th><th class="c">Estado</th><th class="c">Acción</th></tr></thead>
+            <thead><tr><th>Hora</th><th class="c">Hab.</th><th>Concepto</th><th>Tipo</th><th>Descripción</th><th class="r">Monto</th><th class="c">Método</th><th class="c">Estado</th><th class="c">Acción</th></tr></thead>
             <tbody>
               @for (m of filteredMovements(); track m.id) {
                 <tr [class.anulado]="m.status === 'ANULADO'" [class.deuda]="m.type === 'DEUDA'">
                   <td>{{ m.time | date: 'HH:mm' }}</td>
                   <td class="c">{{ m.room || '—' }}</td>
-                  <td><span class="tbadge" [style.background]="typeBg(m.type)" [style.color]="typeFg(m.type)">{{ typeLabel(m.type) }}</span></td>
+                  <td><span class="tbadge" [style.background]="conceptoBg(conceptoOf(m))" [style.color]="conceptoFg(conceptoOf(m))">{{ conceptoLabel(conceptoOf(m)) }}</span></td>
+                  <td><span class="tipo-txt">{{ tipoOf(m) }}</span></td>
                   <td>{{ m.description }}</td>
                   <td class="r">S/ {{ m.amount | number: '1.2-2' }}</td>
                   <td class="c">{{ methodLabel(m.method) }}</td>
@@ -203,7 +219,7 @@ const TYPE_COLOR: Record<string, [string, string]> = {
                     }
                   </td>
                 </tr>
-              } @empty { <tr><td colspan="8" class="empty">Sin movimientos.</td></tr> }
+              } @empty { <tr><td colspan="9" class="empty">Sin movimientos.</td></tr> }
             </tbody>
           </table>
         </div>
@@ -668,17 +684,20 @@ export class CashMovementsPageComponent implements OnInit {
   private sessionId = '';
 
   // Signals para que el computed filteredMovements reaccione al cambiar los filtros.
-  readonly typeFilter = signal('');
-  readonly ajusteSub = signal(''); // subtipo dentro de "Ajustes": '' | INGRESO | EGRESO | VUELTO | REG
+  // Dos niveles: CONCEPTO (nivel 1) + TIPO dependiente (nivel 2).
+  readonly conceptoFilter = signal('');
+  readonly tipoFilter = signal('');
   readonly methodFilter = signal('');
-  readonly typeFilterOpts = [
-    { label: 'Todos', value: '' }, { label: 'Hospedaje', value: 'HOSPEDAJE' },
-    { label: 'Venta producto', value: 'PRODUCTO' }, { label: 'Servicio', value: 'SERVICIO' }, { label: 'Ajustes', value: 'AJUSTES' },
+  readonly conceptoFilterOpts = [
+    { label: 'Todos', value: '' }, { label: 'Hospedaje', value: 'HOSPEDAJE' }, { label: 'Productos', value: 'PRODUCTOS' },
+    { label: 'Servicios', value: 'SERVICIOS' }, { label: 'Ajustes', value: 'AJUSTES' }, { label: 'Penalidades', value: 'PENALIDADES' },
   ];
-  readonly ajusteSubOpts = [
-    { label: 'Todos', value: '' }, { label: 'Ingreso', value: 'INGRESO' }, { label: 'Egreso', value: 'EGRESO' },
-    { label: 'Vuelto', value: 'VUELTO' }, { label: 'Regularización', value: 'REG' },
-  ];
+  private readonly TIPO_OPTS: Record<string, { label: string; value: string }[]> = {
+    HOSPEDAJE: [{ label: 'Todos', value: '' }, { label: 'Reserva', value: 'RESERVA' }, { label: 'Check-in', value: 'CHECK-IN' }, { label: 'Early Check-in', value: 'EARLY CHECK-IN' }, { label: 'Renovación', value: 'RENOVACIÓN' }],
+    PRODUCTOS: [{ label: 'Todos', value: '' }, { label: 'Venta directa', value: 'VENTA DIRECTA' }, { label: 'Room Service', value: 'ROOM SERVICE' }, { label: 'Frigobar', value: 'FRIGOBAR' }],
+    AJUSTES: [{ label: 'Todos', value: '' }, { label: 'Ingreso', value: 'INGRESO' }, { label: 'Egreso', value: 'EGRESO' }, { label: 'Entrega de vuelto', value: 'ENTREGA DE VUELTO' }, { label: 'Vuelto pendiente', value: 'VUELTO PENDIENTE' }, { label: 'Venta extraordinaria', value: 'VENTA EXTRAORDINARIA' }],
+  };
+  readonly tipoFilterOpts = computed(() => this.TIPO_OPTS[this.conceptoFilter()] ?? [{ label: 'Todos', value: '' }]);
   readonly methodFilterOpts = [
     { label: 'Todos', value: '' }, { label: 'Efectivo', value: 'CASH' }, { label: 'Transferencia', value: 'TRANSFER' },
     { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Vuelto', value: 'VUELTO' },
@@ -896,30 +915,25 @@ export class CashMovementsPageComponent implements OnInit {
   reconType(t: string): string { return ({ VENTA_NO_REGISTRADA: 'Venta no registrada', PERDIDA_COLABORADOR: 'Pérdida atribuida' } as Record<string, string>)[t] ?? t; }
   private isVuelto(m: CashDetailMovement): boolean { return m.method === 'VUELTO' || /vuelto/i.test(m.description || ''); }
   private isAjuste(m: CashDetailMovement): boolean { return m.type === 'INGRESO' || m.type === 'EGRESO' || !!m.unregistered || this.isVuelto(m); }
+  conceptoOf(m: CashDetailMovement): string { return conceptoOf(m); }
+  tipoOf(m: CashDetailMovement): string { return tipoOf(m); }
   readonly filteredMovements = computed<CashDetailMovement[]>(() => {
     const all = this.detail()?.movements ?? [];
-    const type = this.typeFilter();
-    const sub = this.ajusteSub();
+    const concepto = this.conceptoFilter();
+    const tipo = this.tipoFilter();
     const method = this.methodFilter();
     return all.filter((m) => {
       if (method && m.method !== method) return false;
-      if (!type) return true;
-      if (type === 'HOSPEDAJE') return m.type === 'HOSPEDAJE' || m.type === 'RENOVACION';
-      if (type === 'PRODUCTO') return m.type === 'PRODUCTO' && !m.unregistered;
-      if (type === 'SERVICIO') return m.type === 'SERVICIO';
-      if (type === 'AJUSTES') {
-        if (!this.isAjuste(m)) return false;
-        if (sub === 'INGRESO') return m.type === 'INGRESO' && !this.isVuelto(m);
-        if (sub === 'EGRESO') return m.type === 'EGRESO' && !this.isVuelto(m);
-        if (sub === 'VUELTO') return this.isVuelto(m);
-        if (sub === 'REG') return !!m.unregistered;
-        return true;
-      }
-      return false;
+      if (concepto && conceptoOf(m) !== concepto) return false;
+      if (tipo && tipoOf(m) !== tipo) return false;
+      return true;
     });
   });
-  onTypeFilter(v: string): void { this.typeFilter.set(v); if (v !== 'AJUSTES') this.ajusteSub.set(''); }
-  setAjustesFilter(sub: string): void { this.typeFilter.set('AJUSTES'); this.ajusteSub.set(sub); }
+  onConceptoFilter(v: string): void { this.conceptoFilter.set(v); this.tipoFilter.set(''); }
+  setAjustesFilter(tipo: string): void { this.conceptoFilter.set('AJUSTES'); this.tipoFilter.set(tipo === 'REG' ? 'VENTA EXTRAORDINARIA' : tipo); }
+  conceptoBg(c: string): string { return (CONCEPTO_COLOR[c] ?? ['rgba(148,163,184,0.2)', '#cbd5e1'])[0]; }
+  conceptoFg(c: string): string { return (CONCEPTO_COLOR[c] ?? ['rgba(148,163,184,0.2)', '#cbd5e1'])[1]; }
+  conceptoLabel(c: string): string { return CONCEPTO_LABEL[c] ?? c; }
 
   // ── Cabecera / resumen ──
   private readonly DIAS = ['DOM', 'LUN', 'MAR', 'MIE', 'JUE', 'VIE', 'SAB'];
