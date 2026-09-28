@@ -586,6 +586,25 @@ export const cashService = {
     // Categoría de ticket a la que pertenece cada tipo de ítem.
     const ticketCat = (t: string): 'HOSPEDAJE' | 'PRODUCTO' | 'SERVICIO' => (t === 'HOSPEDAJE' || t === 'RENOVACION' ? 'HOSPEDAJE' : t === 'PRODUCTO' ? 'PRODUCTO' : 'SERVICIO');
 
+    // ── Reorganización CONCEPTO → TIPO (solo presentación; NO altera montos/cálculos) ──
+    const CONCEPTO_OF: Record<string, string> = { HOSPEDAJE: 'HOSPEDAJE', RENOVACION: 'HOSPEDAJE', PRODUCTO: 'PRODUCTOS', SERVICIO: 'SERVICIOS' };
+    /** concepto + tipo de una línea de venta a partir de su itemType y su descripción. */
+    const conceptoTipo = (t: string, desc: string): { concepto: string; tipo: string } => {
+      const concepto = CONCEPTO_OF[t] ?? 'SERVICIOS';
+      let tipo: string;
+      if (concepto === 'HOSPEDAJE') tipo = rxRenewal.test(desc) ? 'RENOVACIÓN' : /early/i.test(desc) ? 'EARLY CHECK-IN' : 'CHECK-IN';
+      else if (concepto === 'PRODUCTOS') tipo = /^frigobar/i.test(desc) ? 'FRIGOBAR' : 'VENTA DIRECTA';
+      else tipo = rxExtra.test(desc) ? 'TIEMPO EXTRA' : 'SERVICIO';
+      return { concepto, tipo };
+    };
+    /** Limpia la descripción para la vista: sin "Tarifa:"/"Frigobar:", sin " - Hab. N"; agrega el cliente. */
+    const cleanDesc = (raw: string, guestShort?: string | null): string => {
+      let d = (raw || '').trim();
+      d = d.replace(/^tarifa\s*[:-]?\s*/i, '').replace(/^frigobar\s*[:-]?\s*/i, '');
+      d = d.replace(/\s*[–-]\s*hab\.?\s*\S+\s*$/i, '').trim();
+      return guestShort ? `${d} - ${guestShort}`.trim() : d;
+    };
+
     // Método a nivel de venta: único → ese; varios → MIXTO; sin pago → PENDIENTE.
     const saleMethod = (payments: { method: string }[]): string => {
       const set = new Set(payments.map((p) => p.method));
@@ -597,7 +616,7 @@ export const cashService = {
     const cards = { ventasHospedaje: 0, ventasProductos: 0, serviciosOtros: 0, deudasPendientes: 0, efectivo: 0, ajustes: 0 };
     let anulaciones = 0;
     const feed: {
-      id: string; saleId: string | null; time: Date; type: string; description: string;
+      id: string; saleId: string | null; time: Date; type: string; concepto: string; tipo: string; guest: string | null; description: string;
       amount: number; method: string; status: 'NORMAL' | 'ANULADO'; verify?: string | null; unregistered?: boolean;
       room?: string | null; stayId?: string | null;
     }[] = [];
@@ -622,7 +641,6 @@ export const cashService = {
       const cancelled = sale.status === 'CANCELLED';
       const method = saleMethod(sale.payments);
       const info = sale.stayId ? stayInfo.get(sale.stayId) : undefined;
-      const suffix = info?.room ? ` - Hab. ${info.room}` : '';
       const folio = info?.folioCode ?? null;
       if (cancelled) { anulaciones = round(anulaciones + Number(sale.total)); }
 
@@ -645,7 +663,7 @@ export const cashService = {
         }
         else if (vs === 'NO_COBRADA') { regs.noCobradas.count++; regs.noCobradas.amount = round(regs.noCobradas.amount + amount); cards.deudasPendientes = round(cards.deudasPendientes + amount); debts.push({ saleId: sale.id, concepto: prodName, tipo: 'VENTA_NO_COBRADA', room: info?.room || null, importe: amount, time: sale.createdAt, estado: 'NO_COBRADA', folio }); }
         else { regs.porVerificar.count++; regs.porVerificar.amount = round(regs.porVerificar.amount + amount); }
-        feed.push({ id: sale.id, saleId: sale.id, time: sale.createdAt, type: 'PRODUCTO', description: (prodName + suffix).trim(), amount, method: rowMethod, status: 'NORMAL', verify: vs, unregistered: true, room: info?.room ?? null, stayId: sale.stayId ?? null });
+        feed.push({ id: sale.id, saleId: sale.id, time: sale.createdAt, type: 'PRODUCTO', concepto: 'AJUSTES', tipo: 'VENTA EXTRAORDINARIA', guest: info?.guestShort || null, description: cleanDesc(prodName, info?.guestShort), amount, method: rowMethod, status: 'NORMAL', verify: vs, unregistered: true, room: info?.room ?? null, stayId: sale.stayId ?? null });
         continue;
       }
 
@@ -673,12 +691,16 @@ export const cashService = {
         } else if (it.voided && !cancelled) {
           anulaciones = round(anulaciones + amount); // anulación de una línea (la venta sigue vigente)
         }
+        const ct = conceptoTipo(t, it.description);
         feed.push({
           id: it.id,
           saleId: sale.id,
           time: sale.createdAt,
           type: t,
-          description: (it.description + suffix).trim(),
+          concepto: ct.concepto,
+          tipo: ct.tipo,
+          guest: info?.guestShort || null,
+          description: cleanDesc(it.description, info?.guestShort),
           amount,
           method,
           status: itemVoided ? 'ANULADO' : 'NORMAL',
@@ -726,16 +748,23 @@ export const cashService = {
       } else {
         movOut = round(movOut + amount); // egresos siempre en efectivo (restan del cajón)
       }
+      const concept = m.concept || '';
+      const roomM = concept.match(/hab\.?\s*([^\s,;–-]+)/i);
+      const isOut = m.type !== 'IN';
+      const ajTipo = /entrega de vuelto/i.test(concept) ? 'ENTREGA DE VUELTO' : /vuelto/i.test(concept) ? 'VUELTO PENDIENTE' : isOut ? 'EGRESO' : 'INGRESO';
       feed.push({
         id: m.id,
         saleId: null,
         time: m.createdAt,
-        type: m.type === 'IN' ? 'INGRESO' : 'EGRESO',
-        description: m.concept,
+        type: isOut ? 'EGRESO' : 'INGRESO',
+        concepto: 'AJUSTES',
+        tipo: ajTipo,
+        guest: null,
+        description: cleanDesc(concept),
         amount,
         method: mMethod, // método real del movimiento (antes se forzaba a Efectivo)
         status: 'NORMAL',
-        room: null,
+        room: roomM ? roomM[1] : null,
       });
     }
 
@@ -800,13 +829,19 @@ export const cashService = {
     // Las DEUDAS también figuran como filas en la lista de movimientos (tipo DEUDA), con su habitación,
     // para localizarlas y poder regularizarlas desde aquí (aunque la estancia ya haya terminado).
     for (const d of debts) {
+      const dStayId = d.saleId.startsWith('stay:') ? d.saleId.slice(5) : null;
+      const dGuest = dStayId ? stayInfo.get(dStayId)?.guestShort ?? null : null;
+      const dct = d.tipo === 'VENTA_NO_COBRADA' ? { concepto: 'AJUSTES', tipo: 'VENTA EXTRAORDINARIA' } : conceptoTipo(d.tipo, d.concepto);
       feed.push({
         id: `debt:${d.saleId}`,
         saleId: d.saleId.startsWith('stay:') ? null : d.saleId,
-        stayId: d.saleId.startsWith('stay:') ? d.saleId.slice(5) : null,
+        stayId: dStayId,
         time: d.time,
         type: 'DEUDA',
-        description: d.concepto,
+        concepto: dct.concepto,
+        tipo: dct.tipo,
+        guest: dGuest,
+        description: cleanDesc(d.concepto, dGuest),
         amount: d.importe,
         method: 'PENDIENTE',
         status: 'NORMAL',

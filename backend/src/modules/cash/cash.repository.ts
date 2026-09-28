@@ -299,15 +299,22 @@ export const cashRepository = {
 
   /** Habitación, huésped y folio por estancia (para enriquecer la descripción del movimiento). */
   async stayInfo(ids: string[]) {
-    if (ids.length === 0) return new Map<string, { room: string; guest: string; folioCode: string | null }>();
+    if (ids.length === 0) return new Map<string, { room: string; guest: string; guestShort: string; folioCode: string | null }>();
     const rows = await prisma.stay.findMany({
       where: { id: { in: ids } },
       select: { id: true, folioCode: true, room: { select: { number: true } }, guest: { select: { firstName: true, lastName: true } } },
     });
+    // Nombre corto = primer nombre + primer apellido (ej. "Juan Carlos Namoc Rodríguez" → "Juan Namoc").
+    const first = (s?: string | null) => (s ?? '').trim().split(/\s+/)[0] ?? '';
     return new Map(
       rows.map((s) => [
         s.id,
-        { room: s.room?.number ?? '', guest: `${s.guest?.firstName ?? ''} ${s.guest?.lastName ?? ''}`.trim(), folioCode: s.folioCode ?? null },
+        {
+          room: s.room?.number ?? '',
+          guest: `${s.guest?.firstName ?? ''} ${s.guest?.lastName ?? ''}`.trim(),
+          guestShort: `${first(s.guest?.firstName)} ${first(s.guest?.lastName)}`.trim(),
+          folioCode: s.folioCode ?? null,
+        },
       ]),
     );
   },
