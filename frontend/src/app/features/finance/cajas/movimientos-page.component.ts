@@ -37,6 +37,22 @@ const CONCEPTO_COLOR: Record<string, [string, string]> = {
   HOSPEDAJE: ['rgba(59,130,246,0.18)', '#60a5fa'], PRODUCTOS: ['rgba(245,158,11,0.2)', '#fbbf24'], SERVICIOS: ['rgba(20,184,166,0.2)', '#2dd4bf'],
   AJUSTES: ['rgba(148,163,184,0.2)', '#cbd5e1'], PENALIDADES: ['rgba(244,63,94,0.2)', '#fb7185'],
 };
+// Nivel 2 TIPO (color + etiqueta bonita del badge). Claves = strings que emite el backend.
+const TIPO2_LABEL: Record<string, string> = {
+  'CHECK-IN': 'Check-in', 'EARLY CHECK-IN': 'Early Check-in', 'RENOVACIÓN': 'Renovación', 'RESERVA': 'Reserva',
+  'VENTA DIRECTA': 'Venta directa', 'ROOM SERVICE': 'Room Service', 'FRIGOBAR': 'Frigobar',
+  'INGRESO': 'Ingreso', 'EGRESO': 'Egreso', 'ENTREGA DE VUELTO': 'Entrega de vuelto', 'VUELTO PENDIENTE': 'Vuelto pendiente',
+  'VENTA EXTRAORDINARIA': 'Venta extraordinaria', 'TIEMPO EXTRA': 'Tiempo extra', 'SERVICIO': 'Servicio',
+};
+const TIPO2_COLOR: Record<string, [string, string]> = {
+  'CHECK-IN': ['rgba(59,130,246,0.18)', '#60a5fa'], 'EARLY CHECK-IN': ['rgba(99,102,241,0.2)', '#a5b4fc'], 'RENOVACIÓN': ['rgba(245,158,11,0.2)', '#fbbf24'], 'RESERVA': ['rgba(148,163,184,0.2)', '#cbd5e1'],
+  'VENTA DIRECTA': ['rgba(245,158,11,0.18)', '#fbbf24'], 'ROOM SERVICE': ['rgba(20,184,166,0.2)', '#2dd4bf'], 'FRIGOBAR': ['rgba(6,182,212,0.2)', '#22d3ee'],
+  'INGRESO': ['rgba(16,185,129,0.18)', '#34d399'], 'EGRESO': ['rgba(248,113,113,0.18)', '#f87171'], 'ENTREGA DE VUELTO': ['rgba(167,139,250,0.2)', '#c4b5fd'], 'VUELTO PENDIENTE': ['rgba(245,158,11,0.2)', '#f59e0b'],
+  'VENTA EXTRAORDINARIA': ['rgba(244,63,94,0.2)', '#fb7185'], 'TIEMPO EXTRA': ['rgba(20,184,166,0.2)', '#2dd4bf'], 'SERVICIO': ['rgba(20,184,166,0.2)', '#2dd4bf'],
+};
+function tipoLabel2(t: string): string {
+  return TIPO2_LABEL[t] ?? (t ? t.charAt(0) + t.slice(1).toLowerCase() : t);
+}
 /** Concepto (nivel 1) de un movimiento: usa el del backend o lo deriva del type legado. */
 function conceptoOf(m: { concepto?: string; type: string; unregistered?: boolean }): string {
   if (m.concepto) return m.concepto;
@@ -198,7 +214,7 @@ function tipoOf(m: { tipo?: string; type: string }): string { return m.tipo || m
                   <td>{{ m.time | date: 'HH:mm' }}</td>
                   <td class="c">{{ m.room || '—' }}</td>
                   <td><span class="tbadge" [style.background]="conceptoBg(conceptoOf(m))" [style.color]="conceptoFg(conceptoOf(m))">{{ conceptoLabel(conceptoOf(m)) }}</span></td>
-                  <td><span class="tipo-txt">{{ tipoOf(m) }}</span></td>
+                  <td><span class="tbadge" [style.background]="tipoBg(tipoOf(m))" [style.color]="tipoFg(tipoOf(m))">{{ tipoLabel(tipoOf(m)) }}</span></td>
                   <td>{{ m.description }}</td>
                   <td class="r">S/ {{ m.amount | number: '1.2-2' }}</td>
                   <td class="c">{{ methodLabel(m.method) }}</td>
@@ -692,12 +708,19 @@ export class CashMovementsPageComponent implements OnInit {
     { label: 'Todos', value: '' }, { label: 'Hospedaje', value: 'HOSPEDAJE' }, { label: 'Productos', value: 'PRODUCTOS' },
     { label: 'Servicios', value: 'SERVICIOS' }, { label: 'Ajustes', value: 'AJUSTES' }, { label: 'Penalidades', value: 'PENALIDADES' },
   ];
-  private readonly TIPO_OPTS: Record<string, { label: string; value: string }[]> = {
-    HOSPEDAJE: [{ label: 'Todos', value: '' }, { label: 'Reserva', value: 'RESERVA' }, { label: 'Check-in', value: 'CHECK-IN' }, { label: 'Early Check-in', value: 'EARLY CHECK-IN' }, { label: 'Renovación', value: 'RENOVACIÓN' }],
-    PRODUCTOS: [{ label: 'Todos', value: '' }, { label: 'Venta directa', value: 'VENTA DIRECTA' }, { label: 'Room Service', value: 'ROOM SERVICE' }, { label: 'Frigobar', value: 'FRIGOBAR' }],
-    AJUSTES: [{ label: 'Todos', value: '' }, { label: 'Ingreso', value: 'INGRESO' }, { label: 'Egreso', value: 'EGRESO' }, { label: 'Entrega de vuelto', value: 'ENTREGA DE VUELTO' }, { label: 'Vuelto pendiente', value: 'VUELTO PENDIENTE' }, { label: 'Venta extraordinaria', value: 'VENTA EXTRAORDINARIA' }],
-  };
-  readonly tipoFilterOpts = computed(() => this.TIPO_OPTS[this.conceptoFilter()] ?? [{ label: 'Todos', value: '' }]);
+  // Opciones de TIPO dinámicas: solo los tipos realmente presentes bajo el concepto elegido,
+  // así cualquier selección filtra de verdad (no ofrece tipos inexistentes que darían 0 filas).
+  readonly tipoFilterOpts = computed<{ label: string; value: string }[]>(() => {
+    const c = this.conceptoFilter();
+    if (!c) return [{ label: 'Todos', value: '' }];
+    const present = new Set<string>();
+    for (const m of this.detail()?.movements ?? []) {
+      if (conceptoOf(m) === c) present.add(tipoOf(m));
+    }
+    const opts = [{ label: 'Todos', value: '' }];
+    for (const t of Array.from(present).sort()) opts.push({ label: tipoLabel2(t), value: t });
+    return opts;
+  });
   readonly methodFilterOpts = [
     { label: 'Todos', value: '' }, { label: 'Efectivo', value: 'CASH' }, { label: 'Transferencia', value: 'TRANSFER' },
     { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Vuelto', value: 'VUELTO' },
@@ -934,6 +957,9 @@ export class CashMovementsPageComponent implements OnInit {
   conceptoBg(c: string): string { return (CONCEPTO_COLOR[c] ?? ['rgba(148,163,184,0.2)', '#cbd5e1'])[0]; }
   conceptoFg(c: string): string { return (CONCEPTO_COLOR[c] ?? ['rgba(148,163,184,0.2)', '#cbd5e1'])[1]; }
   conceptoLabel(c: string): string { return CONCEPTO_LABEL[c] ?? c; }
+  tipoBg(t: string): string { return (TIPO2_COLOR[t] ?? ['rgba(148,163,184,0.16)', '#cbd5e1'])[0]; }
+  tipoFg(t: string): string { return (TIPO2_COLOR[t] ?? ['rgba(148,163,184,0.16)', '#cbd5e1'])[1]; }
+  tipoLabel(t: string): string { return tipoLabel2(t); }
 
   // ── Cabecera / resumen ──
   private readonly DIAS = ['DOM', 'LUN', 'MAR', 'MIE', 'JUE', 'VIE', 'SAB'];
