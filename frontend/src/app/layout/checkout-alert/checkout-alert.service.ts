@@ -89,8 +89,9 @@ export class CheckoutAlertService {
   start(): void {
     if (this.started) return;
     this.started = true;
-    // Reloj: reevalúa snooze y cuenta regresiva cada segundo.
-    this.timer = setInterval(() => this.tick.set(Date.now()), 1000);
+    // Reloj: reevalúa snooze y la cuenta regresiva (a nivel de minutos, no segundos), así que
+    // 15 s basta. Antes era 1 s y forzaba detección de cambios en toda la app cada segundo.
+    this.timer = setInterval(() => this.tick.set(Date.now()), 15_000);
     // Sondeo del mapa.
     this.poll();
     this.polling = setInterval(() => this.poll(), POLL_MS);

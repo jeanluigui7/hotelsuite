@@ -1,4 +1,4 @@
-import { Component, HostListener, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, HostListener, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -58,6 +58,9 @@ const MANT_CATS = [
 @Component({
   selector: 'app-habitaciones-board',
   standalone: true,
+  // OnPush: evita que eventos ajenos (polls/HTTP/overlays de otras partes) re-rendericen este
+  // tablero enorme. El reloj interno (nowTick, 1 s, señal) garantiza refresco ≤1 s de todo el estado.
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, InputNumberModule, DatePickerModule, TooltipModule, DialogModule, CheckInDialogComponent, VentaProductosComponent, ServiciosPenalidadesComponent, FolioEstanciaComponent, FrigobarRepositionComponent, FrigobarInspectionComponent],
   template: `
     <section class="board">

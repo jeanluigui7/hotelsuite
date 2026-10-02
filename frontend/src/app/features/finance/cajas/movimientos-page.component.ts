@@ -198,9 +198,7 @@ function tipoOf(m: { tipo?: string; type: string }): string { return m.tipo || m
 
         <div class="filters">
           <label>Concepto: <p-select [options]="conceptoFilterOpts" optionLabel="label" optionValue="value" [ngModel]="conceptoFilter()" (ngModelChange)="onConceptoFilter($event)" styleClass="flt-sm" /></label>
-          @if (tipoFilterOpts().length > 1) {
-            <label>Tipo: <p-select [options]="tipoFilterOpts()" optionLabel="label" optionValue="value" [ngModel]="tipoFilter()" (ngModelChange)="tipoFilter.set($event)" styleClass="flt-sm" /></label>
-          }
+          <label>Tipo: <p-select [options]="tipoFilterOpts()" optionLabel="label" optionValue="value" [ngModel]="tipoFilter()" (ngModelChange)="tipoFilter.set($event)" styleClass="flt-sm" /></label>
           <label>Método: <p-select [options]="methodFilterOpts" optionLabel="label" optionValue="value" [ngModel]="methodFilter()" (ngModelChange)="methodFilter.set($event)" styleClass="flt-sm" /></label>
           <span class="count">Mostrando {{ filteredMovements().length }} de {{ d.movements.length }} movimientos</span>
         </div>
@@ -712,10 +710,9 @@ export class CashMovementsPageComponent implements OnInit {
   // así cualquier selección filtra de verdad (no ofrece tipos inexistentes que darían 0 filas).
   readonly tipoFilterOpts = computed<{ label: string; value: string }[]>(() => {
     const c = this.conceptoFilter();
-    if (!c) return [{ label: 'Todos', value: '' }];
     const present = new Set<string>();
     for (const m of this.detail()?.movements ?? []) {
-      if (conceptoOf(m) === c) present.add(tipoOf(m));
+      if (!c || conceptoOf(m) === c) present.add(tipoOf(m));
     }
     const opts = [{ label: 'Todos', value: '' }];
     for (const t of Array.from(present).sort()) opts.push({ label: tipoLabel2(t), value: t });
