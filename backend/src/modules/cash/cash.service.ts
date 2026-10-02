@@ -562,9 +562,12 @@ export const cashService = {
       cashRepository.sessionSales(id),
       cashRepository.listMovements(id),
     ]);
+    // Cobros recibidos en este turno de ventas de OTRO turno (deudas previas, ej. renovación de ayer
+    // pagada hoy): ya suman en el total por método, pero sin fila propia en los movimientos.
+    const extPayments = await cashRepository.externalSessionPayments(id, sales.map((s) => s.id));
 
-    const productIds = [...new Set(sales.flatMap((s) => s.items.map((i) => i.productId).filter((x): x is string => !!x)))];
-    const stayIds = [...new Set(sales.map((s) => s.stayId).filter((x): x is string => !!x))];
+    const productIds = [...new Set([...sales.flatMap((s) => s.items), ...extPayments.flatMap((p) => p.sale.items)].map((i) => i.productId).filter((x): x is string => !!x))];
+    const stayIds = [...new Set([...sales.map((s) => s.stayId), ...extPayments.map((p) => p.sale.stayId)].filter((x): x is string => !!x))];
     const [productTypes, stayInfo, names] = await Promise.all([
       cashRepository.productTypes(productIds),
       cashRepository.stayInfo(stayIds),
@@ -765,6 +768,33 @@ export const cashService = {
         method: mMethod, // método real del movimiento (antes se forzaba a Efectivo)
         status: 'NORMAL',
         room: roomM ? roomM[1] : null,
+      });
+    }
+
+    // Cobros de deudas de turnos previos: una fila por pago, con el concepto/tipo de la venta original.
+    // El monto es lo cobrado hoy (p.amount), no el total de la venta; no se tocan las tarjetas de ventas
+    // (la venta se reconoció en su turno) — es dinero que entró al cajón este turno y ya está en el total.
+    for (const p of extPayments) {
+      const sale = p.sale;
+      const info = sale.stayId ? stayInfo.get(sale.stayId) : undefined;
+      const types = new Set(sale.items.map((it) => itemType(it.description, it.productId)));
+      const t = types.has('RENOVACION') ? 'RENOVACION' : types.has('HOSPEDAJE') ? 'HOSPEDAJE' : types.has('PRODUCTO') ? 'PRODUCTO' : 'SERVICIO';
+      const desc = sale.items.map((it) => it.description).filter(Boolean).join(', ') || 'Cobro de deuda';
+      const ct = conceptoTipo(t, desc);
+      feed.push({
+        id: p.id,
+        saleId: sale.id,
+        time: p.createdAt,
+        type: t,
+        concepto: ct.concepto,
+        tipo: ct.tipo,
+        guest: info?.guestShort || null,
+        description: `${cleanDesc(desc, info?.guestShort)} · cobro de deuda`,
+        amount: Number(p.amount),
+        method: p.method,
+        status: 'NORMAL',
+        room: info?.room ?? null,
+        stayId: sale.stayId ?? null,
       });
     }
 

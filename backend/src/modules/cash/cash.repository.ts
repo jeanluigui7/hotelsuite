@@ -280,6 +280,24 @@ export const cashRepository = {
     });
   },
 
+  /**
+   * Pagos recibidos EN ESTE turno cuya venta pertenece a OTRO turno (cobro de deudas de turnos
+   * previos, ej. una renovación cargada ayer y pagada hoy). El total por método ya los suma
+   * (paymentsTotal filtra por Payment.cashSessionId), pero no tienen fila de venta en este turno
+   * porque la venta no es de esta caja. Se usan para emitir una fila de movimiento ("cobro").
+   */
+  externalSessionPayments(cashSessionId: string, excludeSaleIds: string[]) {
+    return prisma.payment.findMany({
+      where: {
+        cashSessionId,
+        sale: { status: { not: 'CANCELLED' } },
+        ...(excludeSaleIds.length ? { saleId: { notIn: excludeSaleIds } } : {}),
+      },
+      include: { sale: { include: { items: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+  },
+
   /** Una venta con sus líneas y pagos (para el detalle VER de un movimiento). */
   saleById(id: string) {
     return prisma.sale.findUnique({ where: { id }, include: { items: true, payments: true } });
