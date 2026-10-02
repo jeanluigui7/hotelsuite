@@ -39,6 +39,15 @@ export const updateGroupSchema = z.object({
 });
 
 // ── Concepto ──
+export const INVENTORY_ORIGINS = ['ROPA', 'AMENITY'] as const;
+export const ARTICLE_SCOPES = ['ALL', 'SPECIFIC'] as const;
+
+// Artículo vinculado: id real (LinenItem para ropa / Product para amenity) + precio específico opcional.
+const articleSchema = z.object({
+  articleId: z.string().min(1),
+  price: z.coerce.number().min(0).max(999999).nullable().optional(),
+});
+
 export const createConceptSchema = z.object({
   groupId: z.string().min(1),
   code: z.string().trim().min(1).max(40),
@@ -51,9 +60,11 @@ export const createConceptSchema = z.object({
   allowCourtesy: z.boolean().optional(),
   allowFreeAmount: z.boolean().optional(),
   attentionMode: z.enum(ATTENTION_MODES).default('NONE'),
-  productId: z.string().min(1).nullable().optional(),
-  requiresDelivery: z.boolean().optional(),
-  requiresReturn: z.boolean().optional(),
+  // Vinculación con inventario (solo LINEN_EXTRA)
+  inventoryOrigin: z.enum(INVENTORY_ORIGINS).nullable().optional(),
+  inventoryCategoryId: z.string().min(1).nullable().optional(),
+  articleScope: z.enum(ARTICLE_SCOPES).optional(),
+  articles: z.array(articleSchema).optional(),
 });
 export const updateConceptSchema = z.object({
   groupId: z.string().min(1).optional(), // mover a otro grupo del mismo tipo
@@ -67,9 +78,10 @@ export const updateConceptSchema = z.object({
   allowCourtesy: z.boolean().optional(),
   allowFreeAmount: z.boolean().optional(),
   attentionMode: z.enum(ATTENTION_MODES).optional(),
-  productId: z.string().min(1).nullable().optional(),
-  requiresDelivery: z.boolean().optional(),
-  requiresReturn: z.boolean().optional(),
+  inventoryOrigin: z.enum(INVENTORY_ORIGINS).nullable().optional(),
+  inventoryCategoryId: z.string().min(1).nullable().optional(),
+  articleScope: z.enum(ARTICLE_SCOPES).optional(),
+  articles: z.array(articleSchema).optional(),
 });
 
 export type CreateCategoryDto = z.infer<typeof createCategorySchema>;

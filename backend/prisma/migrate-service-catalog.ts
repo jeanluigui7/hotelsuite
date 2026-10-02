@@ -68,6 +68,9 @@ async function migrateBranch(branchId: string) {
     for (const g of groups) await ensureGroup(branchId, cat.id, g, i++);
   }
 
+  // Adaptación de vínculos legados (siempre, aunque los items ya se hayan migrado antes).
+  await adaptLegacyLinks(branchId);
+
   // 3) Migración única de los Item existentes
   const flag = await prisma.setting.findUnique({ where: { branchId_key: { branchId, key: MIGRATED_KEY } } });
   if (flag?.value === 'true') return { migrated: 0, skipped: true };
@@ -93,6 +96,35 @@ async function migrateBranch(branchId: string) {
     update: { value: 'true' },
   });
   return { migrated, skipped: false };
+}
+
+/**
+ * Adapta vínculos legados (concepto LINEN_EXTRA con productId único, previo al rework) a
+ * Origen → categoría → selección específica. Amenity se adapta directo; ropa/ambiguo se marca para
+ * revisión (no se sustituye solo). Idempotente: solo toca conceptos con productId y sin inventoryOrigin.
+ */
+async function adaptLegacyLinks(branchId: string) {
+  const legacy = await prisma.serviceConcept.findMany({
+    where: { branchId, attentionMode: 'LINEN_EXTRA', productId: { not: null }, inventoryOrigin: null },
+    select: { id: true, productId: true },
+  });
+  for (const c of legacy) {
+    const product = c.productId
+      ? await prisma.product.findFirst({ where: { id: c.productId, branchId }, select: { id: true, categoryId: true, productType: true, category: { select: { type: true } } } })
+      : null;
+    const isAmenity = product && (product.productType === 'AMENITY' || product.category?.type === 'AMENITY');
+    if (isAmenity && product) {
+      await prisma.serviceConcept.update({ where: { id: c.id }, data: { inventoryOrigin: 'AMENITY', inventoryCategoryId: product.categoryId, articleScope: 'SPECIFIC', linkNeedsReview: false } });
+      await prisma.serviceConceptArticle.upsert({
+        where: { conceptId_articleId: { conceptId: c.id, articleId: product.id } },
+        create: { conceptId: c.id, branchId, articleId: product.id, price: null },
+        update: {},
+      });
+    } else {
+      // Ropa (los artículos reales son LinenItem, no Product) o vínculo ambiguo → marcar para revisión.
+      await prisma.serviceConcept.update({ where: { id: c.id }, data: { linkNeedsReview: true } });
+    }
+  }
 }
 
 async function main() {

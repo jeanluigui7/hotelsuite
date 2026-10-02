@@ -14,7 +14,10 @@ export const serviceCatalogRepository = {
           include: {
             concepts: {
               orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-              include: { product: { select: { id: true, name: true, category: { select: { name: true } } } } },
+              include: {
+                articles: { select: { articleId: true, price: true } },
+                inventoryCategory: { select: { id: true, name: true, type: true } },
+              },
             },
           },
         },
@@ -72,9 +75,6 @@ export const serviceCatalogRepository = {
   conceptByCode(branchId: string, code: string) {
     return prisma.serviceConcept.findFirst({ where: { branchId, code } });
   },
-  activeConceptsForProduct(branchId: string, productId: string, attentionMode: string) {
-    return prisma.serviceConcept.findMany({ where: { branchId, productId, attentionMode, status: 'active' }, select: { id: true, name: true } });
-  },
   createConcept(data: Prisma.ServiceConceptUncheckedCreateInput) {
     return prisma.serviceConcept.create({ data });
   },
@@ -85,16 +85,54 @@ export const serviceCatalogRepository = {
     return prisma.serviceConcept.delete({ where: { id } });
   },
 
-  // ── Artículos candidatos para "ropa adicional" (reutilizables / ropa / amenities) ──
-  linenArticles(branchId: string) {
-    return prisma.product.findMany({
-      where: {
-        branchId,
-        status: 'active',
-        OR: [{ reusable: true }, { category: { type: { in: ['CLOTHING', 'AMENITY'] } } }],
-      },
+  // ── Artículos vinculados al concepto (inclusión en SPECIFIC + precios por artículo) ──
+  conceptArticles(conceptId: string) {
+    return prisma.serviceConceptArticle.findMany({ where: { conceptId }, select: { articleId: true, price: true } });
+  },
+  async replaceConceptArticles(conceptId: string, branchId: string, rows: { articleId: string; price: number | null }[]) {
+    await prisma.serviceConceptArticle.deleteMany({ where: { conceptId } });
+    if (rows.length) {
+      await prisma.serviceConceptArticle.createMany({ data: rows.map((r) => ({ conceptId, branchId, articleId: r.articleId, price: r.price })) });
+    }
+  },
+
+  // ── Inventario real: tipos de prenda (CLOTHING) y grupos de amenities (AMENITY) ──
+  inventoryCategories(branchId: string, type: 'CLOTHING' | 'AMENITY') {
+    return prisma.inventoryCategory.findMany({
+      where: { branchId, type, status: 'active' },
       orderBy: { name: 'asc' },
-      select: { id: true, name: true, salePrice: true, reusable: true, category: { select: { name: true, type: true } } },
+      select: { id: true, name: true, type: true },
     });
+  },
+  inventoryCategoryById(branchId: string, id: string) {
+    return prisma.inventoryCategory.findFirst({ where: { id, branchId }, select: { id: true, name: true, type: true } });
+  },
+  /** Artículos de ropa (LinenItem) de un tipo de prenda (categoryId). */
+  ropaArticles(branchId: string, categoryId: string) {
+    return prisma.linenItem.findMany({
+      where: { branchId, categoryId, status: 'active' },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, code: true, type: true },
+    });
+  },
+  /** Artículos de amenities (Product amenity); por grupo (categoryId) o todos los amenities. */
+  amenityArticles(branchId: string, categoryId: string | null) {
+    const amenity: Prisma.ProductWhereInput = { OR: [{ productType: 'AMENITY' }, { category: { type: 'AMENITY' } }] };
+    return prisma.product.findMany({
+      where: { branchId, status: 'active', ...(categoryId ? { categoryId } : amenity) },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, sku: true },
+    });
+  },
+  /** IDs válidos de ropa dentro de un tipo (para validar pertenencia en el servidor). */
+  async ropaArticleIds(branchId: string, categoryId: string, ids: string[]) {
+    const rows = await prisma.linenItem.findMany({ where: { branchId, categoryId, id: { in: ids } }, select: { id: true } });
+    return new Set(rows.map((r) => r.id));
+  },
+  /** IDs válidos de amenities (por grupo o todos) para validar pertenencia. */
+  async amenityArticleIds(branchId: string, categoryId: string | null, ids: string[]) {
+    const amenity: Prisma.ProductWhereInput = { OR: [{ productType: 'AMENITY' }, { category: { type: 'AMENITY' } }] };
+    const rows = await prisma.product.findMany({ where: { branchId, id: { in: ids }, ...(categoryId ? { categoryId } : amenity) }, select: { id: true } });
+    return new Set(rows.map((r) => r.id));
   },
 };

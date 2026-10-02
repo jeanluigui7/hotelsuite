@@ -12,9 +12,16 @@ export const serviceCatalogController = {
     const tipo = typeof req.query.tipo === 'string' ? req.query.tipo : 'SERVICIO';
     res.status(200).json(ok(await svc.tree(req.scope, tipo)));
   },
-  async linenArticles(req: Request, res: Response): Promise<void> {
+  async inventoryCategories(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
-    res.status(200).json(ok(await svc.linenArticles(req.scope)));
+    const origin = typeof req.query.origin === 'string' ? req.query.origin : 'ROPA';
+    res.status(200).json(ok(await svc.inventoryCategories(req.scope, origin)));
+  },
+  async inventoryArticles(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const origin = typeof req.query.origin === 'string' ? req.query.origin : 'ROPA';
+    const categoryId = typeof req.query.categoryId === 'string' && req.query.categoryId ? req.query.categoryId : null;
+    res.status(200).json(ok(await svc.inventoryArticles(req.scope, origin, categoryId)));
   },
 
   // Categorías

@@ -1,7 +1,6 @@
 import type { RequestScope } from '../../shared/context';
 import { ConflictError, NotFoundError, ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
-import { prisma } from '../../config/prisma';
 import { serviceCatalogRepository as repo } from './service-catalog.repository';
 import type {
   CreateCategoryDto, UpdateCategoryDto, CreateGroupDto, UpdateGroupDto, CreateConceptDto, UpdateConceptDto,
@@ -18,10 +17,18 @@ export const serviceCatalogService = {
     return repo.treeByTipo(branchId, t);
   },
 
-  /** Artículos reales candidatos para "ropa adicional" (selector del concepto LINEN_EXTRA). */
-  async linenArticles(scope: RequestScope) {
+  /** Tipos de prenda (ROPA → categorías CLOTHING) o grupos de amenities (AMENITY → categorías AMENITY). */
+  async inventoryCategories(scope: RequestScope, origin: string) {
     const branchId = requireActiveBranch(scope);
-    return repo.linenArticles(branchId);
+    return repo.inventoryCategories(branchId, origin === 'AMENITY' ? 'AMENITY' : 'CLOTHING');
+  },
+
+  /** Artículos reales de un origen+tipo/grupo (ropa = LinenItem; amenity = Product). */
+  async inventoryArticles(scope: RequestScope, origin: string, categoryId: string | null) {
+    const branchId = requireActiveBranch(scope);
+    if (origin === 'AMENITY') return repo.amenityArticles(branchId, categoryId);
+    if (!categoryId) return [];
+    return repo.ropaArticles(branchId, categoryId);
   },
 
   // ─────────────────────────── Categorías ───────────────────────────
@@ -105,15 +112,18 @@ export const serviceCatalogService = {
     const tipo = group.category.tipo;
     await this.assertConceptCodeFree(branchId, dto.code, null);
     await this.assertConceptNameFree(dto.groupId, dto.name, null);
-    const linen = await this.resolveLinen(branchId, tipo, dto.attentionMode, dto.productId ?? null, dto, null);
-    return repo.createConcept({
+    const link = await this.resolveInventoryLink(branchId, tipo, dto, []);
+    const created = await repo.createConcept({
       branchId, groupId: dto.groupId, code: dto.code.trim(), name: dto.name.trim(),
       description: dto.description || null, price: dto.price, unit: dto.unit, sortOrder: dto.sortOrder ?? 0, status: dto.status,
-      allowCourtesy: linen.allowCourtesy, allowFreeAmount: dto.allowFreeAmount ?? false,
-      attentionMode: linen.attentionMode, productId: linen.productId,
-      requiresDelivery: linen.requiresDelivery, requiresReturn: linen.requiresReturn,
+      allowCourtesy: link.allowCourtesy, allowFreeAmount: dto.allowFreeAmount ?? false,
+      attentionMode: link.attentionMode, productId: null, linkNeedsReview: false,
+      inventoryOrigin: link.inventoryOrigin, inventoryCategoryId: link.inventoryCategoryId, articleScope: link.articleScope,
+      requiresDelivery: link.requiresDelivery, requiresReturn: link.requiresReturn,
       createdByUserId: scope.userId, updatedByUserId: scope.userId,
     });
+    await repo.replaceConceptArticles(created.id, branchId, link.articles);
+    return created;
   },
 
   async updateConcept(scope: RequestScope, id: string, dto: UpdateConceptDto) {
@@ -132,19 +142,30 @@ export const serviceCatalogService = {
     if (dto.code && norm(dto.code) !== norm(concept.code)) await this.assertConceptCodeFree(branchId, dto.code, id);
     if (dto.name || groupId !== concept.groupId) await this.assertConceptNameFree(groupId, dto.name ?? concept.name, id);
 
-    const attentionMode = dto.attentionMode ?? concept.attentionMode;
-    const productId = dto.productId !== undefined ? dto.productId : concept.productId;
-    const linen = await this.resolveLinen(branchId, tipo, attentionMode, productId, dto, id);
+    // Valores efectivos: lo enviado o lo existente. Los artículos: lo enviado o los actuales.
+    const existingArticles = await repo.conceptArticles(id);
+    const merged = {
+      attentionMode: dto.attentionMode ?? concept.attentionMode,
+      inventoryOrigin: dto.inventoryOrigin !== undefined ? dto.inventoryOrigin : (concept.inventoryOrigin as 'ROPA' | 'AMENITY' | null),
+      inventoryCategoryId: dto.inventoryCategoryId !== undefined ? dto.inventoryCategoryId : concept.inventoryCategoryId,
+      articleScope: (dto.articleScope ?? concept.articleScope) as 'ALL' | 'SPECIFIC',
+      articles: dto.articles,
+      allowCourtesy: dto.allowCourtesy !== undefined ? dto.allowCourtesy : concept.allowCourtesy,
+    };
+    const link = await this.resolveInventoryLink(branchId, tipo, merged, existingArticles.map((a) => ({ articleId: a.articleId, price: a.price != null ? Number(a.price) : null })));
 
-    return repo.updateConcept(id, {
+    const updated = await repo.updateConcept(id, {
       groupId, code: dto.code?.trim(), name: dto.name?.trim(),
       description: dto.description === '' ? null : dto.description,
       price: dto.price, unit: dto.unit, sortOrder: dto.sortOrder, status: dto.status,
-      allowCourtesy: linen.allowCourtesy, allowFreeAmount: dto.allowFreeAmount,
-      attentionMode: linen.attentionMode, productId: linen.productId,
-      requiresDelivery: linen.requiresDelivery, requiresReturn: linen.requiresReturn,
+      allowCourtesy: link.allowCourtesy, allowFreeAmount: dto.allowFreeAmount,
+      attentionMode: link.attentionMode, productId: null, linkNeedsReview: false,
+      inventoryOrigin: link.inventoryOrigin, inventoryCategoryId: link.inventoryCategoryId, articleScope: link.articleScope,
+      requiresDelivery: link.requiresDelivery, requiresReturn: link.requiresReturn,
       updatedByUserId: scope.userId,
     });
+    await repo.replaceConceptArticles(id, branchId, link.articles);
+    return updated;
   },
 
   async removeConcept(scope: RequestScope, id: string) {
@@ -158,26 +179,73 @@ export const serviceCatalogService = {
   },
 
   // ─────────────────────────── Helpers ───────────────────────────
-  /** Resuelve y valida la modalidad de atención + vínculo de ropa adicional. */
-  async resolveLinen(
-    branchId: string, tipo: string, attentionMode: string, productId: string | null,
-    flags: { allowCourtesy?: boolean; requiresDelivery?: boolean; requiresReturn?: boolean },
-    selfId: string | null,
-  ): Promise<{ attentionMode: string; productId: string | null; requiresDelivery: boolean; requiresReturn: boolean; allowCourtesy: boolean }> {
+  /**
+   * Resuelve y valida la vinculación con inventario (modalidad "Entrega de adicionales por cleaning").
+   * ROPA → tipo de prenda (categoría CLOTHING) + artículos LinenItem; AMENITY → grupo (categoría AMENITY)
+   * o todos + artículos Product. Valida que los artículos pertenezcan al origen+categoría (ids reales).
+   */
+  async resolveInventoryLink(
+    branchId: string, tipo: string,
+    input: {
+      attentionMode?: string; inventoryOrigin?: 'ROPA' | 'AMENITY' | null; inventoryCategoryId?: string | null;
+      articleScope?: 'ALL' | 'SPECIFIC'; articles?: { articleId: string; price?: number | null }[]; allowCourtesy?: boolean;
+    },
+    fallbackArticles: { articleId: string; price: number | null }[],
+  ): Promise<{
+    attentionMode: string; inventoryOrigin: string | null; inventoryCategoryId: string | null; articleScope: string;
+    requiresDelivery: boolean; requiresReturn: boolean; allowCourtesy: boolean; articles: { articleId: string; price: number | null }[];
+  }> {
     // La cortesía solo aplica a servicios; en penalidades siempre falsa.
-    const allowCourtesy = tipo === 'PENALIDAD' ? false : flags.allowCourtesy ?? false;
-    if (attentionMode === 'LINEN_EXTRA') {
-      if (tipo !== 'SERVICIO') throw new ValidationError('La entrega de ropa adicional solo está disponible para servicios');
-      if (!productId) throw new ValidationError('Debe vincular un artículo del inventario para la entrega de ropa adicional');
-      const product = await prisma.product.findFirst({ where: { id: productId, branchId }, select: { id: true } });
-      if (!product) throw new ValidationError('El artículo vinculado no pertenece a la sucursal');
-      // Evitar conceptos activos duplicados para el mismo artículo y la misma modalidad de alquiler.
-      const dupes = (await repo.activeConceptsForProduct(branchId, productId, 'LINEN_EXTRA')).filter((c) => c.id !== selfId);
-      if (dupes.length) throw new ConflictError(`Ya existe un concepto activo de ropa adicional para ese artículo ("${dupes[0].name}").`);
-      return { attentionMode, productId, requiresDelivery: flags.requiresDelivery ?? true, requiresReturn: flags.requiresReturn ?? true, allowCourtesy };
+    const allowCourtesy = tipo === 'PENALIDAD' ? false : input.allowCourtesy ?? false;
+
+    if (input.attentionMode !== 'LINEN_EXTRA') {
+      // Sin entrega gestionada: se limpia toda la vinculación.
+      return { attentionMode: 'NONE', inventoryOrigin: null, inventoryCategoryId: null, articleScope: 'ALL', requiresDelivery: false, requiresReturn: false, allowCourtesy, articles: [] };
     }
-    // Sin entrega gestionada: sin artículo ni flags de entrega.
-    return { attentionMode: 'NONE', productId: null, requiresDelivery: false, requiresReturn: false, allowCourtesy };
+    if (tipo !== 'SERVICIO') throw new ValidationError('La entrega de adicionales por cleaning solo está disponible para servicios');
+
+    const origin = input.inventoryOrigin;
+    if (origin !== 'ROPA' && origin !== 'AMENITY') throw new ValidationError('Elija el origen del inventario (Ropa o Amenities)');
+    const scope = input.articleScope ?? 'ALL';
+
+    // Categoría/tipo-grupo según el origen.
+    let categoryId: string | null = input.inventoryCategoryId ?? null;
+    if (origin === 'ROPA') {
+      if (!categoryId) throw new ValidationError('Elija el tipo de prenda');
+      const cat = await repo.inventoryCategoryById(branchId, categoryId);
+      if (!cat || cat.type !== 'CLOTHING') throw new ValidationError('El tipo de prenda no es válido');
+    } else {
+      // AMENITY: categoría opcional (null = "Todos los amenities").
+      if (categoryId) {
+        const cat = await repo.inventoryCategoryById(branchId, categoryId);
+        if (!cat || cat.type !== 'AMENITY') throw new ValidationError('El grupo de amenities no es válido');
+      } else {
+        categoryId = null;
+      }
+    }
+
+    // Artículos (inclusión en SPECIFIC y/o precios por artículo). Se validan contra el origen+categoría.
+    const raw = input.articles !== undefined ? input.articles : fallbackArticles;
+    const dedup = new Map<string, number | null>();
+    for (const a of raw) if (a.articleId) dedup.set(a.articleId, a.price ?? null);
+    const ids = [...dedup.keys()];
+
+    if (scope === 'SPECIFIC' && ids.length === 0) throw new ValidationError('Seleccione al menos un artículo o use el alcance "Todos"');
+
+    if (ids.length) {
+      const valid = origin === 'ROPA'
+        ? await repo.ropaArticleIds(branchId, categoryId as string, ids)
+        : await repo.amenityArticleIds(branchId, categoryId, ids);
+      const invalid = ids.filter((id) => !valid.has(id));
+      if (invalid.length) throw new ValidationError(`${invalid.length} artículo(s) no pertenecen al origen/tipo seleccionado`);
+    }
+
+    const articles = ids.map((id) => ({ articleId: id, price: dedup.get(id) ?? null }));
+    // Ropa = retornable; amenities = consumible (sin devolución).
+    return {
+      attentionMode: 'LINEN_EXTRA', inventoryOrigin: origin, inventoryCategoryId: categoryId, articleScope: scope,
+      requiresDelivery: true, requiresReturn: origin === 'ROPA', allowCourtesy, articles,
+    };
   },
 
   async assertCategoryNameFree(branchId: string, tipo: string, name: string, excludeId: string | null) {

@@ -13,7 +13,8 @@ const base = '/service-catalog';
 
 // Lecturas (configuración → permiso settings:view)
 serviceCatalogRouter.get(base, requirePermission('settings', 'view'), asyncHandler(c.tree));
-serviceCatalogRouter.get(`${base}/linen-articles`, requirePermission('settings', 'view'), asyncHandler(c.linenArticles));
+serviceCatalogRouter.get(`${base}/inventory/categories`, requirePermission('settings', 'view'), asyncHandler(c.inventoryCategories));
+serviceCatalogRouter.get(`${base}/inventory/articles`, requirePermission('settings', 'view'), asyncHandler(c.inventoryArticles));
 
 // Categorías
 serviceCatalogRouter.post(`${base}/categories`, requirePermission('settings', 'create'), asyncHandler(c.createCategory));

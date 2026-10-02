@@ -11,8 +11,9 @@ import { ConfirmationService, MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
 import { ServiceCatalogApiService } from './service-catalog-api.service';
 import {
-  ATTENTION_LABEL, UNIT_LABEL,
-  type AttentionMode, type CatalogStatus, type ConceptUnit, type LinenArticle, type SCCategory, type SCConcept, type SCGroup, type ServiceTipo,
+  ATTENTION_LABEL, ORIGIN_LABEL, UNIT_LABEL,
+  type ArticleScope, type AttentionMode, type CatalogStatus, type ConceptUnit, type InvArticle, type InvCategory,
+  type InventoryOrigin, type SCCategory, type SCConcept, type SCGroup, type ServiceTipo,
 } from './service-catalog.models';
 
 interface CatForm { id?: string; name: string; description: string; sortOrder: number; status: CatalogStatus; }
@@ -20,7 +21,12 @@ interface GroupForm { id?: string; categoryId: string; name: string; description
 interface ConceptForm {
   id?: string; groupId: string; code: string; name: string; description: string; price: number | null;
   unit: ConceptUnit; sortOrder: number; status: CatalogStatus; allowCourtesy: boolean; allowFreeAmount: boolean;
-  attentionMode: AttentionMode; productId: string | null;
+  attentionMode: AttentionMode;
+  inventoryOrigin: InventoryOrigin | null;
+  inventoryCategoryId: string | null;
+  articleScope: ArticleScope;
+  selectedIds: string[];
+  prices: Record<string, number | null>;
 }
 
 @Component({
@@ -105,15 +111,15 @@ interface ConceptForm {
                         @if (!g.concepts.length) { <p class="muted sm pad">Sin conceptos. Agrega el primero con su código y precio.</p> }
                         @else {
                           <table class="ctbl">
-                            <thead><tr><th>Código</th><th>Nombre</th><th class="r">Precio</th><th>Modalidad</th><th>Artículo</th><th class="c">Estado</th><th class="c">Acciones</th></tr></thead>
+                            <thead><tr><th>Código</th><th>Nombre</th><th class="r">Precio</th><th>Modalidad</th><th>Vinculación</th><th class="c">Estado</th><th class="c">Acciones</th></tr></thead>
                             <tbody>
                               @for (c of g.concepts; track c.id) {
                                 <tr [class.off]="c.status === 'inactive'">
                                   <td class="code">{{ c.code }}</td>
-                                  <td>{{ c.name }}</td>
+                                  <td>{{ c.name }}@if (c.linkNeedsReview) { <span class="pill warn" title="Vínculo heredado por revisar">revisar</span> }</td>
                                   <td class="r price">S/ {{ asNum(c.price) | number: '1.2-2' }}</td>
-                                  <td>@if (c.attentionMode === 'LINEN_EXTRA') { <span class="mtag linen"><i class="pi pi-inbox"></i> Ropa adicional</span> } @else { <span class="mtag">Directo</span> }</td>
-                                  <td>{{ c.product?.name || '—' }}</td>
+                                  <td>@if (c.attentionMode === 'LINEN_EXTRA') { <span class="mtag linen"><i class="pi pi-inbox"></i> Adicionales</span> } @else { <span class="mtag">Directo</span> }</td>
+                                  <td>{{ linkSummary(c) }}</td>
                                   <td class="c"><span class="pill" [class.on]="c.status === 'active'" [class.off]="c.status !== 'active'">{{ c.status === 'active' ? 'Activo' : 'Inactivo' }}</span></td>
                                   <td class="c nowrap">
                                     @if (canEdit) { <button class="lnk" (click)="toggleConceptStatus(c)">{{ c.status === 'active' ? 'Desactivar' : 'Activar' }}</button> }
@@ -189,44 +195,95 @@ interface ConceptForm {
           <p class="hint"><i class="pi pi-info-circle"></i> Puedes mover el concepto a otro grupo del mismo tipo; conserva su código y vínculos.</p>
         }
         <div class="row2">
-          <div><label>Código *</label><input pInputText [(ngModel)]="conceptForm.code" maxlength="40" placeholder="Ej: DES-001" /></div>
-          <div><label>Precio (S/) *</label><p-inputNumber [(ngModel)]="conceptForm.price" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w" /></div>
+          <div><label>Código *</label><input pInputText [(ngModel)]="conceptForm.code" maxlength="40" placeholder="Ej: TOA-001" /></div>
+          <div><label>Precio base (S/) *</label><p-inputNumber [(ngModel)]="conceptForm.price" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w" /></div>
         </div>
         <label>Nombre *</label>
-        <input pInputText [(ngModel)]="conceptForm.name" maxlength="160" placeholder="Ej: Desayuno Americano" />
-        <label>Descripción</label>
-        <input pInputText [(ngModel)]="conceptForm.description" maxlength="300" placeholder="Descripción opcional del concepto" />
-        <div class="row3">
-          <div><label>Unidad de cobro</label><p-select [options]="unitOpts" optionLabel="label" optionValue="value" [(ngModel)]="conceptForm.unit" appendTo="body" styleClass="w" /></div>
-          <div><label>Orden</label><p-inputNumber [(ngModel)]="conceptForm.sortOrder" [min]="0" styleClass="w" /></div>
-          <div><label>Estado</label><p-select [options]="statusEditOpts" optionLabel="label" optionValue="value" [(ngModel)]="conceptForm.status" styleClass="w" /></div>
-        </div>
-
-        <div class="sec">Funcionamiento</div>
-        <div class="flags">
-          @if (tipo() === 'SERVICIO') {
-            <label class="chk"><input type="checkbox" [(ngModel)]="conceptForm.allowCourtesy" /> Permitir cortesía</label>
-          }
-          <label class="chk"><input type="checkbox" [(ngModel)]="conceptForm.allowFreeAmount" /> Permitir monto libre</label>
+        <input pInputText [(ngModel)]="conceptForm.name" maxlength="160" placeholder="Ej: Toalla adicional" />
+        <div class="row2">
+          <div><label>Estado</label><p-select [options]="statusEditOpts" optionLabel="label" optionValue="value" [(ngModel)]="conceptForm.status" appendTo="body" styleClass="w" /></div>
+          <div class="flags-col">
+            @if (tipo() === 'SERVICIO') { <label class="chk"><input type="checkbox" [(ngModel)]="conceptForm.allowCourtesy" /> Permitir cortesía</label> }
+            <label class="chk"><input type="checkbox" [(ngModel)]="conceptForm.allowFreeAmount" /> Permitir monto libre</label>
+          </div>
         </div>
 
         <label>Modalidad de atención</label>
-        <p-select [options]="attentionOpts()" optionLabel="label" optionValue="value" [(ngModel)]="conceptForm.attentionMode" appendTo="body" styleClass="w" />
+        <p-select [options]="attentionOpts()" optionLabel="label" optionValue="value" [(ngModel)]="conceptForm.attentionMode" (onChange)="onAttentionChange()" appendTo="body" styleClass="w" />
 
         @if (conceptForm.attentionMode === 'LINEN_EXTRA') {
-          <div class="linen-box">
-            <label>Artículo vinculado *</label>
-            <p-select [options]="linenOpts()" optionLabel="label" optionValue="value" [(ngModel)]="conceptForm.productId" [filter]="true" filterBy="label" appendTo="body" styleClass="w" placeholder="Elegir artículo (toalla, sábana, frazada…)" />
-            @if (selectedArticle(); as a) {
-              <div class="art-info"><span>{{ a.name }}</span>@if (a.category?.name) { <em>{{ a.category!.name }}</em> }</div>
+          <div class="sec">Vinculación con inventario</div>
+
+          <label>Origen del inventario *</label>
+          <p-select [options]="originOpts" optionLabel="label" optionValue="value" [(ngModel)]="conceptForm.inventoryOrigin" (onChange)="onOriginChange($event.value)" appendTo="body" styleClass="w" placeholder="Elegir origen (Ropa o Amenities)" />
+
+          @if (conceptForm.inventoryOrigin) {
+            <label>{{ catLabel() }} *</label>
+            <p-select [options]="invCategoryOpts()" optionLabel="label" optionValue="value" [ngModel]="conceptForm.inventoryCategoryId" (onChange)="onCategoryChange($event.value)" appendTo="body" styleClass="w" [loading]="loadingCats()" placeholder="Elegir {{ catLabel().toLowerCase() }}" />
+            @if (!invCategoryOpts().length && !loadingCats()) {
+              <p class="hint warn"><i class="pi pi-exclamation-triangle"></i> No hay {{ catLabel().toLowerCase() }} en el inventario de {{ originLabel() }}. Configúralo en Inventario › Categorías.</p>
             }
-            <ul class="linen-rules">
-              <li>Unidad de cobro: <b>unidad</b>.</li>
-              <li>Origen del stock: <b>almacén vinculado a la habitación</b> (se resuelve en recepción al elegir la habitación).</li>
-              <li>Requiere confirmación de entrega por cleaning: <b>sí</b>.</li>
-              <li>Requiere control de devolución: <b>sí</b>.</li>
-              <li>El precio de alquiler se administra aquí (en el concepto): es la fuente única.</li>
-            </ul>
+          }
+
+          @if (catReady()) {
+            <label>Artículos incluidos</label>
+            <div class="scope">
+              <label class="rad"><input type="radio" name="scope" value="ALL" [(ngModel)]="conceptForm.articleScope" (ngModelChange)="onScopeChange()" /> Todos los artículos activos</label>
+              <label class="rad"><input type="radio" name="scope" value="SPECIFIC" [(ngModel)]="conceptForm.articleScope" (ngModelChange)="onScopeChange()" /> Seleccionar artículos específicos</label>
+            </div>
+
+            @if (conceptForm.articleScope === 'SPECIFIC') {
+              <div class="art-search"><i class="pi pi-search"></i><input pInputText [ngModel]="articleSearch()" (ngModelChange)="articleSearch.set($event)" placeholder="Buscar artículo…" /></div>
+              <div class="art-list">
+                @if (loadingArts()) { <p class="muted sm pad">Cargando…</p> }
+                @for (a of filteredArticles(); track a.id) {
+                  <label class="art-row"><input type="checkbox" [checked]="isSelected(a.id)" (change)="toggleArticle(a.id)" /> <span>{{ a.name }}</span>@if (artCode(a)) { <em>{{ artCode(a) }}</em> }</label>
+                } @empty { <p class="muted sm pad">Sin artículos activos en este {{ catLabel().toLowerCase() }}.</p> }
+              </div>
+            }
+
+            <!-- Vista previa -->
+            <div class="preview">
+              <div class="pv-h">Vista previa — {{ includedArticles().length }} artículo(s) incluido(s)</div>
+              @if (conceptForm.articleScope === 'ALL') { <p class="hint"><i class="pi pi-info-circle"></i> Los nuevos artículos activos de este {{ catLabel().toLowerCase() }} se incluirán automáticamente.</p> }
+              <div class="pv-list">
+                @for (a of includedArticles(); track a.id) { <span class="pv-chip">{{ a.name }}@if (artCode(a)) { <em>{{ artCode(a) }}</em> }</span> }
+                @if (!includedArticles().length) { <span class="muted sm">Aún sin artículos (podrás guardarlo, pero no habrá opciones en recepción).</span> }
+              </div>
+            </div>
+
+            <!-- Precios por artículo (opcional) -->
+            <button type="button" class="more" (click)="pricesOpen = !pricesOpen"><i class="pi" [class.pi-chevron-down]="pricesOpen" [class.pi-chevron-right]="!pricesOpen"></i> Precios por artículo (opcional)</button>
+            @if (pricesOpen) {
+              <p class="hint">Si un artículo tiene precio específico, se usa ese; si no, el precio base del concepto. No se suman.</p>
+              <div class="price-list">
+                @for (a of includedArticles(); track a.id) {
+                  <div class="price-row"><span>{{ a.name }}</span><p-inputNumber [ngModel]="priceOf(a.id)" (ngModelChange)="setPrice(a.id, $event)" mode="decimal" [minFractionDigits]="2" [min]="0" [placeholder]="basePlaceholder()" styleClass="w sm" /></div>
+                }
+              </div>
+            }
+
+            <!-- Resumen informativo -->
+            <div class="summary">
+              @if (conceptForm.inventoryOrigin === 'ROPA') {
+                <div><b>Ropa</b> · Entrega por cleaning: sí · Control posterior: prenda retornable de la habitación.</div>
+                <p class="hint"><i class="pi pi-info-circle"></i> Stock por habitación: se usa el almacén vinculado a la habitación (no el piso). No se exige stock para guardar.</p>
+              } @else {
+                <div><b>Amenities</b> · Entrega por cleaning: sí · Control posterior: consumible, sin devolución.</div>
+                <p class="hint"><i class="pi pi-info-circle"></i> El almacén de amenities se resuelve según su organización real (compartido o por habitación). No se exige stock para guardar.</p>
+              }
+            </div>
+          }
+        }
+
+        <!-- Más opciones -->
+        <button type="button" class="more" (click)="moreOpen = !moreOpen"><i class="pi" [class.pi-chevron-down]="moreOpen" [class.pi-chevron-right]="!moreOpen"></i> Más opciones</button>
+        @if (moreOpen) {
+          <label>Descripción</label>
+          <input pInputText [(ngModel)]="conceptForm.description" maxlength="300" placeholder="Descripción opcional del concepto" />
+          <div class="row2">
+            <div><label>Unidad de cobro</label><p-select [options]="unitOpts" optionLabel="label" optionValue="value" [(ngModel)]="conceptForm.unit" appendTo="body" styleClass="w" /></div>
+            <div><label>Orden</label><p-inputNumber [(ngModel)]="conceptForm.sortOrder" [min]="0" styleClass="w" /></div>
           </div>
         }
       </div>
@@ -278,10 +335,18 @@ interface ConceptForm {
     .sec { margin-top: .6rem; font-weight: 700; color: #cfe0f5; border-bottom: 1px solid #22334e; padding-bottom: .25rem; }
     .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; } .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .6rem; }
     .flags { display: flex; gap: 1.2rem; flex-wrap: wrap; padding: .2rem 0; } .chk { display: flex; align-items: center; gap: .4rem; font-size: .85rem; color: #cfe0f5; cursor: pointer; } .chk input { width: auto; }
-    .hint { color: #8aa0bd; font-size: .76rem; margin: .1rem 0; }
-    .linen-box { border: 1px solid #214a3c; background: #0c1f19; border-radius: 10px; padding: .7rem; margin-top: .4rem; }
-    .art-info { display: flex; justify-content: space-between; align-items: center; background: #0f2a22; border-radius: 6px; padding: .35rem .6rem; margin-top: .3rem; font-size: .82rem; } .art-info em { color: #8aa0bd; font-style: normal; }
-    .linen-rules { margin: .5rem 0 0; padding-left: 1.1rem; color: #9fb4d2; font-size: .78rem; } .linen-rules b { color: #cfe0f5; }
+    .flags-col { display: flex; flex-direction: column; gap: .3rem; justify-content: flex-end; }
+    .hint { color: #8aa0bd; font-size: .76rem; margin: .1rem 0; } .hint.warn { color: #fbbf24; }
+    .pill.warn { background: rgba(245,158,11,.2); color: #fbbf24; margin-left: .35rem; }
+    .scope { display: flex; gap: 1.2rem; flex-wrap: wrap; padding: .2rem 0; } .rad { display: flex; align-items: center; gap: .4rem; font-size: .84rem; color: #cfe0f5; cursor: pointer; } .rad input { width: auto; }
+    .art-search { position: relative; } .art-search i { position: absolute; left: .55rem; top: 50%; transform: translateY(-50%); color: #6b84a6; } .art-search input { width: 100%; padding-left: 1.9rem; }
+    .art-list { max-height: 180px; overflow-y: auto; border: 1px solid #22334e; border-radius: 8px; padding: .3rem; margin-top: .3rem; }
+    .art-row { display: flex; align-items: center; gap: .5rem; padding: .25rem .35rem; font-size: .84rem; color: #e6edf6; cursor: pointer; border-radius: 6px; } .art-row:hover { background: #11203a; } .art-row input { width: auto; } .art-row em { color: #8aa0bd; font-style: normal; margin-left: auto; font-size: .76rem; }
+    .preview { border: 1px solid #214a3c; background: #0c1f19; border-radius: 8px; padding: .55rem .7rem; margin-top: .4rem; } .pv-h { font-size: .78rem; color: #6ee7b7; font-weight: 700; }
+    .pv-list { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .35rem; } .pv-chip { background: #11203a; border: 1px solid #243a5c; border-radius: 999px; padding: .12rem .55rem; font-size: .76rem; color: #cfe0f5; } .pv-chip em { color: #8aa0bd; font-style: normal; margin-left: .3rem; }
+    .more { background: none; border: none; color: #60a5fa; cursor: pointer; font-size: .82rem; text-align: left; padding: .35rem 0; display: flex; align-items: center; gap: .4rem; }
+    .price-list { display: flex; flex-direction: column; gap: .3rem; } .price-row { display: grid; grid-template-columns: 1fr 10rem; align-items: center; gap: .5rem; font-size: .84rem; }
+    .summary { border: 1px solid #22334e; border-radius: 8px; padding: .5rem .7rem; margin-top: .4rem; font-size: .82rem; color: #cfe0f5; } .summary b { color: #fff; }
   `],
 })
 export class ItemsComponent implements OnInit {
@@ -298,7 +363,18 @@ export class ItemsComponent implements OnInit {
   readonly statusFilter = signal<'all' | 'active' | 'inactive'>('all');
   readonly expandedCats = signal<Set<string>>(new Set());
   readonly expandedGroups = signal<Set<string>>(new Set());
-  readonly linenArticles = signal<LinenArticle[]>([]);
+  // Vinculación con inventario (dialog de concepto)
+  readonly invCategories = signal<InvCategory[]>([]);
+  readonly invArticles = signal<InvArticle[]>([]);
+  readonly loadingCats = signal(false);
+  readonly loadingArts = signal(false);
+  readonly articleSearch = signal('');
+  moreOpen = false;
+  pricesOpen = false;
+  private prevOrigin: InventoryOrigin | null = null;
+  private prevCategoryId: string | null = null;
+
+  readonly originOpts = [{ label: 'Ropa', value: 'ROPA' as InventoryOrigin }, { label: 'Amenities', value: 'AMENITY' as InventoryOrigin }];
 
   readonly statusOpts = [{ label: 'Todos', value: 'all' }, { label: 'Activos', value: 'active' }, { label: 'Inactivos', value: 'inactive' }];
   readonly statusEditOpts = [{ label: 'Activo', value: 'active' }, { label: 'Inactivo', value: 'inactive' }];
@@ -318,7 +394,6 @@ export class ItemsComponent implements OnInit {
 
   ngOnInit(): void {
     this.reload();
-    this.api.linenArticles().subscribe({ next: (r) => this.linenArticles.set(r.data ?? []), error: () => undefined });
   }
 
   // ── Carga / filtro ──
@@ -368,16 +443,117 @@ export class ItemsComponent implements OnInit {
     if (this.tipo() === 'SERVICIO') opts.push({ label: ATTENTION_LABEL.LINEN_EXTRA, value: 'LINEN_EXTRA' });
     return opts;
   });
-  readonly linenOpts = computed(() => this.linenArticles().map((a) => ({ label: a.category?.name ? `${a.name} — ${a.category.name}` : a.name, value: a.id })));
-  selectedArticle(): LinenArticle | null { return this.linenArticles().find((a) => a.id === this.conceptForm.productId) ?? null; }
   ctxCategoryName(): string { return this.ctxCat()?.name ?? '—'; }
   ctxGroupName(): string { return this.ctxGroup()?.name ?? '—'; }
+
+  // ── Vinculación con inventario (dialog concepto) ──
+  originLabel(): string { return this.conceptForm.inventoryOrigin ? ORIGIN_LABEL[this.conceptForm.inventoryOrigin] : ''; }
+  catLabel(): string { return this.conceptForm.inventoryOrigin === 'ROPA' ? 'Tipo de prenda' : 'Grupo de artículos'; }
+  readonly invCategoryOpts = computed(() => {
+    const opts = this.invCategories().map((c) => ({ label: c.name, value: c.id }));
+    // Amenities admite "Todos los amenities" (categoría null, representada como '').
+    if (this.conceptForm.inventoryOrigin === 'AMENITY') return [{ label: 'Todos los amenities', value: '' }, ...opts];
+    return opts;
+  });
+  /** Listo para elegir artículos: ropa exige una categoría; amenity admite categoría o "todos" ('' ). */
+  catReady(): boolean {
+    const f = this.conceptForm;
+    if (!f.inventoryOrigin) return false;
+    if (f.inventoryOrigin === 'ROPA') return !!f.inventoryCategoryId;
+    return f.inventoryCategoryId !== null; // '' (todos) o un id
+  }
+  readonly filteredArticles = computed<InvArticle[]>(() => {
+    const q = this.norm(this.articleSearch());
+    return this.invArticles().filter((a) => !q || this.norm(a.name).includes(q) || this.norm(this.artCode(a)).includes(q));
+  });
+  isSelected(id: string): boolean { return this.conceptForm.selectedIds.includes(id); }
+  toggleArticle(id: string): void {
+    const sel = this.conceptForm.selectedIds;
+    this.conceptForm.selectedIds = sel.includes(id) ? sel.filter((x) => x !== id) : [...sel, id];
+  }
+  includedArticles(): InvArticle[] {
+    return this.conceptForm.articleScope === 'ALL' ? this.invArticles() : this.invArticles().filter((a) => this.isSelected(a.id));
+  }
+  artCode(a: InvArticle): string { return a.code || a.sku || ''; }
+  priceOf(id: string): number | null { return this.conceptForm.prices[id] ?? null; }
+  setPrice(id: string, v: number | null): void { this.conceptForm.prices = { ...this.conceptForm.prices, [id]: v ?? null }; }
+  basePlaceholder(): string { return this.conceptForm.price != null ? `base S/ ${this.conceptForm.price.toFixed(2)}` : 'precio base'; }
+  private hasLinkEdits(): boolean { return this.conceptForm.selectedIds.length > 0 || Object.values(this.conceptForm.prices).some((p) => p != null); }
+
+  onAttentionChange(): void {
+    if (this.conceptForm.attentionMode !== 'LINEN_EXTRA') {
+      this.conceptForm.inventoryOrigin = null; this.conceptForm.inventoryCategoryId = null;
+      this.conceptForm.articleScope = 'ALL'; this.conceptForm.selectedIds = []; this.conceptForm.prices = {};
+      this.invCategories.set([]); this.invArticles.set([]);
+    } else if (this.conceptForm.inventoryOrigin) {
+      this.loadInvCategories(this.conceptForm.inventoryOrigin);
+      if (this.catReady()) this.loadInvArticles();
+    }
+  }
+  onOriginChange(origin: InventoryOrigin): void {
+    const apply = () => {
+      this.prevOrigin = origin;
+      this.conceptForm.inventoryOrigin = origin;
+      this.conceptForm.inventoryCategoryId = null;
+      this.conceptForm.articleScope = 'ALL'; this.conceptForm.selectedIds = []; this.conceptForm.prices = {};
+      this.invArticles.set([]);
+      this.loadInvCategories(origin);
+    };
+    if (origin !== this.prevOrigin && this.hasLinkEdits()) {
+      this.confirmDiscard(apply, () => { this.conceptForm.inventoryOrigin = this.prevOrigin; });
+    } else apply();
+  }
+  onCategoryChange(categoryId: string): void {
+    const apply = () => {
+      this.prevCategoryId = categoryId;
+      this.conceptForm.inventoryCategoryId = categoryId;
+      this.conceptForm.selectedIds = []; this.conceptForm.prices = {};
+      this.loadInvArticles();
+    };
+    if (categoryId !== this.prevCategoryId && this.hasLinkEdits()) {
+      this.confirmDiscard(apply, () => { this.conceptForm.inventoryCategoryId = this.prevCategoryId; });
+    } else apply();
+  }
+  onScopeChange(): void { /* el alcance no descarta datos; la vista previa se recalcula */ }
+
+  private confirmDiscard(onAccept: () => void, onReject: () => void): void {
+    this.confirm.confirm({
+      header: 'Descartar selección', message: 'Cambiar esto descartará los artículos y precios que configuraste. ¿Continuar?',
+      icon: 'pi pi-exclamation-triangle', acceptLabel: 'Sí, descartar', rejectLabel: 'Cancelar',
+      accept: onAccept, reject: onReject,
+    });
+  }
+  private loadInvCategories(origin: InventoryOrigin): void {
+    this.loadingCats.set(true);
+    this.api.inventoryCategories(origin).subscribe({
+      next: (r) => { this.invCategories.set(r.data ?? []); this.loadingCats.set(false); },
+      error: () => { this.invCategories.set([]); this.loadingCats.set(false); },
+    });
+  }
+  private loadInvArticles(): void {
+    const f = this.conceptForm;
+    if (!f.inventoryOrigin) return;
+    const catId = f.inventoryCategoryId === '' ? null : f.inventoryCategoryId;
+    this.loadingArts.set(true);
+    this.api.inventoryArticles(f.inventoryOrigin, catId).subscribe({
+      next: (r) => { this.invArticles.set(r.data ?? []); this.loadingArts.set(false); },
+      error: () => { this.invArticles.set([]); this.loadingArts.set(false); },
+    });
+  }
+  /** Resumen de vinculación para la tabla. */
+  linkSummary(c: SCConcept): string {
+    if (c.attentionMode !== 'LINEN_EXTRA') return '—';
+    const origin = c.inventoryOrigin === 'AMENITY' ? 'Amenities' : 'Ropa';
+    const cat = c.inventoryCategory?.name || (c.inventoryOrigin === 'AMENITY' ? 'Todos' : '—');
+    const scope = c.articleScope === 'SPECIFIC' ? `${c.articles.length} específicos` : 'todos';
+    return `${origin} · ${cat} · ${scope}`;
+  }
 
   // ── Empty forms ──
   private emptyCat(): CatForm { return { name: '', description: '', sortOrder: 0, status: 'active' }; }
   private emptyGroup(): GroupForm { return { categoryId: '', name: '', description: '', sortOrder: 0, status: 'active' }; }
   private emptyConcept(): ConceptForm {
-    return { groupId: '', code: '', name: '', description: '', price: null, unit: 'UNIDAD', sortOrder: 0, status: 'active', allowCourtesy: false, allowFreeAmount: false, attentionMode: 'NONE', productId: null };
+    return { groupId: '', code: '', name: '', description: '', price: null, unit: 'UNIDAD', sortOrder: 0, status: 'active', allowCourtesy: false, allowFreeAmount: false, attentionMode: 'NONE', inventoryOrigin: null, inventoryCategoryId: null, articleScope: 'ALL', selectedIds: [], prices: {} };
   }
 
   // ── Categorías ──
@@ -408,10 +584,35 @@ export class ItemsComponent implements OnInit {
   }
 
   // ── Conceptos ──
-  openNewConcept(cat: SCCategory, g: SCGroup): void { this.ctxCat.set(cat); this.ctxGroup.set(g); this.conceptForm = { ...this.emptyConcept(), groupId: g.id }; this.conceptDialog = true; }
+  openNewConcept(cat: SCCategory, g: SCGroup): void {
+    this.ctxCat.set(cat); this.ctxGroup.set(g);
+    this.conceptForm = { ...this.emptyConcept(), groupId: g.id };
+    this.prevOrigin = null; this.prevCategoryId = null; this.moreOpen = false; this.pricesOpen = false;
+    this.articleSearch.set(''); this.invCategories.set([]); this.invArticles.set([]);
+    this.conceptDialog = true;
+  }
   openEditConcept(cat: SCCategory, g: SCGroup, c: SCConcept): void {
     this.ctxCat.set(cat); this.ctxGroup.set(g);
-    this.conceptForm = { id: c.id, groupId: c.groupId, code: c.code, name: c.name, description: c.description ?? '', price: Number(c.price), unit: c.unit, sortOrder: c.sortOrder, status: c.status, allowCourtesy: c.allowCourtesy, allowFreeAmount: c.allowFreeAmount, attentionMode: c.attentionMode, productId: c.productId ?? null };
+    // Amenities "todos" se guarda como null en el backend → en el form es '' (opción "Todos los amenities").
+    const catId = c.attentionMode === 'LINEN_EXTRA'
+      ? (c.inventoryCategoryId ?? (c.inventoryOrigin === 'AMENITY' ? '' : null))
+      : null;
+    const prices: Record<string, number | null> = {};
+    const selectedIds: string[] = [];
+    for (const a of c.articles ?? []) { selectedIds.push(a.articleId); if (a.price != null) prices[a.articleId] = Number(a.price); }
+    this.conceptForm = {
+      id: c.id, groupId: c.groupId, code: c.code, name: c.name, description: c.description ?? '', price: Number(c.price),
+      unit: c.unit, sortOrder: c.sortOrder, status: c.status, allowCourtesy: c.allowCourtesy, allowFreeAmount: c.allowFreeAmount,
+      attentionMode: c.attentionMode, inventoryOrigin: c.inventoryOrigin ?? null, inventoryCategoryId: catId,
+      articleScope: c.articleScope ?? 'ALL', selectedIds, prices,
+    };
+    this.prevOrigin = c.inventoryOrigin ?? null; this.prevCategoryId = catId;
+    this.moreOpen = !!(c.description || c.sortOrder); this.pricesOpen = Object.keys(prices).length > 0;
+    this.articleSearch.set(''); this.invCategories.set([]); this.invArticles.set([]);
+    if (c.attentionMode === 'LINEN_EXTRA' && c.inventoryOrigin) {
+      this.loadInvCategories(c.inventoryOrigin);
+      if (catId !== null) this.loadInvArticles();
+    }
     this.conceptDialog = true;
   }
   saveConcept(): void {
@@ -419,12 +620,29 @@ export class ItemsComponent implements OnInit {
     if (!f.code.trim()) { this.toastWarn('El código es obligatorio.'); return; }
     if (!f.name.trim()) { this.toastWarn('El nombre es obligatorio.'); return; }
     if (f.price == null || f.price < 0) { this.toastWarn('Ingresa un precio válido (puede ser 0).'); return; }
-    if (f.attentionMode === 'LINEN_EXTRA' && !f.productId) { this.toastWarn('Vincula un artículo para la entrega de ropa adicional.'); return; }
-    const body = {
+    const base = {
       groupId: f.groupId, code: f.code, name: f.name, description: f.description, price: f.price, unit: f.unit, sortOrder: f.sortOrder, status: f.status,
       allowCourtesy: this.tipo() === 'SERVICIO' ? f.allowCourtesy : false, allowFreeAmount: f.allowFreeAmount,
-      attentionMode: f.attentionMode, productId: f.attentionMode === 'LINEN_EXTRA' ? f.productId : null,
+      attentionMode: f.attentionMode,
     };
+    let body: Record<string, unknown> = { ...base };
+    if (f.attentionMode === 'LINEN_EXTRA') {
+      if (!f.inventoryOrigin) { this.toastWarn('Elige el origen del inventario (Ropa o Amenities).'); return; }
+      if (f.inventoryOrigin === 'ROPA' && !f.inventoryCategoryId) { this.toastWarn('Elige el tipo de prenda.'); return; }
+      if (f.articleScope === 'SPECIFIC' && f.selectedIds.length === 0) { this.toastWarn('Selecciona al menos un artículo o usa el alcance "Todos".'); return; }
+      // Artículos a enviar: en SPECIFIC los seleccionados (con su precio); en ALL solo los que tienen precio override.
+      const ids = f.articleScope === 'SPECIFIC' ? f.selectedIds : Object.keys(f.prices).filter((id) => f.prices[id] != null);
+      const articles = ids.map((id) => ({ articleId: id, price: f.prices[id] ?? null }));
+      body = {
+        ...base,
+        inventoryOrigin: f.inventoryOrigin,
+        inventoryCategoryId: f.inventoryCategoryId === '' ? null : f.inventoryCategoryId,
+        articleScope: f.articleScope,
+        articles,
+      };
+    } else {
+      body = { ...base, inventoryOrigin: null, inventoryCategoryId: null, articleScope: 'ALL', articles: [] };
+    }
     this.run(f.id ? this.api.updateConcept(f.id, body) : this.api.createConcept(body), () => { this.conceptDialog = false; });
   }
   toggleConceptStatus(c: SCConcept): void { this.run(this.api.updateConcept(c.id, { status: c.status === 'active' ? 'inactive' : 'active' })); }

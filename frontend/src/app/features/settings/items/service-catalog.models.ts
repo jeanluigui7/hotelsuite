@@ -2,11 +2,29 @@ export type ServiceTipo = 'SERVICIO' | 'PENALIDAD';
 export type ConceptUnit = 'UNIDAD' | 'SERVICIO' | 'KILOGRAMO';
 export type AttentionMode = 'NONE' | 'LINEN_EXTRA';
 export type CatalogStatus = 'active' | 'inactive';
+export type InventoryOrigin = 'ROPA' | 'AMENITY';
+export type ArticleScope = 'ALL' | 'SPECIFIC';
 
-export interface SCConceptProduct {
+/** Artículo vinculado a un concepto (inclusión en SPECIFIC y/o precio por artículo). */
+export interface SCConceptArticle {
+  articleId: string;
+  price: string | number | null;
+}
+
+/** Categoría de inventario (tipo de prenda CLOTHING / grupo de amenities AMENITY). */
+export interface InvCategory {
   id: string;
   name: string;
-  category?: { name: string } | null;
+  type: string;
+}
+
+/** Artículo real del inventario (ropa = LinenItem; amenity = Product). */
+export interface InvArticle {
+  id: string;
+  name: string;
+  code?: string | null;
+  sku?: string | null;
+  type?: string | null;
 }
 
 export interface SCConcept {
@@ -22,10 +40,14 @@ export interface SCConcept {
   allowCourtesy: boolean;
   allowFreeAmount: boolean;
   attentionMode: AttentionMode;
-  productId?: string | null;
+  inventoryOrigin?: InventoryOrigin | null;
+  inventoryCategoryId?: string | null;
+  inventoryCategory?: InvCategory | null;
+  articleScope: ArticleScope;
+  articles: SCConceptArticle[];
   requiresDelivery: boolean;
   requiresReturn: boolean;
-  product?: SCConceptProduct | null;
+  linkNeedsReview?: boolean;
 }
 
 export interface SCGroup {
@@ -65,5 +87,10 @@ export const UNIT_LABEL: Record<ConceptUnit, string> = {
 
 export const ATTENTION_LABEL: Record<AttentionMode, string> = {
   NONE: 'Sin entrega gestionada',
-  LINEN_EXTRA: 'Entrega de ropa adicional por cleaning',
+  LINEN_EXTRA: 'Entrega de adicionales por cleaning',
+};
+
+export const ORIGIN_LABEL: Record<InventoryOrigin, string> = {
+  ROPA: 'Ropa',
+  AMENITY: 'Amenities',
 };

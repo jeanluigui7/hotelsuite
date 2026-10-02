@@ -502,6 +502,7 @@ model InventoryCategory {
   branch   Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
   products Product[]
   sizes    CategorySize[]
+  serviceConcepts ServiceConcept[]
 
   @@index([branchId])
 }
@@ -595,8 +596,13 @@ model ServiceConcept {
   status      String   @default("active")
   allowCourtesy    Boolean @default(false) // solo servicios; no habilitar en penalidades
   allowFreeAmount  Boolean @default(false)
-  attentionMode    String  @default("NONE") // NONE | LINEN_EXTRA (identificador estable)
-  productId        String? // artículo real vinculado (solo LINEN_EXTRA)
+  attentionMode    String  @default("NONE") // NONE | LINEN_EXTRA (id estable; etiqueta "Entrega de adicionales por cleaning")
+  // Vinculación con inventario (solo LINEN_EXTRA): familia + tipo/grupo real + alcance.
+  inventoryOrigin     String? // ROPA | AMENITY
+  inventoryCategoryId String? // InventoryCategory.id (CLOTHING=tipo de prenda / AMENITY=grupo); null+AMENITY = "todos los amenities"
+  articleScope        String  @default("ALL") // ALL | SPECIFIC
+  linkNeedsReview     Boolean @default(false) // vínculo legado ambiguo marcado para revisión (no se sustituye solo)
+  productId        String? // LEGADO: artículo único vinculado antes del rework (ya no se usa para nuevos)
   requiresDelivery Boolean @default(false)
   requiresReturn   Boolean @default(false)
   createdByUserId String?
@@ -604,14 +610,35 @@ model ServiceConcept {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  branch  Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  group   ServiceGroup @relation(fields: [groupId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  product Product?     @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  branch            Branch                  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  group             ServiceGroup            @relation(fields: [groupId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  product           Product?                @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  inventoryCategory InventoryCategory?      @relation(fields: [inventoryCategoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  articles          ServiceConceptArticle[]
 
   @@unique([branchId, code])
   @@index([branchId])
   @@index([groupId])
   @@index([productId])
+  @@index([inventoryCategoryId])
+}
+
+// Artículos vinculados a un concepto de "adicionales por cleaning": en modo SPECIFIC definen la
+// inclusión; en cualquier modo pueden fijar un precio específico (override del precio base). articleId
+// referencia LinenItem.id (origen ROPA) o Product.id (origen AMENITY); FK suelta por ser poliforme.
+model ServiceConceptArticle {
+  id        String   @id @default(uuid())
+  branchId  String
+  conceptId String
+  articleId String
+  price     Decimal? @db.Decimal(10, 2) // precio específico para este servicio; null = usa el base del concepto
+  createdAt DateTime @default(now())
+
+  concept ServiceConcept @relation(fields: [conceptId], references: [id], onDelete: Cascade)
+
+  @@unique([conceptId, articleId])
+  @@index([conceptId])
+  @@index([branchId])
 }
 
 /// Horario / turno (por sucursal). daysOfWeek como CSV "1,2,3" (1=lunes…7=domingo).
