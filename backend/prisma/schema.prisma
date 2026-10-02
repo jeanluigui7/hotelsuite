@@ -50,6 +50,9 @@ model Branch {
   areas          Area[]
   inventoryCategories InventoryCategory[]
   items          Item[]
+  serviceCategories ServiceCategory[]
+  serviceGroups     ServiceGroup[]
+  serviceConcepts   ServiceConcept[]
   schedules      Schedule[]
   roleShifts     RoleShift[]
   shiftLogs      ShiftLog[]
@@ -536,6 +539,81 @@ model Item {
   @@index([kind])
 }
 
+// ─── Catálogo Servicios / Penalidades (jerarquía Tipo → Categoría → Grupo → Concepto) ───
+// Tipo es fijo (SERVICIO | PENALIDAD), no es tabla. Cada nivel configurable lleva su propio
+// status y sortOrder; el borrado solo procede sin descendientes (se valida en el service).
+model ServiceCategory {
+  id          String   @id @default(uuid())
+  branchId    String
+  tipo        String // SERVICIO | PENALIDAD
+  name        String
+  description String?
+  sortOrder   Int      @default(0)
+  status      String   @default("active")
+  createdByUserId String?
+  updatedByUserId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  branch Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  groups ServiceGroup[]
+
+  @@index([branchId, tipo])
+}
+
+model ServiceGroup {
+  id          String   @id @default(uuid())
+  branchId    String
+  categoryId  String
+  name        String
+  description String?
+  sortOrder   Int      @default(0)
+  status      String   @default("active")
+  createdByUserId String?
+  updatedByUserId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  branch   Branch           @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  category ServiceCategory  @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  concepts ServiceConcept[]
+
+  @@index([branchId])
+  @@index([categoryId])
+}
+
+model ServiceConcept {
+  id          String   @id @default(uuid())
+  branchId    String
+  groupId     String
+  code        String
+  name        String
+  description String?
+  price       Decimal  @default(0) @db.Decimal(10, 2) // precio de referencia (fuente única del alquiler)
+  unit        String   @default("UNIDAD") // UNIDAD | SERVICIO | KILOGRAMO
+  sortOrder   Int      @default(0)
+  status      String   @default("active")
+  allowCourtesy    Boolean @default(false) // solo servicios; no habilitar en penalidades
+  allowFreeAmount  Boolean @default(false)
+  attentionMode    String  @default("NONE") // NONE | LINEN_EXTRA (identificador estable)
+  productId        String? // artículo real vinculado (solo LINEN_EXTRA)
+  requiresDelivery Boolean @default(false)
+  requiresReturn   Boolean @default(false)
+  createdByUserId String?
+  updatedByUserId String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  branch  Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  group   ServiceGroup @relation(fields: [groupId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  product Product?     @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([branchId, code])
+  @@index([branchId])
+  @@index([groupId])
+  @@index([productId])
+}
+
 /// Horario / turno (por sucursal). daysOfWeek como CSV "1,2,3" (1=lunes…7=domingo).
 model Schedule {
   id         String   @id @default(uuid())
@@ -915,6 +993,7 @@ model Product {
   category InventoryCategory? @relation(fields: [categoryId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   stock    Stock[]
   barcodes ProductBarcode[] // un producto puede tener varios códigos de barras (sabores/presentaciones)
+  serviceConcepts ServiceConcept[] // conceptos de servicio (ropa adicional) vinculados a este artículo
 
   @@index([branchId])
   @@index([categoryId])

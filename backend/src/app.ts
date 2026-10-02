@@ -28,6 +28,7 @@ import { subWarehousesRouter } from './modules/subwarehouses/subwarehouses.route
 import { reniecRouter } from './modules/reniec/reniec.routes';
 import { inventoryCategoriesRouter } from './modules/inventory-categories/inventory-categories.routes';
 import { itemsRouter } from './modules/items/items.routes';
+import { serviceCatalogRouter } from './modules/service-catalog/service-catalog.routes';
 import { schedulesRouter } from './modules/schedules/schedules.routes';
 import { roleShiftsRouter } from './modules/role-shifts/role-shifts.routes';
 import { shiftLogsRouter } from './modules/shift-logs/shift-logs.routes';
@@ -133,6 +134,7 @@ export function createApp(): Application {
   app.use('/api', reniecRouter);
   app.use('/api', inventoryCategoriesRouter);
   app.use('/api', itemsRouter);
+  app.use('/api', serviceCatalogRouter);
   app.use('/api', schedulesRouter);
   app.use('/api', roleShiftsRouter);
   app.use('/api', shiftLogsRouter);

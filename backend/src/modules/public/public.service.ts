@@ -54,9 +54,13 @@ export const publicService = {
         if (!serviceMap.has(norm(a.attribute.name))) serviceMap.set(norm(a.attribute.name), { name: a.attribute.name, icon: a.attribute.icon });
       }
     }
-    const serviceItems = await prisma.item.findMany({ where: { branchId: id, kind: 'SERVICE', status: 'active' } });
-    for (const it of serviceItems) {
-      if (!serviceMap.has(norm(it.name))) serviceMap.set(norm(it.name), { name: it.name, icon: 'pi pi-check-circle' });
+    // Servicios configurados en el catálogo nuevo (tipo SERVICIO, todos los niveles activos).
+    const serviceConcepts = await prisma.serviceConcept.findMany({
+      where: { branchId: id, status: 'active', group: { status: 'active', category: { status: 'active', tipo: 'SERVICIO' } } },
+      select: { name: true },
+    });
+    for (const c of serviceConcepts) {
+      if (!serviceMap.has(norm(c.name))) serviceMap.set(norm(c.name), { name: c.name, icon: 'pi pi-check-circle' });
     }
 
     const mapRates = (rtId: string) =>

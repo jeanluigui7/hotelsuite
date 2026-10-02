@@ -256,7 +256,7 @@ export const ADMIN_MENU: MenuItem[] = [
       { label: 'Horarios', route: '/settings/horarios' },
       { label: 'Autenticación por Roles', route: '/settings/roles' },
       { label: 'Huella Digital', route: '/settings/huella' },
-      { label: 'Items', route: '/settings/items' },
+      { label: 'Servicios/Penalidades', route: '/settings/items' },
       { label: 'Máquinas de Lavandería', route: '/settings/lavanderia' },
       { label: 'Recordatorios', route: '/settings/recordatorios' },
       { label: 'Landing Page', route: '/settings/landing' },

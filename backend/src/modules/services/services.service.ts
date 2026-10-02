@@ -5,6 +5,7 @@ import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { PAYMENT_METHODS } from '../../shared/payments';
 import { salesService } from '../sales/sales.service';
+import { serviceCatalogRepository } from '../service-catalog/service-catalog.repository';
 
 /** Servicios y penalidades: cobro de servicios/artículos a una habitación ocupada,
  *  con Pago Total/Parcial/Adeudo (el saldo no cubierto va al adeudo de la estancia),
@@ -42,21 +43,28 @@ function round(n: number): number {
 }
 
 export const servicesService = {
-  /** Catálogo de servicios agrupado por subcategoría (Item kind=SERVICE). */
+  /**
+   * Catálogo de servicios para el modal de recepción, agrupado por categoría.
+   * Fuente única = nuevo catálogo Servicios/Penalidades (tipo SERVICIO). Se mantiene la forma
+   * `[{ subcategory, services:[{id,name,price}] }]` para no cambiar el consumidor (FASE 2 lo rediseña).
+   */
   async catalog(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);
-    const items = await prisma.item.findMany({
-      where: { branchId, kind: 'SERVICE', status: 'active' },
-      orderBy: [{ subcategory: 'asc' }, { name: 'asc' }],
-    });
-    const groups = new Map<string, { id: string; name: string; price: number | null }[]>();
-    for (const it of items) {
-      const key = it.subcategory || 'General';
-      const arr = groups.get(key) ?? [];
-      arr.push({ id: it.id, name: it.name, price: it.price != null ? Number(it.price) : null });
-      groups.set(key, arr);
+    const cats = await serviceCatalogRepository.treeByTipo(branchId, 'SERVICIO');
+    const out: { subcategory: string; services: { id: string; name: string; price: number | null }[] }[] = [];
+    for (const cat of cats) {
+      if (cat.status !== 'active') continue;
+      const services: { id: string; name: string; price: number | null }[] = [];
+      for (const g of cat.groups) {
+        if (g.status !== 'active') continue;
+        for (const c of g.concepts) {
+          if (c.status !== 'active') continue;
+          services.push({ id: c.id, name: c.name, price: Number(c.price) });
+        }
+      }
+      if (services.length) out.push({ subcategory: cat.name, services });
     }
-    return [...groups.entries()].map(([subcategory, services]) => ({ subcategory, services }));
+    return out;
   },
 
   /** Cobra el servicio/artículos a la estancia y genera suministro pendiente. */
