@@ -470,45 +470,33 @@ export const cleaningService = {
       })
       .filter((r): r is NonNullable<typeof r> => r !== null);
 
-    // ── Amenities: UNA FILA POR UNIDAD RETIRADA (pickup=true) de AMENITIES - LIMPIEZA ──
+    // ── Amenities: UNA FILA POR UNIDAD RETIRADA (pickup=true), conservando la IDENTIDAD de cada
+    // amenity BASE. NO se agrupa por categoría ni se colapsa a una variante: dos amenities distintos
+    // (aunque compartan categoría) producen DOS filas distintas. Sin CAMBIAR: se repone el mismo producto.
     const amenInsp = task.linenInspections.filter((i) => !i.linenItemId && i.note && i.pickup); // note = productId
     let amenities: Record<string, unknown>[] = [];
     if (amenInsp.length) {
       const amenLimp = await prisma.warehouse.findFirst({ where: { branchId, type: 'AMENITIES', name: 'AMENITIES - LIMPIEZA' } });
-      const [prodsAll, amenStock, invAmen] = await Promise.all([
-        prisma.product.findMany({ where: { branchId }, select: { id: true, name: true, categoryId: true } }),
+      const [prodsAll, amenStock] = await Promise.all([
+        prisma.product.findMany({ where: { branchId }, select: { id: true, name: true, categoryId: true, category: { select: { name: true } } } }),
         amenLimp ? prisma.stock.findMany({ where: { warehouseId: amenLimp.id, quantity: { gt: 0 } } }) : Promise.resolve([]),
-        prisma.roomInventory.findMany({ where: { roomId, articleKind: 'AMENITY' } }),
       ]);
       const pmap = new Map(prodsAll.map((p) => [p.id, p]));
       const stockAvail = new Map(amenStock.map((s) => [s.productId, s.quantity]));
-      const invAmenQty = new Map(invAmen.filter((i) => i.productId).map((i) => [i.productId as string, i.quantity]));
-      const emittedByProd = new Map<string, number>();
-      amenities = amenInsp
-        .map((i) => {
-          const pid = i.note as string;
-          const present = invAmenQty.get(pid) ?? 0;
-          const emitted = emittedByProd.get(pid) ?? 0;
-          if (emitted >= present) return null; // no más filas que unidades físicas
-          emittedByProd.set(pid, emitted + 1);
-          const p = pmap.get(pid);
-          const catId = p?.categoryId ?? null;
-          // Variantes: amenities de la MISMA categoría con stock>0 en AMENITIES - LIMPIEZA.
-          const variants = prodsAll
-            .filter((x) => x.categoryId === catId && (stockAvail.get(x.id) ?? 0) > 0)
-            .map((x) => ({ productId: x.id, name: x.name, available: stockAvail.get(x.id) ?? 0 }))
-            .sort((a, b) => a.name.localeCompare(b.name));
-          return {
-            recogidoProductId: pid,
-            recogidoName: p?.name ?? i.description,
-            quantity: 1, // 1 unidad = 1 fila
-            variants,
-            name: i.description, code: pid.slice(-7).toUpperCase(), type: 'AMENITY',
-            cant: 1, mantiene: false,
-            motivo: 'Reponer desde AMENITIES - LIMPIEZA',
-          };
-        })
-        .filter((r): r is NonNullable<typeof r> => r !== null);
+      amenities = amenInsp.map((i) => {
+        const pid = i.note as string;
+        const p = pmap.get(pid);
+        return {
+          recogidoProductId: pid,
+          recogidoName: p?.name ?? i.description,
+          category: p?.category?.name ?? 'Amenities',
+          quantity: 1, // 1 unidad = 1 fila
+          variants: [], // amenities no se cambian: se repone exactamente el mismo producto BASE
+          name: p?.name ?? i.description, code: pid.slice(-7).toUpperCase(), type: 'AMENITY',
+          cant: 1, mantiene: false, available: stockAvail.get(pid) ?? 0,
+          motivo: 'Reponer desde AMENITIES - LIMPIEZA',
+        };
+      });
     }
     return { ropa, amenities, subalmacen: floor };
   },

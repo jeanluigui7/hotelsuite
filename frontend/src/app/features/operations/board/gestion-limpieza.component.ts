@@ -48,8 +48,9 @@ interface RepoVariant { linenItemId?: string; productId?: string; name: string; 
 interface RepoRow {
   section: string; tipo: string; name: string; code: string; type: string | null; size?: string | null; color: string | null; cant: number; mantiene: boolean; motivo: string; subName?: string; subIndex?: number;
   // Reposición desde el subalmacén / AMENITIES - LIMPIEZA: variantes disponibles y la elegida.
-  recogidoLinenItemId?: string; recogidoProductId?: string; quantity?: number; variants?: RepoVariant[];
+  recogidoLinenItemId?: string; recogidoProductId?: string; recogidoName?: string; category?: string; quantity?: number; variants?: RepoVariant[];
   chosenLinenItemId?: string; chosenProductId?: string;
+  uid?: string; sectionKey?: SectionKey; // 1 unidad = 1 fila (identidad propia) + sección de color
 }
 
 const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana', EDREDON: 'Edredón', AMENITY: 'Amenity' };
@@ -253,48 +254,46 @@ const ACCIONES_PERIODICAS = [
     </p-dialog>
 
     <!-- Finalizar limpieza: Reposición → Revisión de Mantenimiento -->
-    <p-dialog [(visible)]="finVisible" [modal]="true" [header]="(finStep === 'reposicion' ? 'Reposición · Hab. ' : 'Revisión de Mantenimiento · Hab. ') + (finRoom?.number || '')" [style]="{ width: '40rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+    <p-dialog [(visible)]="finVisible" [modal]="true" [header]="finStep === 'reposicion' ? '' : ('Revisión de Mantenimiento · Hab. ' + (finRoom?.number || ''))" [style]="{ width: '44rem', maxWidth: '96vw' }" styleClass="dk-dialog">
       @if (finStep === 'reposicion') {
-        <p class="hint"><i class="pi pi-info-circle"></i> Confirma los ítems a reponer <span class="ck-badge">CHECKOUT</span> {{ repoCount() }} items</p>
-
-        <h4 class="rep-h"><i class="pi pi-bookmark"></i> Ropa <span class="frac">{{ repoRopaRepuestos() }}/{{ reposicion().ropa.length }}</span></h4>
-        <div class="rep-tbl">
-          <div class="rep-row rh"><span>Tipo</span><span>Item</span><span>Cant.</span><span>Motivo</span></div>
-          @for (r of reposicion().ropa; track $index) {
-            <div class="rep-row" [class.norepo]="!r.mantiene && !r.chosenLinenItemId">
-              <span><span class="base">BASE</span></span>
-              <span class="it"><strong>{{ r.subName || r.name }}</strong> @if (r.size) { <span class="sz">{{ r.size }}</span> }<small>{{ r.mantiene ? r.code : (r.chosenLinenItemId ? 'del subalmacén · disp. ' + chosenAvail(r) : '') }}</small></span>
-              <span>@if (r.mantiene) { <span class="mant">MANTIENE</span> } @else { <span class="cant"><i class="pi pi-check-circle"></i> {{ r.cant }}</span> }</span>
-              <span class="motivo">
-                @if (r.mantiene) { Permanece en habitación }
-                @else if (!r.chosenLinenItemId) { <span class="norepo-msg"><i class="pi pi-exclamation-triangle"></i> Sin stock de {{ r.type }}@if (r.size) { tamaño {{ r.size }} } en el subalmacén</span> }
-                @else { Reponer · <button class="refresh-i" (click)="cycleSub(r)" title="Cambiar variante (rota entre las del subalmacén con stock)"><i class="pi pi-sync"></i> cambiar</button> }
-              </span>
-            </div>
-          } @empty { <div class="rep-row"><span class="muted" style="grid-column:1/-1">Sin ropa recogida.</span></div> }
+        <div class="rep-head">
+          <div class="rep-title">REPOSICIÓN · HABITACIÓN {{ finRoom?.number }}</div>
+          <div class="rep-sub">ÍTEMS QUE DEJARÁS EN LA HABITACIÓN</div>
+          <div class="rep-instr">Si algún ítem es diferente, presiona <span class="chg-tag"><i class="pi pi-sync"></i> CAMBIAR</span>.</div>
         </div>
 
-        <h4 class="rep-h"><i class="pi pi-sparkles"></i> Amenities <span class="frac">{{ repoAmenRepuestos() }}/{{ reposicion().amenities.length }}</span></h4>
-        <div class="rep-tbl">
-          <div class="rep-row rh"><span>Tipo</span><span>Item</span><span>Cant.</span><span>Motivo</span></div>
-          @for (r of reposicion().amenities; track $index) {
-            <div class="rep-row" [class.norepo]="!r.mantiene && !r.chosenProductId">
-              <span><span class="base">BASE</span></span>
-              <span class="it"><strong>{{ r.subName || r.name }}</strong><small>{{ r.mantiene ? r.code : (r.chosenProductId ? 'de AMENITIES - LIMPIEZA · disp. ' + chosenAvail(r) : '') }}</small></span>
-              <span>@if (r.mantiene) { <span class="mant">MANTIENE</span> } @else { <span class="cant"><i class="pi pi-check-circle"></i> {{ r.cant }}</span> }</span>
-              <span class="motivo">
-                @if (r.mantiene) { Permanece en habitación }
-                @else if (!r.chosenProductId) { <span class="norepo-msg"><i class="pi pi-exclamation-triangle"></i> Sin stock en AMENITIES - LIMPIEZA para reponer</span> }
-                @else { Reponer · <button class="refresh-i" (click)="cycleSub(r)" title="Cambiar variante (rota entre las de AMENITIES - LIMPIEZA con stock)"><i class="pi pi-sync"></i> cambiar</button> }
-              </span>
-            </div>
-          } @empty { <div class="rep-row"><span class="muted" style="grid-column:1/-1">Sin amenities recogidos.</span></div> }
-        </div>
-
-        <div class="rep-info">
-          <p><i class="pi pi-info-circle"></i> <strong>Información:</strong></p>
-          <ul><li>CHECKOUT: solo ítems BASE.</li><li>Ítems TARIFA / VENTA y PREMIUM no se reponen.</li><li>Ítems con "—" permanecen en habitación.</li></ul>
-        </div>
+        @for (sec of repoSections(); track sec.key) {
+          <div class="cat">
+            <div class="cat-hd" [style.background]="sec.color">{{ sec.label }}</div>
+            <div class="cat-cols rep"><span>ÍTEM</span>@if (!sec.isAmenity) { <span class="c-acc">ACCIÓN</span> }</div>
+            @for (r of sec.rows; track r.uid) {
+              <div class="urow rep" [class.off]="!sec.isAmenity && !r.chosenLinenItemId">
+                <div class="u-it">
+                  <div class="u-top"><span class="u-name">{{ r.subName || r.recogidoName || r.name }}</span> <span class="u-tag">BASE</span></div>
+                  <div class="u-clasif">{{ sec.isAmenity ? (r.category || 'Amenities') : (r.size || typeLabel(r.type || '')) }}</div>
+                </div>
+                @if (!sec.isAmenity) {
+                  <div class="u-acc">
+                    @if ((r.variants?.length ?? 0) > 0) {
+                      <button class="chg" (click)="togglePick(r)"><i class="pi pi-sync"></i> CAMBIAR</button>
+                    } @else {
+                      <span class="nostock"><i class="pi pi-exclamation-triangle"></i> Sin stock</span>
+                    }
+                  </div>
+                }
+                @if (pickUid() === r.uid && (r.variants?.length ?? 0) > 0) {
+                  <div class="pick">
+                    @for (v of r.variants; track v.linenItemId) {
+                      <button class="pick-opt" [class.on]="v.linenItemId === r.chosenLinenItemId" (click)="chooseVariant(r, v)">
+                        <span class="po-n">{{ v.name }}</span>@if (v.size) { <em>{{ v.size }}</em> } <small>disp. {{ v.available }}</small>
+                      </button>
+                    }
+                  </div>
+                }
+              </div>
+            }
+          </div>
+        } @empty { <p class="muted center" style="padding:1.2rem">No hay ítems por reponer.</p> }
       } @else {
         <p class="hint"><i class="pi pi-info-circle"></i> Verifica el estado de la habitación e informa cualquier problema detectado.</p>
         <h4 class="q">¿Todo está en buen estado?</h4>
@@ -541,6 +540,22 @@ const ACCIONES_PERIODICAS = [
       .ub.inci { min-width: 11rem; border-color: #7f1d1d; color: #fca5a5; background: rgba(220,38,38,0.12); }
       .ub.inci.on { background: #dc2626; border-color: #dc2626; color: #fff; }
       .need { color: #f59e0b; font-size: 0.82rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem; margin-right: auto; }
+      /* Reposición (calcada del recojo) */
+      .rep-head { padding: 0.1rem 0 0.8rem; }
+      .rep-title { font-size: 1.35rem; font-weight: 800; color: #fff; letter-spacing: 0.02em; }
+      .rep-sub { font-size: 0.95rem; font-weight: 700; color: #cfe0f5; margin-top: 0.15rem; letter-spacing: 0.03em; }
+      .rep-instr { margin-top: 0.45rem; font-size: 0.85rem; color: #f87171; font-weight: 700; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+      .chg-tag { display: inline-flex; align-items: center; gap: 0.3rem; background: #b6f23a; color: #1a2e05; border-radius: 6px; padding: 0.12rem 0.5rem; font-weight: 800; font-size: 0.78rem; letter-spacing: 0.03em; }
+      .cat-cols.rep span:first-child { flex: 1; } .cat-cols.rep .c-acc { width: 11rem; text-align: center; }
+      .urow.rep { flex-wrap: wrap; } .urow.rep.off { opacity: 0.6; }
+      .u-acc { width: 11rem; display: flex; justify-content: flex-end; }
+      .chg { display: inline-flex; align-items: center; gap: 0.45rem; background: #b6f23a; color: #1a2e05; border: 0; border-radius: 10px; padding: 0.6rem 1.1rem; font-weight: 800; font-size: 0.9rem; letter-spacing: 0.03em; cursor: pointer; box-shadow: 0 1px 0 rgba(0,0,0,0.3); }
+      .chg:hover { filter: brightness(1.05); } .chg .pi { font-size: 0.9rem; }
+      .nostock { color: #f59e0b; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.35rem; }
+      .pick { width: 100%; display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px dashed #1c3444; }
+      .pick-opt { display: inline-flex; align-items: center; gap: 0.4rem; background: #14262f; border: 1px solid #2f4f6b; color: #dbe7f0; border-radius: 9px; padding: 0.45rem 0.7rem; font-size: 0.84rem; cursor: pointer; }
+      .pick-opt.on { background: #00A83B; border-color: #00A83B; color: #fff; }
+      .pick-opt em { color: #8aa0bd; font-style: normal; } .pick-opt.on em { color: #d1fae5; } .pick-opt small { color: #8aa0bd; } .pick-opt.on small { color: #d1fae5; } .po-n { font-weight: 700; }
       .inc-opts { display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.4rem; }
       .inc-op { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; text-align: left; border-radius: 10px; padding: 0.7rem 0.9rem; cursor: pointer; border: 1px solid #2f4f6b; background: #14262f; color: #dbe7f0; }
       .inc-op b { font-size: 0.95rem; } .inc-op small { color: #8aa0bd; font-weight: 400; } .inc-op .pi { margin-right: 0.3rem; }
@@ -651,6 +666,14 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   todoOk: boolean | null = null;
   obsGenerales = '';
   readonly reposicion = signal<{ ropa: RepoRow[]; amenities: RepoRow[] }>({ ropa: [], amenities: [] });
+  readonly pickUid = signal<string>(''); // fila cuyo selector de variante (CAMBIAR) está abierto
+  /** Reposición agrupada por sección de color (SÁBANAS/TOALLAS/AMENITIES…), 1 unidad = 1 fila. */
+  readonly repoSections = computed(() => {
+    const all = [...this.reposicion().ropa, ...this.reposicion().amenities];
+    const groups = new Map<SectionKey, RepoRow[]>();
+    for (const r of all) { const k = r.sectionKey ?? 'OTROS'; const arr = groups.get(k) ?? []; arr.push(r); groups.set(k, arr); }
+    return SECTION_ORDER.filter((k) => groups.has(k)).map((k) => ({ key: k, label: SECTION_META[k].label, color: SECTION_META[k].color, isAmenity: k === 'AMENITIES', rows: groups.get(k) as RepoRow[] }));
+  });
   cats: { key: string; label: string; hint: string; selected: boolean; falla: string; observacion: string }[] = [];
   // Mantenimiento Periódico
   revPerVisible = false;
@@ -885,24 +908,26 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     this.reposicion.set({ ropa: [], amenities: [] });
     this.http.get<ApiResponse<{ ropa: RepoRow[]; amenities: RepoRow[] }>>(`${this.api}/cleaning/${r.id}/reposicion`).subscribe((res) => {
       const data = res.data ?? { ropa: [], amenities: [] };
-      // Por cada prenda/amenity recogido, elige por defecto la MISMA variante si tiene stock;
-      // si no, la primera disponible del subalmacén / AMENITIES - LIMPIEZA.
+      let seq = 0;
+      // ROPA: una fila por unidad retirada, con sección de color; elige por defecto la MISMA prenda si
+      // tiene stock, si no la primera disponible. La trabajadora puede CAMBIAR por fila.
       for (const row of data.ropa) {
-        if (row.mantiene) continue;
+        row.uid = `R${seq++}`;
+        row.sectionKey = sectionOf(row.type ?? '', false);
         const vs = row.variants ?? [];
         const chosen = vs.find((v) => v.linenItemId === row.recogidoLinenItemId) ?? vs[0];
         row.chosenLinenItemId = chosen?.linenItemId;
         row.subIndex = chosen ? vs.indexOf(chosen) : 0;
-        row.subName = chosen ? `${TYPE_LABEL[row.type ?? ''] ?? ''} ${chosen.name}`.trim() : undefined;
+        row.subName = chosen ? chosen.name : (row.recogidoName ?? row.name);
       }
+      // AMENITIES: sin CAMBIAR — se repone EXACTAMENTE el amenity BASE retirado (identidad propia).
       for (const row of data.amenities) {
-        if (row.mantiene) continue;
-        const vs = row.variants ?? [];
-        const chosen = vs.find((v) => v.productId === row.recogidoProductId) ?? vs[0];
-        row.chosenProductId = chosen?.productId;
-        row.subIndex = chosen ? vs.indexOf(chosen) : 0;
-        row.subName = chosen ? chosen.name : undefined;
+        row.uid = `A${seq++}`;
+        row.sectionKey = 'AMENITIES';
+        row.chosenProductId = row.recogidoProductId;
+        row.subName = row.recogidoName ?? row.name;
       }
+      this.pickUid.set('');
       this.reposicion.set(data);
     });
     this.finVisible = true;
@@ -919,6 +944,16 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     const v = vs[r.subIndex];
     if (r.type === 'AMENITY') { r.chosenProductId = v.productId; r.subName = v.name; }
     else { r.chosenLinenItemId = v.linenItemId; r.subName = `${TYPE_LABEL[r.type ?? ''] ?? ''} ${v.name}`.trim(); }
+    this.reposicion.set({ ...this.reposicion() });
+  }
+  /** Abre/cierra el selector de prenda (CAMBIAR) de una fila de ropa. */
+  togglePick(r: RepoRow): void { this.pickUid.set(this.pickUid() === r.uid ? '' : (r.uid ?? '')); }
+  /** La trabajadora elige la prenda real para ESA fila (solo esa unidad). */
+  chooseVariant(r: RepoRow, v: RepoVariant): void {
+    r.chosenLinenItemId = v.linenItemId;
+    r.subIndex = (r.variants ?? []).findIndex((x) => x.linenItemId === v.linenItemId);
+    r.subName = v.name;
+    this.pickUid.set('');
     this.reposicion.set({ ...this.reposicion() });
   }
   /** Reposición completa: cada prenda/amenity recogido tiene una variante elegida con stock. */
