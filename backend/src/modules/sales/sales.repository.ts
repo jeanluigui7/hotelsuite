@@ -54,6 +54,7 @@ export const salesRepository = {
     cashSessionId: string | null;
     total: number;
     status: string;
+    opToken?: string | null;
     createdByUserId: string;
     items: SaleLineInput[];
     payments: SalePaymentInput[];
@@ -71,6 +72,7 @@ export const salesRepository = {
           cashSessionId: data.cashSessionId,
           total: data.total,
           status: data.status,
+          opToken: data.opToken ?? null,
           createdByUserId: data.createdByUserId,
           items: { create: data.items },
           payments: {

@@ -1684,6 +1684,7 @@ model Sale {
   // verifyStatus clasifica el estado: REGULARIZADA (cobrada) | POR_VERIFICAR | NO_COBRADA.
   unregistered    Boolean  @default(false)
   verifyStatus    String? // REGULARIZADA | POR_VERIFICAR | NO_COBRADA
+  opToken         String? // token idempotente de la operación (anti doble-clic/reintento)
   createdByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -1696,6 +1697,7 @@ model Sale {
   @@index([branchId])
   @@index([cashSessionId])
   @@index([status])
+  @@index([opToken])
 }
 
 /// Línea de venta (snapshot del producto/servicio).
@@ -1970,7 +1972,16 @@ model RoomSupply {
   stayId          String?
   description     String
   quantity        Int       @default(1)
-  status          String    @default("PENDING") // PENDING | DELIVERED
+  status          String    @default("PENDING") // PENDING(legado) | RESERVED | DELIVERED | REJECTED | CANCELLED
+  // Reserva de ropa adicional (FASE 2): el cargo reserva la cantidad por TIPO sin elegir la variante;
+  // cleaning elige el LinenItem físico al entregar. El stock se descuenta UNA sola vez (en la entrega).
+  conceptId           String? // ServiceConcept que originó la solicitud
+  inventoryCategoryId String? // tipo de prenda (InventoryCategory CLOTHING) reservado
+  linenItemId         String? // variante física elegida por cleaning al entregar (null mientras está reservada)
+  reservedQty         Int     @default(0)
+  saleId              String? // venta/cargo asociado
+  courtesy            Boolean @default(false)
+  courtesyReason      String?
   createdByUserId String?
   createdAt       DateTime  @default(now())
   deliveredAt     DateTime?
@@ -1980,6 +1991,7 @@ model RoomSupply {
   @@index([branchId])
   @@index([roomId])
   @@index([status])
+  @@index([inventoryCategoryId])
 }
 
 /// Solicitud de productos de Recepción al Almacén (admin).

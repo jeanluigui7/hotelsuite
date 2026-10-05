@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type { RequestScope } from '../../shared/context';
 import { ConflictError, NotFoundError, ValidationError } from '../../shared/errors';
 import {
@@ -61,6 +61,12 @@ function serialize(sale: SaleWithRelations) {
 export const salesService = {
   async create(scope: RequestScope, dto: CreateSaleDto) {
     const branchId = requireActiveBranch(scope);
+
+    // Idempotencia: si ya se procesó una venta con este token, se devuelve esa (anti doble-clic/reintento).
+    if (dto.opToken) {
+      const dup = await prisma.sale.findFirst({ where: { branchId, opToken: dto.opToken }, include: { items: true, payments: true } });
+      if (dup) return serialize(dup);
+    }
 
     // Toda venta (con o sin pago, incluido el cargo a crédito) requiere un turno de caja abierto.
     // Sin caja, recepción solo puede verificar/visualizar; para operar con dinero debe abrir caja.
@@ -158,6 +164,7 @@ export const salesService = {
         cashSessionId: session?.id ?? null,
         total,
         status,
+        opToken: dto.opToken ?? null,
         createdByUserId: scope.userId,
         items: lines,
         payments,
@@ -186,6 +193,11 @@ export const salesService = {
     } catch (err) {
       if (err instanceof Error && err.message.startsWith('STOCK_INSUFFICIENT')) {
         throw new ValidationError('Stock insuficiente para uno de los productos');
+      }
+      // Carrera con el mismo opToken: otra solicitud ya creó la venta → devolver esa (idempotente).
+      if (dto.opToken && err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const dup = await prisma.sale.findFirst({ where: { branchId, opToken: dto.opToken }, include: { items: true, payments: true } });
+        if (dup) return serialize(dup);
       }
       throw err;
     }

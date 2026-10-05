@@ -31,6 +31,9 @@ export const createSaleSchema = z
     payments: z.array(paymentSchema).default([]),
     // Área de la que sale el stock: PRODUCTS (general, por defecto) | RECEPTION | FRIGOBAR.
     sourceArea: z.enum(['PRODUCTS', 'RECEPTION', 'FRIGOBAR']).optional(),
+    // Token idempotente de la operación (anti doble-clic/reintento): si ya existe una venta con el
+    // mismo token en la sucursal, se devuelve esa en vez de crear otra.
+    opToken: z.string().min(8).max(80).optional(),
   })
   .refine((v) => v.stayId || v.guestId || (v.customerName && v.customerName.length > 0), {
     message: 'Indique una estancia, un cliente o un nombre de cliente externo',
