@@ -275,18 +275,9 @@ const ACCIONES_PERIODICAS = [
                 @if (!sec.isAmenity) {
                   <div class="u-acc">
                     @if ((r.variants?.length ?? 0) > 0) {
-                      <button class="chg" (click)="togglePick(r)"><i class="pi pi-sync"></i> CAMBIAR</button>
+                      <button class="chg" (click)="cambiar(r)"><i class="pi pi-sync"></i> CAMBIAR</button>
                     } @else {
                       <span class="nostock"><i class="pi pi-exclamation-triangle"></i> Sin stock</span>
-                    }
-                  </div>
-                }
-                @if (pickUid() === r.uid && (r.variants?.length ?? 0) > 0) {
-                  <div class="pick">
-                    @for (v of r.variants; track v.linenItemId) {
-                      <button class="pick-opt" [class.on]="v.linenItemId === r.chosenLinenItemId" (click)="chooseVariant(r, v)">
-                        <span class="po-n">{{ v.name }}</span>@if (v.size) { <em>{{ v.size }}</em> } <small>disp. {{ v.available }}</small>
-                      </button>
                     }
                   </div>
                 }
@@ -666,7 +657,6 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   todoOk: boolean | null = null;
   obsGenerales = '';
   readonly reposicion = signal<{ ropa: RepoRow[]; amenities: RepoRow[] }>({ ropa: [], amenities: [] });
-  readonly pickUid = signal<string>(''); // fila cuyo selector de variante (CAMBIAR) está abierto
   /** Reposición agrupada por sección de color (SÁBANAS/TOALLAS/AMENITIES…), 1 unidad = 1 fila. */
   readonly repoSections = computed(() => {
     const all = [...this.reposicion().ropa, ...this.reposicion().amenities];
@@ -927,7 +917,6 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
         row.chosenProductId = row.recogidoProductId;
         row.subName = row.recogidoName ?? row.name;
       }
-      this.pickUid.set('');
       this.reposicion.set(data);
     });
     this.finVisible = true;
@@ -946,15 +935,32 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     else { r.chosenLinenItemId = v.linenItemId; r.subName = `${TYPE_LABEL[r.type ?? ''] ?? ''} ${v.name}`.trim(); }
     this.reposicion.set({ ...this.reposicion() });
   }
-  /** Abre/cierra el selector de prenda (CAMBIAR) de una fila de ropa. */
-  togglePick(r: RepoRow): void { this.pickUid.set(this.pickUid() === r.uid ? '' : (r.uid ?? '')); }
-  /** La trabajadora elige la prenda real para ESA fila (solo esa unidad). */
-  chooseVariant(r: RepoRow, v: RepoVariant): void {
-    r.chosenLinenItemId = v.linenItemId;
-    r.subIndex = (r.variants ?? []).findIndex((x) => x.linenItemId === v.linenItemId);
-    r.subName = v.name;
-    this.pickUid.set('');
-    this.reposicion.set({ ...this.reposicion() });
+  /**
+   * CAMBIAR: avanza AUTOMÁTICAMENTE a la siguiente prenda compatible (mismo tipo y tamaño, que ya
+   * vienen filtrados en `variants`) con stock libre, considerando el stock que ya usan las demás filas
+   * de esta reposición (para no asignar la misma unidad dos veces). No despliega ningún selector.
+   * Si no hay otra alternativa disponible, mantiene la actual y avisa.
+   */
+  cambiar(r: RepoRow): void {
+    const vs = r.variants ?? [];
+    // Unidades ya comprometidas por OTRAS filas, por linenItemId.
+    const usage = new Map<string, number>();
+    for (const o of this.reposicion().ropa) {
+      if (o.uid === r.uid || !o.chosenLinenItemId) continue;
+      usage.set(o.chosenLinenItemId, (usage.get(o.chosenLinenItemId) ?? 0) + 1);
+    }
+    const free = (v: RepoVariant): boolean => (v.available ?? 0) - (usage.get(v.linenItemId ?? '') ?? 0) > 0;
+    const start = r.subIndex ?? 0;
+    for (let step = 1; step <= vs.length; step++) {
+      const idx = (start + step) % vs.length;
+      const v = vs[idx];
+      if (v.linenItemId === r.chosenLinenItemId) continue; // saltar la actual
+      if (!free(v)) continue; // sin stock libre tras lo que usan las otras filas
+      r.subIndex = idx; r.chosenLinenItemId = v.linenItemId; r.subName = v.name;
+      this.reposicion.set({ ...this.reposicion() });
+      return;
+    }
+    this.toast.add({ severity: 'info', summary: 'Sin alternativa', detail: 'No hay otra prenda disponible' });
   }
   /** Reposición completa: cada prenda/amenity recogido tiene una variante elegida con stock. */
   reposicionCompleta(): boolean {
