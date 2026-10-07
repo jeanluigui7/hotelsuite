@@ -35,11 +35,12 @@ export const servicesController = {
   },
   async deliver(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
-    const linenItemId = typeof req.body?.linenItemId === 'string' && req.body.linenItemId ? req.body.linenItemId : undefined;
-    res.status(200).json(ok(await servicesService.deliver(req.scope, req.params.id, linenItemId)));
+    const units = Array.isArray(req.body?.units) ? (req.body.units as unknown[]).filter((u): u is string => typeof u === 'string') : undefined;
+    res.status(200).json(ok(await servicesService.deliver(req.scope, req.params.id, units)));
   },
   async reject(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
-    res.status(200).json(ok(await servicesService.reject(req.scope, req.params.id)));
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
+    res.status(200).json(ok(await servicesService.reject(req.scope, req.params.id, reason)));
   },
 };

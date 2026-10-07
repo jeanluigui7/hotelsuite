@@ -1,11 +1,15 @@
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import type { RequestScope } from '../../shared/context';
-import { ValidationError } from '../../shared/errors';
+import { ValidationError, ConflictError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { PAYMENT_METHODS } from '../../shared/payments';
 import { salesService } from '../sales/sales.service';
+import { recordActivity } from '../activity-log/activity.emitter';
 import { serviceCatalogRepository } from '../service-catalog/service-catalog.repository';
+
+type Db = Prisma.TransactionClient | typeof prisma;
 
 /** Servicios y penalidades (modal de recepción): cobro de servicios/penalidades/ropa adicional a una
  *  habitación ocupada, con Pago Total/Parcial/Adeudo, cortesía (precio 0) y reserva de ropa para
@@ -144,8 +148,9 @@ export const servicesService = {
     return this.availabilityFor(branchId, stay.room, concept);
   },
 
-  /** Núcleo de disponibilidad (reutilizado por availability() y charge()). */
-  async availabilityFor(branchId: string, room: { id: string; roomTypeId: string; tower: string | null; floor: string | null }, concept: ConceptFull) {
+  /** Núcleo de disponibilidad (reutilizado por availability() y charge()). `db` permite re-chequear
+   *  dentro de una transacción serializable al reservar (protección contra reservas simultáneas). */
+  async availabilityFor(branchId: string, room: { id: string; roomTypeId: string; tower: string | null; floor: string | null }, concept: ConceptFull, db: Db = prisma) {
     const unitPrice = Number(concept.price);
     const catName = concept.inventoryCategory?.name ?? 'unidad(es)';
     if (concept.attentionMode !== 'LINEN_EXTRA') return { available: null as number | null, unitPrice, categoryName: catName, floor: null as string | null, issue: null as string | null };
@@ -154,9 +159,9 @@ export const servicesService = {
       const products = await compatibleAmenity(branchId, concept);
       if (!products.length) return { available: 0, unitPrice, categoryName: catName, floor: null, issue: 'No hay amenities compatibles configurados para este concepto.' };
       const ids = products.map((p) => p.id);
-      const stocks = await prisma.stock.findMany({ where: { productId: { in: ids } }, select: { quantity: true } });
+      const stocks = await db.stock.findMany({ where: { productId: { in: ids } }, select: { quantity: true } });
       const physical = stocks.reduce((a, s) => a + Number(s.quantity), 0);
-      const reserved = (await prisma.roomSupply.aggregate({ _sum: { reservedQty: true }, where: { branchId, roomId: room.id, status: 'RESERVED', inventoryCategoryId: concept.inventoryCategoryId } }))._sum.reservedQty ?? 0;
+      const reserved = (await db.roomSupply.aggregate({ _sum: { reservedQty: true }, where: { branchId, roomId: room.id, status: 'RESERVED', inventoryCategoryId: concept.inventoryCategoryId } }))._sum.reservedQty ?? 0;
       return { available: Math.max(0, physical - reserved), unitPrice, categoryName: catName, floor: null, issue: null };
     }
 
@@ -165,9 +170,9 @@ export const servicesService = {
     if (!items.length) return { available: 0, unitPrice, categoryName: catName, floor: null, issue: 'No hay prendas compatibles configuradas para esta habitación.' };
     const floor = await resolveFloor(branchId, room);
     if (!floor) return { available: 0, unitPrice, categoryName: catName, floor: null, issue: 'La habitación no tiene un almacén de ropa vinculado. Configúralo en Inventario › Sub-almacenes.' };
-    const stocks = await prisma.linenStock.findMany({ where: { linenItemId: { in: items.map((i) => i.id) }, floor }, select: { rem: true, sum: true } });
+    const stocks = await db.linenStock.findMany({ where: { linenItemId: { in: items.map((i) => i.id) }, floor }, select: { rem: true, sum: true } });
     const physical = stocks.reduce((a, s) => a + (s.rem ?? 0) + (s.sum ?? 0), 0);
-    const reserved = (await prisma.roomSupply.aggregate({ _sum: { reservedQty: true }, where: { branchId, roomId: room.id, status: 'RESERVED', inventoryCategoryId: concept.inventoryCategoryId } }))._sum.reservedQty ?? 0;
+    const reserved = (await db.roomSupply.aggregate({ _sum: { reservedQty: true }, where: { branchId, roomId: room.id, status: 'RESERVED', inventoryCategoryId: concept.inventoryCategoryId } }))._sum.reservedQty ?? 0;
     return { available: Math.max(0, physical - reserved), unitPrice, categoryName: catName, floor, issue: null };
   },
 
@@ -220,47 +225,61 @@ export const servicesService = {
       opToken: dto.opToken,
     });
 
-    // Reservas de ropa: solo si esta venta no las creó ya (idempotencia por opToken).
+    // Reservas de ropa: solo si esta venta no las creó ya (idempotencia por opToken). La creación va en
+    // una transacción SERIALIZABLE que re-chequea disponibilidad para que dos cobros simultáneos del
+    // mismo stock no sobre-reserven (solo uno gana la última unidad).
     const already = await prisma.roomSupply.count({ where: { saleId: sale.id } });
     const supplies: string[] = [];
-    if (already === 0) {
-      for (const r of reservations) {
-        const s = await prisma.roomSupply.create({
-          data: {
-            branchId, roomId: stay.roomId, stayId: stay.id, description: r.concept.name,
-            quantity: r.quantity, reservedQty: r.quantity, status: 'RESERVED',
-            conceptId: r.concept.id, inventoryCategoryId: r.concept.inventoryCategoryId, saleId: sale.id,
-            courtesy: r.courtesy, courtesyReason: r.reason, createdByUserId: scope.userId,
-          },
-        });
-        supplies.push(s.id);
-      }
+    if (already === 0 && reservations.length) {
+      const saleItems = sale.items.map((i) => ({ id: i.id, description: i.description, used: false }));
+      await prisma.$transaction(async (tx) => {
+        for (const r of reservations) {
+          const av = await this.availabilityFor(branchId, stay.room, r.concept, tx);
+          if (av.issue) throw new ValidationError(av.issue);
+          if (av.available != null && r.quantity > av.available) {
+            throw new ConflictError(`Solo hay ${av.available} ${av.categoryName} disponible(s) para esta habitación.`);
+          }
+          const line = saleItems.find((i) => !i.used && i.description === r.concept.name);
+          if (line) line.used = true;
+          const s = await tx.roomSupply.create({
+            data: {
+              branchId, roomId: stay.roomId, stayId: stay.id, description: r.concept.name,
+              quantity: r.quantity, reservedQty: r.quantity, status: 'RESERVED',
+              conceptId: r.concept.id, inventoryCategoryId: r.concept.inventoryCategoryId,
+              saleId: sale.id, saleItemId: line?.id ?? null,
+              courtesy: r.courtesy, courtesyReason: r.reason, createdByUserId: scope.userId,
+            },
+          });
+          supplies.push(s.id);
+        }
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     }
     const owed = round(Number(sale.total) - Number(sale.paid));
     return { sale, owed, supplies };
   },
 
-  /** Suministros/reservas (para limpieza). */
+  /** Suministros/reservas (para limpieza). `status='RESERVED'` incluye también los PENDING legados. */
   async supplies(scope: RequestScope, status?: string) {
     const branchId = requireActiveBranch(scope);
-    const rows = await prisma.roomSupply.findMany({ where: { branchId, ...(status ? { status } : {}) }, orderBy: { createdAt: 'desc' } });
+    const where: Prisma.RoomSupplyWhereInput = { branchId };
+    if (status === 'RESERVED') where.status = { in: ['RESERVED', 'PENDING'] };
+    else if (status) where.status = status;
+    const rows = await prisma.roomSupply.findMany({ where, orderBy: { createdAt: 'desc' } });
     const roomIds = [...new Set(rows.map((r) => r.roomId))];
-    const [rooms, linen] = await Promise.all([
+    const conceptIds = [...new Set(rows.map((r) => r.conceptId).filter((x): x is string => !!x))];
+    const [rooms, concepts] = await Promise.all([
       prisma.room.findMany({ where: { id: { in: roomIds } }, include: { roomType: { select: { name: true } } } }),
-      prisma.linenItem.findMany({ where: { branchId, status: 'active' }, select: { name: true, type: true } }),
+      conceptIds.length ? prisma.serviceConcept.findMany({ where: { id: { in: conceptIds } }, select: { id: true, inventoryCategory: { select: { name: true } } } }) : Promise.resolve([]),
     ]);
     const roomMap = new Map(rooms.map((r) => [r.id, r]));
-    const TYPE_LABEL: Record<string, string> = { TOALLA: 'Toalla', SABANA: 'Sábana', EDREDON: 'Edredón', AMENITY: 'Amenity' };
-    const categoryOf = (desc: string): string => {
-      const li = linen.find((l) => desc.toUpperCase().includes(l.name.toUpperCase()) || l.name.toUpperCase().includes(desc.toUpperCase()));
-      return li ? (TYPE_LABEL[li.type] ?? li.type) : 'Suministro';
-    };
+    const catMap = new Map(concepts.map((c) => [c.id, c.inventoryCategory?.name ?? 'Suministro']));
     return rows.map((r) => {
       const room = roomMap.get(r.roomId);
       return {
         id: r.id, roomId: r.roomId, room: room?.number ?? '—', floor: room?.floor ?? null, roomType: room?.roomType?.name ?? '',
-        description: r.description, category: categoryOf(r.description), quantity: r.quantity, status: r.status,
-        courtesy: r.courtesy, createdAt: r.createdAt, deliveredAt: r.deliveredAt,
+        description: r.description, category: r.conceptId ? (catMap.get(r.conceptId) ?? 'Suministro') : 'Suministro',
+        quantity: r.quantity, status: r.status, conceptId: r.conceptId, saleId: r.saleId,
+        courtesy: r.courtesy, courtesyReason: r.courtesyReason, createdAt: r.createdAt, deliveredAt: r.deliveredAt,
       };
     });
   },
@@ -282,63 +301,141 @@ export const servicesService = {
   },
 
   /**
-   * Limpieza confirma la entrega: marca DELIVERED y descuenta del inventario UNA sola vez.
-   * Si recibe linenItemId (variante elegida), descuenta esa; si no, resuelve una compatible con stock.
+   * Limpieza confirma la entrega: UNA variante por unidad (units[]), descuenta el stock UNA sola vez,
+   * registra las prendas como ADICIONALES de la habitación (sin tocar la dotación BASE) y consume la
+   * reserva. Atómico (serializable + guard de estado) → no se puede entregar/rechazar dos veces.
    */
-  async deliver(scope: RequestScope, id: string, linenItemId?: string) {
+  async deliver(scope: RequestScope, id: string, units?: string[]) {
     const branchId = requireActiveBranch(scope);
     const supply = await prisma.roomSupply.findFirst({ where: { id, branchId } });
     if (!supply) throw new ValidationError('Suministro no encontrado');
-    if (supply.status === 'DELIVERED') return supply;
+    if (supply.status === 'DELIVERED') return { ok: true, already: true };
+    if (supply.status !== 'RESERVED' && supply.status !== 'PENDING') throw new ConflictError('La solicitud ya fue procesada.');
 
     const room = await prisma.room.findUnique({ where: { id: supply.roomId }, select: { id: true, roomTypeId: true, floor: true, tower: true, number: true } });
     const floor = room ? await resolveFloor(branchId, room) : null;
 
-    // Resolver el LinenItem a descontar: elegido por cleaning → validar compatible; si no, primero con stock.
-    let itemId: string | null = null;
+    // Prendas compatibles (tipo + tamaño + almacén + vínculo del concepto) para validar/auto-resolver.
+    let compat: { id: string; name: string; size: string | null; color: string | null }[] = [];
     if (supply.conceptId && room) {
       const concept = await loadConcept(branchId, supply.conceptId);
-      if (concept && concept.inventoryOrigin === 'ROPA') {
-        const compat = await compatibleLinen(branchId, room.roomTypeId, concept);
-        const compatIds = new Set(compat.map((c) => c.id));
-        if (linenItemId) {
-          if (!compatIds.has(linenItemId)) throw new ValidationError('La prenda elegida no es compatible con esta habitación.');
-          itemId = linenItemId;
-        } else if (floor) {
-          const stocks = await prisma.linenStock.findMany({ where: { linenItemId: { in: [...compatIds] }, floor } });
-          const withStock = stocks.find((s) => (s.rem ?? 0) + (s.sum ?? 0) >= supply.quantity) ?? stocks.find((s) => (s.rem ?? 0) + (s.sum ?? 0) > 0);
-          itemId = withStock?.linenItemId ?? compat[0]?.id ?? null;
-        }
+      if (concept && concept.inventoryOrigin === 'ROPA') compat = await compatibleLinen(branchId, room.roomTypeId, concept);
+    }
+    const compatMap = new Map(compat.map((c) => [c.id, c]));
+
+    // Una variante por unidad (length = quantity). Si no se envían, auto-resolver.
+    let unitIds: string[];
+    if (units && units.length) {
+      if (units.length !== supply.quantity) throw new ValidationError(`Debes indicar ${supply.quantity} prenda(s).`);
+      for (const u of units) if (compat.length && !compatMap.has(u)) throw new ValidationError('Una de las prendas elegidas no es compatible con esta habitación.');
+      unitIds = units;
+    } else {
+      let itemId: string | null = null;
+      if (compat.length && floor) {
+        const stocks = await prisma.linenStock.findMany({ where: { linenItemId: { in: compat.map((c) => c.id) }, floor } });
+        const withStock = stocks.find((s) => (s.rem ?? 0) + (s.sum ?? 0) >= supply.quantity) ?? stocks.find((s) => (s.rem ?? 0) + (s.sum ?? 0) > 0);
+        itemId = withStock?.linenItemId ?? compat[0]?.id ?? null;
       }
+      if (!itemId) {
+        const linen = await prisma.linenItem.findMany({ where: { branchId, status: 'active' }, select: { id: true, name: true } });
+        const m = linen.find((l) => supply.description.toUpperCase().includes(l.name.toUpperCase()) || l.name.toUpperCase().includes(supply.description.toUpperCase()));
+        itemId = m?.id ?? null;
+        if (m) compatMap.set(m.id, { id: m.id, name: m.name, size: null, color: null });
+      }
+      unitIds = itemId ? Array(supply.quantity).fill(itemId) : [];
     }
-    if (!itemId) {
-      // Legado: resolver por nombre (sin concepto estructurado).
-      const linen = await prisma.linenItem.findMany({ where: { branchId, status: 'active' }, select: { id: true, name: true } });
-      itemId = linen.find((l) => supply.description.toUpperCase().includes(l.name.toUpperCase()) || l.name.toUpperCase().includes(supply.description.toUpperCase()))?.id ?? null;
-    }
+
+    const byItem = new Map<string, number>();
+    for (const u of unitIds) byItem.set(u, (byItem.get(u) ?? 0) + 1);
 
     await prisma.$transaction(async (tx) => {
-      if (itemId && floor) {
-        const stock = await tx.linenStock.findUnique({ where: { linenItemId_floor: { linenItemId: itemId, floor } } });
-        const avail = (stock?.rem ?? 0) + (stock?.sum ?? 0);
-        const dec = Math.min(supply.quantity, avail);
-        if (dec > 0) {
-          const fromSum = Math.min(stock?.sum ?? 0, dec);
-          const fromRem = dec - fromSum;
+      const guard = await tx.roomSupply.updateMany({ where: { id, status: { in: ['RESERVED', 'PENDING'] } }, data: { status: 'DELIVERING' } });
+      if (guard.count === 0) throw new ConflictError('La solicitud ya fue procesada.');
+      for (const [itemId, count] of byItem) {
+        if (floor) {
+          const stock = await tx.linenStock.findUnique({ where: { linenItemId_floor: { linenItemId: itemId, floor } } });
+          const avail = (stock?.rem ?? 0) + (stock?.sum ?? 0);
+          if (avail < count) throw new ConflictError(`Stock insuficiente de la prenda seleccionada (disponible ${avail}).`);
+          const fromSum = Math.min(stock?.sum ?? 0, count);
+          const fromRem = count - fromSum;
           await tx.linenStock.update({ where: { linenItemId_floor: { linenItemId: itemId, floor } }, data: { sum: { decrement: fromSum }, rem: { decrement: fromRem } } });
+          await tx.linenMovement.create({ data: { branchId, linenItemId: itemId, type: 'SUPPLY', quantity: -count, floor, areaFrom: `Piso ${floor}`, areaTo: `Hab. ${room?.number ?? ''}`.trim(), reference: 'Entrega de ropa adicional a habitación', createdByUserId: scope.userId } });
         }
-        await tx.linenMovement.create({ data: { branchId, linenItemId: itemId, type: 'SUPPLY', quantity: -supply.quantity, floor, areaFrom: `Piso ${floor}`, areaTo: `Hab. ${room?.number ?? ''}`.trim(), reference: 'Entrega de ropa adicional a habitación', createdByUserId: scope.userId } });
+        // Registrar como ADICIONAL de la habitación (no toca la dotación BASE).
+        const name = compatMap.get(itemId)?.name ?? supply.description;
+        await tx.roomInventoryMovement.create({ data: { branchId, roomId: supply.roomId, type: 'EXTRA', articleKind: 'LINEN_REUSABLE', name, quantity: count, toLocation: `Hab. ${room?.number ?? ''}`.trim(), reference: `supply:${id}`, createdByUserId: scope.userId } });
+        await tx.roomInventory.upsert({
+          where: { roomId_articleKind_name: { roomId: supply.roomId, articleKind: 'LINEN_REUSABLE', name } },
+          create: { branchId, roomId: supply.roomId, articleKind: 'LINEN_REUSABLE', name, linenItemId: itemId, quantity: count },
+          update: { quantity: { increment: count } },
+        });
       }
-      await tx.roomSupply.update({ where: { id }, data: { status: 'DELIVERED', deliveredAt: new Date(), linenItemId: itemId, reservedQty: 0 } });
-    });
-    return { ok: true, linenItemId: itemId };
+      const deliveredJson = JSON.stringify([...byItem.entries()].map(([itemId, qty]) => ({ linenItemId: itemId, name: compatMap.get(itemId)?.name ?? supply.description, qty })));
+      await tx.roomSupply.update({ where: { id }, data: { status: 'DELIVERED', deliveredAt: new Date(), deliveredByUserId: scope.userId, deliveredJson, linenItemId: unitIds[0] ?? null, reservedQty: 0 } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    void recordActivity(scope, { activity: 'SUPPLY_DELIVER', area: 'LIMPIEZA', roomId: supply.roomId, entityId: id, reference: `Hab. ${room?.number ?? ''}`.trim(), detail: `Ropa adicional entregada · ${supply.description} x${supply.quantity}`, meta: { supplyId: id, saleId: supply.saleId } });
+    return { ok: true };
   },
 
-  /** Limpieza rechaza/cancela la entrega: libera la reserva (no descuenta stock). */
-  async reject(scope: RequestScope, id: string) {
+  /**
+   * Rechaza una solicitud: libera la reserva, anula SOLO la línea del cargo (no toda la venta), y si
+   * hubo pago crea una DEVOLUCIÓN PENDIENTE (ChangeCredit) por el importe pagado atribuible; avisa a
+   * recepción por la bitácora. No mueve caja (recepción confirma la entrega del dinero después).
+   */
+  async reject(scope: RequestScope, id: string, reason?: string) {
     const branchId = requireActiveBranch(scope);
     const supply = await prisma.roomSupply.findFirst({ where: { id, branchId } });
     if (!supply) throw new ValidationError('Suministro no encontrado');
-    return prisma.roomSupply.update({ where: { id }, data: { status: 'REJECTED', reservedQty: 0 } });
+    if (supply.status === 'REJECTED') return { ok: true, already: true };
+    if (supply.status !== 'RESERVED' && supply.status !== 'PENDING') throw new ConflictError('La solicitud ya fue procesada.');
+
+    const roomNum = (await prisma.room.findUnique({ where: { id: supply.roomId }, select: { number: true } }))?.number ?? '';
+
+    // Importe pagado atribuible a la línea del suministro (proporcional si el pago fue parcial).
+    let refund = 0;
+    let saleInfo: { id: string; cashSessionId: string | null } | null = null;
+    if (supply.saleId) {
+      const s = await prisma.sale.findUnique({ where: { id: supply.saleId }, include: { items: true, payments: true } });
+      if (s && s.status !== 'CANCELLED') {
+        const paid = s.payments.reduce((a, p) => a + Number(p.amount), 0);
+        const total = Number(s.total);
+        const item = supply.saleItemId ? s.items.find((it) => it.id === supply.saleItemId) : s.items.find((it) => it.description === supply.description && !it.voided);
+        const lineSubtotal = item ? Number(item.subtotal) : 0;
+        saleInfo = { id: s.id, cashSessionId: s.cashSessionId };
+        if (!supply.courtesy && lineSubtotal > 0 && total > 0 && paid > 0) {
+          refund = round(Math.min(lineSubtotal, lineSubtotal * (paid / total)));
+        }
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const guard = await tx.roomSupply.updateMany({
+        where: { id, status: { in: ['RESERVED', 'PENDING'] } },
+        data: { status: 'REJECTED', reservedQty: 0, rejectedByUserId: scope.userId, rejectedReason: reason?.trim() || null, rejectedAt: new Date(), refundAmount: refund > 0 ? refund : null },
+      });
+      if (guard.count === 0) throw new ConflictError('La solicitud ya fue procesada.');
+      // Devolución pendiente (no mueve caja): recepción la entrega/confirma luego con el flujo de vuelto.
+      if (refund > 0 && supply.stayId) {
+        await tx.changeCredit.create({ data: {
+          branchId, stayId: supply.stayId, room: roomNum || null, originSessionId: saleInfo?.cashSessionId ?? null,
+          amount: refund, remaining: refund, status: 'PENDIENTE', createdByUserId: scope.userId,
+          note: `Devolución por servicio rechazado: ${supply.description}${reason?.trim() ? ` · ${reason.trim()}` : ''}`,
+        } });
+      }
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    // Anular SOLO la línea del cargo (voidLine maneja su propia tx y no toca las demás líneas).
+    if (saleInfo && supply.saleItemId) {
+      try { await salesService.voidLine(scope, saleInfo.id, { itemId: supply.saleItemId, reason: `Servicio rechazado en limpieza${reason?.trim() ? `: ${reason.trim()}` : ''}` }); }
+      catch { /* la línea pudo anularse/ya no existir; el rechazo igual procede */ }
+    }
+
+    void recordActivity(scope, {
+      activity: 'SUPPLY_REJECT', area: 'VENTAS', roomId: supply.roomId, entityId: id, reference: `Hab. ${roomNum}`,
+      detail: `Servicio rechazado — Hab. ${roomNum}. Cargo anulado.${refund > 0 ? ` Devolución pendiente: S/ ${refund.toFixed(2)}.` : ''}${reason?.trim() ? ` Motivo: ${reason.trim()}` : ''}`,
+      meta: { supplyId: id, saleId: supply.saleId, refund, reason: reason?.trim() || null },
+    });
+    return { ok: true, refund };
   },
 };

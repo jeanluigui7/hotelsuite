@@ -1980,8 +1980,15 @@ model RoomSupply {
   linenItemId         String? // variante física elegida por cleaning al entregar (null mientras está reservada)
   reservedQty         Int     @default(0)
   saleId              String? // venta/cargo asociado
+  saleItemId          String? // línea de la venta (para anular SOLO esa línea al rechazar)
   courtesy            Boolean @default(false)
   courtesyReason      String?
+  deliveredByUserId   String? // quién confirmó la entrega (limpieza)
+  deliveredJson       String? @db.NVarChar(Max) // variantes entregadas: [{linenItemId,name,qty}]
+  rejectedByUserId    String?
+  rejectedReason      String?
+  rejectedAt          DateTime?
+  refundAmount        Decimal? @db.Decimal(10, 2) // devolución pendiente generada al rechazar (si hubo pago)
   createdByUserId String?
   createdAt       DateTime  @default(now())
   deliveredAt     DateTime?

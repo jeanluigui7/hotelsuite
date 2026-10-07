@@ -5,15 +5,19 @@ import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
-import { forkJoin } from 'rxjs';
+import { forkJoin, map } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { FrigobarInspectionComponent } from './frigobar-inspection.component';
 import { FrigobarRepositionComponent } from './frigobar-reposition.component';
 
 interface CleanRoom { id: string; number: string; floor?: string | null; status: string; typeName: string; repaso: boolean; mantenimiento?: boolean; enCurso: boolean; revision?: boolean; renewal?: boolean; taskId: string | null; startedAt?: string | null; frigobarEnabled?: boolean; stayId?: string | null; frigobarReposition?: { reviewId: string; pending: { name: string; qty: number }[]; count: number } | null; }
-interface Supply { id: string; roomId: string; room: string; floor?: string | null; roomType?: string; description: string; category?: string; quantity: number; }
+interface Supply { id: string; roomId: string; room: string; floor?: string | null; roomType?: string; description: string; category?: string; quantity: number; status?: string; conceptId?: string | null; courtesy?: boolean; courtesyReason?: string | null; saleId?: string | null; }
 interface SupplyGroup { roomId: string; room: string; floor?: string | null; roomType?: string; items: Supply[]; }
+interface DeliverVariant { id: string; name: string; size: string | null; color: string | null; available: number; }
+/** Una fila = una unidad solicitada (1 unidad = 1 fila). La cantidad la fija recepción; cleaning no la cambia. */
+interface DeliverRow { key: string; supplyId: string; tipo: string; size: string | null; chosenId: string | null; chosenName: string; variants: DeliverVariant[]; }
+interface DeliverSupply { id: string; concept: string; courtesy: boolean; courtesyReason?: string | null; quantity: number; }
 interface LinenItem { id: string; type: string; name: string; color?: string | null; reusable: boolean; }
 type UnitDecision = 'QUEDA' | 'RETIRA' | null;
 type UnitIncidencia = null | 'ROBADA' | 'DETERIORADA';
@@ -385,20 +389,58 @@ const ACCIONES_PERIODICAS = [
     </p-dialog>
 
     <!-- Confirmar entrega de suministro -->
-    <p-dialog [(visible)]="delVisible" [modal]="true" [style]="{ width: '40rem', maxWidth: '95vw' }" styleClass="dk-dialog">
-      <ng-template pTemplate="header"><div class="del-head"><i class="pi pi-box"></i> Confirmar Entrega - Habitación {{ delGroup?.room }}</div></ng-template>
-      <div class="instr"><strong>Instrucciones:</strong> Los siguientes items fueron solicitados desde recepción. Por favor, confirma que los has entregado a la habitación.</div>
-      <h4 class="del-h">Items a entregar:</h4>
-      @for (it of delGroup?.items || []; track it.id) {
-        <div class="del-item">
-          <i class="pi pi-check-circle"></i>
-          <div><strong>{{ it.description }}</strong><div class="muted">Cantidad: <b>{{ it.quantity }}</b> unidad</div><div class="muted">Categoría: {{ it.category }}</div></div>
+    <p-dialog [(visible)]="delVisible" [modal]="true" [header]="''" [style]="{ width: '46rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      <div class="dl-head">
+        <div class="dl-title">PRENDAS A ENTREGAR · HABITACIÓN {{ delGroup?.room }}</div>
+        <div class="dl-sub">{{ delCount() }} PRENDA(S) SOLICITADA(S) POR RECEPCIÓN</div>
+        <div class="dl-instr">Si alguna prenda es diferente, presiona <span class="chg-tag"><i class="pi pi-sync"></i> CAMBIAR</span>.</div>
+      </div>
+
+      @if (delLoading()) { <p class="muted center" style="padding:1rem">Cargando prendas…</p> }
+      @else {
+        <div class="cat">
+          <div class="cat-cols dl"><span>TIPO</span><span>COLOR</span><span class="c-acc">ACCIÓN</span></div>
+          @for (r of delRows(); track r.key) {
+            <div class="urow dl" [class.off]="!r.chosenId">
+              <div class="u-it"><div class="u-top"><span class="u-name">{{ r.tipo }}</span></div><div class="u-clasif">{{ r.size || 'Estándar' }}</div></div>
+              <div class="dl-color">{{ r.chosenName || 'Seleccionar prenda' }}</div>
+              <div class="u-acc">
+                @if (r.variants.length) { <button class="chg" (click)="togglePick(r)"><i class="pi pi-sync"></i> CAMBIAR</button> }
+                @else { <span class="nostock"><i class="pi pi-exclamation-triangle"></i> Sin stock</span> }
+              </div>
+              @if (pickRowKey() === r.key) {
+                <div class="pick">
+                  @for (v of r.variants; track v.id) {
+                    <button class="pick-opt" [class.on]="v.id === r.chosenId" [disabled]="v.id !== r.chosenId && freeFor(r, v) <= 0" (click)="chooseDeliver(r, v)">
+                      <span class="po-n">{{ v.name }}</span>@if (v.size) { <em>{{ v.size }}</em> } <small>disp. {{ freeFor(r, v) }}</small>
+                    </button>
+                  } @empty { <span class="muted sm">No hay variantes compatibles con stock.</span> }
+                </div>
+              }
+            </div>
+          } @empty { <div class="urow"><span class="muted" style="padding:.5rem">No hay prendas por entregar.</span></div> }
         </div>
+
+        <!-- Solicitudes (cortesía / observación) + rechazo por solicitud -->
+        @for (s of delSupplies(); track s.id) {
+          <div class="dl-sol">
+            <div class="dl-sol-i"><b>{{ s.concept }}</b> <span class="sol-q">{{ s.quantity }} u.</span> @if (s.courtesy) { <span class="cort-badge"><i class="pi pi-gift"></i> Cortesía</span> } @if (s.courtesyReason) { <small>· {{ s.courtesyReason }}</small> }</div>
+            @if (rejectingId === s.id) {
+              <div class="dl-rej">
+                <input pInputText [(ngModel)]="rejectReason" placeholder="Motivo del rechazo (breve)" />
+                <button class="rej-ok" [disabled]="busy()" (click)="confirmRejectSupply(s)">Confirmar rechazo</button>
+                <button class="rej-x" (click)="cancelReject()">Cancelar</button>
+              </div>
+            } @else {
+              <button class="rej-link" (click)="startReject(s)"><i class="pi pi-times-circle"></i> Rechazar solicitud</button>
+            }
+          </div>
+        }
       }
+
       <ng-template pTemplate="footer">
-        <p-button label="Rechazar Entrega" icon="pi pi-times-circle" severity="danger" [loading]="busy()" (onClick)="confirmReject()" />
-        <p-button label="Cerrar" severity="secondary" [text]="true" (onClick)="delVisible = false" />
-        <p-button label="Confirmar Entrega" icon="pi pi-check-circle" severity="success" [loading]="busy()" (onClick)="confirmDeliver()" />
+        <p-button label="Cancelar" [text]="true" (onClick)="delVisible = false" />
+        <p-button label="Entregar" icon="pi pi-check" iconPos="right" severity="success" [disabled]="!canDeliver()" [loading]="busy()" (onClick)="confirmDeliver()" />
       </ng-template>
     </p-dialog>
 
@@ -547,6 +589,25 @@ const ACCIONES_PERIODICAS = [
       .pick-opt { display: inline-flex; align-items: center; gap: 0.4rem; background: #14262f; border: 1px solid #2f4f6b; color: #dbe7f0; border-radius: 9px; padding: 0.45rem 0.7rem; font-size: 0.84rem; cursor: pointer; }
       .pick-opt.on { background: #00A83B; border-color: #00A83B; color: #fff; }
       .pick-opt em { color: #8aa0bd; font-style: normal; } .pick-opt.on em { color: #d1fae5; } .pick-opt small { color: #8aa0bd; } .pick-opt.on small { color: #d1fae5; } .po-n { font-weight: 700; }
+      .pick-opt:disabled { opacity: 0.4; cursor: not-allowed; }
+      /* Modal PRENDAS A ENTREGAR */
+      .dl-head { padding: 0.1rem 0 0.7rem; }
+      .dl-title { font-size: 1.3rem; font-weight: 800; color: #fff; letter-spacing: 0.02em; }
+      .dl-sub { font-size: 0.92rem; font-weight: 700; color: #cfe0f5; margin-top: 0.15rem; letter-spacing: 0.03em; }
+      .dl-instr { margin-top: 0.45rem; font-size: 0.85rem; color: #f87171; font-weight: 700; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+      .cat-cols.dl { display: grid; grid-template-columns: 1fr 12rem 11rem; gap: 0.5rem; }
+      .cat-cols.dl .c-acc { width: auto; text-align: left; }
+      .urow.dl { display: grid; grid-template-columns: 1fr 12rem 11rem; align-items: center; gap: 0.5rem; }
+      .urow.dl .pick { grid-column: 1 / -1; }
+      .dl-color { font-weight: 700; color: #fff; }
+      .dl-sol { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; border-top: 1px solid #16283580; padding: 0.5rem 0.2rem; }
+      .dl-sol-i b { color: #e6edf5; } .dl-sol-i small { color: #8aa0bd; } .sol-q { color: #8aa0bd; font-size: 0.8rem; }
+      .cort-badge { background: rgba(124,58,237,.18); color: #c4b5fd; border-radius: 999px; padding: 0.1rem 0.5rem; font-size: 0.72rem; font-weight: 700; }
+      .rej-link { background: none; border: 0; color: #f87171; cursor: pointer; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.3rem; }
+      .dl-rej { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+      .dl-rej input { background: #0f1a2b; border: 1px solid #243245; color: #e6edf5; border-radius: 8px; padding: 0.4rem 0.6rem; font: inherit; }
+      .rej-ok { background: #dc2626; border: 0; color: #fff; border-radius: 8px; padding: 0.4rem 0.7rem; font-weight: 700; cursor: pointer; } .rej-ok:disabled { opacity: 0.5; }
+      .rej-x { background: transparent; border: 1px solid #243245; color: #cdd8e6; border-radius: 8px; padding: 0.4rem 0.7rem; cursor: pointer; }
       .inc-opts { display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.4rem; }
       .inc-op { display: flex; flex-direction: column; align-items: flex-start; gap: 0.15rem; text-align: left; border-radius: 10px; padding: 0.7rem 0.9rem; cursor: pointer; border: 1px solid #2f4f6b; background: #14262f; color: #dbe7f0; }
       .inc-op b { font-size: 0.95rem; } .inc-op small { color: #8aa0bd; font-weight: 400; } .inc-op .pi { margin-right: 0.3rem; }
@@ -646,6 +707,12 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   });
   delVisible = false;
   delGroup: SupplyGroup | null = null;
+  readonly delRows = signal<DeliverRow[]>([]);
+  readonly delSupplies = signal<DeliverSupply[]>([]);
+  readonly delLoading = signal(false);
+  readonly pickRowKey = signal<string>(''); // fila cuyo selector CAMBIAR está abierto
+  rejectingId = ''; // solicitud en proceso de rechazo (motivo visible)
+  rejectReason = '';
   iniciarVisible = false;
   iniStep: 'fase1' | 'confirmar' = 'fase1';
   selRoom: CleanRoom | null = null;
@@ -750,7 +817,7 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
 
   reload(): void {
     this.http.get<ApiResponse<CleanRoom[]>>(`${this.api}/cleaning/rooms`).subscribe((r) => this.rooms.set(r.data ?? []));
-    this.http.get<ApiResponse<Supply[]>>(`${this.api}/services/supplies?status=PENDING`).subscribe((r) => this.supplies.set(r.data ?? []));
+    this.http.get<ApiResponse<Supply[]>>(`${this.api}/services/supplies?status=RESERVED`).subscribe((r) => this.supplies.set(r.data ?? []));
     this.http.get<ApiResponse<{ cleaningTimeLimitMin?: number }>>(`${this.api}/operations-config`)
       .subscribe((r) => { if (r.data?.cleaningTimeLimitMin != null) this.cleaningLimitMin.set(r.data.cleaningTimeLimitMin); });
   }
@@ -766,26 +833,71 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   }
 
   groupQty(g: SupplyGroup): number { return g.items.reduce((n, it) => n + (it.quantity || 0), 0); }
-  openDeliver(g: SupplyGroup): void { this.delGroup = g; this.delVisible = true; }
+  delCount(): number { return this.delRows().length; }
 
-  /** Confirma la entrega de los suministros de la habitación (descuenta del inventario). */
+  /** Abre "PRENDAS A ENTREGAR": expande cada solicitud a 1 fila por unidad con una variante propuesta. */
+  openDeliver(g: SupplyGroup): void {
+    this.delGroup = g; this.delVisible = true; this.rejectingId = ''; this.rejectReason = ''; this.pickRowKey.set('');
+    this.delRows.set([]); this.delSupplies.set([]); this.delLoading.set(true);
+    forkJoin(g.items.map((s) => this.http.get<ApiResponse<DeliverVariant[]>>(`${this.api}/services/supplies/${s.id}/variants`).pipe(map((r) => ({ s, variants: r.data ?? [] })))))
+      .subscribe({
+        next: (list) => {
+          const rows: DeliverRow[] = []; const supplies: DeliverSupply[] = []; const usage = new Map<string, number>(); let seq = 0;
+          for (const { s, variants } of list) {
+            supplies.push({ id: s.id, concept: s.description, courtesy: !!s.courtesy, courtesyReason: s.courtesyReason, quantity: s.quantity });
+            for (let u = 0; u < s.quantity; u++) {
+              const v = variants.find((x) => x.available - (usage.get(x.id) ?? 0) > 0) ?? variants[0] ?? null;
+              if (v) usage.set(v.id, (usage.get(v.id) ?? 0) + 1);
+              rows.push({ key: `U${seq++}`, supplyId: s.id, tipo: s.category || 'Prenda', size: v?.size ?? null, chosenId: v?.id ?? null, chosenName: v?.name ?? '', variants });
+            }
+          }
+          this.delRows.set(rows); this.delSupplies.set(supplies); this.delLoading.set(false);
+        },
+        error: () => { this.delLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las prendas.' }); },
+      });
+  }
+
+  /** Stock libre de una variante para una fila (resta lo que ya eligieron las OTRAS filas). */
+  freeFor(row: DeliverRow, v: DeliverVariant): number {
+    const usedByOthers = this.delRows().filter((r) => r.key !== row.key && r.chosenId === v.id).length;
+    return (v.available ?? 0) - usedByOthers;
+  }
+  togglePick(row: DeliverRow): void { this.pickRowKey.set(this.pickRowKey() === row.key ? '' : row.key); }
+  chooseDeliver(row: DeliverRow, v: DeliverVariant): void {
+    if (v.id !== row.chosenId && this.freeFor(row, v) <= 0) { this.toast.add({ severity: 'warn', summary: 'Sin stock', detail: `No queda stock libre de ${v.name}.` }); return; }
+    row.chosenId = v.id; row.chosenName = v.name; row.size = v.size;
+    this.pickRowKey.set(''); this.delRows.set([...this.delRows()]);
+  }
+  canDeliver(): boolean { return !this.busy() && this.delRows().length > 0 && this.delRows().every((r) => !!r.chosenId); }
+
+  /** ENTREGAR: confirma todas las unidades; cada solicitud se entrega con sus variantes (una sola vez). */
   confirmDeliver(): void {
-    const g = this.delGroup;
-    if (!g) return;
+    const g = this.delGroup; if (!g || !this.canDeliver()) return;
+    const bySupply = new Map<string, string[]>();
+    for (const r of this.delRows()) { const arr = bySupply.get(r.supplyId) ?? []; arr.push(r.chosenId as string); bySupply.set(r.supplyId, arr); }
     this.busy.set(true);
-    forkJoin(g.items.map((it) => this.http.post<ApiResponse<unknown>>(`${this.api}/services/supplies/${it.id}/deliver`, {}))).subscribe({
-      next: () => { this.busy.set(false); this.delVisible = false; this.toast.add({ severity: 'success', summary: 'Entregado', detail: `Hab. ${g.room}: suministro entregado y descontado del inventario.` }); this.reload(); },
-      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
+    forkJoin([...bySupply.entries()].map(([sid, units]) => this.http.post<ApiResponse<unknown>>(`${this.api}/services/supplies/${sid}/deliver`, { units }))).subscribe({
+      next: () => { this.busy.set(false); this.delVisible = false; this.toast.add({ severity: 'success', summary: 'Entregado', detail: `Hab. ${g.room}: prendas entregadas y descontadas.` }); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo entregar.' }); this.reload(); },
     });
   }
 
-  confirmReject(): void {
-    const g = this.delGroup;
-    if (!g) return;
+  startReject(s: DeliverSupply): void { this.rejectingId = s.id; this.rejectReason = ''; }
+  cancelReject(): void { this.rejectingId = ''; this.rejectReason = ''; }
+  confirmRejectSupply(s: DeliverSupply): void {
     this.busy.set(true);
-    forkJoin(g.items.map((it) => this.http.post<ApiResponse<unknown>>(`${this.api}/services/supplies/${it.id}/reject`, {}))).subscribe({
-      next: () => { this.busy.set(false); this.delVisible = false; this.toast.add({ severity: 'warn', summary: 'Rechazado', detail: `Hab. ${g.room}: entrega rechazada.` }); this.reload(); },
-      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },
+    this.http.post<ApiResponse<{ refund: number }>>(`${this.api}/services/supplies/${s.id}/reject`, { reason: this.rejectReason.trim() || undefined }).subscribe({
+      next: (res) => {
+        this.busy.set(false); this.rejectingId = '';
+        const refund = res.data?.refund ?? 0;
+        this.toast.add({ severity: 'warn', summary: 'Solicitud rechazada', detail: refund > 0 ? `Cargo anulado · Devolución pendiente S/ ${refund.toFixed(2)} (recepción).` : 'Cargo anulado.' });
+        // Quitar la solicitud del modal; si no quedan, cerrar.
+        this.delSupplies.set(this.delSupplies().filter((x) => x.id !== s.id));
+        this.delRows.set(this.delRows().filter((r) => r.supplyId !== s.id));
+        if (!this.delSupplies().length) this.delVisible = false;
+        this.reload();
+      },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo rechazar.' }); },
     });
   }
   loadLinen(): void { this.http.get<ApiResponse<LinenItem[]>>(`${this.api}/cleaning/linen-items`).subscribe((r) => this.linen.set(r.data ?? [])); }
@@ -816,7 +928,7 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
       }
       this.rows.set(units);
       // ADICIONAL: suministros pendientes de la habitación (retiro obligatorio).
-      this.http.get<ApiResponse<{ id: string; room: string; description: string; quantity?: number }[]>>(`${this.api}/services/supplies?status=PENDING`).subscribe((res2) => {
+      this.http.get<ApiResponse<{ id: string; room: string; description: string; quantity?: number }[]>>(`${this.api}/services/supplies?status=RESERVED`).subscribe((res2) => {
         const sups = (res2.data ?? []).filter((s) => s.room === r.number);
         if (!sups.length) return;
         const extras: UnitRow[] = [];

@@ -715,7 +715,12 @@ export const cleaningService = {
       prisma.roomSupply.findMany({ where: { branchId, status: 'DELIVERED' }, orderBy: { deliveredAt: 'desc' }, take: 500 }),
     ]);
     const rmap = new Map(rooms.map((r) => [r.id, r]));
-    const userIds = [...new Set([...tasks.map((t) => t.assignedToUserId), ...supplies.map((s) => s.createdByUserId)].filter((x): x is string => !!x))];
+    const userIds = [...new Set([...tasks.map((t) => t.assignedToUserId), ...supplies.map((s) => s.createdByUserId), ...supplies.map((s) => s.deliveredByUserId)].filter((x): x is string => !!x))];
+    // Prendas realmente entregadas por variante (deliveredJson) o, si no existe, el concepto+cantidad.
+    const deliveredItems = (s: (typeof supplies)[number]): { name: string; units: number }[] => {
+      if (s.deliveredJson) { try { const arr = JSON.parse(s.deliveredJson) as { name: string; qty: number }[]; if (Array.isArray(arr) && arr.length) return arr.map((x) => ({ name: x.name, units: x.qty })); } catch { /* usar fallback */ } }
+      return [{ name: s.description, units: s.quantity }];
+    };
     const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } });
     const umap = new Map(users.map((u) => [u.id, u.name]));
 
@@ -764,7 +769,7 @@ export const cleaningService = {
         id: t.id, kind: 'TASK', dateTime: t.createdAt, fin: t.completedAt, roomNumber: r.number, floor: r.floor, tipo, estadoFinal,
         estado: 'Finalizado', durationMinutes, excedido: durationMinutes > LIMIT_MIN,
         recogidos, dejados: groupCount(dejadasInsp), repuestos: recogidos, // cada prenda recogida se repone con una limpia
-        adicionales: adic.map((a) => ({ name: a.description, units: a.quantity, cortesia: true })),
+        adicionales: adic.flatMap((a) => deliveredItems(a).map((d) => ({ name: d.name, units: d.units, cortesia: a.courtesy }))),
         extra: adic.reduce((n, a) => n + a.quantity, 0),
         user: t.assignedToUserId ? (umap.get(t.assignedToUserId) ?? '—') : '—',
       };
@@ -776,9 +781,9 @@ export const cleaningService = {
         roomNumber: r?.number ?? '—', floor: r?.floor ?? null, tipo: 'ADICIONAL', estadoFinal: 'Ocupada',
         estado: 'Finalizado', durationMinutes: 0, excedido: false,
         recogidos: [] as { name: string; units: number }[], dejados: [] as { name: string; units: number }[], repuestos: [] as { name: string; units: number }[],
-        adicionales: [{ name: s.description, units: s.quantity, cortesia: true }],
+        adicionales: deliveredItems(s).map((d) => ({ name: d.name, units: d.units, cortesia: s.courtesy })),
         extra: s.quantity,
-        user: s.createdByUserId ? (umap.get(s.createdByUserId) ?? '—') : '—',
+        user: s.deliveredByUserId ? (umap.get(s.deliveredByUserId) ?? '—') : (s.createdByUserId ? (umap.get(s.createdByUserId) ?? '—') : '—'),
       };
     }
 
