@@ -346,6 +346,7 @@ model ChangeCredit {
   originSessionId String? // caja donde nació el vuelto
   amount          Decimal   @db.Decimal(10, 2) // vuelto original
   remaining       Decimal   @db.Decimal(10, 2) // saldo pendiente
+  kind            String    @default("CHANGE") // CHANGE (vuelto) | REFUND (devolución por servicio rechazado)
   status          String    @default("PENDIENTE") // PENDIENTE | ENTREGADO | CONSUMIDO | NO_RECLAMADO
   createdByUserId String?
   createdAt       DateTime  @default(now())
@@ -1711,6 +1712,9 @@ model SaleItem {
   unitPrice   Decimal  @db.Decimal(10, 2)
   unitCost    Decimal? @db.Decimal(10, 2)
   subtotal    Decimal  @db.Decimal(10, 2)
+  // Clasificación determinista de la línea (no por texto): SERVICE | PENALTY (null = producto/hospedaje).
+  conceptKind String?
+  courtesy    Boolean  @default(false) // la línea se entregó/registró como cortesía (importe 0, sin cobro)
   // Anulación POR LÍNEA (corrección administrativa): se excluye de los totales válidos pero se
   // conserva la fila como ANULADA para auditoría. No toca las otras líneas.
   voided         Boolean   @default(false)

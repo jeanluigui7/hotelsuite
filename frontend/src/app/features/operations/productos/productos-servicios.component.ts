@@ -19,6 +19,9 @@ interface Mov {
   amount: number;
   method: string;
   concept: string;
+  tipo?: string | null;
+  courtesy?: boolean;
+  voided?: boolean;
   collaborator: string;
   collaboratorId: string | null;
   shift: string;
@@ -32,10 +35,10 @@ interface MovResp {
   rooms: { id: string; number: string }[];
 }
 
-const CONCEPT_LABEL: Record<string, string> = { HOSPEDAJE: 'Hospedaje', PRODUCTOS: 'Productos', SERVICIOS: 'Servicios', PENALIDADES: 'Penalidades' };
+const CONCEPT_LABEL: Record<string, string> = { HOSPEDAJE: 'Hospedaje', PRODUCTOS: 'Productos', SERVPEN: 'Servicios/Penalidades', SERVICIOS: 'Servicios/Penalidades', PENALIDADES: 'Servicios/Penalidades' };
 const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera', PENDIENTE: 'Pendiente', MIXTO: 'Mixto' };
 const SHIFT_LABEL: Record<string, string> = { MANANA: 'Turno Mañana', TARDE: 'Turno Tarde', NOCHE: 'Turno Noche' };
-const CONCEPT_COLOR: Record<string, string> = { HOSPEDAJE: '#3b82f6', PRODUCTOS: '#22c55e', SERVICIOS: '#f59e0b', PENALIDADES: '#ef4444' };
+const CONCEPT_COLOR: Record<string, string> = { HOSPEDAJE: '#3b82f6', PRODUCTOS: '#22c55e', SERVPEN: '#f59e0b', SERVICIOS: '#f59e0b', PENALIDADES: '#f59e0b' };
 const SHIFTS = ['MANANA', 'TARDE', 'NOCHE'];
 // Rango horario por defecto (solo para etiqueta cuando el turno no tiene movimientos).
 const SHIFT_RANGE: Record<string, string> = { MANANA: '06:30 - 14:30', TARDE: '14:30 - 22:30', NOCHE: '22:30 - 06:30' };
@@ -68,10 +71,9 @@ function currentShiftIdx(): number {
       </div>
 
       <div class="qbar">
-        <button class="q p" [class.on]="fConcept === 'PRODUCTOS'" (click)="fConcept = 'PRODUCTOS'"><i class="pi pi-shopping-cart"></i> Productos</button>
-        <button class="q s" [class.on]="fConcept === 'SERVICIOS'" (click)="fConcept = 'SERVICIOS'"><i class="pi pi-gift"></i> Servicios</button>
-        <button class="q pe" [class.on]="fConcept === 'PENALIDADES'" (click)="fConcept = 'PENALIDADES'"><i class="pi pi-exclamation-triangle"></i> Penalidades</button>
         <button class="q v" [class.on]="fConcept === 'ALL'" (click)="fConcept = 'ALL'"><i class="pi pi-list"></i> Ver Todos</button>
+        <button class="q p" [class.on]="fConcept === 'PRODUCTOS'" (click)="fConcept = 'PRODUCTOS'"><i class="pi pi-shopping-cart"></i> Productos</button>
+        <button class="q s" [class.on]="fConcept === 'SERVPEN'" (click)="fConcept = 'SERVPEN'"><i class="pi pi-gift"></i> Servicios/Penalidades</button>
         <span class="sp"></span>
         <button class="act limpiar" (click)="clear()"><i class="pi pi-refresh"></i> Limpiar</button>
         <button class="act excel" (click)="exportCsv()"><i class="pi pi-download"></i> Exportar Excel</button>
@@ -104,13 +106,13 @@ function currentShiftIdx(): number {
                 @for (m of rows; track m.id) {
                   <tr>
                     <td>{{ m.date | date: 'dd/MM/yyyy HH:mm' }}</td>
-                    <td>{{ m.description }}</td>
+                    <td>{{ m.description }}@if (m.courtesy) { <span class="cort">CORTESÍA</span> }@if (m.voided) { <span class="anul">ANULADO</span> }</td>
                     <td class="c">@if (m.roomNumber) { <span class="room">{{ m.roomNumber }}</span> } @else { <span class="muted">—</span> }</td>
                     <td class="c"><span class="tipo">{{ m.type }}</span></td>
                     <td class="c">{{ m.quantity }}</td>
                     <td class="r money">@if (canSeeAmounts()) { S/ {{ m.amount | number: '1.2-2' }} } @else { <span class="hidden"><i class="pi pi-lock"></i></span> }</td>
-                    <td>{{ methodLabel(m.method) }}</td>
-                    <td><span class="concept" [style.background]="conceptBg(m.concept)" [style.color]="conceptFg(m.concept)">{{ conceptLabel(m.concept) }}</span></td>
+                    <td>{{ m.courtesy ? 'No aplica' : methodLabel(m.method) }}</td>
+                    <td><span class="concept" [style.background]="conceptBg(m.concept)" [style.color]="conceptFg(m.concept)">{{ conceptLabel(m.concept) }}</span>@if (m.tipo) { <div class="subtipo">{{ m.tipo === 'PENALIDAD' ? 'Penalidad' : 'Servicio' }}</div> }</td>
                     <td>{{ m.collaborator }}</td>
                   </tr>
                 } @empty { <tr><td colspan="9" class="empty">Sin movimientos en este turno.</td></tr> }
@@ -156,6 +158,9 @@ function currentShiftIdx(): number {
       .money { color: #34d399; font-weight: 700; }
       .hidden { color: #64748b; font-weight: 600; }
       .concept { border-radius: 6px; padding: 0.12rem 0.6rem; font-size: 0.7rem; font-weight: 700; }
+      .subtipo { font-size: 0.66rem; color: #8aa0bd; margin-top: 0.15rem; }
+      .cort { margin-left: 0.4rem; background: rgba(124,58,237,0.2); color: #c4b5fd; border-radius: 999px; padding: 0.05rem 0.45rem; font-size: 0.64rem; font-weight: 700; }
+      .anul { margin-left: 0.4rem; background: rgba(248,113,113,0.2); color: #fca5a5; border-radius: 999px; padding: 0.05rem 0.45rem; font-size: 0.64rem; font-weight: 700; }
       @media (max-width: 900px) { .filters { grid-template-columns: repeat(2, 1fr); } }
     `,
   ],
@@ -176,7 +181,7 @@ export class ProductosServiciosComponent implements OnInit {
   readonly serverCollabs = signal<{ id: string; name: string }[]>([]);
   readonly serverRooms = signal<{ id: string; number: string }[]>([]);
 
-  fConcept = 'PRODUCTOS';
+  fConcept = 'ALL';
   fMethod = 'ALL';
   fRoom: string | null = null;
   fCollab: string | null = null;
@@ -185,7 +190,7 @@ export class ProductosServiciosComponent implements OnInit {
   curShift = signal(currentShiftIdx());
 
   readonly conceptOpts = [
-    { label: 'Todos', value: 'ALL' }, { label: 'Productos', value: 'PRODUCTOS' }, { label: 'Servicios', value: 'SERVICIOS' }, { label: 'Penalidades', value: 'PENALIDADES' },
+    { label: 'Todos', value: 'ALL' }, { label: 'Productos', value: 'PRODUCTOS' }, { label: 'Servicios/Penalidades', value: 'SERVPEN' },
   ];
   readonly methodOpts = [
     { label: 'Todos', value: 'ALL' }, { label: 'Efectivo', value: 'CASH' }, { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Pendiente', value: 'PENDIENTE' },
@@ -225,7 +230,7 @@ export class ProductosServiciosComponent implements OnInit {
       .filter((m) => !q || m.description.toLowerCase().includes(q))
       .sort((a, b) => (a.date < b.date ? 1 : -1));
   });
-  turnTotal(): number { return Math.round(this.turnRows().reduce((a, m) => a + m.amount, 0) * 100) / 100; }
+  turnTotal(): number { return Math.round(this.turnRows().filter((m) => !m.voided).reduce((a, m) => a + m.amount, 0) * 100) / 100; }
 
   prevTurn(): void {
     let s = this.curShift() - 1;
@@ -241,7 +246,7 @@ export class ProductosServiciosComponent implements OnInit {
   onDayChange(): void { this.load(); }
 
   clear(): void {
-    this.fConcept = 'PRODUCTOS'; this.fMethod = 'ALL'; this.fRoom = null; this.fCollab = null; this.fSearch = '';
+    this.fConcept = 'ALL'; this.fMethod = 'ALL'; this.fRoom = null; this.fCollab = null; this.fSearch = '';
     this.fDay = ymd(new Date()); this.curShift.set(currentShiftIdx()); this.load();
   }
 

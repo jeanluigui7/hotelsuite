@@ -1,0 +1,23 @@
+BEGIN TRY
+
+BEGIN TRAN;
+
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+
+IF COL_LENGTH('dbo.SaleItem', 'conceptKind') IS NULL ALTER TABLE [dbo].[SaleItem] ADD [conceptKind] NVARCHAR(1000) NULL;
+IF COL_LENGTH('dbo.SaleItem', 'courtesy') IS NULL ALTER TABLE [dbo].[SaleItem] ADD [courtesy] BIT NOT NULL CONSTRAINT [SaleItem_courtesy_df] DEFAULT 0;
+IF COL_LENGTH('dbo.ChangeCredit', 'kind') IS NULL ALTER TABLE [dbo].[ChangeCredit] ADD [kind] NVARCHAR(1000) NOT NULL CONSTRAINT [ChangeCredit_kind_df] DEFAULT 'CHANGE';
+
+COMMIT TRAN;
+
+END TRY
+BEGIN CATCH
+
+IF @@TRANCOUNT > 0
+BEGIN
+    ROLLBACK TRAN;
+END;
+THROW
+
+END CATCH

@@ -17,6 +17,8 @@ export interface SaleLineInput {
   unitPrice: number;
   unitCost: number | null;
   subtotal: number;
+  conceptKind?: string | null; // SERVICE | PENALTY (clasificación determinista de la línea)
+  courtesy?: boolean;
 }
 
 export interface SalePaymentInput {

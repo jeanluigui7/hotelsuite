@@ -93,10 +93,12 @@ export const changeCreditsService = {
   async pendingAll(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);
     const credits = await prisma.changeCredit.findMany({ where: { branchId, status: 'PENDIENTE' } });
-    const byStay = new Map<string, { stayId: string; room: string | null; remaining: number }>();
+    // `hasRefund` = alguna línea es devolución por servicio rechazado → el tablero rotula "Devolución pendiente".
+    const byStay = new Map<string, { stayId: string; room: string | null; remaining: number; hasRefund: boolean; hasChange: boolean }>();
     for (const c of credits) {
-      const e = byStay.get(c.stayId) ?? { stayId: c.stayId, room: c.room, remaining: 0 };
+      const e = byStay.get(c.stayId) ?? { stayId: c.stayId, room: c.room, remaining: 0, hasRefund: false, hasChange: false };
       e.remaining = round2(e.remaining + Number(c.remaining));
+      if (c.kind === 'REFUND') e.hasRefund = true; else e.hasChange = true;
       byStay.set(c.stayId, e);
     }
     return [...byStay.values()];

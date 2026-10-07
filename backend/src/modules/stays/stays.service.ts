@@ -598,8 +598,9 @@ export const staysService = {
     const adjPayments = payments;
     const saleTotal = round2(price);
     const paidWithComm = round2(adjPayments.reduce((a, p) => a + p.amount, 0));
-    const saleItems: { description: string; quantity: number; unitPrice: number; subtotal: number }[] = [
-      { description: `${ref}${dto.notes ? ' — ' + dto.notes : ''}`, quantity: 1, unitPrice: price, subtotal: price },
+    // Horas extras (extensión por tiempo) = PENALIDAD; la renovación por noches sigue siendo HOSPEDAJE.
+    const saleItems: { description: string; quantity: number; unitPrice: number; subtotal: number; conceptKind?: string | null }[] = [
+      { description: `${ref}${dto.notes ? ' — ' + dto.notes : ''}`, quantity: 1, unitPrice: price, subtotal: price, conceptKind: dto.mode === 'HOURS' ? 'PENALTY' : null },
     ];
 
     // Solicitud inmediata de limpieza al renovar: solo si YA hay una limpieza habilitada

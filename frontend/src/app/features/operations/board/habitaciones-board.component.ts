@@ -149,7 +149,7 @@ const MANT_CATS = [
               }
               <!-- Vuelto pendiente: visible para TODOS los roles (recepción incluida). -->
               @if (vueltoOf(r.activeStay.id) > 0) {
-                <div class="oc-badges vrow"><span class="ob vuelto" (click)="openDeliverVuelto(r)" title="Entregar vuelto pendiente">💰 Vuelto pendiente S/ {{ vueltoOf(r.activeStay.id) | number: '1.2-2' }}</span></div>
+                <div class="oc-badges vrow"><span class="ob vuelto" (click)="openDeliverVuelto(r)" [title]="vueltoLabel(r.activeStay.id)">💰 {{ vueltoLabel(r.activeStay.id) }} S/ {{ vueltoOf(r.activeStay.id) | number: '1.2-2' }}</span></div>
               }
               <div class="oc-timer">
                 <span class="t" [class.red]="isExpired(r.activeStay)"><i class="pi pi-clock"></i> {{ remainingLabel(r.activeStay) }}</span>
@@ -1676,14 +1676,17 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   reload(): void {
     this.ops.map().subscribe((res) => this.rooms.set(res.data ?? []));
     this.ops.receptionPermissions().subscribe((res) => { if (res.data) this.receptionPerms.set(res.data); });
-    this.http.get<ApiResponse<{ stayId: string; room: string | null; remaining: number }[]>>(`${this.apiUrl}/change-credits/pending`).subscribe({
-      next: (res) => { const m: Record<string, number> = {}; for (const c of res.data ?? []) m[c.stayId] = c.remaining; this.vueltoByStay.set(m); },
+    this.http.get<ApiResponse<{ stayId: string; room: string | null; remaining: number; hasRefund?: boolean }[]>>(`${this.apiUrl}/change-credits/pending`).subscribe({
+      next: (res) => { const m: Record<string, number> = {}; const rf: Record<string, boolean> = {}; for (const c of res.data ?? []) { m[c.stayId] = c.remaining; if (c.hasRefund) rf[c.stayId] = true; } this.vueltoByStay.set(m); this.refundByStay.set(rf); },
       error: () => {/* sin caja/permiso: no pinta vueltos */},
     });
   }
 
-  // ── Vuelto pendiente (saldo de la estancia) ──
+  // ── Vuelto / devolución pendiente (saldo de la estancia) ──
   readonly vueltoByStay = signal<Record<string, number>>({});
+  readonly refundByStay = signal<Record<string, boolean>>({});
+  /** Etiqueta del saldo pendiente: "Devolución" si incluye una devolución por servicio rechazado. */
+  vueltoLabel(stayId?: string | null): string { return stayId && this.refundByStay()[stayId] ? 'Devolución pendiente' : 'Vuelto pendiente'; }
   vueltoDeliverVisible = false;
   vueltoDeliverStayId = '';
   vueltoDeliverRoom = '';

@@ -24,41 +24,41 @@ interface VAuditItem { kind?: 'PAYMENT' | 'MOVEMENT'; paymentId: string; saleId:
 interface VAuditGroup { method: string; code: string | null; amount: number; grossAmount: number; commissionAmount: number; ops: number; room: string | null; client: string; clientShort: string; concept: string; time: string; state: 'VERIFICADO' | 'PENDIENTE' | 'SIN_CODIGO' | 'EN_REVISION' | 'NO_EXISTE'; duplicate: boolean; items: VAuditItem[]; }
 interface VAudit { esperado: { byMethod: Record<string, number>; total: number; grossByMethod?: Record<string, number>; grossTotal?: number; commissionTotal?: number }; groups: VAuditGroup[]; summary: { verifiedAmount: number; verifiedOps: number; pendingAmount: number; sinCodigoCount: number; duplicateCount: number; enRevisionCount: number; noExisteCount?: number; difference: number }; }
 
-const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera', MIXTO: 'Mixto', PENDIENTE: 'Pendiente' };
+const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera', MIXTO: 'Mixto', PENDIENTE: 'Pendiente', NO_APLICA: 'No aplica' };
 const TYPE_LABEL: Record<string, string> = { HOSPEDAJE: 'Hospedaje', RENOVACION: 'Pago Renovación', PRODUCTO: 'Venta Producto', SERVICIO: 'Servicio', INGRESO: 'Ingreso', EGRESO: 'Egreso', DEUDA: 'Deuda' };
 const TYPE_COLOR: Record<string, [string, string]> = {
   HOSPEDAJE: ['rgba(59,130,246,0.18)', '#60a5fa'], RENOVACION: ['rgba(245,158,11,0.2)', '#f59e0b'], PRODUCTO: ['rgba(245,158,11,0.2)', '#fbbf24'],
   SERVICIO: ['rgba(20,184,166,0.2)', '#2dd4bf'], INGRESO: ['rgba(16,185,129,0.18)', '#34d399'], EGRESO: ['rgba(248,113,113,0.18)', '#f87171'],
   DEUDA: ['rgba(248,113,113,0.2)', '#f87171'],
 };
-// Nivel 1 CONCEPTO (color del badge).
-const CONCEPTO_LABEL: Record<string, string> = { HOSPEDAJE: 'Hospedaje', PRODUCTOS: 'Productos', SERVICIOS: 'Servicios', AJUSTES: 'Ajustes', PENALIDADES: 'Penalidades' };
+// Nivel 1 CONCEPTO (color del badge). SERVPEN = Servicios/Penalidades (etiqueta única; el TIPO distingue).
+const CONCEPTO_LABEL: Record<string, string> = { HOSPEDAJE: 'Hospedaje', PRODUCTOS: 'Productos', SERVPEN: 'Servicios/Penalidades', AJUSTES: 'Ajustes', SERVICIOS: 'Servicios/Penalidades', PENALIDADES: 'Servicios/Penalidades' };
 const CONCEPTO_COLOR: Record<string, [string, string]> = {
-  HOSPEDAJE: ['rgba(59,130,246,0.18)', '#60a5fa'], PRODUCTOS: ['rgba(245,158,11,0.2)', '#fbbf24'], SERVICIOS: ['rgba(20,184,166,0.2)', '#2dd4bf'],
-  AJUSTES: ['rgba(148,163,184,0.2)', '#cbd5e1'], PENALIDADES: ['rgba(244,63,94,0.2)', '#fb7185'],
+  HOSPEDAJE: ['rgba(59,130,246,0.18)', '#60a5fa'], PRODUCTOS: ['rgba(245,158,11,0.2)', '#fbbf24'], SERVPEN: ['rgba(20,184,166,0.2)', '#2dd4bf'],
+  AJUSTES: ['rgba(148,163,184,0.2)', '#cbd5e1'], SERVICIOS: ['rgba(20,184,166,0.2)', '#2dd4bf'], PENALIDADES: ['rgba(20,184,166,0.2)', '#2dd4bf'],
 };
 // Nivel 2 TIPO (color + etiqueta bonita del badge). Claves = strings que emite el backend.
 const TIPO2_LABEL: Record<string, string> = {
   'CHECK-IN': 'Check-in', 'EARLY CHECK-IN': 'Early Check-in', 'RENOVACIÓN': 'Renovación', 'RESERVA': 'Reserva',
   'VENTA DIRECTA': 'Venta directa', 'ROOM SERVICE': 'Room Service', 'FRIGOBAR': 'Frigobar',
   'INGRESO': 'Ingreso', 'EGRESO': 'Egreso', 'ENTREGA DE VUELTO': 'Entrega de vuelto', 'VUELTO PENDIENTE': 'Vuelto pendiente',
-  'VENTA EXTRAORDINARIA': 'Venta extraordinaria', 'TIEMPO EXTRA': 'Tiempo extra', 'SERVICIO': 'Servicio',
+  'VENTA EXTRAORDINARIA': 'Venta extraordinaria', 'TIEMPO EXTRA': 'Tiempo extra', 'SERVICIO': 'Servicio', 'PENALIDAD': 'Penalidad',
 };
 const TIPO2_COLOR: Record<string, [string, string]> = {
   'CHECK-IN': ['rgba(59,130,246,0.18)', '#60a5fa'], 'EARLY CHECK-IN': ['rgba(99,102,241,0.2)', '#a5b4fc'], 'RENOVACIÓN': ['rgba(245,158,11,0.2)', '#fbbf24'], 'RESERVA': ['rgba(148,163,184,0.2)', '#cbd5e1'],
   'VENTA DIRECTA': ['rgba(245,158,11,0.18)', '#fbbf24'], 'ROOM SERVICE': ['rgba(20,184,166,0.2)', '#2dd4bf'], 'FRIGOBAR': ['rgba(6,182,212,0.2)', '#22d3ee'],
   'INGRESO': ['rgba(16,185,129,0.18)', '#34d399'], 'EGRESO': ['rgba(248,113,113,0.18)', '#f87171'], 'ENTREGA DE VUELTO': ['rgba(167,139,250,0.2)', '#c4b5fd'], 'VUELTO PENDIENTE': ['rgba(245,158,11,0.2)', '#f59e0b'],
-  'VENTA EXTRAORDINARIA': ['rgba(244,63,94,0.2)', '#fb7185'], 'TIEMPO EXTRA': ['rgba(20,184,166,0.2)', '#2dd4bf'], 'SERVICIO': ['rgba(20,184,166,0.2)', '#2dd4bf'],
+  'VENTA EXTRAORDINARIA': ['rgba(244,63,94,0.2)', '#fb7185'], 'TIEMPO EXTRA': ['rgba(244,63,94,0.2)', '#fb7185'], 'SERVICIO': ['rgba(20,184,166,0.2)', '#2dd4bf'], 'PENALIDAD': ['rgba(244,63,94,0.2)', '#fb7185'],
 };
 function tipoLabel2(t: string): string {
   return TIPO2_LABEL[t] ?? (t ? t.charAt(0) + t.slice(1).toLowerCase() : t);
 }
 /** Concepto (nivel 1) de un movimiento: usa el del backend o lo deriva del type legado. */
 function conceptoOf(m: { concepto?: string; type: string; unregistered?: boolean }): string {
-  if (m.concepto) return m.concepto;
+  if (m.concepto) return m.concepto === 'SERVICIOS' || m.concepto === 'PENALIDADES' ? 'SERVPEN' : m.concepto;
   if (m.type === 'HOSPEDAJE' || m.type === 'RENOVACION') return 'HOSPEDAJE';
   if (m.type === 'PRODUCTO') return m.unregistered ? 'AJUSTES' : 'PRODUCTOS';
-  if (m.type === 'SERVICIO') return 'SERVICIOS';
+  if (m.type === 'SERVICIO' || m.type === 'PENALTY') return 'SERVPEN';
   return 'AJUSTES'; // INGRESO/EGRESO/DEUDA
 }
 function tipoOf(m: { tipo?: string; type: string }): string { return m.tipo || m.type; }
@@ -213,7 +213,7 @@ function tipoOf(m: { tipo?: string; type: string }): string { return m.tipo || m
                   <td class="c">{{ m.room || '—' }}</td>
                   <td><span class="tbadge" [style.background]="conceptoBg(conceptoOf(m))" [style.color]="conceptoFg(conceptoOf(m))">{{ conceptoLabel(conceptoOf(m)) }}</span></td>
                   <td><span class="tbadge" [style.background]="tipoBg(tipoOf(m))" [style.color]="tipoFg(tipoOf(m))">{{ tipoLabel(tipoOf(m)) }}</span></td>
-                  <td>{{ m.description }}</td>
+                  <td>{{ m.description }}@if (m.courtesy) { <span class="cort-tag">CORTESÍA</span> }</td>
                   <td class="r">S/ {{ m.amount | number: '1.2-2' }}</td>
                   <td class="c">{{ methodLabel(m.method) }}</td>
                   <td class="c">
@@ -669,6 +669,7 @@ function tipoOf(m: { tipo?: string; type: string }): string { return m.tipo || m
       .tbl th { color: #8aa0bd; font-weight: 600; font-size: 0.72rem; }
       tr.anulado td { opacity: 0.5; text-decoration: line-through; }
       .tbadge { border-radius: 6px; padding: 0.1rem 0.5rem; font-size: 0.7rem; font-weight: 700; }
+      .cort-tag { margin-left: 0.4rem; background: rgba(124,58,237,0.2); color: #c4b5fd; border-radius: 999px; padding: 0.05rem 0.45rem; font-size: 0.65rem; font-weight: 700; }
       .est { font-size: 0.72rem; font-weight: 700; color: #34d399; } .est.anul { color: #f87171; }
       .lnk { background: none; border: 0; color: #60a5fa; cursor: pointer; font-size: 0.8rem; padding: 0 0.3rem; } .lnk.red { color: #f87171; } .lnk.green { color: #34d399; font-weight: 700; }
       tr.deuda td { background: rgba(248,113,113,0.05); } .est.warn { color: #f59e0b; }
@@ -704,7 +705,7 @@ export class CashMovementsPageComponent implements OnInit {
   readonly methodFilter = signal('');
   readonly conceptoFilterOpts = [
     { label: 'Todos', value: '' }, { label: 'Hospedaje', value: 'HOSPEDAJE' }, { label: 'Productos', value: 'PRODUCTOS' },
-    { label: 'Servicios', value: 'SERVICIOS' }, { label: 'Ajustes', value: 'AJUSTES' }, { label: 'Penalidades', value: 'PENALIDADES' },
+    { label: 'Servicios/Penalidades', value: 'SERVPEN' }, { label: 'Ajustes', value: 'AJUSTES' },
   ];
   // Opciones de TIPO dinámicas: solo los tipos realmente presentes bajo el concepto elegido,
   // así cualquier selección filtra de verdad (no ofrece tipos inexistentes que darían 0 filas).

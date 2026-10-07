@@ -100,14 +100,24 @@ export const reportsService = {
     const stayMap = new Map(stays.map((s) => [s.id, { roomId: s.roomId, room: s.room?.number ?? '' }]));
     const uname = new Map(users.map((u) => [u.id, u.name]));
 
-    const rxRenewal = /renovaci|tiempo extra|extensi/i;
+    // Clasificación determinista: prioriza SaleItem.conceptKind (SERVICE/PENALTY); regex solo legado.
+    // Servicios y penalidades comparten CONCEPTO 'SERVPEN' y se distinguen por TIPO.
+    const rxExtra = /tiempo extra|tiempo excedido|hora extra/i;
+    const rxRenewal = /renovaci|extensi/i;
     const rxRoom = /^tarifa[:\s]|pernocta|hospedaje|servicio de hospedaje|early|d[ií]a hotelero/i;
     const rxPenalty = /penalidad|multa|mora|tardanza|da[ñn]o|rotura/i;
-    const conceptOf = (desc: string, productId: string | null): string => {
-      if (rxPenalty.test(desc)) return 'PENALIDADES';
+    const conceptOf = (desc: string, productId: string | null, kind?: string | null): string => {
+      if (kind === 'PENALTY' || kind === 'SERVICE') return 'SERVPEN';
+      if (rxPenalty.test(desc) || (!productId && rxExtra.test(desc))) return 'SERVPEN';
       if (rxRenewal.test(desc) || (!productId && rxRoom.test(desc))) return 'HOSPEDAJE';
-      if (productId) return ptype.get(productId) === 'SERVICIO' ? 'SERVICIOS' : 'PRODUCTOS';
-      return 'SERVICIOS';
+      if (productId) return ptype.get(productId) === 'SERVICIO' ? 'SERVPEN' : 'PRODUCTOS';
+      return 'SERVPEN';
+    };
+    const tipoOf = (desc: string, productId: string | null, kind?: string | null): string | null => {
+      if (kind === 'PENALTY') return 'PENALIDAD';
+      if (kind === 'SERVICE') return 'SERVICIO';
+      if (rxPenalty.test(desc) || (!productId && rxExtra.test(desc))) return 'PENALIDAD';
+      return 'SERVICIO';
     };
     const methodOf = (payments: { method: string }[]): string => {
       const set = new Set(payments.map((p) => p.method));
@@ -145,8 +155,11 @@ export const reportsService = {
         type: 'SALIDA',
         quantity: i.quantity,
         amount: Number(i.subtotal),
-        method: methodOf(i.sale.payments),
-        concept: conceptOf(i.description, i.productId),
+        method: i.courtesy ? 'NO_APLICA' : methodOf(i.sale.payments),
+        concept: conceptOf(i.description, i.productId, i.conceptKind),
+        tipo: conceptOf(i.description, i.productId, i.conceptKind) === 'SERVPEN' ? tipoOf(i.description, i.productId, i.conceptKind) : null,
+        courtesy: i.courtesy,
+        voided: i.voided,
         collaborator: i.sale.createdByUserId ? uname.get(i.sale.createdByUserId) ?? '—' : '—',
         collaboratorId: i.sale.createdByUserId ?? null,
         shift: sh.shift,

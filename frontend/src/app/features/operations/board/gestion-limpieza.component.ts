@@ -405,18 +405,9 @@ const ACCIONES_PERIODICAS = [
               <div class="u-it"><div class="u-top"><span class="u-name">{{ r.tipo }}</span></div><div class="u-clasif">{{ r.size || 'Estándar' }}</div></div>
               <div class="dl-color">{{ r.chosenName || 'Seleccionar prenda' }}</div>
               <div class="u-acc">
-                @if (r.variants.length) { <button class="chg" (click)="togglePick(r)"><i class="pi pi-sync"></i> CAMBIAR</button> }
-                @else { <span class="nostock"><i class="pi pi-exclamation-triangle"></i> Sin stock</span> }
+                @if (r.variants.length > 1) { <button class="chg" (click)="cambiarDeliver(r)"><i class="pi pi-sync"></i> CAMBIAR</button> }
+                @else if (!r.chosenId) { <span class="nostock"><i class="pi pi-exclamation-triangle"></i> Sin stock</span> }
               </div>
-              @if (pickRowKey() === r.key) {
-                <div class="pick">
-                  @for (v of r.variants; track v.id) {
-                    <button class="pick-opt" [class.on]="v.id === r.chosenId" [disabled]="v.id !== r.chosenId && freeFor(r, v) <= 0" (click)="chooseDeliver(r, v)">
-                      <span class="po-n">{{ v.name }}</span>@if (v.size) { <em>{{ v.size }}</em> } <small>disp. {{ freeFor(r, v) }}</small>
-                    </button>
-                  } @empty { <span class="muted sm">No hay variantes compatibles con stock.</span> }
-                </div>
-              }
             </div>
           } @empty { <div class="urow"><span class="muted" style="padding:.5rem">No hay prendas por entregar.</span></div> }
         </div>
@@ -710,7 +701,6 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   readonly delRows = signal<DeliverRow[]>([]);
   readonly delSupplies = signal<DeliverSupply[]>([]);
   readonly delLoading = signal(false);
-  readonly pickRowKey = signal<string>(''); // fila cuyo selector CAMBIAR está abierto
   rejectingId = ''; // solicitud en proceso de rechazo (motivo visible)
   rejectReason = '';
   iniciarVisible = false;
@@ -837,7 +827,7 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
 
   /** Abre "PRENDAS A ENTREGAR": expande cada solicitud a 1 fila por unidad con una variante propuesta. */
   openDeliver(g: SupplyGroup): void {
-    this.delGroup = g; this.delVisible = true; this.rejectingId = ''; this.rejectReason = ''; this.pickRowKey.set('');
+    this.delGroup = g; this.delVisible = true; this.rejectingId = ''; this.rejectReason = '';
     this.delRows.set([]); this.delSupplies.set([]); this.delLoading.set(true);
     forkJoin(g.items.map((s) => this.http.get<ApiResponse<DeliverVariant[]>>(`${this.api}/services/supplies/${s.id}/variants`).pipe(map((r) => ({ s, variants: r.data ?? [] })))))
       .subscribe({
@@ -862,11 +852,20 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     const usedByOthers = this.delRows().filter((r) => r.key !== row.key && r.chosenId === v.id).length;
     return (v.available ?? 0) - usedByOthers;
   }
-  togglePick(row: DeliverRow): void { this.pickRowKey.set(this.pickRowKey() === row.key ? '' : row.key); }
-  chooseDeliver(row: DeliverRow, v: DeliverVariant): void {
-    if (v.id !== row.chosenId && this.freeFor(row, v) <= 0) { this.toast.add({ severity: 'warn', summary: 'Sin stock', detail: `No queda stock libre de ${v.name}.` }); return; }
-    row.chosenId = v.id; row.chosenName = v.name; row.size = v.size;
-    this.pickRowKey.set(''); this.delRows.set([...this.delRows()]);
+  /** CAMBIAR: sustituye el color por la SIGUIENTE variante compatible (mismo tipo/tamaño) con stock
+   *  libre, recorriendo en círculo y respetando lo que usan las otras filas; sin selector. */
+  cambiarDeliver(row: DeliverRow): void {
+    const vs = row.variants;
+    const start = Math.max(0, vs.findIndex((v) => v.id === row.chosenId));
+    for (let step = 1; step <= vs.length; step++) {
+      const v = vs[(start + step) % vs.length];
+      if (v.id === row.chosenId) continue;
+      if (this.freeFor(row, v) <= 0) continue;
+      row.chosenId = v.id; row.chosenName = v.name; row.size = v.size;
+      this.delRows.set([...this.delRows()]);
+      return;
+    }
+    this.toast.add({ severity: 'info', summary: 'Sin alternativa', detail: 'No hay otro color disponible' });
   }
   canDeliver(): boolean { return !this.busy() && this.delRows().length > 0 && this.delRows().every((r) => !!r.chosenId); }
 

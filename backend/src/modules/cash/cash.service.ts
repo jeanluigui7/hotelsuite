@@ -575,29 +575,34 @@ export const cashService = {
     ]);
 
     const round = (n: number) => Math.round(n * 100) / 100;
-    // "Tiempo extra" = PENALIDAD (va a SERVICIOS/PENALIDADES). "Renovación/extensión" = HOSPEDAJE.
-    const rxExtra = /tiempo extra/i;
+    // Clasificación: PRIORIZA el dato persistido en la línea (SaleItem.conceptKind = SERVICE | PENALTY).
+    // La regex es solo respaldo para ventas legadas sin ese dato. "Tiempo extra" (extensión por horas)
+    // = PENALIDAD; "renovación por noches" = HOSPEDAJE; alquileres normales (Tarifa: …) = HOSPEDAJE.
+    const rxExtra = /tiempo extra|tiempo excedido|hora extra/i;
     const rxRenewal = /renovaci|extensi/i;
     const rxRoom = /^tarifa[:\s]|pernocta|hospedaje|servicio de hospedaje|early|d[ií]a hotelero/i;
-    const itemType = (desc: string, productId: string | null): 'HOSPEDAJE' | 'RENOVACION' | 'PRODUCTO' | 'SERVICIO' => {
-      if (!productId && rxExtra.test(desc)) return 'SERVICIO';
+    const itemType = (desc: string, productId: string | null, conceptKind?: string | null): 'HOSPEDAJE' | 'RENOVACION' | 'PRODUCTO' | 'SERVICIO' | 'PENALTY' => {
+      if (conceptKind === 'PENALTY') return 'PENALTY';
+      if (conceptKind === 'SERVICE') return 'SERVICIO';
+      if (!productId && rxExtra.test(desc)) return 'PENALTY';
       if (rxRenewal.test(desc)) return 'RENOVACION';
       if (!productId && rxRoom.test(desc)) return 'HOSPEDAJE';
       if (productId) return productTypes.get(productId) === 'SERVICIO' ? 'SERVICIO' : 'PRODUCTO';
       return 'SERVICIO';
     };
-    // Categoría de ticket a la que pertenece cada tipo de ítem.
+    // Categoría de ticket a la que pertenece cada tipo de ítem (servicios y penalidades juntos).
     const ticketCat = (t: string): 'HOSPEDAJE' | 'PRODUCTO' | 'SERVICIO' => (t === 'HOSPEDAJE' || t === 'RENOVACION' ? 'HOSPEDAJE' : t === 'PRODUCTO' ? 'PRODUCTO' : 'SERVICIO');
 
-    // ── Reorganización CONCEPTO → TIPO (solo presentación; NO altera montos/cálculos) ──
-    const CONCEPTO_OF: Record<string, string> = { HOSPEDAJE: 'HOSPEDAJE', RENOVACION: 'HOSPEDAJE', PRODUCTO: 'PRODUCTOS', SERVICIO: 'SERVICIOS' };
+    // ── CONCEPTO → TIPO (solo presentación; NO altera montos/cálculos). Servicios y penalidades
+    // comparten CONCEPTO 'SERVPEN' (etiqueta "Servicios/Penalidades") y se distinguen por TIPO. ──
+    const CONCEPTO_OF: Record<string, string> = { HOSPEDAJE: 'HOSPEDAJE', RENOVACION: 'HOSPEDAJE', PRODUCTO: 'PRODUCTOS', SERVICIO: 'SERVPEN', PENALTY: 'SERVPEN' };
     /** concepto + tipo de una línea de venta a partir de su itemType y su descripción. */
     const conceptoTipo = (t: string, desc: string): { concepto: string; tipo: string } => {
-      const concepto = CONCEPTO_OF[t] ?? 'SERVICIOS';
+      const concepto = CONCEPTO_OF[t] ?? 'SERVPEN';
       let tipo: string;
       if (concepto === 'HOSPEDAJE') tipo = rxRenewal.test(desc) ? 'RENOVACIÓN' : /early/i.test(desc) ? 'EARLY CHECK-IN' : 'CHECK-IN';
       else if (concepto === 'PRODUCTOS') tipo = /^frigobar/i.test(desc) ? 'FRIGOBAR' : 'VENTA DIRECTA';
-      else tipo = rxExtra.test(desc) ? 'TIEMPO EXTRA' : 'SERVICIO';
+      else tipo = t === 'PENALTY' ? 'PENALIDAD' : 'SERVICIO';
       return { concepto, tipo };
     };
     /** Limpia la descripción para la vista: sin "Tarifa:"/"Frigobar:", sin " - Hab. N"; agrega el cliente. */
@@ -620,7 +625,7 @@ export const cashService = {
     let anulaciones = 0;
     const feed: {
       id: string; saleId: string | null; time: Date; type: string; concepto: string; tipo: string; guest: string | null; description: string;
-      amount: number; method: string; status: 'NORMAL' | 'ANULADO'; verify?: string | null; unregistered?: boolean;
+      amount: number; method: string; status: 'NORMAL' | 'ANULADO'; verify?: string | null; unregistered?: boolean; courtesy?: boolean;
       room?: string | null; stayId?: string | null;
     }[] = [];
     // Desglose por categoría y método basado en PAGOS reales (distribuye pagos mixtos por peso de
@@ -674,7 +679,7 @@ export const cashService = {
       const pendiente = round(Math.max(0, Number(sale.total) - paid));
       if (!cancelled && pendiente > 0) {
         cards.deudasPendientes = round(cards.deudasPendientes + pendiente);
-        const types = new Set(sale.items.map((it) => itemType(it.description, it.productId)));
+        const types = new Set(sale.items.map((it) => itemType(it.description, it.productId, it.conceptKind)));
         const tipo = types.has('RENOVACION') ? 'RENOVACION' : types.has('HOSPEDAJE') ? 'HOSPEDAJE' : types.has('PRODUCTO') ? 'PRODUCTO' : 'SERVICIO';
         const concepto = sale.items.map((it) => it.description).join(', ') || 'Venta';
         debts.push({ saleId: sale.id, concepto, tipo, room: info?.room || null, importe: pendiente, time: sale.createdAt, estado: paid > 0 ? 'PARCIAL' : 'PENDIENTE', folio });
@@ -682,7 +687,7 @@ export const cashService = {
 
       const catWeight: Record<'HOSPEDAJE' | 'PRODUCTO' | 'SERVICIO', number> = { HOSPEDAJE: 0, PRODUCTO: 0, SERVICIO: 0 };
       for (const it of sale.items) {
-        const t = itemType(it.description, it.productId);
+        const t = itemType(it.description, it.productId, it.conceptKind);
         const amount = Number(it.subtotal);
         // Línea anulada (por línea) o venta completa anulada → excluida de los totales válidos.
         const itemVoided = cancelled || it.voided;
@@ -705,8 +710,9 @@ export const cashService = {
           guest: info?.guestShort || null,
           description: cleanDesc(it.description, info?.guestShort),
           amount,
-          method,
+          method: it.courtesy ? 'NO_APLICA' : method, // cortesía: "No aplica" (importe 0, sin cobro)
           status: itemVoided ? 'ANULADO' : 'NORMAL',
+          courtesy: it.courtesy,
           room: info?.room ?? null,
           stayId: sale.stayId ?? null,
         });
@@ -777,7 +783,7 @@ export const cashService = {
     for (const p of extPayments) {
       const sale = p.sale;
       const info = sale.stayId ? stayInfo.get(sale.stayId) : undefined;
-      const types = new Set(sale.items.map((it) => itemType(it.description, it.productId)));
+      const types = new Set(sale.items.map((it) => itemType(it.description, it.productId, it.conceptKind)));
       const t = types.has('RENOVACION') ? 'RENOVACION' : types.has('HOSPEDAJE') ? 'HOSPEDAJE' : types.has('PRODUCTO') ? 'PRODUCTO' : 'SERVICIO';
       const desc = sale.items.map((it) => it.description).filter(Boolean).join(', ') || 'Cobro de deuda';
       const ct = conceptoTipo(t, desc);
@@ -809,7 +815,7 @@ export const cashService = {
     }[] = [];
     for (const sale of sales) {
       if (sale.status === 'CANCELLED') continue;
-      const types = new Set(sale.items.map((it) => itemType(it.description, it.productId)));
+      const types = new Set(sale.items.map((it) => itemType(it.description, it.productId, it.conceptKind)));
       const hasLodging = types.has('HOSPEDAJE') || types.has('RENOVACION') || types.has('SERVICIO');
       const hasProduct = types.has('PRODUCTO');
       const concept = types.has('HOSPEDAJE') ? 'HSP' : types.has('RENOVACION') ? 'REN' : types.has('PRODUCTO') ? 'PDT' : 'SVC';

@@ -7,6 +7,8 @@ const saleItemSchema = z
     description: z.string().max(200).optional(),
     quantity: z.coerce.number().int().min(1),
     unitPrice: z.coerce.number().min(0).optional(),
+    conceptKind: z.enum(['SERVICE', 'PENALTY']).optional(), // clasificación determinista (servicios/penalidades)
+    courtesy: z.boolean().optional(),
   })
   .refine((v) => v.productId || (v.description && v.unitPrice !== undefined), {
     message: 'Cada línea requiere un producto, o descripción y precio',

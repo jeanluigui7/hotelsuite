@@ -183,7 +183,7 @@ export const servicesService = {
     if (!stay) throw new ValidationError('La estancia no está activa');
     const freeAmountAllowed = scope.isSuperAdmin || scope.permissions.includes('settings:edit') || scope.permissions.includes('finance:edit');
 
-    const saleItems: { productId?: string; description?: string; quantity: number; unitPrice?: number }[] = [];
+    const saleItems: { productId?: string; description?: string; quantity: number; unitPrice?: number; conceptKind?: 'SERVICE' | 'PENALTY'; courtesy?: boolean }[] = [];
     const reservations: { concept: ConceptFull; quantity: number; courtesy: boolean; reason: string | null }[] = [];
 
     for (const it of dto.items) {
@@ -210,7 +210,7 @@ export const servicesService = {
           }
           reservations.push({ concept, quantity: it.quantity, courtesy: !!it.isCourtesy, reason: it.courtesyReason ?? null });
         }
-        saleItems.push({ description: concept.name, quantity: it.quantity, unitPrice });
+        saleItems.push({ description: concept.name, quantity: it.quantity, unitPrice, conceptKind: tipo === 'PENALIDAD' ? 'PENALTY' : 'SERVICE', courtesy: !!it.isCourtesy });
       } else if (it.productId) {
         saleItems.push({ productId: it.productId, quantity: it.quantity, unitPrice: it.unitPrice });
       } else {
@@ -419,7 +419,7 @@ export const servicesService = {
       if (refund > 0 && supply.stayId) {
         await tx.changeCredit.create({ data: {
           branchId, stayId: supply.stayId, room: roomNum || null, originSessionId: saleInfo?.cashSessionId ?? null,
-          amount: refund, remaining: refund, status: 'PENDIENTE', createdByUserId: scope.userId,
+          amount: refund, remaining: refund, status: 'PENDIENTE', kind: 'REFUND', createdByUserId: scope.userId,
           note: `Devolución por servicio rechazado: ${supply.description}${reason?.trim() ? ` · ${reason.trim()}` : ''}`,
         } });
       }

@@ -112,6 +112,8 @@ export const salesService = {
           unitPrice,
           unitCost,
           subtotal,
+          conceptKind: item.conceptKind ?? null,
+          courtesy: item.courtesy ?? false,
         });
         stockDecrements.push({ productId: product.id, warehouseId: wh.id, quantity: item.quantity, unitCost });
       } else {
@@ -124,6 +126,8 @@ export const salesService = {
           unitPrice,
           unitCost: null,
           subtotal: round(unitPrice * item.quantity),
+          conceptKind: item.conceptKind ?? null,
+          courtesy: item.courtesy ?? false,
         });
       }
     }
