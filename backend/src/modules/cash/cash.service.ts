@@ -710,9 +710,10 @@ export const cashService = {
           guest: info?.guestShort || null,
           description: cleanDesc(it.description, info?.guestShort),
           amount,
-          method: it.courtesy ? 'NO_APLICA' : method, // cortesía: "No aplica" (importe 0, sin cobro)
+          // Cortesía: flag explícito O servicio/penalidad con importe 0 → "No aplica" (sin cobro).
+          method: (it.courtesy || (amount === 0 && (t === 'SERVICIO' || t === 'PENALTY'))) ? 'NO_APLICA' : method,
           status: itemVoided ? 'ANULADO' : 'NORMAL',
-          courtesy: it.courtesy,
+          courtesy: it.courtesy || (amount === 0 && (t === 'SERVICIO' || t === 'PENALTY')),
           room: info?.room ?? null,
           stayId: sale.stayId ?? null,
         });
