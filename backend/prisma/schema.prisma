@@ -376,6 +376,7 @@ model Rate {
   branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
   roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   stays    Stay[]
+  includedServices RateIncludedService[]
 
   // La unicidad incluye la etiqueta: una misma duración (p. ej. pernoctación = 1440)
   // puede tener varias tarifas por tipo de habitación diferenciadas por nombre/ocupantes
@@ -383,6 +384,97 @@ model Rate {
   @@unique([branchId, roomTypeId, durationMinutes, label])
   @@index([branchId])
   @@index([roomTypeId])
+}
+
+/// Servicio incluido en una TARIFA (beneficio contratado): p.ej. "2 desayunos continentales por
+/// habitación y noche". El beneficio pertenece a la TARIFA, no al tipo ni al nombre de la habitación.
+/// Al contratar la tarifa se congela una copia en StayBenefit (editar la tarifa después no afecta lo
+/// ya contratado).
+model RateIncludedService {
+  id           String   @id @default(uuid())
+  branchId     String
+  rateId       String
+  conceptId    String // ServiceConcept incluido (p.ej. Desayuno Continental)
+  quantity     Int      @default(1) // cantidad incluida por unidad de asignación/frecuencia
+  assignment   String   @default("PER_ROOM") // PER_ROOM | PER_PERSON
+  frequency    String   @default("PER_STAY") // PER_STAY | PER_NIGHT
+  availability String   @default("SAME_DAY") // SAME_DAY | NEXT_MORNING (momento en que queda disponible)
+  scheduleFrom String? // "07:00" (horario de atención)
+  scheduleTo   String? // "10:00"
+  place        String   @default("BOTH") // ROOM | DINING | BOTH (lugar permitido)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  rate Rate @relation(fields: [rateId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+  @@index([rateId])
+  @@index([conceptId])
+}
+
+/// Beneficio de tarifa CONGELADO en una estadía al contratarla (snapshot de condiciones). Editar la
+/// tarifa luego no modifica esto. disponible = includedQty − pendingQty − deliveredQty.
+model StayBenefit {
+  id           String   @id @default(uuid())
+  branchId     String
+  stayId       String
+  rateId       String? // tarifa de origen (trazabilidad; snapshot)
+  conceptId    String
+  serviceName  String // nombre del servicio congelado
+  includedQty  Int      @default(0)
+  pendingQty   Int      @default(0) // solicitudes pendientes vigentes (reservas no entregadas)
+  deliveredQty Int      @default(0) // entregadas/consumidas
+  periodStart  DateTime // vigencia del beneficio (hora del hospedaje, America/Lima)
+  periodEnd    DateTime
+  scheduleFrom String?
+  scheduleTo   String?
+  place        String   @default("BOTH")
+  assignment   String   @default("PER_ROOM")
+  frequency    String   @default("PER_STAY")
+  period       Int      @default(1) // 1 = check-in; +1 por cada renovación (no mezclar períodos)
+  status       String   @default("ACTIVE") // ACTIVE | EXPIRED | CANCELLED
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  stay Stay @relation(fields: [stayId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+  @@index([stayId])
+  @@index([conceptId])
+}
+
+/// Pedido/entrega de un servicio (Venta | Cortesía | Incluido). Hoy opera en registro DIRECTO desde
+/// Recepción (sin módulo Restaurante/Bar). Queda preparado para enviarse al área que preparará/
+/// entregará el servicio cuando ese módulo exista. El estado OPERATIVO (entrega) es independiente del
+/// estado de PAGO (que vive en la Sale vinculada).
+model ServiceOrder {
+  id                String    @id @default(uuid())
+  branchId          String
+  stayId            String?
+  roomId            String?
+  guestId           String?
+  conceptId         String
+  description       String
+  quantity          Int       @default(1)
+  modality          String    @default("VENTA") // VENTA | CORTESIA | INCLUIDO
+  stayBenefitId     String? // beneficio consumido (modality=INCLUIDO)
+  saleId            String? // cargo asociado (VENTA) o venta S/0 (CORTESIA/INCLUIDO)
+  saleItemId        String?
+  place             String    @default("ROOM") // ROOM | DINING
+  observations      String?   @db.NVarChar(Max)
+  area              String? // destino operativo futuro (Restaurante/Bar); null = registro directo
+  operationalStatus String    @default("PENDING") // PENDING | DELIVERED | CANCELLED
+  requestedByUserId String?
+  deliveredByUserId String?
+  requestedAt       DateTime  @default(now())
+  deliveredAt       DateTime?
+  cancelledAt       DateTime?
+  cancelReason      String?
+
+  @@index([branchId])
+  @@index([stayId])
+  @@index([operationalStatus])
 }
 
 /// Tarifa personalizada: override por tier y/o vigencia para un tipo y duración.
@@ -873,6 +965,7 @@ model Stay {
   rate             Rate?       @relation(fields: [rateId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   tier             ClientTier? @relation(fields: [tierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   additionalGuests StayGuest[]
+  benefits         StayBenefit[]
 
   @@index([branchId])
   @@index([roomId])
@@ -1715,6 +1808,11 @@ model SaleItem {
   // Clasificación determinista de la línea (no por texto): SERVICE | PENALTY (null = producto/hospedaje).
   conceptKind String?
   courtesy    Boolean  @default(false) // la línea se entregó/registró como cortesía (importe 0, sin cobro)
+  // Modalidad EXPLÍCITA del ítem (no se deduce por importe 0): VENTA | CORTESIA | INCLUIDO.
+  // INCLUIDO = cubierto por un beneficio de la tarifa contratada (consume StayBenefit, sin cobro).
+  // Se mantiene sincronizado con `courtesy` (courtesy=true ⇔ CORTESIA) para lectores existentes.
+  modality      String  @default("VENTA")
+  stayBenefitId String? // beneficio de tarifa consumido por esta línea (solo modality=INCLUIDO)
   // Anulación POR LÍNEA (corrección administrativa): se excluye de los totales válidos pero se
   // conserva la fila como ANULADA para auditoría. No toca las otras líneas.
   voided         Boolean   @default(false)

@@ -31,6 +31,14 @@ interface TreeCat { id: string; name: string; groups: TreeGroup[]; }
 interface CartLine {
   key: string; conceptId: string; name: string; unitPrice: number; basePrice: number; quantity: number;
   isLinen: boolean; courtesy: boolean; courtesyReason: string; freeAmount: boolean; categoryName: string | null; tipo: Tipo;
+  // Modalidad explícita de la línea (no se deduce por importe 0).
+  modality: 'VENTA' | 'CORTESIA' | 'INCLUIDO'; stayBenefitId?: string;
+}
+// Beneficio de tarifa de la estancia (desde /services/benefits).
+interface Benefit {
+  id: string; conceptId: string; serviceName: string;
+  includedQty: number; pendingQty: number; deliveredQty: number; availableQty: number;
+  periodStart: string; periodEnd: string; scheduleFrom: string | null; scheduleTo: string | null; place: string; vigente: boolean;
 }
 interface Pay { method: 'CASH' | 'CARD' | 'TRANSFER' | 'YAPE' | 'PLIN'; amount: number; reference?: string; }
 
@@ -58,6 +66,28 @@ const round = (n: number): number => Math.round(n * 100) / 100;
             </p-select>
             @if (currentStay(); as s) { <div class="guest"><i class="pi pi-user"></i> {{ s.guest.firstName }} {{ s.guest.lastName }}</div> }
           </div>
+
+          @if (benefits().length) {
+            <div class="box benefits">
+              <div class="ben-hd"><i class="pi pi-check-circle"></i> SERVICIOS INCLUIDOS EN TU TARIFA</div>
+              @for (b of benefits(); track b.id) {
+                <div class="ben-card">
+                  <div class="ben-top">
+                    <div><b>{{ b.serviceName }}</b> <span class="ben-per">{{ periodLabel(b) }}</span></div>
+                    <button class="ben-use" [disabled]="remainingBenefit(b) <= 0 || !b.vigente" (click)="selectBenefit(b)"><i class="pi pi-plus"></i> Usar</button>
+                  </div>
+                  <div class="ben-counts">
+                    <div><span>{{ b.includedQty }}</span><small>Incluidos</small></div>
+                    <div><span>{{ b.pendingQty }}</span><small>Pendientes</small></div>
+                    <div><span>{{ b.deliveredQty }}</span><small>Entregados</small></div>
+                    <div class="hl"><span>{{ b.availableQty }}</span><small>Disponibles</small></div>
+                  </div>
+                  @if (!b.vigente) { <div class="ben-note warn"><i class="pi pi-clock"></i> Fuera del período/horario de validez.</div> }
+                  @else { <div class="ben-note">Tu tarifa cubre estos servicios.</div> }
+                </div>
+              }
+            </div>
+          }
 
           <div class="box">
             <div class="box-t">Condiciones del servicio</div>
@@ -89,7 +119,7 @@ const round = (n: number): number => Math.round(n * 100) / 100;
             <div class="cond-row"><div><b>Monto libre</b><small>Permite ingresar un importe personalizado{{ freeAllowed() ? '' : ' (sin permiso)' }}.</small></div><p-toggleswitch [(ngModel)]="freeAmount" [disabled]="!freeAllowed()" /></div>
           </div>
 
-          @if (!allCourtesy()) {
+          @if (!allFree()) {
             <div class="box">
               <div class="box-t">Tipo de cobro</div>
               <div class="cobro-seg">
@@ -143,14 +173,25 @@ const round = (n: number): number => Math.round(n * 100) / 100;
               <div class="cpanel">
                 <div class="cp-top">
                   <div><b>{{ availName() || c.name }}</b>
+                    @if (coveredBenefit(c)) { <span class="inc-tag">Incluido en tarifa</span> }
                     @if (isLinen(c)) {
                       @if (avail() === null) { <span class="chip">Calculando…</span> }
                       @else if (availIssue()) { <span class="chip warn">Config</span> }
                       @else { <span class="chip ok">Disponibles: {{ avail() }}</span> }
                     }
                   </div>
-                  <div class="cp-price">{{ tab() === 'PENALIDAD' ? 'Precio unitario' : (courtesy && c.allowCourtesy ? 'Cortesía' : 'Precio unitario') }}<b>S/ {{ effUnitPrice(c) | number: '1.2-2' }}</b></div>
+                  @if (coveredBenefit(c)) {
+                    <div class="cp-price">Cobro adicional<b>S/ {{ additionalCharge(c) | number: '1.2-2' }}</b></div>
+                  } @else {
+                    <div class="cp-price">{{ tab() === 'PENALIDAD' ? 'Precio unitario' : (courtesy && c.allowCourtesy ? 'Cortesía' : 'Precio unitario') }}<b>S/ {{ effUnitPrice(c) | number: '1.2-2' }}</b></div>
+                  }
                 </div>
+                @if (coveredBenefit(c)) {
+                  <div class="inc-info">
+                    <span>{{ coveredCount(c) }} unidad(es) cubierta(s) por la tarifa.</span>
+                    <span class="muted">Después de esta entrega: {{ afterDelivery(c) }} disponible(s).</span>
+                  </div>
+                }
 
                 @if (freeAmount && c.allowFreeAmount && freeAllowed() && !(courtesy && c.allowCourtesy)) {
                   <div class="cp-free"><label>Importe personalizado (S/)</label><p-inputNumber [(ngModel)]="freePrice" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w sm" /></div>
@@ -159,7 +200,7 @@ const round = (n: number): number => Math.round(n * 100) / 100;
                 <div class="cp-qty">
                   <div><label>Cantidad</label><p-inputNumber [(ngModel)]="qty" [min]="1" [showButtons]="true" buttonLayout="horizontal" inputStyleClass="qty" /></div>
                   @if (tab() === 'PENALIDAD') { <div class="imp"><label>Importe</label><div class="imp-v">S/ {{ effUnitPrice(c) * qty | number: '1.2-2' }}</div></div> }
-                  @else { <div class="imp"><label>Importe</label><div class="imp-v">S/ {{ effUnitPrice(c) * qty | number: '1.2-2' }}</div></div> }
+                  @else { <div class="imp"><label>{{ coveredBenefit(c) ? 'Cobro adicional' : 'Importe' }}</label><div class="imp-v">S/ {{ (coveredBenefit(c) ? additionalCharge(c) : effUnitPrice(c) * qty) | number: '1.2-2' }}</div></div> }
                 </div>
 
                 @if (isLinen(c)) { <div class="cp-note"><i class="pi pi-info-circle"></i> Limpieza confirmará la prenda al entregar.</div> }
@@ -176,16 +217,16 @@ const round = (n: number): number => Math.round(n * 100) / 100;
             @for (l of lines(); track l.key; let i = $index) {
               <div class="sline">
                 <button class="rm" (click)="rm(i)"><i class="pi pi-times"></i></button>
-                <div class="sl-main"><b>{{ l.name }}</b><small>{{ l.quantity }} × S/ {{ l.unitPrice | number: '1.2-2' }}@if (l.courtesy) { · Cortesía } @if (l.isLinen) { · Pendiente de entrega }</small></div>
-                <div class="sl-amt" [class.free]="l.courtesy">S/ {{ l.unitPrice * l.quantity | number: '1.2-2' }}</div>
+                <div class="sl-main"><b>{{ l.name }}</b><small>{{ l.quantity }} × S/ {{ l.unitPrice | number: '1.2-2' }}@if (l.modality === 'INCLUIDO') { · <span class="inc-txt">Incluido en tarifa</span> } @else if (l.courtesy) { · Cortesía } @if (l.isLinen) { · Pendiente de entrega }</small></div>
+                <div class="sl-amt" [class.free]="l.unitPrice === 0">S/ {{ l.unitPrice * l.quantity | number: '1.2-2' }}</div>
               </div>
             } @empty { <p class="muted center">Agrega conceptos a la lista.</p> }
-            <div class="tot-row"><span>Total a cobrar</span><strong>S/ {{ total() | number: '1.2-2' }}</strong></div>
-            @if (!allCourtesy()) {
+            <div class="tot-row"><span>{{ allFree() ? 'Total adicional a cobrar' : 'Total a cobrar' }}</span><strong>S/ {{ total() | number: '1.2-2' }}</strong></div>
+            @if (!allFree()) {
               <div class="tot-row sm"><span>Pago actual</span><span>S/ {{ Math.min(paid(), total()) | number: '1.2-2' }}</span></div>
               <div class="tot-row sm"><span>Saldo pendiente</span><span>S/ {{ owed() | number: '1.2-2' }}</span></div>
             } @else if (lines().length) {
-              <div class="c-badge"><i class="pi pi-gift"></i> Operación en cortesía — no requiere pago</div>
+              <div class="c-badge" [class.inc]="hasIncluded()"><i class="pi" [class.pi-check-circle]="hasIncluded()" [class.pi-gift]="!hasIncluded()"></i> {{ hasIncluded() ? 'Entrega incluida en la tarifa — sin cobro adicional' : 'Operación en cortesía — no requiere pago' }}</div>
             }
           </div>
         </div>
@@ -194,7 +235,7 @@ const round = (n: number): number => Math.round(n * 100) / 100;
       <ng-template pTemplate="footer">
         <div class="foot-note"><i class="pi pi-info-circle"></i> {{ footNote() }}</div>
         <p-button label="Cancelar" [text]="true" (onClick)="close()" />
-        <p-button [label]="allCourtesy() && lines().length ? 'Registrar cortesía' : 'Confirmar operación'" icon="pi pi-check" [disabled]="!canSubmit()" [loading]="saving()" (onClick)="submit()" />
+        <p-button [label]="submitLabel()" icon="pi pi-check" [disabled]="!canSubmit()" [loading]="saving()" (onClick)="submit()" />
       </ng-template>
     </p-dialog>
   `,
@@ -248,6 +289,22 @@ const round = (n: number): number => Math.round(n * 100) / 100;
     .rm { background: transparent; border: 0; color: #f87171; cursor: pointer; }
     .tot-row { display: flex; justify-content: space-between; align-items: center; padding-top: 0.5rem; } .tot-row strong { color: #34d399; font-size: 1.2rem; } .tot-row.sm { font-size: 0.82rem; color: #cdd8e6; padding-top: 0.2rem; }
     .c-badge { margin-top: 0.5rem; background: rgba(124,58,237,.14); border: 1px solid #8b5cf6; color: #c4b5fd; border-radius: 8px; padding: 0.45rem 0.6rem; font-size: 0.8rem; text-align: center; }
+    .c-badge.inc { background: rgba(16,185,129,.14); border-color: #10b981; color: #6ee7b7; }
+    .benefits { border-color: #11724e; background: rgba(16,185,129,.07); }
+    .ben-hd { font-weight: 800; font-size: 0.82rem; letter-spacing: 0.02em; color: #6ee7b7; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.5rem; }
+    .ben-card { border: 1px solid #1d3a30; border-radius: 10px; padding: 0.55rem 0.65rem; margin-bottom: 0.5rem; background: #0e1a17; }
+    .ben-top { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+    .ben-top b { color: #e6edf5; font-size: 0.9rem; } .ben-per { font-size: 0.72rem; color: #8aa0bd; margin-left: 0.3rem; }
+    .ben-use { background: rgba(16,185,129,.16); border: 1px solid #10b981; color: #6ee7b7; border-radius: 7px; padding: 0.22rem 0.6rem; font-size: 0.76rem; font-weight: 700; cursor: pointer; }
+    .ben-use:disabled { opacity: 0.45; cursor: default; }
+    .ben-counts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.35rem; margin: 0.5rem 0 0.3rem; text-align: center; }
+    .ben-counts > div { background: #0f1a2b; border: 1px solid #1c2a3a; border-radius: 8px; padding: 0.3rem 0.1rem; }
+    .ben-counts span { display: block; font-weight: 800; font-size: 1.05rem; color: #e6edf5; } .ben-counts small { font-size: 0.64rem; color: #8aa0bd; }
+    .ben-counts .hl { border-color: #10b981; background: rgba(16,185,129,.1); } .ben-counts .hl span { color: #6ee7b7; }
+    .ben-note { font-size: 0.72rem; color: #8aa0bd; } .ben-note.warn { color: #fbbf24; }
+    .inc-tag { font-size: 0.66rem; font-weight: 800; letter-spacing: 0.02em; padding: 0.1rem 0.5rem; border-radius: 6px; background: rgba(16,185,129,.18); color: #34d399; margin-left: 0.4rem; }
+    .inc-info { display: flex; flex-direction: column; gap: 0.1rem; font-size: 0.76rem; color: #6ee7b7; margin-top: 0.4rem; } .inc-info .muted { color: #8aa0bd; }
+    .inc-txt { color: #34d399; }
     .foot-note { flex: 1; text-align: left; font-size: 0.76rem; color: #8aa0bd; } .foot-note .pi { color: #60a5fa; }
     :host ::ng-deep .dk-dialog .p-dialog-footer { display: flex; align-items: center; gap: 0.6rem; }
   `],
@@ -271,6 +328,7 @@ export class ServiciosPenalidadesComponent {
   readonly stays = signal<(Stay & { label?: string })[]>([]);
   readonly treeServ = signal<TreeCat[]>([]);
   readonly treePen = signal<TreeCat[]>([]);
+  readonly benefits = signal<Benefit[]>([]);
   readonly lines = signal<CartLine[]>([]);
   readonly pays = signal<Pay[]>([]);
   readonly saving = signal(false);
@@ -313,9 +371,49 @@ export class ServiciosPenalidadesComponent {
     return c.price;
   }
 
+  // ── Beneficios incluidos en la tarifa ──
+  loadBenefits(): void {
+    this.benefits.set([]);
+    if (!this.stayId) return;
+    this.http.get<ApiResponse<Benefit[]>>(`${this.api}/services/benefits?stayId=${this.stayId}`).subscribe({
+      next: (r) => this.benefits.set(r.data ?? []),
+      error: () => this.benefits.set([]),
+    });
+  }
+  /** Beneficio vigente con cupo para un concepto (solo pestaña SERVICIO). */
+  benefitForConcept(conceptId: string | null): Benefit | null {
+    if (!conceptId || this.tab() !== 'SERVICIO') return null;
+    return this.benefits().find((b) => b.conceptId === conceptId && b.vigente && b.availableQty > 0) ?? null;
+  }
+  /** Cupo del beneficio aún no reservado en el carrito (evita consumir dos veces el mismo). */
+  remainingBenefit(b: Benefit): number {
+    const inCart = this.lines().filter((l) => l.modality === 'INCLUIDO' && l.conceptId === b.conceptId).reduce((a, l) => a + l.quantity, 0);
+    return Math.max(0, b.availableQty - inCart);
+  }
+  /** Beneficio aplicable al concepto seleccionado (si no se forzó cortesía). */
+  coveredBenefit(c: TreeConcept): Benefit | null { return this.courtesy ? null : this.benefitForConcept(c.id); }
+  coveredCount(c: TreeConcept): number { const b = this.coveredBenefit(c); return b ? Math.min(this.qty, this.remainingBenefit(b)) : 0; }
+  afterDelivery(c: TreeConcept): number { const b = this.coveredBenefit(c); return b ? Math.max(0, this.remainingBenefit(b) - this.coveredCount(c)) : 0; }
+  /** Cobro adicional al agregar: solo las unidades que exceden el cupo incluido. */
+  additionalCharge(c: TreeConcept): number {
+    const b = this.coveredBenefit(c);
+    if (!b) return round(this.effUnitPrice(c) * this.qty);
+    return round(Math.max(0, this.qty - this.remainingBenefit(b)) * c.price);
+  }
+  /** Etiqueta de período del beneficio (Hoy / fecha). */
+  periodLabel(b: Benefit): string {
+    const start = new Date(b.periodStart); const now = new Date();
+    const sameDay = start.toDateString() === now.toDateString();
+    if (sameDay) return 'Hoy';
+    return start.toLocaleDateString('es-PE', { day: '2-digit', month: 'short' });
+  }
+
   // ── Totales ──
   readonly total = computed(() => round(this.lines().reduce((a, l) => a + l.unitPrice * l.quantity, 0)));
   allCourtesy(): boolean { return this.lines().length > 0 && this.lines().every((l) => l.courtesy || l.unitPrice === 0); }
+  /** Operación 100% gratuita (cortesía/incluido): no requiere pago ni comprobante de cobro. */
+  allFree(): boolean { return this.lines().length > 0 && this.total() === 0; }
+  hasIncluded(): boolean { return this.lines().some((l) => l.modality === 'INCLUIDO'); }
   paid(): number { return round(this.pays().reduce((a, p) => a + (p.amount || 0), 0)); }
   owed(): number { return Math.max(0, round(this.total() - this.paid())); }
 
@@ -336,9 +434,10 @@ export class ServiciosPenalidadesComponent {
     this.avail.set(null); this.availIssue.set(''); this.availName.set('');
     this.opToken = (crypto as { randomUUID?: () => string }).randomUUID?.() ?? `op-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     this.loadCommissions();
+    this.benefits.set([]);
     this.ops.stays({ status: 'OPEN', pageSize: 200 }).subscribe((r) => {
       this.stays.set(r.data ?? []);
-      if (this.preselectStayId && (r.data ?? []).some((s) => s.id === this.preselectStayId)) { this.stayId = this.preselectStayId; }
+      if (this.preselectStayId && (r.data ?? []).some((s) => s.id === this.preselectStayId)) { this.stayId = this.preselectStayId; this.loadBenefits(); }
     });
     this.http.get<ApiResponse<TreeCat[]>>(`${this.api}/services/catalog-tree?tipo=SERVICIO`).subscribe((res) => this.treeServ.set(res.data ?? []));
     this.http.get<ApiResponse<TreeCat[]>>(`${this.api}/services/catalog-tree?tipo=PENALIDAD`).subscribe((res) => this.treePen.set(res.data ?? []));
@@ -352,8 +451,25 @@ export class ServiciosPenalidadesComponent {
   }
 
   setTab(t: Tipo): void { this.tab.set(t); if (t === 'PENALIDAD') this.courtesy = false; this.categoryId = this.groupId = this.conceptId = null; this.resetConceptState(); }
+  /** Selecciona en el catálogo el concepto del beneficio y precarga la cantidad disponible. */
+  selectBenefit(b: Benefit): void {
+    const remaining = this.remainingBenefit(b);
+    if (remaining <= 0) { this.toast.add({ severity: 'info', summary: 'Sin cupo', detail: 'Ya agregaste todas las unidades disponibles de este beneficio.' }); return; }
+    this.tab.set('SERVICIO'); this.courtesy = false;
+    for (const cat of this.treeServ()) {
+      for (const g of cat.groups) {
+        const c = g.concepts.find((x) => x.id === b.conceptId);
+        if (c) {
+          this.categoryId = cat.id; this.groupId = g.id; this.conceptId = c.id;
+          this.qty = remaining; this.freePrice = c.price; this.refreshAvailability();
+          return;
+        }
+      }
+    }
+    this.toast.add({ severity: 'warn', summary: 'No disponible', detail: 'El servicio del beneficio no está en el catálogo activo.' });
+  }
   setCobro(c: 'TOTAL' | 'PARCIAL' | 'ADEUDO'): void { this.cobro = c; if (c === 'ADEUDO') this.pays.set([]); else if (c === 'TOTAL') this.pays.set([{ method: 'CASH', amount: this.total() }]); else if (!this.pays().length) this.pays.set([{ method: 'CASH', amount: 0 }]); }
-  onStayChange(): void { this.refreshAvailability(); }
+  onStayChange(): void { this.refreshAvailability(); this.loadBenefits(); }
   onCategory(): void { this.groupId = null; this.conceptId = null; this.resetConceptState(); }
   onGroup(): void { this.conceptId = null; this.resetConceptState(); }
   onConcept(): void { this.qty = 1; this.freePrice = this.concept()?.price ?? null; this.refreshAvailability(); }
@@ -384,12 +500,27 @@ export class ServiciosPenalidadesComponent {
       return;
     }
     const isCourt = this.courtesy && this.tab() === 'SERVICIO' && c.allowCourtesy;
+    const base = { conceptId: c.id, name: c.name, basePrice: c.price, isLinen: this.isLinen(c), categoryName: c.inventoryCategoryName, tipo: this.tab() };
+    // INCLUIDO EN TARIFA: si el concepto está cubierto por un beneficio vigente con cupo (y NO es
+    // cortesía explícita), se separan las unidades incluidas (S/0) de las adicionales (cobradas).
+    const benefit = this.benefitForConcept(c.id);
+    if (benefit && !isCourt) {
+      const cover = Math.min(this.qty, this.remainingBenefit(benefit));
+      const extra = this.qty - cover;
+      const next = [...this.lines()];
+      if (cover > 0) next.push({ key: `${c.id}-inc-${Date.now()}`, ...base, unitPrice: 0, quantity: cover, courtesy: false, courtesyReason: '', freeAmount: false, modality: 'INCLUIDO', stayBenefitId: benefit.id });
+      if (extra > 0) next.push({ key: `${c.id}-ven-${Date.now()}`, ...base, unitPrice: c.price, quantity: extra, courtesy: false, courtesyReason: '', freeAmount: false, modality: 'VENTA' });
+      this.lines.set(next);
+      this.conceptId = null; this.resetConceptState();
+      if (this.cobro === 'TOTAL') this.pays.set([{ method: 'CASH', amount: this.total() }]);
+      return;
+    }
     const isFree = !isCourt && this.freeAmount && c.allowFreeAmount && this.freeAllowed() && this.freePrice != null;
     const unitPrice = isCourt ? 0 : (isFree ? (this.freePrice as number) : c.price);
     this.lines.set([...this.lines(), {
-      key: `${c.id}-${Date.now()}`, conceptId: c.id, name: c.name, unitPrice, basePrice: c.price, quantity: this.qty,
-      isLinen: this.isLinen(c), courtesy: isCourt, courtesyReason: isCourt ? this.courtesyReason.trim() : '', freeAmount: isFree,
-      categoryName: c.inventoryCategoryName, tipo: this.tab(),
+      key: `${c.id}-${Date.now()}`, ...base, unitPrice, quantity: this.qty,
+      courtesy: isCourt, courtesyReason: isCourt ? this.courtesyReason.trim() : '', freeAmount: isFree,
+      modality: isCourt ? 'CORTESIA' : 'VENTA',
     }]);
     // Reset selección del concepto y recalcular pago total.
     this.conceptId = null; this.resetConceptState();
@@ -415,7 +546,7 @@ export class ServiciosPenalidadesComponent {
     return '';
   }
   payError(): string {
-    if (this.allCourtesy() || this.total() <= 0 || this.cobro === 'ADEUDO') return '';
+    if (this.allFree() || this.total() <= 0 || this.cobro === 'ADEUDO') return '';
     const ps = this.pays();
     if (!ps.length) return 'Agrega un método de pago.';
     for (const p of ps) { if (!(p.amount > 0)) return 'Ingresa el monto de cada método.'; if (this.needsRef(p.method) && !p.reference?.trim()) return 'Ingresa el código de operación de los pagos virtuales.'; }
@@ -427,34 +558,44 @@ export class ServiciosPenalidadesComponent {
   }
   footNote(): string {
     if (this.lines().some((l) => l.isLinen)) return 'Se enviará una solicitud a limpieza.';
-    if (this.allCourtesy() && this.lines().length) return 'Se registrará el servicio como cortesía.';
+    if (this.allFree() && this.hasIncluded()) return 'Confirma cuando el servicio incluido haya sido entregado. Sin cobro adicional.';
+    if (this.allFree()) return 'Se registrará el servicio como cortesía (sin cobro).';
     return 'El cargo quedará registrado en la estadía.';
   }
   canSubmit(): boolean { return !this.saving() && !!this.stayId && this.lines().length > 0 && this.payError() === '' && this.compError() === ''; }
+  /** "Registrar entrega" cuando es 100% incluido/cortesía; "Registrar venta" cuando hay cobro. */
+  submitLabel(): string {
+    if (!this.lines().length) return 'Confirmar operación';
+    if (this.allFree()) return this.hasIncluded() ? 'Registrar entrega' : 'Registrar cortesía';
+    return 'Registrar venta';
+  }
 
   submit(): void {
     if (!this.canSubmit()) return;
     this.saving.set(true);
     const items = this.lines().map((l) => ({
-      conceptId: l.conceptId, quantity: l.quantity,
+      conceptId: l.conceptId, quantity: l.quantity, modality: l.modality,
+      ...(l.modality === 'INCLUIDO' && l.stayBenefitId ? { stayBenefitId: l.stayBenefitId } : {}),
       ...(l.courtesy ? { isCourtesy: true, courtesyReason: l.courtesyReason || undefined } : {}),
       ...(l.freeAmount ? { unitPrice: l.unitPrice } : {}),
     }));
     const payments: { method: Pay['method']; amount: number; reference?: string }[] = [];
-    if (!this.allCourtesy() && this.cobro !== 'ADEUDO') {
+    if (!this.allFree() && this.cobro !== 'ADEUDO') {
       let remaining = this.total();
       for (const p of this.pays()) { if (!(p.amount > 0) || remaining <= 0) continue; const amt = Math.min(p.amount, remaining); payments.push({ method: p.method, amount: round(amt), reference: p.reference?.trim() || undefined }); remaining = round(remaining - amt); }
     }
     this.http.post<ApiResponse<{ sale: Sale; owed: number }>>(`${this.api}/services/charge`, { stayId: this.stayId, items, payments, opToken: this.opToken }).subscribe({
       next: (res) => {
         const sale = res.data?.sale;
+        const free = this.allFree();
         const finishOk = () => {
           this.saving.set(false);
-          this.toast.add({ severity: 'success', summary: this.allCourtesy() ? 'Cortesía registrada' : 'Operación confirmada', detail: this.allCourtesy() ? 'Sin cobro.' : 'Adeudo: S/ ' + (res.data?.owed ?? 0).toFixed(2) });
-          if (sale && !this.allCourtesy()) this.printing.printViaBrowser(buildSaleReceipt(sale, this.auth.activeBranch()?.name ?? 'HotelSuite'));
+          this.toast.add({ severity: 'success', summary: free ? (this.hasIncluded() ? 'Entrega registrada' : 'Cortesía registrada') : 'Operación confirmada', detail: free ? 'Sin cobro adicional.' : 'Adeudo: S/ ' + (res.data?.owed ?? 0).toFixed(2) });
+          // No se imprime comprobante de cobro cuando la operación es 100% incluida/cortesía (S/0).
+          if (sale && !free) this.printing.printViaBrowser(buildSaleReceipt(sale, this.auth.activeBranch()?.name ?? 'HotelSuite'));
           this.done.emit(); this.close();
         };
-        if (this.genComp && sale && !this.allCourtesy()) {
+        if (this.genComp && sale && !free) {
           this.finance.issueInvoice({ saleId: sale.id, type: this.compDocType === 'DNI' ? 'BOLETA' : 'FACTURA', customerName: this.compName.trim(), customerDoc: this.compDocNumber.trim(), customerAddress: this.compAddress.trim() || undefined })
             .subscribe({ next: () => finishOk(), error: (e: HttpErrorResponse) => { this.saving.set(false); this.toast.add({ severity: 'warn', summary: 'Operación confirmada, comprobante NO emitido', detail: e.error?.error?.message ?? 'Revisa folios o permisos.' }); this.done.emit(); this.close(); } });
         } else finishOk();

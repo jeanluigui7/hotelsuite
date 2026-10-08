@@ -625,7 +625,7 @@ export const cashService = {
     let anulaciones = 0;
     const feed: {
       id: string; saleId: string | null; time: Date; type: string; concepto: string; tipo: string; guest: string | null; description: string;
-      amount: number; method: string; status: 'NORMAL' | 'ANULADO'; verify?: string | null; unregistered?: boolean; courtesy?: boolean;
+      amount: number; method: string; status: 'NORMAL' | 'ANULADO'; verify?: string | null; unregistered?: boolean; courtesy?: boolean; modality?: string;
       room?: string | null; stayId?: string | null;
     }[] = [];
     // Desglose por categoría y método basado en PAGOS reales (distribuye pagos mixtos por peso de
@@ -710,11 +710,12 @@ export const cashService = {
           guest: info?.guestShort || null,
           description: cleanDesc(it.description, info?.guestShort),
           amount,
-          // Cortesía: SOLO por el flag explícito del ítem → "No aplica" (sin cobro). Un importe 0 no
-          // implica cortesía (una penalidad en cero no es cortesía); la etiqueta depende del dato guardado.
-          method: it.courtesy ? 'NO_APLICA' : method,
+          // Cortesía/Incluido: método "No aplica" (sin cobro). Un importe 0 por sí solo NO implica
+          // cortesía; la etiqueta depende de la MODALIDAD guardada (courtesy o modality=INCLUIDO).
+          method: (it.courtesy || it.modality === 'INCLUIDO') ? 'NO_APLICA' : method,
           status: itemVoided ? 'ANULADO' : 'NORMAL',
           courtesy: it.courtesy,
+          modality: it.modality,
           room: info?.room ?? null,
           stayId: sale.stayId ?? null,
         });

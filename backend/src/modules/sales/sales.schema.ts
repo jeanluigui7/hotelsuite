@@ -9,6 +9,8 @@ const saleItemSchema = z
     unitPrice: z.coerce.number().min(0).optional(),
     conceptKind: z.enum(['SERVICE', 'PENALTY']).optional(), // clasificación determinista (servicios/penalidades)
     courtesy: z.boolean().optional(),
+    modality: z.enum(['VENTA', 'CORTESIA', 'INCLUIDO']).optional(), // modalidad explícita de la línea
+    stayBenefitId: z.string().min(1).optional(), // beneficio consumido (modality=INCLUIDO)
   })
   .refine((v) => v.productId || (v.description && v.unitPrice !== undefined), {
     message: 'Cada línea requiere un producto, o descripción y precio',

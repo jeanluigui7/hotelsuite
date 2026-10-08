@@ -114,6 +114,8 @@ export const salesService = {
           subtotal,
           conceptKind: item.conceptKind ?? null,
           courtesy: item.courtesy ?? false,
+          modality: item.modality ?? (item.courtesy ? 'CORTESIA' : 'VENTA'),
+          stayBenefitId: item.stayBenefitId ?? null,
         });
         stockDecrements.push({ productId: product.id, warehouseId: wh.id, quantity: item.quantity, unitCost });
       } else {
@@ -128,6 +130,8 @@ export const salesService = {
           subtotal: round(unitPrice * item.quantity),
           conceptKind: item.conceptKind ?? null,
           courtesy: item.courtesy ?? false,
+          modality: item.modality ?? (item.courtesy ? 'CORTESIA' : 'VENTA'),
+          stayBenefitId: item.stayBenefitId ?? null,
         });
       }
     }

@@ -21,6 +21,7 @@ interface Mov {
   concept: string;
   tipo?: string | null;
   courtesy?: boolean;
+  modality?: string;
   voided?: boolean;
   collaborator: string;
   collaboratorId: string | null;
@@ -106,12 +107,12 @@ function currentShiftIdx(): number {
                 @for (m of rows; track m.id) {
                   <tr>
                     <td>{{ m.date | date: 'dd/MM/yyyy HH:mm' }}</td>
-                    <td>{{ m.description }}@if (m.courtesy) { <span class="cort">CORTESÍA</span> }@if (m.voided) { <span class="anul">ANULADO</span> }</td>
+                    <td>{{ m.description }}@if (m.modality === 'INCLUIDO') { <span class="inc">INCLUIDO</span> } @else if (m.courtesy) { <span class="cort">CORTESÍA</span> }@if (m.voided) { <span class="anul">ANULADO</span> }</td>
                     <td class="c">@if (m.roomNumber) { <span class="room">{{ m.roomNumber }}</span> } @else { <span class="muted">—</span> }</td>
                     <td class="c"><span class="tipo">{{ m.type }}</span></td>
                     <td class="c">{{ m.quantity }}</td>
                     <td class="r money">@if (canSeeAmounts()) { S/ {{ m.amount | number: '1.2-2' }} } @else { <span class="hidden"><i class="pi pi-lock"></i></span> }</td>
-                    <td>{{ m.courtesy ? 'No aplica' : methodLabel(m.method) }}</td>
+                    <td>{{ (m.courtesy || m.modality === 'INCLUIDO') ? 'No aplica' : methodLabel(m.method) }}</td>
                     <td><span class="concept" [style.background]="conceptBg(m.concept)" [style.color]="conceptFg(m.concept)">{{ conceptLabel(m.concept) }}</span>@if (m.tipo) { <div class="subtipo">{{ m.tipo === 'PENALIDAD' ? 'Penalidad' : 'Servicio' }}</div> }</td>
                     <td>{{ m.collaborator }}</td>
                   </tr>
@@ -160,6 +161,7 @@ function currentShiftIdx(): number {
       .concept { border-radius: 6px; padding: 0.12rem 0.6rem; font-size: 0.7rem; font-weight: 700; }
       .subtipo { font-size: 0.66rem; color: #8aa0bd; margin-top: 0.15rem; }
       .cort { margin-left: 0.4rem; background: rgba(124,58,237,0.2); color: #c4b5fd; border-radius: 999px; padding: 0.05rem 0.45rem; font-size: 0.64rem; font-weight: 700; }
+      .inc { margin-left: 0.4rem; background: rgba(16,185,129,0.2); color: #6ee7b7; border-radius: 999px; padding: 0.05rem 0.45rem; font-size: 0.64rem; font-weight: 700; }
       .anul { margin-left: 0.4rem; background: rgba(248,113,113,0.2); color: #fca5a5; border-radius: 999px; padding: 0.05rem 0.45rem; font-size: 0.64rem; font-weight: 700; }
       @media (max-width: 900px) { .filters { grid-template-columns: repeat(2, 1fr); } }
     `,

@@ -213,7 +213,7 @@ function tipoOf(m: { tipo?: string; type: string }): string { return m.tipo || m
                   <td class="c">{{ m.room || '—' }}</td>
                   <td><span class="tbadge" [style.background]="conceptoBg(conceptoOf(m))" [style.color]="conceptoFg(conceptoOf(m))">{{ conceptoLabel(conceptoOf(m)) }}</span></td>
                   <td><span class="tbadge" [style.background]="tipoBg(tipoOf(m))" [style.color]="tipoFg(tipoOf(m))">{{ tipoLabel(tipoOf(m)) }}</span></td>
-                  <td>{{ m.description }}@if (m.courtesy) { <span class="cort-tag">CORTESÍA</span> }</td>
+                  <td>{{ m.description }}@if (m.modality === 'INCLUIDO') { <span class="inc-tag">INCLUIDO</span> } @else if (m.courtesy) { <span class="cort-tag">CORTESÍA</span> }</td>
                   <td class="r">S/ {{ m.amount | number: '1.2-2' }}</td>
                   <td class="c">{{ methodLabel(m.method) }}</td>
                   <td class="c">
@@ -670,6 +670,7 @@ function tipoOf(m: { tipo?: string; type: string }): string { return m.tipo || m
       tr.anulado td { opacity: 0.5; text-decoration: line-through; }
       .tbadge { border-radius: 6px; padding: 0.1rem 0.5rem; font-size: 0.7rem; font-weight: 700; }
       .cort-tag { margin-left: 0.4rem; background: rgba(124,58,237,0.2); color: #c4b5fd; border-radius: 999px; padding: 0.05rem 0.45rem; font-size: 0.65rem; font-weight: 700; }
+      .inc-tag { margin-left: 0.4rem; background: rgba(16,185,129,0.2); color: #6ee7b7; border-radius: 999px; padding: 0.05rem 0.45rem; font-size: 0.65rem; font-weight: 700; }
       .est { font-size: 0.72rem; font-weight: 700; color: #34d399; } .est.anul { color: #f87171; }
       .lnk { background: none; border: 0; color: #60a5fa; cursor: pointer; font-size: 0.8rem; padding: 0 0.3rem; } .lnk.red { color: #f87171; } .lnk.green { color: #34d399; font-weight: 700; }
       tr.deuda td { background: rgba(248,113,113,0.05); } .est.warn { color: #f59e0b; }

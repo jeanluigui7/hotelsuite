@@ -12,6 +12,7 @@ servicesRouter.use(authenticate(), tenant());
 servicesRouter.get('/services/catalog', requirePermission('operations', 'view'), asyncHandler(servicesController.catalog));
 servicesRouter.get('/services/catalog-tree', requirePermission('operations', 'view'), asyncHandler(servicesController.catalogTree));
 servicesRouter.get('/services/availability', requirePermission('operations', 'view'), asyncHandler(servicesController.availability));
+servicesRouter.get('/services/benefits', requirePermission('operations', 'view'), asyncHandler(servicesController.benefits));
 servicesRouter.post('/services/charge', requirePermission('operations', 'create'), asyncHandler(servicesController.charge));
 servicesRouter.get('/services/supplies', requirePermission('operations', 'view'), asyncHandler(servicesController.supplies));
 servicesRouter.get('/services/supplies/:id/variants', requirePermission('operations', 'view'), asyncHandler(servicesController.variants));

@@ -2,7 +2,8 @@ import { Prisma } from '@prisma/client';
 import type { RequestScope } from '../../shared/context';
 import { ConflictError, NotFoundError, ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
-import { ratesRepository } from './rates.repository';
+import { prisma } from '../../config/prisma';
+import { ratesRepository, type IncludedServiceRow } from './rates.repository';
 import { roomTypesRepository } from '../room-types/room-types.repository';
 import { recordActivity } from '../activity-log/activity.emitter';
 import type {
@@ -19,6 +20,33 @@ async function assertRoomTypeInBranch(roomTypeId: string, branchId: string): Pro
   }
 }
 
+/** Valida que los conceptos existan en la sucursal y devuelve las filas listas para persistir. */
+async function buildIncludedRows(
+  branchId: string,
+  included: NonNullable<CreateRateDto['includedServices']> | undefined,
+): Promise<IncludedServiceRow[] | undefined> {
+  if (included === undefined) return undefined; // no tocar la lista
+  if (included.length === 0) return [];
+  const ids = [...new Set(included.map((s) => s.conceptId))];
+  const concepts = await prisma.serviceConcept.findMany({ where: { id: { in: ids }, branchId }, select: { id: true } });
+  const ok = new Set(concepts.map((c) => c.id));
+  for (const s of included) {
+    if (!ok.has(s.conceptId)) throw new ValidationError('Un servicio incluido no pertenece a la sucursal o no existe');
+  }
+  return included.map((s, i) => ({
+    branchId,
+    conceptId: s.conceptId,
+    quantity: s.quantity,
+    assignment: s.assignment,
+    frequency: s.frequency,
+    availability: s.availability,
+    scheduleFrom: s.scheduleFrom ?? null,
+    scheduleTo: s.scheduleTo ?? null,
+    place: s.place,
+    sortOrder: i,
+  }));
+}
+
 function isUniqueViolation(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
 }
@@ -33,8 +61,10 @@ export const ratesService = {
   async createRate(scope: RequestScope, dto: CreateRateDto) {
     const branchId = requireActiveBranch(scope);
     await assertRoomTypeInBranch(dto.roomTypeId, branchId);
+    const { includedServices, ...rate } = dto;
+    const included = await buildIncludedRows(branchId, includedServices);
     try {
-      return await ratesRepository.createRate({ branchId, ...dto });
+      return await ratesRepository.createRate({ branchId, ...rate }, included);
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw new ConflictError('Ya existe una tarifa con esa etiqueta y duración para el tipo de habitación');
@@ -48,8 +78,11 @@ export const ratesService = {
     const existing = await ratesRepository.findRate(id);
     if (!existing || existing.branchId !== branchId) throw new NotFoundError('Tarifa no encontrada');
     if (dto.roomTypeId) await assertRoomTypeInBranch(dto.roomTypeId, branchId);
+    const { includedServices, ...rate } = dto;
+    const included = await buildIncludedRows(branchId, includedServices);
     try {
-      const updated = await ratesRepository.updateRate(id, dto);
+      const updated = await ratesRepository.updateRate(id, rate, included);
+      if (!updated) throw new NotFoundError('Tarifa no encontrada');
       if (dto.price !== undefined && Number(existing.price) !== Number(updated.price)) {
         void recordActivity(scope, {
           activity: 'PRICE_CHANGE', area: 'PRECIOS', entityId: id, reference: `Tarifa ${updated.label}`,

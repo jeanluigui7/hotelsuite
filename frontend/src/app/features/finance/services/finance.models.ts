@@ -103,6 +103,7 @@ export interface CashDetailMovement {
   amount: number;
   method: string;
   courtesy?: boolean;
+  modality?: string;
   status: 'NORMAL' | 'ANULADO';
   /** Ventas no registradas: estado de verificación (REGULARIZADA | POR_VERIFICAR | NO_COBRADA). */
   verify?: string | null;

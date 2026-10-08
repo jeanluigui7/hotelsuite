@@ -27,6 +27,11 @@ const chargeItem = z
     unitPrice: z.coerce.number().min(0).optional(), // monto libre (requiere permiso) o precio directo
     isCourtesy: z.boolean().optional(),
     courtesyReason: z.string().max(200).optional(),
+    // Modalidad EXPLÍCITA (no se deduce por importe 0): VENTA | CORTESIA | INCLUIDO.
+    modality: z.enum(['VENTA', 'CORTESIA', 'INCLUIDO']).optional(),
+    stayBenefitId: z.string().min(1).optional(), // beneficio a consumir (modality=INCLUIDO)
+    place: z.enum(['ROOM', 'DINING']).optional(),
+    observations: z.string().max(500).optional(),
   })
   .refine((v) => v.conceptId || v.productId || (v.description && v.unitPrice !== undefined), {
     message: 'Cada ítem requiere un concepto, un producto, o descripción y precio',
@@ -183,8 +188,11 @@ export const servicesService = {
     if (!stay) throw new ValidationError('La estancia no está activa');
     const freeAmountAllowed = scope.isSuperAdmin || scope.permissions.includes('settings:edit') || scope.permissions.includes('finance:edit');
 
-    const saleItems: { productId?: string; description?: string; quantity: number; unitPrice?: number; conceptKind?: 'SERVICE' | 'PENALTY'; courtesy?: boolean }[] = [];
+    const saleItems: { productId?: string; description?: string; quantity: number; unitPrice?: number; conceptKind?: 'SERVICE' | 'PENALTY'; courtesy?: boolean; modality?: 'VENTA' | 'CORTESIA' | 'INCLUIDO'; stayBenefitId?: string }[] = [];
     const reservations: { concept: ConceptFull; quantity: number; courtesy: boolean; reason: string | null }[] = [];
+    // Consumos de beneficio de tarifa (modality=INCLUIDO): se validan/aplican en una transacción
+    // SERIALIZABLE tras crear la venta, para que dos cobros no gasten el mismo último cupo.
+    const includedOrders: { conceptId: string; benefitId: string; quantity: number; name: string; place: string; observations: string | null }[] = [];
 
     for (const it of dto.items) {
       if (it.conceptId) {
@@ -192,8 +200,28 @@ export const servicesService = {
         if (!concept) throw new ValidationError('Concepto inválido');
         if (concept.status !== 'active') throw new ValidationError(`El concepto "${concept.name}" no está activo`);
         const tipo = concept.group.category.tipo;
+        const modality = it.modality ?? (it.isCourtesy ? 'CORTESIA' : 'VENTA');
         let unitPrice: number;
-        if (it.isCourtesy) {
+        let benefitId: string | null = null;
+        if (modality === 'INCLUIDO') {
+          if (tipo === 'PENALIDAD') throw new ValidationError('Una penalidad no puede ser "incluida en tarifa"');
+          // Beneficio contratado y vigente, con cupo disponible (chequeo final en la tx serializable).
+          const benefit = await prisma.stayBenefit.findFirst({
+            where: {
+              branchId, stayId: stay.id, status: 'ACTIVE', conceptId: concept.id,
+              ...(it.stayBenefitId ? { id: it.stayBenefitId } : {}),
+            },
+            orderBy: { periodStart: 'asc' },
+          });
+          if (!benefit) throw new ValidationError(`La tarifa no incluye "${concept.name}" para esta estancia`);
+          const now = new Date();
+          if (now < benefit.periodStart || now > benefit.periodEnd) throw new ValidationError(`El beneficio "${concept.name}" no está vigente en este momento`);
+          const available = benefit.includedQty - benefit.pendingQty - benefit.deliveredQty;
+          if (it.quantity > available) throw new ValidationError(`Solo quedan ${Math.max(0, available)} "${concept.name}" incluidos disponibles`);
+          unitPrice = 0;
+          benefitId = benefit.id;
+          includedOrders.push({ conceptId: concept.id, benefitId: benefit.id, quantity: it.quantity, name: concept.name, place: it.place ?? 'ROOM', observations: it.observations ?? null });
+        } else if (modality === 'CORTESIA' || it.isCourtesy) {
           if (tipo === 'PENALIDAD') throw new ValidationError('Las penalidades no admiten cortesía');
           if (!concept.allowCourtesy) throw new ValidationError(`El concepto "${concept.name}" no admite cortesía`);
           unitPrice = 0;
@@ -210,7 +238,7 @@ export const servicesService = {
           }
           reservations.push({ concept, quantity: it.quantity, courtesy: !!it.isCourtesy, reason: it.courtesyReason ?? null });
         }
-        saleItems.push({ description: concept.name, quantity: it.quantity, unitPrice, conceptKind: tipo === 'PENALIDAD' ? 'PENALTY' : 'SERVICE', courtesy: !!it.isCourtesy });
+        saleItems.push({ description: concept.name, quantity: it.quantity, unitPrice, conceptKind: tipo === 'PENALIDAD' ? 'PENALTY' : 'SERVICE', courtesy: modality === 'CORTESIA', modality, stayBenefitId: benefitId ?? undefined });
       } else if (it.productId) {
         saleItems.push({ productId: it.productId, quantity: it.quantity, unitPrice: it.unitPrice });
       } else {
@@ -254,8 +282,66 @@ export const servicesService = {
         }
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     }
+
+    // Consumo de beneficios INCLUIDOS: idempotente por saleId (no duplica si se reintenta). En una tx
+    // SERIALIZABLE re-valida el cupo y lo descuenta (deliveredQty += qty); registra la entrega como
+    // ServiceOrder DELIVERED (pedido/entrega directa; sin cobro, sin movimiento de caja).
+    const orders: string[] = [];
+    const alreadyOrders = await prisma.serviceOrder.count({ where: { saleId: sale.id } });
+    if (alreadyOrders === 0 && includedOrders.length) {
+      const saleLines = sale.items.map((i) => ({ id: i.id, description: i.description, used: false }));
+      await prisma.$transaction(async (tx) => {
+        for (const o of includedOrders) {
+          const b = await tx.stayBenefit.findUnique({ where: { id: o.benefitId } });
+          if (!b || b.status !== 'ACTIVE') throw new ConflictError(`El beneficio de "${o.name}" ya no está disponible`);
+          const available = b.includedQty - b.pendingQty - b.deliveredQty;
+          if (o.quantity > available) throw new ConflictError(`Solo quedan ${Math.max(0, available)} "${o.name}" incluidos disponibles`);
+          await tx.stayBenefit.update({ where: { id: b.id }, data: { deliveredQty: { increment: o.quantity } } });
+          const line = saleLines.find((i) => !i.used && i.description === o.name);
+          if (line) line.used = true;
+          const so = await tx.serviceOrder.create({
+            data: {
+              branchId, stayId: stay.id, roomId: stay.roomId, guestId: stay.guestId,
+              conceptId: o.conceptId, description: o.name, quantity: o.quantity,
+              modality: 'INCLUIDO', stayBenefitId: o.benefitId, saleId: sale.id, saleItemId: line?.id ?? null,
+              place: o.place, observations: o.observations,
+              operationalStatus: 'DELIVERED', requestedByUserId: scope.userId, deliveredByUserId: scope.userId, deliveredAt: new Date(),
+            },
+          });
+          orders.push(so.id);
+        }
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }
     const owed = round(Number(sale.total) - Number(sale.paid));
-    return { sale, owed, supplies };
+    return { sale, owed, supplies, orders };
+  },
+
+  /** Beneficios de tarifa de una estancia con el disponible calculado (para el modal de recepción). */
+  async benefitsForStay(scope: RequestScope, stayId: string) {
+    const branchId = requireActiveBranch(scope);
+    const stay = await prisma.stay.findFirst({ where: { id: stayId, branchId, status: 'OPEN' }, select: { id: true } });
+    if (!stay) return [];
+    const now = new Date();
+    const benefits = await prisma.stayBenefit.findMany({
+      where: { branchId, stayId, status: 'ACTIVE' },
+      orderBy: [{ conceptId: 'asc' }, { periodStart: 'asc' }],
+    });
+    return benefits.map((b) => ({
+      id: b.id,
+      conceptId: b.conceptId,
+      serviceName: b.serviceName,
+      includedQty: b.includedQty,
+      pendingQty: b.pendingQty,
+      deliveredQty: b.deliveredQty,
+      availableQty: Math.max(0, b.includedQty - b.pendingQty - b.deliveredQty),
+      periodStart: b.periodStart,
+      periodEnd: b.periodEnd,
+      scheduleFrom: b.scheduleFrom,
+      scheduleTo: b.scheduleTo,
+      place: b.place,
+      // Vigente = dentro del período (el horario diario lo valida el servidor al cobrar).
+      vigente: now >= b.periodStart && now <= b.periodEnd,
+    }));
   },
 
   /** Suministros/reservas (para limpieza). `status='RESERVED'` incluye también los PENDING legados. */

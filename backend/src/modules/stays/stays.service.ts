@@ -60,6 +60,83 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Fila de beneficio de tarifa lista para crear en la estadía (sin stayId). */
+export type StayBenefitRow = {
+  branchId: string;
+  rateId: string | null;
+  conceptId: string;
+  serviceName: string;
+  includedQty: number;
+  periodStart: Date;
+  periodEnd: Date;
+  scheduleFrom: string | null;
+  scheduleTo: string | null;
+  place: string;
+  assignment: string;
+  frequency: string;
+  period: number;
+};
+
+type IncludedServiceConfig = {
+  conceptId: string;
+  quantity: number;
+  assignment: string;
+  frequency: string;
+  availability: string;
+  scheduleFrom: string | null;
+  scheduleTo: string | null;
+  place: string;
+};
+
+/**
+ * Congela los beneficios de una tarifa como filas StayBenefit. La cantidad incluida se resuelve por
+ * asignación (× personas) y frecuencia (× noches). periodStart = check-in (o la mañana siguiente si la
+ * disponibilidad es NEXT_MORNING); periodEnd = fin del período contratado. Hora del hospedaje (Lima).
+ */
+function buildBenefitRows(opts: {
+  branchId: string;
+  rateId: string | null;
+  included: IncludedServiceConfig[];
+  conceptNames: Map<string, string>;
+  guests: number;
+  nights: number;
+  checkInAt: Date;
+  periodEnd: Date;
+  period: number;
+}): StayBenefitRow[] {
+  const { branchId, rateId, included, conceptNames, guests, nights, checkInAt, periodEnd, period } = opts;
+  return included
+    .filter((inc) => conceptNames.has(inc.conceptId))
+    .map((inc) => {
+      const personFactor = inc.assignment === 'PER_PERSON' ? Math.max(1, guests) : 1;
+      const nightFactor = inc.frequency === 'PER_NIGHT' ? Math.max(1, nights) : 1;
+      const includedQty = inc.quantity * personFactor * nightFactor;
+      let periodStart = checkInAt;
+      if (inc.availability === 'NEXT_MORNING') {
+        const d = new Date(checkInAt);
+        d.setDate(d.getDate() + 1);
+        const [h, m] = (inc.scheduleFrom ?? '06:00').split(':').map((x) => Number(x));
+        d.setHours(Number.isFinite(h) ? h : 6, Number.isFinite(m) ? m : 0, 0, 0);
+        periodStart = d;
+      }
+      return {
+        branchId,
+        rateId,
+        conceptId: inc.conceptId,
+        serviceName: conceptNames.get(inc.conceptId) as string,
+        includedQty,
+        periodStart,
+        periodEnd,
+        scheduleFrom: inc.scheduleFrom,
+        scheduleTo: inc.scheduleTo,
+        place: inc.place,
+        assignment: inc.assignment,
+        frequency: inc.frequency,
+        period,
+      };
+    });
+}
+
 const RENEWAL_DAY_MS = 24 * 60 * 60 * 1000;
 /**
  * Limpiezas de renovación por NOCHES acumuladas de la estadía (NO por eventos/pagos de renovación):
@@ -125,9 +202,9 @@ export const staysService = {
     if (room.status !== 'FREE' && room.status !== 'RESERVADA') throw new ConflictError('La habitación no está disponible para check-in');
 
     // Tarifa del catálogo o "Tarifa personalizada" (sin rateId → salida + precio propios).
-    let rate = null as Awaited<ReturnType<typeof prisma.rate.findUnique>> | null;
+    let rate = null as Prisma.RateGetPayload<{ include: { includedServices: true } }> | null;
     if (dto.rateId) {
-      rate = await prisma.rate.findUnique({ where: { id: dto.rateId } });
+      rate = await prisma.rate.findUnique({ where: { id: dto.rateId }, include: { includedServices: { orderBy: { sortOrder: 'asc' } } } });
       if (!rate || rate.branchId !== branchId) throw new ValidationError('Tarifa inválida');
       if (rate.roomTypeId !== room.roomTypeId) {
         throw new ValidationError('La tarifa no corresponde al tipo de la habitación');
@@ -280,6 +357,21 @@ export const staysService = {
     // Precio final editable (priceOverride) o tarifa con descuento de tier.
     const priceAgreed = dto.priceOverride != null ? round2(dto.priceOverride) : applyDiscount(basePrice, discount);
 
+    // Beneficios incluidos en la tarifa: se CONGELAN como StayBenefit (editar la tarifa luego no los
+    // altera). La cantidad se resuelve por asignación (× personas) y frecuencia (× noches contratadas).
+    let benefitRows: StayBenefitRow[] = [];
+    if (rate && rate.includedServices.length) {
+      const ids = [...new Set(rate.includedServices.map((s) => s.conceptId))];
+      const concepts = await prisma.serviceConcept.findMany({ where: { id: { in: ids }, branchId }, select: { id: true, name: true } });
+      const conceptNames = new Map(concepts.map((c) => [c.id, c.name]));
+      const guests = (dto.adults ?? 1) + (dto.children ?? 0);
+      const nights = Math.max(1, Math.round(durationMinutes / 1440));
+      benefitRows = buildBenefitRows({
+        branchId, rateId: rate.id, included: rate.includedServices, conceptNames,
+        guests, nights, checkInAt, periodEnd: plannedCheckoutAt, period: 1,
+      });
+    }
+
     const stay = await staysRepository.checkIn({
       branchId,
       roomId: room.id,
@@ -297,6 +389,7 @@ export const staysService = {
       notes: ((dto.notes || '') + earlyNote).trim() || null,
       reservationId: dto.reservationId ?? null,
       additionalGuestIds: dto.additionalGuestIds.filter((id) => id !== guestId),
+      benefits: benefitRows,
     });
     // Auto-asignación de credencial WiFi del pool según el tipo de tarifa de la estancia.
     const created = stay as StayWithRelations;
@@ -611,11 +704,29 @@ export const staysService = {
       stay.renewalCleaningStatus === 'NONE' &&
       renewalCleaningCounts({ checkInAt: stay.checkInAt, plannedCheckoutAt: newCheckout }).enabled > (stay.renewalCleaningDone ?? 0);
 
+    // Beneficios del NUEVO período contratado (solo renovación por NOCHES; las horas extras NO generan
+    // desayunos). Se congelan como StayBenefit nuevos (no se mezclan con los del período anterior).
+    let renewBenefits: StayBenefitRow[] = [];
+    if (dto.mode !== 'HOURS' && stay.rateId) {
+      const r = await prisma.rate.findUnique({ where: { id: stay.rateId }, include: { includedServices: { orderBy: { sortOrder: 'asc' } } } });
+      if (r && r.branchId === branchId && r.includedServices.length) {
+        const ids = [...new Set(r.includedServices.map((s) => s.conceptId))];
+        const concepts = await prisma.serviceConcept.findMany({ where: { id: { in: ids }, branchId }, select: { id: true, name: true } });
+        const conceptNames = new Map(concepts.map((c) => [c.id, c.name]));
+        renewBenefits = buildBenefitRows({
+          branchId, rateId: r.id, included: r.includedServices, conceptNames,
+          guests: (stay.adults ?? 1) + (stay.children ?? 0), nights: dto.nights ?? 1,
+          checkInAt: current, periodEnd: newCheckout, period: (stay.renewalCount ?? 0) + 2,
+        });
+      }
+    }
+
     await prisma.$transaction([
       prisma.stay.update({
         where: { id },
         data: { plannedCheckoutAt: newCheckout, renewedAt: new Date(), renewalCount: { increment: 1 }, ...(canRequestNow ? { cleaningRequested: true, renewalCleaningStatus: 'SOLICITADA' } : {}) },
       }),
+      ...(renewBenefits.length ? [prisma.stayBenefit.createMany({ data: renewBenefits.map((b) => ({ ...b, stayId: id })) })] : []),
       prisma.sale.create({
         data: {
           branchId, stayId: id, guestId: stay.guestId, total: saleTotal,

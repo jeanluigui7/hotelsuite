@@ -1,17 +1,22 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
 import { MessageService } from 'primeng/api';
+import { environment } from '../../../../environments/environment';
 import { CatalogApiService } from '../catalogs/catalog-api.service';
-import type { Rate, RoomType } from '../catalogs/catalog.models';
+import type { Rate, RateIncludedService, RoomType } from '../catalogs/catalog.models';
 
 interface RateGroup { roomTypeId: string; roomTypeName: string; rates: Rate[]; extraHourPrice: number | null; }
+interface ConceptOpt { id: string; name: string; }
+interface ApiResponse<T> { data: T; }
+// Árbol del catálogo de servicios (tipo SERVICIO): array de categorías con grupos y conceptos.
+type CatTree = { name: string; groups: { name: string; concepts: { id: string; name: string }[] }[] }[];
 
 @Component({
   selector: 'app-rates',
@@ -62,25 +67,66 @@ interface RateGroup { roomTypeId: string; roomTypeName: string; rates: Rate[]; e
       }
     </section>
 
-    <p-dialog [(visible)]="dialogVisible" [modal]="true" [header]="form.id ? 'Editar tarifa' : 'Nueva tarifa'" [style]="{ width: '30rem', maxWidth: '95vw' }">
-      <div class="form">
-        <label>Tipo de habitación</label>
-        <p-select [options]="roomTypes()" optionLabel="name" optionValue="id" [(ngModel)]="form.roomTypeId" placeholder="Selecciona" styleClass="w" appendTo="body" [disabled]="!!form.id" />
-        <label>Etiqueta</label>
-        <input pInputText [(ngModel)]="form.label" placeholder="Ej: 3 horas, 12 horas, DIA HOTELERO" />
-        <label class="chk"><input type="checkbox" [(ngModel)]="form.pernocta" /> <span>Pernoctación</span> <small class="muted">(el corte sigue la hora de corte de la sucursal, no la duración)</small></label>
-        @if (!form.pernocta) {
-          <label>Duración (horas)</label>
-          <p-inputNumber [(ngModel)]="form.hours" [min]="0.5" [max]="72" [step]="0.5" [minFractionDigits]="0" [maxFractionDigits]="1" styleClass="w" placeholder="Ej: 3" />
-        }
-        <label>Precio (S/)</label>
-        <p-inputNumber [(ngModel)]="form.price" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
-        <label class="chk"><input type="checkbox" [(ngModel)]="form.special" /> <span>Tarifa especial</span></label>
-        <label class="chk"><input type="checkbox" [checked]="form.status === 'active'" (change)="form.status = form.status === 'active' ? 'inactive' : 'active'" /> <span>Activa</span></label>
+    <p-dialog [(visible)]="dialogVisible" [modal]="true" [header]="form.id ? 'Editar tarifa' : 'Nueva tarifa'" [style]="{ width: '52rem', maxWidth: '96vw' }" styleClass="rate-dlg">
+      <p class="dlg-sub">Configura el alojamiento y los servicios incluidos.</p>
+      <div class="rate-grid">
+        <div class="col">
+          <h4 class="col-h">Datos de la tarifa</h4>
+          <div class="form">
+            <label>Tipo de habitación</label>
+            <p-select [options]="roomTypes()" optionLabel="name" optionValue="id" [(ngModel)]="form.roomTypeId" placeholder="Selecciona" styleClass="w" appendTo="body" [disabled]="!!form.id" />
+            <label>Nombre de la tarifa</label>
+            <input pInputText [(ngModel)]="form.label" placeholder="Ej: Día hotelero con desayuno" />
+            <label class="chk"><input type="checkbox" [(ngModel)]="form.pernocta" /> <span>Pernoctación</span> <small class="muted">(el corte sigue la hora de corte de la sucursal, no la duración)</small></label>
+            @if (!form.pernocta) {
+              <label>Duración (horas)</label>
+              <p-inputNumber [(ngModel)]="form.hours" [min]="0.5" [max]="72" [step]="0.5" [minFractionDigits]="0" [maxFractionDigits]="1" styleClass="w" placeholder="Ej: 3" />
+            }
+            <label>Precio total de la tarifa (S/)</label>
+            <p-inputNumber [(ngModel)]="form.price" mode="currency" currency="PEN" locale="es-PE" [min]="0" styleClass="w" />
+            <small class="muted">Incluye alojamiento y los servicios configurados. No se suma de nuevo el precio del servicio incluido.</small>
+            <label class="chk"><input type="checkbox" [(ngModel)]="form.special" /> <span>Tarifa especial</span></label>
+            <label class="chk"><input type="checkbox" [checked]="form.status === 'active'" (change)="form.status = form.status === 'active' ? 'inactive' : 'active'" /> <span>Activa</span></label>
+          </div>
+        </div>
+
+        <div class="col">
+          <h4 class="col-h">Servicios incluidos <span class="inc-count" [class.on]="form.includedServices.length">{{ form.includedServices.length }}</span></h4>
+          <p class="muted sm">Beneficios que cubre esta tarifa al contratarla. Pertenecen a la TARIFA, no al tipo de habitación.</p>
+          @for (s of form.includedServices; track $index) {
+            <div class="inc-card">
+              <div class="inc-top">
+                <span class="inc-tag">Incluido en tarifa</span>
+                <button class="inc-del" (click)="removeIncluded($index)" title="Quitar"><i class="pi pi-trash"></i></button>
+              </div>
+              <label>Servicio</label>
+              <p-select [options]="concepts()" optionLabel="name" optionValue="id" [(ngModel)]="s.conceptId" placeholder="Selecciona un servicio" styleClass="w" appendTo="body" [filter]="true" />
+              <div class="inc-row2">
+                <div><label>Cantidad</label><p-inputNumber [(ngModel)]="s.quantity" [min]="1" [showButtons]="true" styleClass="w" /></div>
+                <div><label>Asignación</label><p-select [options]="assignOpts" optionLabel="label" optionValue="value" [(ngModel)]="s.assignment" styleClass="w" appendTo="body" /></div>
+              </div>
+              <label>Frecuencia</label>
+              <p-select [options]="freqOpts" optionLabel="label" optionValue="value" [(ngModel)]="s.frequency" styleClass="w" appendTo="body" />
+              <label>Disponible</label>
+              <p-select [options]="availOpts" optionLabel="label" optionValue="value" [(ngModel)]="s.availability" styleClass="w" appendTo="body" />
+              <label>Horario de atención</label>
+              <div class="inc-row2">
+                <div><small class="muted">Desde</small><input pInputText [(ngModel)]="s.scheduleFrom" placeholder="07:00" /></div>
+                <div><small class="muted">Hasta</small><input pInputText [(ngModel)]="s.scheduleTo" placeholder="10:00" /></div>
+              </div>
+              <label>Lugar de atención</label>
+              <p-select [options]="placeOpts" optionLabel="label" optionValue="value" [(ngModel)]="s.place" styleClass="w" appendTo="body" />
+            </div>
+          } @empty {
+            <div class="inc-empty">Sin servicios incluidos. Esta tarifa no otorga beneficios.</div>
+          }
+          <p-button label="Agregar servicio" icon="pi pi-plus" [text]="true" [disabled]="concepts().length === 0" (onClick)="addIncluded()" />
+          @if (concepts().length === 0) { <small class="muted">No hay conceptos de servicio en el catálogo. Créalos en Configuración › Servicios/Penalidades.</small> }
+        </div>
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="dialogVisible = false" />
-        <p-button label="Guardar" icon="pi pi-check" [loading]="saving()" (onClick)="save()" />
+        <p-button label="Guardar tarifa" icon="pi pi-check" [loading]="saving()" (onClick)="save()" />
       </ng-template>
     </p-dialog>
   `,
@@ -103,22 +149,44 @@ interface RateGroup { roomTypeId: string; roomTypeName: string; rates: Rate[]; e
       .pill { font-size: 0.72rem; font-weight: 700; padding: 0.12rem 0.6rem; border-radius: 999px; background: rgba(148,163,184,0.18); color: #94a3b8; }
       .pill.yes { background: rgba(16,185,129,0.18); color: #10b981; } .pill.special { background: rgba(168,85,247,0.18); color: #a855f7; }
       .form { display: flex; flex-direction: column; gap: 0.4rem; }
-      .form label { font-size: 0.85rem; font-weight: 600; margin-top: 0.5rem; }
+      .form label, .col label { font-size: 0.85rem; font-weight: 600; margin-top: 0.5rem; }
       .form label.chk { display: flex; align-items: center; gap: 0.5rem; font-weight: 500; cursor: pointer; }
       .form label.chk small { font-weight: 400; }
       :host ::ng-deep .form .w, :host ::ng-deep .form input:not([type=checkbox]) { width: 100%; }
+      .dlg-sub { color: var(--p-text-muted-color, #8aa0bd); margin: 0 0 0.9rem; font-size: 0.88rem; }
+      .rate-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem; }
+      @media (max-width: 720px) { .rate-grid { grid-template-columns: 1fr; } }
+      .col-h { margin: 0 0 0.3rem; display: flex; align-items: center; gap: 0.5rem; }
+      .muted.sm, .col small.muted { font-size: 0.8rem; color: var(--p-text-muted-color, #8aa0bd); }
+      .inc-count { font-size: 0.72rem; font-weight: 800; min-width: 1.3rem; text-align: center; padding: 0.05rem 0.4rem; border-radius: 999px; background: rgba(148,163,184,0.18); color: #94a3b8; }
+      .inc-count.on { background: rgba(16,185,129,0.18); color: #10b981; }
+      .inc-card { border: 1px solid var(--p-content-border-color, #1c2c44); border-radius: 12px; padding: 0.7rem 0.8rem; margin: 0.6rem 0; display: flex; flex-direction: column; gap: 0.1rem; background: rgba(16,185,129,0.04); }
+      .inc-top { display: flex; align-items: center; justify-content: space-between; }
+      .inc-tag { font-size: 0.66rem; font-weight: 800; letter-spacing: 0.03em; padding: 0.1rem 0.5rem; border-radius: 6px; background: rgba(16,185,129,0.18); color: #10b981; }
+      .inc-del { background: none; border: none; color: #f87171; cursor: pointer; padding: 0.2rem; }
+      .inc-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+      .inc-empty { border: 1px dashed var(--p-content-border-color, #1c2c44); border-radius: 10px; padding: 0.9rem; text-align: center; color: var(--p-text-muted-color, #8aa0bd); font-size: 0.85rem; margin: 0.4rem 0; }
+      :host ::ng-deep .col .w, :host ::ng-deep .col input:not([type=checkbox]) { width: 100%; }
     `,
   ],
 })
 export class RatesComponent implements OnInit {
   private readonly catalog = inject(CatalogApiService);
   private readonly toast = inject(MessageService);
+  private readonly http = inject(HttpClient);
+  private readonly api = environment.apiUrl;
 
   readonly roomTypes = signal<RoomType[]>([]);
   readonly rates = signal<Rate[]>([]);
+  readonly concepts = signal<ConceptOpt[]>([]);
   readonly saving = signal(false);
   dialogVisible = false;
-  form: { id?: string; roomTypeId: string | null; label: string; hours: number; price: number; pernocta: boolean; special: boolean; status: string } = { roomTypeId: null, label: '', hours: 3, price: 0, pernocta: false, special: false, status: 'active' };
+  form: { id?: string; roomTypeId: string | null; label: string; hours: number; price: number; pernocta: boolean; special: boolean; status: string; includedServices: RateIncludedService[] } = { roomTypeId: null, label: '', hours: 3, price: 0, pernocta: false, special: false, status: 'active', includedServices: [] };
+
+  readonly assignOpts = [{ label: 'Por habitación', value: 'PER_ROOM' }, { label: 'Por persona', value: 'PER_PERSON' }];
+  readonly freqOpts = [{ label: 'Por estadía', value: 'PER_STAY' }, { label: 'Por noche contratada', value: 'PER_NIGHT' }];
+  readonly availOpts = [{ label: 'Mismo día', value: 'SAME_DAY' }, { label: 'Mañana siguiente', value: 'NEXT_MORNING' }];
+  readonly placeOpts = [{ label: 'Habitación', value: 'ROOM' }, { label: 'Comedor', value: 'DINING' }, { label: 'Comedor o habitación', value: 'BOTH' }];
 
   readonly savingExt = signal<string | null>(null);
   readonly groups = computed<RateGroup[]>(() =>
@@ -130,6 +198,25 @@ export class RatesComponent implements OnInit {
   reload(): void {
     this.catalog.roomTypes.list({ pageSize: 200, sortBy: 'name' }).subscribe((res) => this.roomTypes.set(res.data ?? []));
     this.catalog.rates.list({ pageSize: 500 }).subscribe((res) => this.rates.set(res.data ?? []));
+    // Conceptos de servicio (tipo SERVICIO) del catálogo, para elegir los incluidos.
+    this.http.get<ApiResponse<CatTree>>(`${this.api}/services/catalog-tree?tipo=SERVICIO`).subscribe({
+      next: (res) => {
+        const opts: ConceptOpt[] = [];
+        for (const cat of res.data ?? []) for (const g of cat.groups) for (const c of g.concepts) opts.push({ id: c.id, name: `${g.name} · ${c.name}` });
+        this.concepts.set(opts);
+      },
+      error: () => this.concepts.set([]),
+    });
+  }
+
+  addIncluded(): void {
+    this.form.includedServices = [
+      ...this.form.includedServices,
+      { conceptId: this.concepts()[0]?.id ?? '', quantity: 1, assignment: 'PER_ROOM', frequency: 'PER_STAY', availability: 'SAME_DAY', scheduleFrom: null, scheduleTo: null, place: 'BOTH' },
+    ];
+  }
+  removeIncluded(i: number): void {
+    this.form.includedServices = this.form.includedServices.filter((_, idx) => idx !== i);
   }
 
   durLabel(min: number): string {
@@ -139,7 +226,7 @@ export class RatesComponent implements OnInit {
   }
 
   openNew(roomTypeId?: string): void {
-    this.form = { roomTypeId: roomTypeId ?? this.roomTypes()[0]?.id ?? null, label: '', hours: 3, price: 0, pernocta: false, special: false, status: 'active' };
+    this.form = { roomTypeId: roomTypeId ?? this.roomTypes()[0]?.id ?? null, label: '', hours: 3, price: 0, pernocta: false, special: false, status: 'active', includedServices: [] };
     this.dialogVisible = true;
   }
 
@@ -153,7 +240,15 @@ export class RatesComponent implements OnInit {
   }
 
   openEdit(r: Rate): void {
-    this.form = { id: r.id, roomTypeId: r.roomTypeId, label: r.label, hours: r.durationMinutes / 60, price: Number(r.price), pernocta: !!r.pernocta, special: !!r.special, status: r.status };
+    this.form = {
+      id: r.id, roomTypeId: r.roomTypeId, label: r.label, hours: r.durationMinutes / 60, price: Number(r.price),
+      pernocta: !!r.pernocta, special: !!r.special, status: r.status,
+      // Copia editable de los servicios incluidos existentes (no se mutan los del listado).
+      includedServices: (r.includedServices ?? []).map((s) => ({
+        conceptId: s.conceptId, quantity: s.quantity, assignment: s.assignment, frequency: s.frequency,
+        availability: s.availability, scheduleFrom: s.scheduleFrom ?? null, scheduleTo: s.scheduleTo ?? null, place: s.place,
+      })),
+    };
     this.dialogVisible = true;
   }
 
@@ -162,9 +257,22 @@ export class RatesComponent implements OnInit {
       this.toast.add({ severity: 'warn', summary: 'Datos incompletos', detail: 'Tipo, etiqueta y duración (si no es pernoctación) son obligatorios.' });
       return;
     }
+    // Validación: cada servicio incluido debe tener un concepto elegido.
+    if (this.form.includedServices.some((s) => !s.conceptId)) {
+      this.toast.add({ severity: 'warn', summary: 'Servicio incompleto', detail: 'Elige un servicio en cada beneficio incluido (o quítalo).' });
+      return;
+    }
     // Pernoctación: la duración no aplica (rige la hora de corte); se guarda 1 día base.
     const durationMinutes = this.form.pernocta ? 1440 : Math.round(this.form.hours * 60);
-    const dto = { roomTypeId: this.form.roomTypeId, label: this.form.label.trim(), durationMinutes, price: this.form.price, pernocta: this.form.pernocta, special: this.form.special, status: this.form.status } as unknown as Partial<Rate>;
+    const dto = {
+      roomTypeId: this.form.roomTypeId, label: this.form.label.trim(), durationMinutes, price: this.form.price,
+      pernocta: this.form.pernocta, special: this.form.special, status: this.form.status,
+      // Siempre se envía la lista completa (reemplaza la existente al editar; [] = sin beneficios).
+      includedServices: this.form.includedServices.map((s) => ({
+        conceptId: s.conceptId, quantity: s.quantity, assignment: s.assignment, frequency: s.frequency,
+        availability: s.availability, scheduleFrom: s.scheduleFrom || null, scheduleTo: s.scheduleTo || null, place: s.place,
+      })),
+    } as unknown as Partial<Rate>;
     this.saving.set(true);
     const req$ = this.form.id ? this.catalog.rates.update(this.form.id, dto) : this.catalog.rates.create(dto as Rate);
     req$.subscribe({

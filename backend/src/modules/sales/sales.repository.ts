@@ -19,6 +19,8 @@ export interface SaleLineInput {
   subtotal: number;
   conceptKind?: string | null; // SERVICE | PENALTY (clasificación determinista de la línea)
   courtesy?: boolean;
+  modality?: string; // VENTA | CORTESIA | INCLUIDO (modalidad explícita)
+  stayBenefitId?: string | null; // beneficio consumido (modality=INCLUIDO)
 }
 
 export interface SalePaymentInput {

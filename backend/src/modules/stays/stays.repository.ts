@@ -62,6 +62,11 @@ export const staysRepository = {
     notes: string | null;
     reservationId: string | null;
     additionalGuestIds: string[];
+    benefits?: {
+      branchId: string; rateId: string | null; conceptId: string; serviceName: string;
+      includedQty: number; periodStart: Date; periodEnd: Date; scheduleFrom: string | null;
+      scheduleTo: string | null; place: string; assignment: string; frequency: string; period: number;
+    }[];
   }) {
     return prisma.$transaction(async (tx) => {
       const folioCode = await nextStayFolioCode(tx, data.branchId);
@@ -89,6 +94,10 @@ export const staysRepository = {
         await tx.stayGuest.createMany({
           data: data.additionalGuestIds.map((guestId) => ({ stayId: stay.id, guestId })),
         });
+      }
+      // Beneficios de tarifa congelados al contratar (snapshot; editar la tarifa luego no los altera).
+      if (data.benefits && data.benefits.length) {
+        await tx.stayBenefit.createMany({ data: data.benefits.map((b) => ({ ...b, stayId: stay.id })) });
       }
       await tx.room.update({ where: { id: data.roomId }, data: { status: 'OCCUPIED' } });
       return tx.stay.findUnique({ where: { id: stay.id }, include: stayInclude });

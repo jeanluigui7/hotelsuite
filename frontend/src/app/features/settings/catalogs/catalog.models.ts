@@ -46,6 +46,18 @@ export interface Guest {
   status: string;
 }
 
+export interface RateIncludedService {
+  id?: string;
+  conceptId: string;
+  quantity: number;
+  assignment: 'PER_ROOM' | 'PER_PERSON';
+  frequency: 'PER_STAY' | 'PER_NIGHT';
+  availability: 'SAME_DAY' | 'NEXT_MORNING';
+  scheduleFrom?: string | null;
+  scheduleTo?: string | null;
+  place: 'ROOM' | 'DINING' | 'BOTH';
+}
+
 export interface Rate {
   id: string;
   roomTypeId: string;
@@ -56,6 +68,7 @@ export interface Rate {
   pernocta?: boolean;
   special?: boolean;
   status: string;
+  includedServices?: RateIncludedService[];
 }
 
 export interface CustomRate {
