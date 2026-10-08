@@ -710,10 +710,11 @@ export const cashService = {
           guest: info?.guestShort || null,
           description: cleanDesc(it.description, info?.guestShort),
           amount,
-          // Cortesía: flag explícito O servicio/penalidad con importe 0 → "No aplica" (sin cobro).
-          method: (it.courtesy || (amount === 0 && (t === 'SERVICIO' || t === 'PENALTY'))) ? 'NO_APLICA' : method,
+          // Cortesía: SOLO por el flag explícito del ítem → "No aplica" (sin cobro). Un importe 0 no
+          // implica cortesía (una penalidad en cero no es cortesía); la etiqueta depende del dato guardado.
+          method: it.courtesy ? 'NO_APLICA' : method,
           status: itemVoided ? 'ANULADO' : 'NORMAL',
-          courtesy: it.courtesy || (amount === 0 && (t === 'SERVICIO' || t === 'PENALTY')),
+          courtesy: it.courtesy,
           room: info?.room ?? null,
           stayId: sale.stayId ?? null,
         });

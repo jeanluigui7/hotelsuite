@@ -104,6 +104,9 @@ export const reportsService = {
     // Servicios y penalidades comparten CONCEPTO 'SERVPEN' y se distinguen por TIPO.
     const rxExtra = /tiempo extra|tiempo excedido|hora extra/i;
     const rxRenewal = /renovaci|extensi/i;
+    // La "Comisión POS" es un recargo del medio de pago, no un producto ni un servicio: se excluye de
+    // este historial (conserva su registro en pagos/caja/reportes financieros). Cubre variantes con/sin tilde.
+    const rxComision = /comisi[oó]n\s*pos/i;
     const rxRoom = /^tarifa[:\s]|pernocta|hospedaje|servicio de hospedaje|early|d[ií]a hotelero/i;
     const rxPenalty = /penalidad|multa|mora|tardanza|da[ñn]o|rotura/i;
     const conceptOf = (desc: string, productId: string | null, kind?: string | null): string => {
@@ -143,7 +146,7 @@ export const reportsService = {
       return { shift: 'MANANA', start: '', end: '', businessDate: ymdLocal(at) };
     };
 
-    const all = rawItems.map((i) => {
+    const all = rawItems.filter((i) => !rxComision.test(i.description)).map((i) => {
       const stay = i.sale.stayId ? stayMap.get(i.sale.stayId) : undefined;
       const sh = shiftFor(i.sale.createdAt);
       return {
@@ -155,10 +158,10 @@ export const reportsService = {
         type: 'SALIDA',
         quantity: i.quantity,
         amount: Number(i.subtotal),
-        method: (i.courtesy || (Number(i.subtotal) === 0 && conceptOf(i.description, i.productId, i.conceptKind) === 'SERVPEN')) ? 'NO_APLICA' : methodOf(i.sale.payments),
+        method: i.courtesy ? 'NO_APLICA' : methodOf(i.sale.payments),
         concept: conceptOf(i.description, i.productId, i.conceptKind),
         tipo: conceptOf(i.description, i.productId, i.conceptKind) === 'SERVPEN' ? tipoOf(i.description, i.productId, i.conceptKind) : null,
-        courtesy: i.courtesy || (Number(i.subtotal) === 0 && conceptOf(i.description, i.productId, i.conceptKind) === 'SERVPEN'),
+        courtesy: i.courtesy,
         voided: i.voided,
         collaborator: i.sale.createdByUserId ? uname.get(i.sale.createdByUserId) ?? '—' : '—',
         collaboratorId: i.sale.createdByUserId ?? null,
