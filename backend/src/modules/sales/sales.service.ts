@@ -266,6 +266,13 @@ export const salesService = {
           });
         }
       }
+      // Libera el cupo de los beneficios incluidos consumidos por esta venta y cancela sus pedidos.
+      for (const it of sale.items) {
+        if (it.modality === 'INCLUIDO' && it.stayBenefitId && !it.voided) {
+          await tx.stayBenefit.updateMany({ where: { id: it.stayBenefitId }, data: { deliveredQty: { decrement: it.quantity } } });
+        }
+      }
+      await tx.serviceOrder.updateMany({ where: { saleId: id, operationalStatus: { not: 'CANCELLED' } }, data: { operationalStatus: 'CANCELLED', cancelledAt: new Date(), cancelReason: reason?.trim() || 'Anulación de venta' } });
     });
 
     const result = serialize((await salesRepository.findById(id))!);
@@ -487,6 +494,11 @@ export const salesService = {
     }
     await prisma.$transaction(async (tx) => {
       await tx.saleItem.update({ where: { id: item.id }, data: { voided: true, voidedAt: new Date(), voidedByUserId: scope.userId, voidReason: dto.reason?.trim() || null } });
+      // Línea incluida en tarifa anulada → libera el cupo del beneficio y cancela su pedido.
+      if (item.modality === 'INCLUIDO' && item.stayBenefitId) {
+        await tx.stayBenefit.updateMany({ where: { id: item.stayBenefitId }, data: { deliveredQty: { decrement: item.quantity } } });
+        await tx.serviceOrder.updateMany({ where: { saleItemId: item.id, operationalStatus: { not: 'CANCELLED' } }, data: { operationalStatus: 'CANCELLED', cancelledAt: new Date(), cancelReason: dto.reason?.trim() || 'Anulación de línea' } });
+      }
       if (item.productId && wh) {
         await applyStockTx(tx, item.productId, wh, qty); // devuelve el stock de la línea anulada
         await createMovementTx(tx, {

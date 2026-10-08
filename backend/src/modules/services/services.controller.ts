@@ -29,6 +29,12 @@ export const servicesController = {
     const stayId = typeof req.query.stayId === 'string' ? req.query.stayId : '';
     res.status(200).json(ok(await servicesService.benefitsForStay(req.scope, stayId)));
   },
+  async orders(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const stayId = typeof req.query.stayId === 'string' ? req.query.stayId : '';
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+    res.status(200).json(ok(await servicesService.serviceOrdersForStay(req.scope, stayId, status)));
+  },
   async supplies(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const status = typeof req.query.status === 'string' ? req.query.status : undefined;
