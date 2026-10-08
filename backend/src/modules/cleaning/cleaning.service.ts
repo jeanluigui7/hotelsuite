@@ -26,6 +26,7 @@ export const startSchema = z.object({
         description: z.string().min(1).max(200),
         state: z.enum(['OK', 'ROBADA', 'DETERIORADA']).default('OK'),
         pickup: z.boolean().default(false),
+        origin: z.enum(['BASE', 'ADICIONAL']).default('BASE'),
       }),
     )
     .default([]),
@@ -183,6 +184,9 @@ export const cleaningService = {
             note: i.productId ?? null,
             state: i.state,
             pickup: i.pickup,
+            // Los ADICIONALES solo pueden retirarse (el frontend fuerza pickup=true); se conserva el
+            // origen para que reposición no los reponga y el historial no los cuente como base.
+            origin: i.origin,
           })),
         },
       },
@@ -198,36 +202,44 @@ export const cleaningService = {
     const branchId = requireActiveBranch(scope);
     const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room || room.branchId !== branchId) throw new ValidationError('Habitación no encontrada');
-    const task = await prisma.housekeepingTask.findFirst({ where: { branchId, roomId, status: 'IN_PROGRESS' } });
+    const task = await prisma.housekeepingTask.findFirst({ where: { branchId, roomId, status: 'IN_PROGRESS' }, include: { linenInspections: true } });
 
-    // ── Reposición de ropa: por cada prenda RECOGIDA, la variante elegida del SUBALMACÉN
-    // asignado. Descuenta del subalmacén y actualiza el inventario ACTUAL de la habitación
-    // (quita lo recogido, agrega lo repuesto). Todo en una transacción. Lo dejado no se toca.
+    // Anti doble-submit: reclama la tarea de forma ATÓMICA antes de tocar el inventario. Si otra
+    // petición (doble clic/reintento) ya la finalizó, el updateMany afecta 0 filas y se retorna sin
+    // re-ejecutar recojos/reposiciones (evita duplicados).
+    if (task) {
+      const claim = await prisma.housekeepingTask.updateMany({ where: { id: task.id, status: 'IN_PROGRESS' }, data: { status: 'DONE', result: 'APPROVED', completedAt: new Date() } });
+      if (claim.count === 0) return { ok: true, alreadyDone: true };
+    }
+
+    // ── Ropa: RETIRA del inventario actual TODAS las unidades marcadas para recoger (BASE retiradas
+    // + ADICIONALES), una por inspección → lavandería; y REPONE SOLO lo necesario para la dotación
+    // BASE con la variante elegida (CAMBIAR). Los adicionales retirados NO se reponen (la dotación
+    // no cambia). El retiro se maneja desde las inspecciones (no desde `repo`), así los adicionales
+    // también salen aunque no generen reposición. Todo atómico; lo dejado no se toca.
     const repo = dto?.reposicion?.ropa ?? [];
-    if (repo.length) {
-      const floor = await resolveRoomFloor(branchId, roomId, room.tower, room.floor);
-      if (!floor) throw new ValidationError('La habitación no tiene un subalmacén asignado para reponer.');
-      const ids = [...new Set(repo.flatMap((r) => [r.recogidoLinenItemId, r.chosenLinenItemId]))];
+    const pickedLinen = (task?.linenInspections ?? []).filter((i) => i.linenItemId && i.pickup);
+    if (repo.length || pickedLinen.length) {
+      const ids = [...new Set([...repo.flatMap((r) => [r.recogidoLinenItemId, r.chosenLinenItemId]), ...pickedLinen.map((i) => i.linenItemId as string)])];
       const linen = await prisma.linenItem.findMany({ where: { id: { in: ids }, branchId }, select: { id: true, name: true, type: true, size: true } });
       const lm = new Map(linen.map((l) => [l.id, l]));
-      // Dotación Base por (categoría|tamaño): LIMITA cuánto se repone, así la habitación queda
-      // siempre con el número de la regla (autocorrige descuadres, sin acumular de más).
+      // Dotación Base por (categoría|tamaño): TOPE de seguridad de la reposición (la reposición ya
+      // excluye adicionales; el tope autocorrige descuadres sin acumular de más).
       const dot = await prisma.roomTypeDotacion.findMany({ where: { branchId, roomTypeId: room.roomTypeId, articleKind: 'LINEN_REUSABLE', status: 'active' } });
       const dotBase = new Map<string, number>();
       for (const d of dot) dotBase.set(`${d.name.toUpperCase()}|${(d.size ?? '').toUpperCase()}`, d.baseQty);
 
-      // PER-UNIDAD: cada entrada de `repo` es UNA unidad retirada (1 unidad = 1 fila). Se agregan
-      // a totales: cuántas unidades quitar por NOMBRE recogido y cuántas reponer por ARTÍCULO
-      // elegido (así dos unidades del mismo SKU pueden reponerse con artículos distintos —
-      // p. ej. GRIS y VERDE — sin que la operación las confunda). El tope de Dotación Base se
-      // aplica por categoría sobre la reposición (autocorrige descuadres).
-      const removeByName = new Map<string, number>();       // nombre recogido → unidades a quitar
+      // RETIROS: una unidad por inspección pickup (BASE o ADICIONAL), agrupadas por NOMBRE físico.
+      const removeByName = new Map<string, number>();
+      for (const i of pickedLinen) {
+        const name = lm.get(i.linenItemId as string)?.name ?? i.description;
+        removeByName.set(name, (removeByName.get(name) ?? 0) + 1);
+      }
+      // REPOSICIÓN: solo lo que viene en `repo` (BASE), con la variante elegida y topado por dotación.
       const addByChosen = new Map<string, number>();          // chosenLinenItemId → unidades a reponer
       const catAdded = new Map<string, number>();             // categoría|tamaño → repuesto acumulado
       for (const r of repo) {
         const recogido = lm.get(r.recogidoLinenItemId);
-        const recogidoName = recogido?.name ?? 'prenda';
-        removeByName.set(recogidoName, (removeByName.get(recogidoName) ?? 0) + r.quantity);
         const catKey = `${(recogido?.type ?? '').toUpperCase()}|${(recogido?.size ?? '').toUpperCase()}`;
         const base = dotBase.get(catKey);
         const already = catAdded.get(catKey) ?? 0;
@@ -235,9 +247,14 @@ export const cleaningService = {
         catAdded.set(catKey, already + canAdd);
         if (canAdd > 0) addByChosen.set(r.chosenLinenItemId, (addByChosen.get(r.chosenLinenItemId) ?? 0) + canAdd);
       }
+      // El subalmacén solo hace falta si hay algo que reponer.
+      let floor: string | null = null;
+      if (addByChosen.size) {
+        floor = await resolveRoomFloor(branchId, roomId, room.tower, room.floor);
+        if (!floor) throw new ValidationError('La habitación no tiene un subalmacén asignado para reponer.');
+      }
       await prisma.$transaction(async (tx) => {
         // 1) Quita las unidades retiradas del inventario ACTUAL (por nombre) → lavandería.
-        //    Lo que se queda (no viene en `repo`) permanece intacto.
         for (const [name, qty] of removeByName) {
           const keyR = { roomId_articleKind_name: { roomId, articleKind: 'LINEN_REUSABLE', name } };
           const exR = await tx.roomInventory.findUnique({ where: keyR });
@@ -252,7 +269,7 @@ export const cleaningService = {
         // 2) Repone las unidades elegidas (por artículo) descontando del subalmacén.
         for (const [chosenId, qty] of addByChosen) {
           if (qty <= 0) continue;
-          await consumeFloorTx(tx, chosenId, floor, qty);
+          await consumeFloorTx(tx, chosenId, floor as string, qty);
           const chosen = lm.get(chosenId);
           const chosenName = chosen?.name ?? 'prenda';
           const keyC = { roomId_articleKind_name: { roomId, articleKind: 'LINEN_REUSABLE', name: chosenName } };
@@ -262,8 +279,8 @@ export const cleaningService = {
             update: { quantity: (exC?.quantity ?? 0) + qty, linenItemId: chosenId },
             create: { branchId, roomId, articleKind: 'LINEN_REUSABLE', name: chosenName, linenItemId: chosenId, quantity: qty },
           });
-          await tx.linenMovement.create({ data: { branchId, linenItemId: chosenId, type: 'SUPPLY', quantity: -qty, floor, areaFrom: floor, areaTo: `Hab. ${room.number}`, reference: 'Reposición de limpieza', createdByUserId: scope.userId } });
-          await tx.roomInventoryMovement.create({ data: { branchId, roomId, type: 'REPOSICION', articleKind: 'LINEN_REUSABLE', name: chosenName, quantity: qty, fromLocation: floor, toLocation: `Habitación ${room.number}`, reference: 'Reposición de limpieza', createdByUserId: scope.userId } });
+          await tx.linenMovement.create({ data: { branchId, linenItemId: chosenId, type: 'SUPPLY', quantity: -qty, floor: floor as string, areaFrom: floor as string, areaTo: `Hab. ${room.number}`, reference: 'Reposición de limpieza', createdByUserId: scope.userId } });
+          await tx.roomInventoryMovement.create({ data: { branchId, roomId, type: 'REPOSICION', articleKind: 'LINEN_REUSABLE', name: chosenName, quantity: qty, fromLocation: floor as string, toLocation: `Habitación ${room.number}`, reference: 'Reposición de limpieza', createdByUserId: scope.userId } });
         }
       });
     }
@@ -318,9 +335,7 @@ export const cleaningService = {
       });
     }
 
-    if (task) {
-      await prisma.housekeepingTask.update({ where: { id: task.id }, data: { status: 'DONE', result: 'APPROVED', completedAt: new Date() } });
-    }
+    // La tarea ya quedó DONE/APPROVED en el claim atómico del inicio (anti doble-submit).
     const problems = dto?.problems ?? [];
     if (problems.length) {
       // "No, hay problemas": se registra un mantenimiento y la habitación queda bloqueada.
@@ -441,7 +456,8 @@ export const cleaningService = {
     // más inspecciones que unidades, para no reponer de más.
     const emittedByLinen = new Map<string, number>();
     const ropa = task.linenInspections
-      .filter((i) => i.linenItemId && i.pickup && lmap.get(i.linenItemId)?.type !== 'AMENITY')
+      // Solo BASE genera reposición. Los ADICIONALES retirados NO se reponen (la dotación no cambia).
+      .filter((i) => i.linenItemId && i.pickup && i.origin === 'BASE' && lmap.get(i.linenItemId)?.type !== 'AMENITY')
       .map((i) => {
         const linenItemId = i.linenItemId as string;
         const present = invQty.get(linenItemId) ?? 0;
@@ -498,7 +514,15 @@ export const cleaningService = {
         };
       });
     }
-    return { ropa, amenities, subalmacen: floor };
+    // ADICIONALES retirados: se muestran como información (se retiran, NO se reponen). El inventario
+    // los quita en finish() a partir de las inspecciones pickup; aquí no generan fila de reposición.
+    const adicionalesRetirados = task.linenInspections
+      .filter((i) => i.linenItemId && i.pickup && i.origin === 'ADICIONAL' && lmap.get(i.linenItemId)?.type !== 'AMENITY')
+      .map((i) => {
+        const li = lmap.get(i.linenItemId as string);
+        return { recogidoLinenItemId: i.linenItemId, name: li?.name ?? i.description, category: li?.type ?? null, size: li?.size ?? null };
+      });
+    return { ropa, amenities, adicionalesRetirados, subalmacen: floor };
   },
 
   /** Inicia una revisión periódica: pone la habitación EN REVISIÓN y arranca el cronómetro. */
@@ -715,6 +739,27 @@ export const cleaningService = {
       prisma.roomSupply.findMany({ where: { branchId, status: 'DELIVERED' }, orderBy: { deliveredAt: 'desc' }, take: 500 }),
     ]);
     const rmap = new Map(rooms.map((r) => [r.id, r]));
+    // REPUESTOS reales: la variante efectivamente repuesta (la elegida con CAMBIAR), tomada de los
+    // movimientos REPOSICION de la habitación en la ventana de la limpieza. NO se copia la lista de
+    // recogidos. Se asocia por habitación + hora de finalización (finish() crea el movimiento junto
+    // con completedAt). Para limpiezas antiguas sin movimientos en la ventana, el historial usa el
+    // fallback (recogidos BASE) para no vaciar el historial existente.
+    const completedTasks = tasks.filter((t) => t.completedAt);
+    const minCompleted = completedTasks.length ? new Date(Math.min(...completedTasks.map((t) => t.completedAt!.getTime())) - 60 * 1000) : null;
+    const repoMovs = minCompleted
+      ? await prisma.roomInventoryMovement.findMany({ where: { branchId, type: 'REPOSICION', articleKind: 'LINEN_REUSABLE', createdAt: { gte: minCompleted } }, select: { roomId: true, name: true, quantity: true, createdAt: true } })
+      : [];
+    // Para cada tarea, suma los movimientos REPOSICION de su habitación cercanos a su finalización.
+    const repoForTask = (t: (typeof tasks)[number]): { name: string; units: number }[] | null => {
+      if (!t.completedAt) return null;
+      const lo = t.completedAt.getTime() - 60 * 1000; // margen por si el movimiento se registró antes
+      const hi = t.completedAt.getTime() + 5 * 60 * 1000;
+      const ms = repoMovs.filter((m) => m.roomId === t.roomId && m.createdAt.getTime() >= lo && m.createdAt.getTime() <= hi);
+      if (!ms.length) return null;
+      const agg = new Map<string, number>();
+      for (const m of ms) agg.set(m.name, (agg.get(m.name) ?? 0) + m.quantity);
+      return [...agg].map(([name, units]) => ({ name, units }));
+    };
     const userIds = [...new Set([...tasks.map((t) => t.assignedToUserId), ...supplies.map((s) => s.createdByUserId), ...supplies.map((s) => s.deliveredByUserId)].filter((x): x is string => !!x))];
     // Prendas realmente entregadas por variante (deliveredJson) o, si no existe, el concepto+cantidad.
     const deliveredItems = (s: (typeof supplies)[number]): { name: string; units: number }[] => {
@@ -754,7 +799,13 @@ export const cleaningService = {
       const r = rmap.get(t.roomId)!;
       const recogidasInsp = t.linenInspections.filter((i) => i.pickup);
       const dejadasInsp = t.linenInspections.filter((i) => !i.pickup);
+      // RECOGIDOS conservando el origen: BASE vs ADICIONAL (no se funden aunque compartan nombre).
       const recogidos = groupCount(recogidasInsp);
+      const recogidosBase = groupCount(recogidasInsp.filter((i) => i.origin !== 'ADICIONAL'));
+      const recogidosAdicional = groupCount(recogidasInsp.filter((i) => i.origin === 'ADICIONAL'));
+      // REPUESTOS: variantes realmente repuestas (movimientos de la tarea). Para limpiezas antiguas
+      // sin enlace a la tarea, se conserva el comportamiento previo (una limpia por cada recogido BASE).
+      const repuestos = repoForTask(t) ?? recogidosBase;
       const winStart = t.createdAt.getTime() - 60 * 60 * 1000;
       const winEnd = (t.completedAt?.getTime() ?? Date.now()) + 60 * 60 * 1000;
       const adic = supplies.filter((s) => s.roomId === t.roomId && s.deliveredAt && s.deliveredAt.getTime() >= winStart && s.deliveredAt.getTime() <= winEnd);
@@ -768,7 +819,7 @@ export const cleaningService = {
       return {
         id: t.id, kind: 'TASK', dateTime: t.createdAt, fin: t.completedAt, roomNumber: r.number, floor: r.floor, tipo, estadoFinal,
         estado: 'Finalizado', durationMinutes, excedido: durationMinutes > LIMIT_MIN,
-        recogidos, dejados: groupCount(dejadasInsp), repuestos: recogidos, // cada prenda recogida se repone con una limpia
+        recogidos, recogidosBase, recogidosAdicional, dejados: groupCount(dejadasInsp), repuestos,
         adicionales: adic.flatMap((a) => deliveredItems(a).map((d) => ({ name: d.name, units: d.units, cortesia: a.courtesy }))),
         extra: adic.reduce((n, a) => n + a.quantity, 0),
         user: t.assignedToUserId ? (umap.get(t.assignedToUserId) ?? '—') : '—',
@@ -780,7 +831,7 @@ export const cleaningService = {
         id: s.id, kind: 'SUPPLY', dateTime: s.deliveredAt ?? s.createdAt, fin: s.deliveredAt ?? s.createdAt,
         roomNumber: r?.number ?? '—', floor: r?.floor ?? null, tipo: 'ADICIONAL', estadoFinal: 'Ocupada',
         estado: 'Finalizado', durationMinutes: 0, excedido: false,
-        recogidos: [] as { name: string; units: number }[], dejados: [] as { name: string; units: number }[], repuestos: [] as { name: string; units: number }[],
+        recogidos: [] as { name: string; units: number }[], recogidosBase: [] as { name: string; units: number }[], recogidosAdicional: [] as { name: string; units: number }[], dejados: [] as { name: string; units: number }[], repuestos: [] as { name: string; units: number }[],
         adicionales: deliveredItems(s).map((d) => ({ name: d.name, units: d.units, cortesia: s.courtesy })),
         extra: s.quantity,
         user: s.deliveredByUserId ? (umap.get(s.deliveredByUserId) ?? '—') : (s.createdByUserId ? (umap.get(s.createdByUserId) ?? '—') : '—'),

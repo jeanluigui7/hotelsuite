@@ -1960,6 +1960,10 @@ model LinenInspection {
   description String // nombre del item mostrado
   state       String  @default("OK") // OK | ROBADA | DETERIORADA
   pickup      Boolean @default(false)
+  // Origen de la unidad al construir el recojo: BASE (dotación) o ADICIONAL (entrega de ropa
+  // adicional, venta o cortesía). Se decide por exceso sobre la dotación por tipo+tamaño y se
+  // persiste para que reposición/finalización/historial conserven la distinción sin re-adivinarla.
+  origin      String  @default("BASE") // BASE | ADICIONAL
   note        String?
 
   task      HousekeepingTask @relation(fields: [taskId], references: [id], onDelete: Cascade)

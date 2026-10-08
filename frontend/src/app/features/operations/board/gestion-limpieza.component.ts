@@ -289,6 +289,14 @@ const ACCIONES_PERIODICAS = [
             }
           </div>
         } @empty { <p class="muted center" style="padding:1.2rem">No hay ítems por reponer.</p> }
+        @if (adicRetirados().length) {
+          <div class="adic-info">
+            <div class="adic-hd"><i class="pi pi-arrow-up-right"></i> ADICIONALES RETIRADOS (no se reponen)</div>
+            @for (a of adicRetirados(); track a.name) {
+              <div class="adic-row"><span>{{ a.name }}</span><span class="adic-tag">ADICIONAL</span></div>
+            }
+          </div>
+        }
       } @else {
         <p class="hint"><i class="pi pi-info-circle"></i> Verifica el estado de la habitación e informa cualquier problema detectado.</p>
         <h4 class="q">¿Todo está en buen estado?</h4>
@@ -570,6 +578,10 @@ const ACCIONES_PERIODICAS = [
       .rep-sub { font-size: 0.95rem; font-weight: 700; color: #cfe0f5; margin-top: 0.15rem; letter-spacing: 0.03em; }
       .rep-instr { margin-top: 0.45rem; font-size: 0.85rem; color: #f87171; font-weight: 700; display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
       .chg-tag { display: inline-flex; align-items: center; gap: 0.3rem; background: #b6f23a; color: #1a2e05; border-radius: 6px; padding: 0.12rem 0.5rem; font-weight: 800; font-size: 0.78rem; letter-spacing: 0.03em; }
+      .adic-info { margin-top: 0.9rem; border: 1px dashed #B000F0; border-radius: 8px; padding: 0.5rem 0.7rem; background: rgba(176,0,240,0.06); }
+      .adic-hd { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.04em; color: #d59bff; display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.3rem; }
+      .adic-row { display: flex; justify-content: space-between; align-items: center; padding: 0.2rem 0; color: #e7d6f5; font-size: 0.88rem; }
+      .adic-tag { font-size: 0.62rem; font-weight: 800; letter-spacing: 0.04em; border-radius: 5px; padding: 0.08rem 0.4rem; background: #B000F0; color: #fff; }
       .cat-cols.rep span:first-child { flex: 1; } .cat-cols.rep .c-acc { width: 11rem; text-align: center; }
       .urow.rep { flex-wrap: wrap; } .urow.rep.off { opacity: 0.6; }
       .u-acc { width: 11rem; display: flex; justify-content: flex-end; }
@@ -714,6 +726,8 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   todoOk: boolean | null = null;
   obsGenerales = '';
   readonly reposicion = signal<{ ropa: RepoRow[]; amenities: RepoRow[] }>({ ropa: [], amenities: [] });
+  /** Adicionales retirados en el recojo: se muestran como info (se retiran, NO se reponen). */
+  readonly adicRetirados = signal<{ name: string; category?: string | null; size?: string | null }[]>([]);
   /** Reposición agrupada por sección de color (SÁBANAS/TOALLAS/AMENITIES…), 1 unidad = 1 fila. */
   readonly repoSections = computed(() => {
     const all = [...this.reposicion().ropa, ...this.reposicion().amenities];
@@ -985,6 +999,8 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
       description: `${this.typeLabel(u.item.type)} ${u.item.name}`,
       state: this.stateOf(u),
       pickup: this.pickupOf(u),
+      // Persistir el origen para que reposición/finalización/historial NO funda adicional con base.
+      origin: u.tipo,
     }));
     this.http.post<ApiResponse<unknown>>(`${this.api}/cleaning/${this.selRoom.id}/start`, { inspections }).subscribe({
       next: () => { this.busy.set(false); this.iniciarVisible = false; this.toast.add({ severity: 'success', summary: 'Limpieza iniciada', detail: `Hab. ${this.selRoom?.number} en curso` }); this.reload(); },
@@ -1007,8 +1023,10 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     this.obsGenerales = '';
     this.cats = this.CATS.map((c) => ({ ...c, selected: false, falla: '', observacion: '' }));
     this.reposicion.set({ ropa: [], amenities: [] });
-    this.http.get<ApiResponse<{ ropa: RepoRow[]; amenities: RepoRow[] }>>(`${this.api}/cleaning/${r.id}/reposicion`).subscribe((res) => {
+    this.adicRetirados.set([]);
+    this.http.get<ApiResponse<{ ropa: RepoRow[]; amenities: RepoRow[]; adicionalesRetirados?: { name: string; category?: string | null; size?: string | null }[] }>>(`${this.api}/cleaning/${r.id}/reposicion`).subscribe((res) => {
       const data = res.data ?? { ropa: [], amenities: [] };
+      this.adicRetirados.set(res.data?.adicionalesRetirados ?? []);
       let seq = 0;
       // ROPA: una fila por unidad retirada, con sección de color; elige por defecto la MISMA prenda si
       // tiene stock, si no la primera disponible. La trabajadora puede CAMBIAR por fila.
