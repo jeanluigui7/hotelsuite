@@ -20,8 +20,10 @@ interface Folio {
   amounts: { habitacion: number; renovaciones: number; consumos: number; total: number; paid: number };
   cleaning: { done: number; allowed: number; possible: number; status: string; pernocta: boolean };
   cleaningLog: { at: string; action: string; by: string }[];
-  movements: { at: string; type: string; description: string; method?: string; charge: number; payment: number; balance: number; by: string }[];
+  movements: { at: string; type: string; description: string; method?: string; charge: number; payment: number; balance: number; by: string; modality?: string | null; voided?: boolean }[];
   products: { name: string; quantity: number; amount: number; at: string; paid: boolean }[];
+  services?: { name: string; quantity: number; amount: number; at: string; modality: string | null; conceptKind: string | null; courtesy: boolean; voided: boolean }[];
+  benefits?: FolioBenefit[];
   simulator: { hospedaje: number; productos: number; ratio: number; limit: number; exceeded: boolean; exceso: number; igvAdicional: number; suggested: number };
   frigobar?: {
     enabled: boolean;
@@ -30,6 +32,12 @@ interface Folio {
     lines?: { name: string; quantity: number; amount: number }[]; consumido?: number; pagado?: number; pendiente?: number;
   };
 }
+interface FolioBenefit {
+  id: string; serviceName: string; date: string; periodEnd: string;
+  scheduleFrom?: string | null; scheduleTo?: string | null; place: string;
+  includedQty: number; deliveredQty: number; pendingQty: number; availableQty: number; unusedQty: number;
+  status: string; scheduled: boolean; vigente: boolean;
+}
 type Tab = 'resumen' | 'folio' | 'historial' | 'operacion';
 interface AuditEvent { at: string; user: string; activity: string | null; area: string | null; reference: string | null; detail: string | null; shift: string | null; }
 /** Etiquetas legibles de eventos para la Auditoría. */
@@ -37,11 +45,14 @@ const ACT_LABEL: Record<string, string> = {
   CHECK_IN: 'Registró el check-in', CHECK_OUT: 'Registró el check-out', RENEWAL: 'Registró una renovación',
   DEBT_PAYMENT: 'Registró un cobro', ROOM_CHANGE: 'Cambió de habitación',
   SALE: 'Registró una venta', SALE_VOID: 'Anuló una venta', SALE_CORRECTION: 'Corrigió una venta', FRIGOBAR: 'Registró consumo de frigobar',
+  SERVICE_INCLUDED: 'Entrega de servicio incluido', SERVICE_COURTESY: 'Entrega de servicio por cortesía',
+  SERVICE_SALE: 'Venta de servicio', PENALTY_REGISTERED: 'Registro de penalidad', BENEFIT_EXPIRED: 'Servicio incluido no utilizado',
   CLEANING: 'Limpieza', INSPECTION: 'Inspección de limpieza',
   CASH_IN: 'Ingreso de caja', CASH_OUT: 'Egreso de caja',
 };
-const AREA_ORIGIN: Record<string, string> = { HOSPEDAJE: 'Recepción', VENTAS: 'Recepción', CAJA: 'Recepción', LIMPIEZA: 'Housekeeping', INVENTARIO: 'Housekeeping' };
-interface HistDay { key: string; label: string; renovaciones: { charge: number }[]; limpiezas: { action: string }[]; productos: { name: string; quantity: number; amount: number }[]; productosTotal: number; }
+const AREA_ORIGIN: Record<string, string> = { HOSPEDAJE: 'Recepción', VENTAS: 'Recepción', CAJA: 'Recepción', SERVICIOS: 'Recepción', LIMPIEZA: 'Housekeeping', INVENTARIO: 'Housekeeping' };
+interface HistServ { name: string; quantity: number; amount: number; modality: string | null; kind: string | null; label: string; }
+interface HistDay { key: string; label: string; renovaciones: { charge: number }[]; limpiezas: { action: string }[]; productos: { name: string; quantity: number; amount: number }[]; productosTotal: number; servicios: HistServ[]; penalidades: HistServ[]; }
 
 @Component({
   selector: 'app-folio-estancia',
@@ -95,6 +106,25 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
                       } @else if (canRequestCleaning(f)) {
                         <button class="cl-btn" [disabled]="busy()" (click)="requestCleaning()"><i class="pi pi-send"></i> Solicitar limpieza</button>
                       }
+                    </div>
+                  }
+                  @if (f.benefits && f.benefits.length) {
+                    <div class="clean-box svc-box">
+                      <div class="svc-hd"><i class="pi pi-ticket"></i> SERVICIOS INCLUIDOS PROGRAMADOS</div>
+                      @for (b of visibleBenefits(f); track b.id) {
+                        <div class="svc-row">
+                          <div class="svc-main">
+                            <b>{{ b.date | date: 'dd/MM' }} · {{ b.serviceName }}</b>
+                            @if (b.scheduleFrom && b.scheduleTo) { <small class="svc-hr">Horario: {{ b.scheduleFrom }}–{{ b.scheduleTo }}</small> }
+                            <small class="svc-counts">{{ b.includedQty }} incluidos · {{ b.deliveredQty }} entregado(s) · {{ b.pendingQty > 0 ? (b.pendingQty + ' solicitado(s) · ') : '' }}{{ b.availableQty }} disponible(s){{ b.unusedQty > 0 ? (' · ' + b.unusedQty + ' no utilizado(s)') : '' }}</small>
+                          </div>
+                          @if (b.status === 'EXPIRED') { <span class="cl-badge exp2">Vencido</span> }
+                          @else if (b.scheduled) { <span class="cl-badge prog2">Programado</span> }
+                          @else if (b.availableQty > 0) { <span class="cl-badge av2">{{ b.availableQty }} disponible(s)</span> }
+                          @else { <span class="cl-badge cur">Completo</span> }
+                        </div>
+                      }
+                      @if ((f.benefits.length) > 3) { <button class="svc-more" (click)="showAllBenefits.set(!showAllBenefits())">{{ showAllBenefits() ? 'Ver menos' : 'Ver programación (' + f.benefits.length + ')' }}</button> }
                     </div>
                   }
                   <div class="dates2">
@@ -173,9 +203,9 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
                 <table class="ftbl"><thead><tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th class="num">+Cargo</th><th class="num">-Pago</th><th class="num">Saldo</th><th>Responsable</th></tr></thead>
                   <tbody>
                     @for (m of f.movements; track $index) {
-                      <tr><td class="muted">{{ m.at | date: 'dd/MM/yyyy hh:mm a' }}</td>
-                        <td><span class="mtag" [class.pay]="m.type === 'Pago'">{{ m.type }}</span></td>
-                        <td>{{ m.description }}</td>
+                      <tr [class.voided]="m.voided"><td class="muted">{{ m.at | date: 'dd/MM/yyyy hh:mm a' }}</td>
+                        <td><span class="mtag" [class.pay]="m.type === 'Pago'" [class.svc]="m.type === 'Servicio'" [class.pen]="m.type === 'Penalidad'">{{ m.type }}</span></td>
+                        <td>{{ m.description }}@if (m.modality === 'INCLUIDO') { <span class="mdl inc">INCLUIDO EN TARIFA</span> } @else if (m.modality === 'CORTESIA') { <span class="mdl cor">CORTESÍA</span> }@if (m.voided) { <span class="mdl anul">ANULADO</span> }</td>
                         <td class="num">{{ m.charge > 0 ? ('S/ ' + (m.charge | number: '1.2-2')) : '—' }}</td>
                         <td class="num pay">{{ m.payment > 0 ? ('S/ ' + (m.payment | number: '1.2-2')) : '—' }}</td>
                         <td class="num" [class.deb]="m.balance > 0">S/ {{ m.balance | number: '1.2-2' }}</td>
@@ -198,6 +228,14 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
                   @if (d.limpiezas.length) {
                     <div class="h-cat"><span class="h-lbl limp"><i class="pi pi-sparkles"></i> Limpieza</span>
                       <ul>@for (c of d.limpiezas; track $index) { <li>{{ c.action }}</li> }</ul></div>
+                  }
+                  @if (d.servicios.length) {
+                    <div class="h-cat"><span class="h-lbl svc"><i class="pi pi-ticket"></i> Servicio</span>
+                      <ul>@for (s of d.servicios; track $index) { <li>{{ s.name }} × {{ s.quantity }} — <span class="hmod" [class.inc]="s.modality === 'INCLUIDO'" [class.cor]="s.modality === 'CORTESIA'">{{ s.label }}</span></li> }</ul></div>
+                  }
+                  @if (d.penalidades.length) {
+                    <div class="h-cat"><span class="h-lbl pen"><i class="pi pi-exclamation-triangle"></i> Penalidad</span>
+                      <ul>@for (s of d.penalidades; track $index) { <li>{{ s.name }} × {{ s.quantity }} — <span class="hmod">{{ s.label }}</span></li> }</ul></div>
                   }
                   @if (d.productos.length) {
                     <div class="h-cat"><span class="h-lbl vent"><i class="pi pi-shopping-bag"></i> Venta de productos</span>
@@ -278,8 +316,24 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
       .h-cat { margin-bottom: 0.6rem; } .h-cat:last-child { margin-bottom: 0; }
       .h-lbl { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.72rem; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase; }
       .h-lbl.reno { color: #5eead4; } .h-lbl.limp { color: #93c5fd; } .h-lbl.vent { color: #fbbf24; }
+      .h-lbl.svc { color: #34d399; } .h-lbl.pen { color: #f87171; }
+      .hmod { font-weight: 700; color: #cbd5e1; } .hmod.inc { color: #2dd4bf; } .hmod.cor { color: #c4b5fd; }
       .h-cat ul { margin: 0.3rem 0 0; padding-left: 1.1rem; color: #cbd5e1; font-size: 0.85rem; } .h-cat li { margin: 0.1rem 0; }
       .h-tot { color: #fbbf24; font-weight: 700; font-size: 0.82rem; margin-top: 0.25rem; }
+      /* Servicios incluidos programados (resumen) */
+      .svc-box { flex-direction: column; align-items: stretch; }
+      .svc-hd { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.03em; color: #93c5fd; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.4rem; }
+      .svc-row { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; padding: 0.35rem 0; border-top: 1px solid rgba(255,255,255,0.06); }
+      .svc-row:first-of-type { border-top: 0; }
+      .svc-main { display: flex; flex-direction: column; min-width: 0; } .svc-main b { font-size: 0.85rem; color: #e6edf5; }
+      .svc-hr { font-size: 0.72rem; color: #8aa0bd; } .svc-counts { font-size: 0.74rem; color: #aebfd4; }
+      .cl-badge.exp2 { background: rgba(148,163,184,0.2); color: #cbd5e1; } .cl-badge.prog2 { background: #334155; color: #cbd5e1; } .cl-badge.av2 { background: rgba(37,99,235,0.22); color: #93c5fd; }
+      .svc-more { margin-top: 0.4rem; background: none; border: 0; color: #93c5fd; font-size: 0.78rem; cursor: pointer; text-align: left; padding: 0; }
+      /* TIPO + modalidad en el folio */
+      .mtag.svc { color: #34d399; } .mtag.pen { color: #f87171; }
+      .mdl { font-size: 0.64rem; font-weight: 800; border-radius: 5px; padding: 0.05rem 0.4rem; margin-left: 0.4rem; }
+      .mdl.inc { background: rgba(45,212,191,0.2); color: #2dd4bf; } .mdl.cor { background: rgba(124,58,237,0.2); color: #c4b5fd; } .mdl.anul { background: rgba(248,113,113,0.18); color: #fca5a5; }
+      tr.voided td { opacity: 0.55; text-decoration: line-through; }
       /* Auditoría timeline */
       .au-row { display: flex; gap: 0.7rem; align-items: flex-start; padding: 0.4rem 0; border-bottom: 1px solid #16202e; }
       .au-t { flex: 0 0 4.6rem; color: #8aa0bd; font-size: 0.76rem; font-variant-numeric: tabular-nums; padding-top: 0.15rem; }
@@ -418,6 +472,15 @@ export class FolioEstanciaComponent implements OnDestroy {
 
   /** La sección de limpieza programada solo aplica a pernoctación o estancias renovadas. */
   showCleaning(f: Folio): boolean { return f.cleaning.pernocta || f.renewals > 0; }
+  readonly showAllBenefits = signal(false);
+  /** Programación de servicios incluidos: por defecto los 3 más relevantes (vigente/próximos). */
+  visibleBenefits(f: Folio): FolioBenefit[] {
+    const all = f.benefits ?? [];
+    if (this.showAllBenefits() || all.length <= 3) return all;
+    // Prioriza vigentes y próximos programados; recorta a 3.
+    const order = [...all].sort((a, b) => (a.status === 'EXPIRED' ? 1 : 0) - (b.status === 'EXPIRED' ? 1 : 0));
+    return order.slice(0, 3);
+  }
   /** Se puede solicitar cuando hay una limpieza programada pendiente y ninguna en curso. */
   canRequestCleaning(f: Folio): boolean { return f.cleaning.status === 'NONE' && f.cleaning.allowed > f.cleaning.done; }
 
@@ -494,7 +557,7 @@ export class FolioEstanciaComponent implements OnDestroy {
     const get = (iso: string): HistDay => {
       const k = this.dayKey(iso);
       let d = map.get(k);
-      if (!d) { d = { key: k, label: this.dayLabel(iso), renovaciones: [], limpiezas: [], productos: [], productosTotal: 0 }; map.set(k, d); }
+      if (!d) { d = { key: k, label: this.dayLabel(iso), renovaciones: [], limpiezas: [], productos: [], productosTotal: 0, servicios: [], penalidades: [] }; map.set(k, d); }
       return d;
     };
     // Renovaciones: cargos de renovación en los movimientos (con fecha real).
@@ -503,6 +566,19 @@ export class FolioEstanciaComponent implements OnDestroy {
     for (const c of f.cleaningLog) get(c.at).limpiezas.push({ action: c.action });
     // Productos consumidos.
     for (const p of f.products) { const d = get(p.at); d.productos.push({ name: p.name, quantity: p.quantity, amount: p.amount }); d.productosTotal += p.amount; }
+    // Servicios / Penalidades (con modalidad; incluidos/cortesías NO muestran S/0.00).
+    for (const s of f.services ?? []) {
+      if (s.voided) continue;
+      const label = s.modality === 'INCLUIDO' ? 'INCLUIDO' : s.modality === 'CORTESIA' ? 'CORTESÍA' : `S/ ${s.amount.toFixed(2)}`;
+      const row: HistServ = { name: s.name, quantity: s.quantity, amount: s.amount, modality: s.modality, kind: s.conceptKind, label };
+      (s.conceptKind === 'PENALTY' ? get(s.at).penalidades : get(s.at).servicios).push(row);
+    }
+    // Vencimientos (NO UTILIZADO) desde los beneficios expirados.
+    for (const b of f.benefits ?? []) {
+      if (b.status === 'EXPIRED' && b.unusedQty > 0) {
+        get(b.periodEnd).servicios.push({ name: b.serviceName, quantity: b.unusedQty, amount: 0, modality: 'INCLUIDO', kind: 'SERVICE', label: 'INCLUIDO · NO UTILIZADO' });
+      }
+    }
     return [...map.values()].sort((a, b) => a.key.localeCompare(b.key));
   }
 

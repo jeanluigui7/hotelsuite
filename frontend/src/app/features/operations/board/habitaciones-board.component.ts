@@ -171,6 +171,19 @@ const MANT_CATS = [
                   <div><span>Salida</span><strong>{{ r.activeStay.plannedCheckoutAt | date: 'dd/MM HH:mm' }}</strong></div>
                 </div>
               </div>
+              @if (r.activeStay.benefit; as b) {
+                <button class="oc-benefit clickable" (click)="openFolio(r)" pTooltip="Ver servicios incluidos del folio">
+                  <i class="pi pi-ticket bf-ico"></i>
+                  <div class="bf-main">
+                    <b>{{ b.multiple ? 'Servicios incluidos' : b.serviceName }}</b>
+                    <small>{{ b.date | date: 'dd/MM' }} · {{ b.scheduled ? 'Programado' : (b.deliveredQty + ' de ' + b.includedQty + ' entregados') }}</small>
+                  </div>
+                  @if (b.scheduled) { <span class="bf-badge prog">Programado</span> }
+                  @else if (b.availableQty > 0) { <span class="bf-badge">{{ b.availableQty }} por entregar</span> }
+                  @else { <span class="bf-badge done"><i class="pi pi-check"></i> Completo</span> }
+                  <i class="pi pi-chevron-right bf-arrow"></i>
+                </button>
+              }
               <div class="oc-money">
                 <span class="chip room"><i class="pi pi-home"></i> S/ {{ +r.activeStay.priceAgreed | number: '1.2-2' }}</span>
                 <span class="chip cons"><i class="pi pi-shopping-bag"></i> S/ {{ (r.activeStay.consumosTotal || 0) | number: '1.2-2' }}</span>
@@ -913,6 +926,12 @@ const MANT_CATS = [
       .g-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: 0.6rem; }
       .g-dates > div { background: rgba(0,0,0,0.25); border-radius: 8px; padding: 0.45rem 0.6rem; }
       .g-dates span { font-size: 0.68rem; opacity: 0.75; display: block; } .g-dates strong { font-size: 0.85rem; }
+      .oc-benefit { display: flex; align-items: center; gap: 0.55rem; width: 100%; margin: 0.55rem 0 0; padding: 0.55rem 0.7rem; border-radius: 12px; border: 1px solid #2563eb; background: rgba(37,99,235,0.14); color: #dbe5ff; cursor: pointer; text-align: left; }
+      .oc-benefit .bf-ico { font-size: 1.2rem; color: #7cc0ff; }
+      .oc-benefit .bf-main { flex: 1; min-width: 0; } .oc-benefit .bf-main b { display: block; font-size: 0.9rem; color: #fff; } .oc-benefit .bf-main small { color: #9fc0e8; font-size: 0.75rem; }
+      .oc-benefit .bf-badge { font-size: 0.72rem; font-weight: 800; border-radius: 999px; padding: 0.18rem 0.55rem; background: #f59e0b; color: #241a05; white-space: nowrap; }
+      .oc-benefit .bf-badge.prog { background: #334155; color: #cbd5e1; } .oc-benefit .bf-badge.done { background: rgba(16,185,129,0.22); color: #6ee7b7; }
+      .oc-benefit .bf-arrow { color: #9fc0e8; font-size: 0.8rem; }
       .oc-money { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
       .chip { font-size: 0.78rem; font-weight: 700; padding: 0.3rem 0.6rem; border-radius: 8px; background: rgba(0,0,0,0.28); display: inline-flex; align-items: center; gap: 0.3rem; }
       .chip.cons { color: #6ee7b7; } .chip.debe { background: rgba(251,191,36,0.2); color: #fde68a; border: 1px solid rgba(251,191,36,0.5); }

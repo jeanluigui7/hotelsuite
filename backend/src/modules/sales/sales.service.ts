@@ -189,6 +189,9 @@ export const salesService = {
         const itemsDesc = sale.items.map((i) => `${i.description}${i.quantity > 1 ? ` x${i.quantity}` : ''}`).join(' + ');
         const methods = payments.map((p) => p.method).join(' + ');
         const isFrigobar = dto.sourceArea === 'FRIGOBAR';
+        // El cobro de servicios/penalidades registra su propia bitácora por modalidad (entrega incluida,
+        // cortesía, venta de servicio, penalidad) → no duplicar con un genérico "Registró una venta".
+        if (dto.suppressActivity) return;
         await recordActivity(scope, {
           activity: isFrigobar ? 'FRIGOBAR' : 'SALE', area: isFrigobar ? 'FRIGOBAR' : 'VENTAS', roomId, entityId: sale.id, reference: ref,
           detail: isFrigobar

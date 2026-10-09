@@ -50,6 +50,21 @@ export interface ActiveStay {
   renewalCleaningStatus?: string; // NONE | SOLICITADA | EN_CURSO
   renewalCleaningStep?: number;
   renewalCleaningTotal?: number;
+  // Resumen de servicios incluidos (beneficio del período vigente o próximo programado).
+  benefit?: BenefitSummary | null;
+}
+
+export interface BenefitSummary {
+  serviceName: string;
+  date: string;
+  scheduleFrom?: string | null;
+  scheduleTo?: string | null;
+  includedQty: number;
+  deliveredQty: number;
+  pendingQty: number;
+  availableQty: number;
+  scheduled: boolean;
+  multiple: boolean;
 }
 
 export interface CheckoutSummary {

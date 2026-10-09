@@ -88,10 +88,20 @@ type IncludedServiceConfig = {
   place: string;
 };
 
+function parseHHMM(v: string | null, dh: number, dm: number): [number, number] {
+  if (!v) return [dh, dm];
+  const [h, m] = v.split(':').map((x) => Number(x));
+  return [Number.isFinite(h) ? h : dh, Number.isFinite(m) ? m : dm];
+}
+
 /**
- * Congela los beneficios de una tarifa como filas StayBenefit. La cantidad incluida se resuelve por
- * asignación (× personas) y frecuencia (× noches). periodStart = check-in (o la mañana siguiente si la
- * disponibilidad es NEXT_MORNING); periodEnd = fin del período contratado. Hora del hospedaje (Lima).
+ * Congela los beneficios de una tarifa como filas StayBenefit (America/Lima). Reglas:
+ *  - PER_NIGHT: UNA fila por NOCHE contratada, con su propio cupo (cantidad × personas) y su propia
+ *    vigencia. No se habilitan todas desde el ingreso ni se acumulan. La fecha del beneficio es el
+ *    mismo día de la noche (SAME_DAY) o la mañana siguiente (NEXT_MORNING). Vence al `scheduleTo`
+ *    (o al cierre del día si no hay horario).
+ *  - PER_STAY: UNA fila para toda la estancia; vence al checkout contratado.
+ *  - PER_PERSON multiplica por ocupantes; PER_ROOM no.
  */
 function buildBenefitRows(opts: {
   branchId: string;
@@ -105,36 +115,37 @@ function buildBenefitRows(opts: {
   period: number;
 }): StayBenefitRow[] {
   const { branchId, rateId, included, conceptNames, guests, nights, checkInAt, periodEnd, period } = opts;
-  return included
-    .filter((inc) => conceptNames.has(inc.conceptId))
-    .map((inc) => {
-      const personFactor = inc.assignment === 'PER_PERSON' ? Math.max(1, guests) : 1;
-      const nightFactor = inc.frequency === 'PER_NIGHT' ? Math.max(1, nights) : 1;
-      const includedQty = inc.quantity * personFactor * nightFactor;
-      let periodStart = checkInAt;
-      if (inc.availability === 'NEXT_MORNING') {
-        const d = new Date(checkInAt);
-        d.setDate(d.getDate() + 1);
-        const [h, m] = (inc.scheduleFrom ?? '06:00').split(':').map((x) => Number(x));
-        d.setHours(Number.isFinite(h) ? h : 6, Number.isFinite(m) ? m : 0, 0, 0);
-        periodStart = d;
+  const ci = checkInAt;
+  const rows: StayBenefitRow[] = [];
+  for (const inc of included.filter((x) => conceptNames.has(x.conceptId))) {
+    const personFactor = inc.assignment === 'PER_PERSON' ? Math.max(1, guests) : 1;
+    const qtyPer = inc.quantity * personFactor;
+    const [fh, fm] = parseHHMM(inc.scheduleFrom, 0, 0);
+    const [th, tm] = parseHHMM(inc.scheduleTo, 23, 59);
+    const base = {
+      branchId, rateId, conceptId: inc.conceptId, serviceName: conceptNames.get(inc.conceptId) as string,
+      scheduleFrom: inc.scheduleFrom, scheduleTo: inc.scheduleTo, place: inc.place,
+      assignment: inc.assignment, frequency: inc.frequency, period,
+    };
+    if (inc.frequency === 'PER_NIGHT') {
+      for (let n = 0; n < Math.max(1, nights); n++) {
+        const dayOffset = inc.availability === 'NEXT_MORNING' ? n + 1 : n;
+        const dayStart = new Date(ci.getFullYear(), ci.getMonth(), ci.getDate() + dayOffset, fh, fm, 0, 0);
+        const dayEnd = new Date(ci.getFullYear(), ci.getMonth(), ci.getDate() + dayOffset, th, tm, 59, 999);
+        // El día del check-in no puede empezar antes del check-in real.
+        const periodStart = dayOffset === 0 && dayStart < ci ? ci : dayStart;
+        rows.push({ ...base, includedQty: qtyPer, periodStart, periodEnd: dayEnd });
       }
-      return {
-        branchId,
-        rateId,
-        conceptId: inc.conceptId,
-        serviceName: conceptNames.get(inc.conceptId) as string,
-        includedQty,
-        periodStart,
-        periodEnd,
-        scheduleFrom: inc.scheduleFrom,
-        scheduleTo: inc.scheduleTo,
-        place: inc.place,
-        assignment: inc.assignment,
-        frequency: inc.frequency,
-        period,
-      };
-    });
+    } else {
+      // PER_STAY: una sola fila; vence al checkout (periodEnd contratado).
+      let periodStart = ci;
+      if (inc.availability === 'NEXT_MORNING') {
+        periodStart = new Date(ci.getFullYear(), ci.getMonth(), ci.getDate() + 1, fh, fm, 0, 0);
+      }
+      rows.push({ ...base, includedQty: qtyPer, periodStart, periodEnd });
+    }
+  }
+  return rows;
 }
 
 const RENEWAL_DAY_MS = 24 * 60 * 60 * 1000;
@@ -521,10 +532,13 @@ export const staysService = {
     const isRoomLine = (desc: string): boolean => /^tarifa[:\s]/i.test(desc) || /pernocta|renovaci|tiempo extra|extensi/i.test(desc);
     const METHOD: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera' };
 
-    // Movimientos (ledger) y productos
-    type Mov = { at: Date; type: string; description: string; method?: string; charge: number; payment: number; by: string };
+    // Movimientos (ledger), productos y servicios/penalidades.
+    // TIPO del folio: SERVICIO/PENALIDAD por la clasificación persistida (conceptKind), nunca PRODUCTO
+    // para esas líneas. `modality` (VENTA|CORTESIA|INCLUIDO) se expone para la etiqueta de la descripción.
+    type Mov = { at: Date; type: string; description: string; method?: string; charge: number; payment: number; by: string; modality?: string | null; voided?: boolean };
     const movs: Mov[] = [];
     const products: { name: string; quantity: number; amount: number; at: Date; paid: boolean }[] = [];
+    const services: { name: string; quantity: number; amount: number; at: Date; modality: string | null; conceptKind: string | null; courtesy: boolean; voided: boolean }[] = [];
     let consumos = 0;
     let renovacionesSales = 0; // cargos de renovación (líneas de venta "Renovación")
     let renewalCount = 0;
@@ -534,11 +548,21 @@ export const staysService = {
       for (const it of s.items) {
         const sub = Number(it.subtotal);
         const isRenewal = /renovaci|tiempo extra|extensi/i.test(it.description);
-        movs.push({ at: s.createdAt, type: isRoomLine(it.description) ? 'Estadía' : (/^frigobar/i.test(it.description) ? 'Frigobar' : 'Producto'), description: it.description, charge: sub, payment: 0, by: uname(s.createdByUserId) });
+        const isService = it.conceptKind === 'SERVICE' || it.conceptKind === 'PENALTY';
+        const movType = isRoomLine(it.description)
+          ? 'Estadía'
+          : it.conceptKind === 'SERVICE' ? 'Servicio'
+          : it.conceptKind === 'PENALTY' ? 'Penalidad'
+          : /^frigobar/i.test(it.description) ? 'Frigobar' : 'Producto';
+        movs.push({ at: s.createdAt, type: movType, description: it.description, charge: sub, payment: 0, by: uname(s.createdByUserId), modality: it.modality ?? null, voided: it.voided });
         if (isRenewal) { renovacionesSales += sub; renewalCount += it.quantity; }
         else if (!isRoomLine(it.description)) {
-          consumos += sub;
-          products.push({ name: it.description, quantity: it.quantity, amount: sub, at: s.createdAt, paid: fullyPaid });
+          if (!it.voided) consumos += sub;
+          if (isService) {
+            services.push({ name: it.description, quantity: it.quantity, amount: sub, at: s.createdAt, modality: it.modality ?? null, conceptKind: it.conceptKind ?? null, courtesy: it.courtesy, voided: it.voided });
+          } else {
+            products.push({ name: it.description, quantity: it.quantity, amount: sub, at: s.createdAt, paid: fullyPaid });
+          }
         }
       }
       for (const p of s.payments) {
@@ -579,6 +603,23 @@ export const staysService = {
     const invoicedAmount = round2(stayInvoices.reduce((a, inv) => a + Number(inv.total), 0));
     const billingStatus = invoicedAmount <= 0 ? 'PENDIENTE' : invoicedAmount + 0.01 >= total ? 'FACTURADO' : 'PARCIAL';
 
+    // SERVICIOS INCLUIDOS PROGRAMADOS (snapshot StayBenefit): incluidos/disponibles/entregados/no
+    // utilizados por fecha. Existe desde la contratación aunque no haya entregas. America/Lima.
+    const benefitRows = await prisma.stayBenefit.findMany({ where: { branchId, stayId: id, status: { in: ['ACTIVE', 'EXPIRED'] } }, orderBy: [{ periodStart: 'asc' }] });
+    const nowB = Date.now();
+    const benefits = benefitRows.map((b) => {
+      const expired = b.status === 'EXPIRED' || nowB > b.periodEnd.getTime();
+      const available = expired ? 0 : Math.max(0, b.includedQty - b.pendingQty - b.deliveredQty);
+      const unused = expired ? (b.unusedQty || Math.max(0, b.includedQty - b.pendingQty - b.deliveredQty)) : 0;
+      return {
+        id: b.id, serviceName: b.serviceName, date: b.periodStart, periodEnd: b.periodEnd,
+        scheduleFrom: b.scheduleFrom, scheduleTo: b.scheduleTo, place: b.place,
+        includedQty: b.includedQty, deliveredQty: b.deliveredQty, pendingQty: b.pendingQty,
+        availableQty: available, unusedQty: unused, status: expired ? 'EXPIRED' : b.status,
+        scheduled: nowB < b.periodStart.getTime(), vigente: !expired && nowB >= b.periodStart.getTime() && nowB <= b.periodEnd.getTime(),
+      };
+    });
+
     // Frigobar (estado de la revisión/consumo para el Resumen del folio).
     const frigobar = await frigobarReviewService.stateForStay(branchId, id, room?.frigobarEnabled ?? false);
     const billing = {
@@ -603,6 +644,8 @@ export const staysService = {
       cleaningLog,
       movements,
       products,
+      services,
+      benefits,
       simulator: {
         hospedaje, productos: round2(consumos), ratio, limit, exceeded,
         exceso: exceeded ? round2(consumos - hospedaje * limit / 100) : 0,

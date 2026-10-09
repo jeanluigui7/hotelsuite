@@ -93,6 +93,34 @@ export const roomsService = {
     }
     // Reposición de frigobar pendiente por falta de stock (se muestra en la card aunque esté Disponible).
     const frigoPending = await frigobarReviewService.pendingRepositionByRoom(branchId, rooms.map((r) => r.id));
+    // Resumen de SERVICIOS INCLUIDOS para la card: beneficio del período vigente (o el próximo
+    // programado), con progreso entregado/incluido. No muestra vencidos como disponibles.
+    const benefitRows = stayIds.length
+      ? await prisma.stayBenefit.findMany({ where: { branchId, stayId: { in: stayIds }, status: 'ACTIVE' }, orderBy: { periodStart: 'asc' } })
+      : [];
+    const benefitByStay = new Map<string, typeof benefitRows>();
+    for (const b of benefitRows) { const a = benefitByStay.get(b.stayId) ?? []; a.push(b); benefitByStay.set(b.stayId, a); }
+    const nowMs = Date.now();
+    const cardBenefit = (rows: typeof benefitRows | undefined) => {
+      if (!rows || !rows.length) return null;
+      const live = rows.filter((b) => nowMs <= b.periodEnd.getTime()); // excluye vencidos
+      if (!live.length) return null;
+      const vigentes = live.filter((b) => nowMs >= b.periodStart.getTime());
+      const feat = vigentes[0] ?? live[0]; // vigente; si no, el próximo programado
+      const available = Math.max(0, feat.includedQty - feat.pendingQty - feat.deliveredQty);
+      return {
+        serviceName: feat.serviceName,
+        date: feat.periodStart,
+        scheduleFrom: feat.scheduleFrom,
+        scheduleTo: feat.scheduleTo,
+        includedQty: feat.includedQty,
+        deliveredQty: feat.deliveredQty,
+        pendingQty: feat.pendingQty,
+        availableQty: available,
+        scheduled: nowMs < feat.periodStart.getTime(),
+        multiple: new Set(live.map((b) => b.conceptId)).size > 1,
+      };
+    };
     return rooms.map((r) => {
       const m = serializeMap(r);
       const fp = frigoPending.get(r.id);
@@ -101,7 +129,7 @@ export const roomsService = {
         const bd = m.activeStay.balanceDue ? Number(m.activeStay.balanceDue) : 0;
         const sp = salesPending.get(m.activeStay.id) ?? 0;
         const cons = Math.round((consumos.get(m.activeStay.id) ?? 0) * 100) / 100;
-        return { ...m, frigobarReposition, activeStay: { ...m.activeStay, pending: Math.round((bd + sp) * 100) / 100, consumosTotal: cons, renewalCleaningTotal: cleaningTotal } };
+        return { ...m, frigobarReposition, activeStay: { ...m.activeStay, pending: Math.round((bd + sp) * 100) / 100, consumosTotal: cons, renewalCleaningTotal: cleaningTotal, benefit: cardBenefit(benefitByStay.get(m.activeStay.id)) } };
       }
       return { ...m, frigobarReposition };
     });

@@ -38,6 +38,8 @@ export const createSaleSchema = z
     // Token idempotente de la operación (anti doble-clic/reintento): si ya existe una venta con el
     // mismo token en la sucursal, se devuelve esa en vez de crear otra.
     opToken: z.string().min(8).max(80).optional(),
+    // El llamador registrará su propia bitácora (p. ej. servicios por modalidad) → omite el log SALE.
+    suppressActivity: z.boolean().optional(),
   })
   .refine((v) => v.stayId || v.guestId || (v.customerName && v.customerName.length > 0), {
     message: 'Indique una estancia, un cliente o un nombre de cliente externo',

@@ -434,6 +434,8 @@ model StayBenefit {
   frequency    String   @default("PER_STAY")
   period       Int      @default(1) // 1 = check-in; +1 por cada renovación (no mezclar períodos)
   status       String   @default("ACTIVE") // ACTIVE | EXPIRED | CANCELLED
+  unusedQty    Int      @default(0) // unidades disponibles no utilizadas al vencer (NO UTILIZADAS)
+  expiredAt    DateTime? // marca de vencimiento (se registra una sola vez)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

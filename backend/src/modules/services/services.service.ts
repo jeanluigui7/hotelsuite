@@ -103,6 +103,37 @@ function compatibleAmenity(branchId: string, concept: ConceptFull) {
   return prisma.product.findMany({ where: { branchId, status: 'active', ...(concept.inventoryCategoryId ? { categoryId: concept.inventoryCategoryId } : amenity) }, select: { id: true, name: true } });
 }
 
+const benefitDateLabel = (d: Date): string => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+/**
+ * Vence los beneficios de una estancia cuyo horario ya terminó (ACTIVE y periodEnd < ahora). Las
+ * unidades disponibles no utilizadas pasan a NO UTILIZADAS (unusedQty) y se registra el evento UNA
+ * sola vez (por SISTEMA). Las que tienen una solicitud PENDIENTE no se vencen (deben resolverse). No
+ * genera cobro, deuda ni devolución. Idempotente (solo ACTIVE→EXPIRED una vez).
+ */
+export async function expireBenefitsForStay(branchId: string, stayId: string): Promise<void> {
+  const now = new Date();
+  const due = await prisma.stayBenefit.findMany({ where: { branchId, stayId, status: 'ACTIVE', pendingQty: 0, periodEnd: { lt: now } } });
+  if (!due.length) return;
+  const room = await prisma.stay.findUnique({ where: { id: stayId }, select: { roomId: true, room: { select: { number: true } } } });
+  for (const b of due) {
+    const available = Math.max(0, b.includedQty - b.pendingQty - b.deliveredQty);
+    // Transición atómica una sola vez: si otro proceso ya la venció, affected=0 y no se duplica el log.
+    const res = await prisma.stayBenefit.updateMany({ where: { id: b.id, status: 'ACTIVE' }, data: { status: 'EXPIRED', unusedQty: available, expiredAt: now } });
+    if (res.count > 0 && available > 0) {
+      await prisma.activityLog.create({
+        data: {
+          branchId, userId: null, action: 'SYSTEM', module: 'services', activity: 'BENEFIT_EXPIRED', area: 'SERVICIOS',
+          entityId: b.id, roomId: room?.roomId ?? null, reference: room?.room?.number ? `Hab. ${room.room.number}` : null,
+          summary: `No utilizado · ${b.serviceName} x${available}`,
+          detail: `${b.serviceName} × ${available} — INCLUIDO · NO UTILIZADO (beneficio del ${benefitDateLabel(b.periodStart)})`,
+          metaJson: JSON.stringify({ stayId, benefitId: b.id, service: b.serviceName, unused: available, benefitDate: b.periodStart }),
+        },
+      }).catch(() => undefined);
+    }
+  }
+}
+
 export const servicesService = {
   /** Catálogo plano legado (compat con pantallas antiguas): tipo SERVICIO agrupado por categoría. */
   async catalog(scope: RequestScope) {
@@ -194,6 +225,8 @@ export const servicesService = {
     // hoy entrega directa DELIVERED). Los INCLUIDO consumen cupo en una tx SERIALIZABLE tras crear la
     // venta, para que dos cobros no gasten el mismo último cupo.
     const serviceOrders: { conceptId: string; name: string; quantity: number; modality: 'VENTA' | 'CORTESIA' | 'INCLUIDO'; benefitId: string | null; place: string; observations: string | null }[] = [];
+    // Eventos de bitácora por modalidad (entrega incluida / cortesía / venta de servicio / penalidad).
+    const activityEvents: { name: string; tipo: string; modality: string; quantity: number; amount: number; benefitDate: Date | null }[] = [];
 
     for (const it of dto.items) {
       if (it.conceptId) {
@@ -204,6 +237,7 @@ export const servicesService = {
         const modality = it.modality ?? (it.isCourtesy ? 'CORTESIA' : 'VENTA');
         let unitPrice: number;
         let benefitId: string | null = null;
+        let benefitDate: Date | null = null;
         if (modality === 'INCLUIDO') {
           if (tipo === 'PENALIDAD') throw new ValidationError('Una penalidad no puede ser "incluida en tarifa"');
           // Beneficio contratado y vigente, con cupo disponible (chequeo final en la tx serializable).
@@ -221,6 +255,7 @@ export const servicesService = {
           if (it.quantity > available) throw new ValidationError(`Solo quedan ${Math.max(0, available)} "${concept.name}" incluidos disponibles`);
           unitPrice = 0;
           benefitId = benefit.id;
+          benefitDate = benefit.periodStart;
         } else if (modality === 'CORTESIA' || it.isCourtesy) {
           if (tipo === 'PENALIDAD') throw new ValidationError('Las penalidades no admiten cortesía');
           if (!concept.allowCourtesy) throw new ValidationError(`El concepto "${concept.name}" no admite cortesía`);
@@ -239,6 +274,7 @@ export const servicesService = {
           reservations.push({ concept, quantity: it.quantity, courtesy: !!it.isCourtesy, reason: it.courtesyReason ?? null });
         }
         saleItems.push({ description: concept.name, quantity: it.quantity, unitPrice, conceptKind: tipo === 'PENALIDAD' ? 'PENALTY' : 'SERVICE', courtesy: modality === 'CORTESIA', modality, stayBenefitId: benefitId ?? undefined });
+        activityEvents.push({ name: concept.name, tipo, modality, quantity: it.quantity, amount: round(unitPrice * it.quantity), benefitDate });
         // Pedido para servicios (no penalidades, no ropa que ya va por RoomSupply): las 3 modalidades.
         if (tipo !== 'PENALIDAD' && concept.attentionMode !== 'LINEN_EXTRA') {
           serviceOrders.push({ conceptId: concept.id, name: concept.name, quantity: it.quantity, modality, benefitId, place: it.place ?? 'ROOM', observations: it.observations ?? null });
@@ -255,6 +291,7 @@ export const servicesService = {
       items: saleItems,
       payments: dto.payments.map((p) => ({ ...p, reference: p.reference || undefined })),
       opToken: dto.opToken,
+      suppressActivity: true, // la bitácora se registra por modalidad más abajo
     });
 
     // Reservas de ropa: solo si esta venta no las creó ya (idempotencia por opToken). La creación va en
@@ -318,6 +355,24 @@ export const servicesService = {
         }
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     }
+    // Bitácora por MODALIDAD (no "Registró una venta"/"a cuenta" para entregas incluidas).
+    const roomNo = await prisma.room.findUnique({ where: { id: stay.roomId }, select: { number: true } }).catch(() => null);
+    const fmtDate = (d: Date) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+    for (const ev of activityEvents) {
+      const activity = ev.tipo === 'PENALIDAD' ? 'PENALTY_REGISTERED'
+        : ev.modality === 'INCLUIDO' ? 'SERVICE_INCLUDED'
+        : ev.modality === 'CORTESIA' ? 'SERVICE_COURTESY' : 'SERVICE_SALE';
+      const detail = ev.modality === 'INCLUIDO'
+        ? `${ev.name} × ${ev.quantity}${ev.benefitDate ? ` · Beneficio correspondiente al ${fmtDate(ev.benefitDate)}` : ''}`
+        : ev.modality === 'CORTESIA'
+          ? `${ev.name} × ${ev.quantity} · Cortesía`
+          : `${ev.name} × ${ev.quantity} · S/ ${ev.amount.toFixed(2)}`;
+      void recordActivity(scope, {
+        activity, area: 'SERVICIOS', roomId: stay.roomId, entityId: sale.id,
+        reference: roomNo?.number ? `Hab. ${roomNo.number}` : null, detail,
+        meta: { saleId: sale.id, service: ev.name, quantity: ev.quantity, modality: ev.modality, tipo: ev.tipo, amount: ev.amount, benefitDate: ev.benefitDate, stayId: stay.id },
+      });
+    }
     const owed = round(Number(sale.total) - Number(sale.paid));
     return { sale, owed, supplies, orders };
   },
@@ -332,32 +387,44 @@ export const servicesService = {
     return rows;
   },
 
-  /** Beneficios de tarifa de una estancia con el disponible calculado (para el modal de recepción). */
+  /**
+   * Beneficios de tarifa de una estancia con el disponible calculado. Incluye ACTIVE y EXPIRED (para
+   * card/folio/historial); el modal filtra por `vigente && available`. Vence primero los que ya pasaron.
+   */
   async benefitsForStay(scope: RequestScope, stayId: string) {
     const branchId = requireActiveBranch(scope);
-    const stay = await prisma.stay.findFirst({ where: { id: stayId, branchId, status: 'OPEN' }, select: { id: true } });
+    const stay = await prisma.stay.findFirst({ where: { id: stayId, branchId }, select: { id: true } });
     if (!stay) return [];
+    await expireBenefitsForStay(branchId, stayId);
     const now = new Date();
     const benefits = await prisma.stayBenefit.findMany({
-      where: { branchId, stayId, status: 'ACTIVE' },
-      orderBy: [{ conceptId: 'asc' }, { periodStart: 'asc' }],
+      where: { branchId, stayId, status: { in: ['ACTIVE', 'EXPIRED'] } },
+      orderBy: [{ periodStart: 'asc' }, { conceptId: 'asc' }],
     });
-    return benefits.map((b) => ({
-      id: b.id,
-      conceptId: b.conceptId,
-      serviceName: b.serviceName,
-      includedQty: b.includedQty,
-      pendingQty: b.pendingQty,
-      deliveredQty: b.deliveredQty,
-      availableQty: Math.max(0, b.includedQty - b.pendingQty - b.deliveredQty),
-      periodStart: b.periodStart,
-      periodEnd: b.periodEnd,
-      scheduleFrom: b.scheduleFrom,
-      scheduleTo: b.scheduleTo,
-      place: b.place,
-      // Vigente = dentro del período (el horario diario lo valida el servidor al cobrar).
-      vigente: now >= b.periodStart && now <= b.periodEnd,
-    }));
+    return benefits.map((b) => {
+      const expired = b.status === 'EXPIRED';
+      const available = expired ? 0 : Math.max(0, b.includedQty - b.pendingQty - b.deliveredQty);
+      return {
+        id: b.id,
+        conceptId: b.conceptId,
+        serviceName: b.serviceName,
+        includedQty: b.includedQty,
+        pendingQty: b.pendingQty,
+        deliveredQty: b.deliveredQty,
+        unusedQty: expired ? b.unusedQty : 0,
+        availableQty: available,
+        periodStart: b.periodStart,
+        periodEnd: b.periodEnd,
+        scheduleFrom: b.scheduleFrom,
+        scheduleTo: b.scheduleTo,
+        place: b.place,
+        status: b.status,
+        expired,
+        scheduled: !expired && now < b.periodStart, // período futuro (aún no disponible)
+        // Vigente = ACTIVE y dentro del período (el horario diario lo valida el servidor al cobrar).
+        vigente: !expired && now >= b.periodStart && now <= b.periodEnd,
+      };
+    });
   },
 
   /** Suministros/reservas (para limpieza). `status='RESERVED'` incluye también los PENDING legados. */
