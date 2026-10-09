@@ -276,6 +276,13 @@ export const salesService = {
         }
       }
       await tx.serviceOrder.updateMany({ where: { saleId: id, operationalStatus: { not: 'CANCELLED' } }, data: { operationalStatus: 'CANCELLED', cancelledAt: new Date(), cancelReason: reason?.trim() || 'Anulación de venta' } });
+      // §10 Anulación de renovación: cancela los beneficios FUTUROS no usados que originó esta venta y
+      // PRESERVA los ya entregados (en parciales, baja la cantidad incluida a lo entregado → 0 disponible).
+      const renewBens = await tx.stayBenefit.findMany({ where: { saleId: id, status: 'ACTIVE' } });
+      for (const b of renewBens) {
+        if (b.deliveredQty <= 0) await tx.stayBenefit.updateMany({ where: { id: b.id, status: 'ACTIVE' }, data: { status: 'CANCELLED' } });
+        else if (b.includedQty > b.deliveredQty) await tx.stayBenefit.update({ where: { id: b.id }, data: { includedQty: b.deliveredQty } });
+      }
     });
 
     const result = serialize((await salesRepository.findById(id))!);

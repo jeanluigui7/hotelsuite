@@ -436,6 +436,7 @@ model StayBenefit {
   status       String   @default("ACTIVE") // ACTIVE | EXPIRED | CANCELLED
   unusedQty    Int      @default(0) // unidades disponibles no utilizadas al vencer (NO UTILIZADAS)
   expiredAt    DateTime? // marca de vencimiento (se registra una sola vez)
+  saleId       String? // venta que originó el beneficio (renovación): al anularla se cancelan los no usados
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

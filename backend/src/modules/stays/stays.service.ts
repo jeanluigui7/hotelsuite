@@ -480,6 +480,10 @@ export const staysService = {
       const fb = await frigobarReviewService.stateForStay(branchId, id, true);
       if (fb.status === 'SIN_REVISAR') throw new ConflictError('Debes inspeccionar el frigobar antes del check-out.');
     }
+    // §4 BLOQUEO: no cerrar con pedidos de servicio pendientes de entrega (deben resolverse: entregar o
+    // cancelar). Hoy la entrega es directa (DELIVERED), pero el pedido pendiente llegará con Restaurante/Bar.
+    const pendingOrders = await prisma.serviceOrder.count({ where: { branchId, stayId: id, operationalStatus: 'PENDING' } });
+    if (pendingOrders > 0) throw new ConflictError(`Hay ${pendingOrders} pedido(s) de servicio pendiente(s) de entrega. Resuélvelos (entregar o cancelar) antes del check-out.`);
     // Tiempo excedido (día hotelero): se muestra en el PRE CHECK-OUT y se puede cobrar por el flujo de
     // pagos existente. Al CONTINUAR sin cobrarlo NO se convierte en deuda; solo se registra en la bitácora.
     let lateCharge = 0;
@@ -488,6 +492,16 @@ export const staysService = {
       if (q.lateCharge > 0) lateCharge = q.lateCharge;
     }
     const result = await staysRepository.checkOut(id, stay.roomId, dto.roomStatus, scope.userId, lateCharge > 0 ? lateCharge : null);
+    // §4 Cierre de beneficios restantes: ninguna entrega nueva contra una estancia finalizada. Lo
+    // disponible no utilizado queda como NO UTILIZADO (sin cobro/deuda/devolución), una sola vez.
+    const openBenefits = await prisma.stayBenefit.findMany({ where: { branchId, stayId: id, status: 'ACTIVE' } });
+    for (const b of openBenefits) {
+      const available = Math.max(0, b.includedQty - b.pendingQty - b.deliveredQty);
+      const closed = await prisma.stayBenefit.updateMany({ where: { id: b.id, status: 'ACTIVE' }, data: { status: 'EXPIRED', unusedQty: available, expiredAt: new Date() } });
+      if (closed.count > 0 && available > 0) {
+        await prisma.activityLog.create({ data: { branchId, userId: scope.userId, action: 'CHECK_OUT', module: 'services', activity: 'BENEFIT_EXPIRED', area: 'SERVICIOS', entityId: b.id, roomId: stay.roomId, reference: stay.room?.number ? `Hab. ${stay.room.number}` : null, summary: `No utilizado · ${b.serviceName} x${available}`, detail: `${b.serviceName} × ${available} — INCLUIDO · NO UTILIZADO (cierre de estancia)`, metaJson: JSON.stringify({ stayId: id, benefitId: b.id, service: b.serviceName, unused: available, reason: 'checkout' }) } }).catch(() => undefined);
+      }
+    }
     if (lateCharge > 0) {
       void recordActivity(scope, {
         activity: 'CHECK_OUT', area: 'HOSPEDAJE', roomId: stay.roomId, entityId: id,
@@ -764,13 +778,12 @@ export const staysService = {
       }
     }
 
-    await prisma.$transaction([
-      prisma.stay.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.stay.update({
         where: { id },
         data: { plannedCheckoutAt: newCheckout, renewedAt: new Date(), renewalCount: { increment: 1 }, ...(canRequestNow ? { cleaningRequested: true, renewalCleaningStatus: 'SOLICITADA' } : {}) },
-      }),
-      ...(renewBenefits.length ? [prisma.stayBenefit.createMany({ data: renewBenefits.map((b) => ({ ...b, stayId: id })) })] : []),
-      prisma.sale.create({
+      });
+      const rSale = await tx.sale.create({
         data: {
           branchId, stayId: id, guestId: stay.guestId, total: saleTotal,
           // PAID solo si se cubrió todo; parcial o diferido quedan OPEN (el saldo es deuda).
@@ -778,8 +791,10 @@ export const staysService = {
           items: { create: saleItems },
           ...(adjPayments.length ? { payments: { create: adjPayments.map((p) => { const amt = round2(p.amount); const snap = commissionSnapshot(renewCfg, p.method, amt); return { branchId, method: p.method, amount: amt, reference: p.reference || null, cashSessionId: sessionId, createdByUserId: scope.userId, commissionPct: snap.commissionPct, commissionAmount: snap.commissionAmount, grossCharged: snap.grossCharged }; }) } } : {}),
         },
-      }),
-    ]);
+      });
+      // Enlaza los beneficios del nuevo período a la venta de renovación (para cancelarlos al anularla).
+      if (renewBenefits.length) await tx.stayBenefit.createMany({ data: renewBenefits.map((b) => ({ ...b, stayId: id, saleId: rSale.id })) });
+    });
     const updated = await staysRepository.findById(id);
     // Reasignación de WiFi al renovar: consume el voucher anterior y toma uno nuevo de la categoría.
     // Best-effort: si el pool está vacío se conserva el anterior (no rompe la renovación).
