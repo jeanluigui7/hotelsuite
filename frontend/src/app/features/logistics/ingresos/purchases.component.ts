@@ -15,6 +15,8 @@ import { InventoryApiService } from '../../inventory/services/inventory-api.serv
 import type { Product, Warehouse } from '../../inventory/services/inventory.models';
 import { LogisticsApiService } from '../services/logistics-api.service';
 import type { Purchase, Supplier } from '../services/logistics.models';
+import { BuscadorArticuloComponent } from '../../../shared/search/buscador-articulo.component';
+import type { BuscadorItem } from '../../../shared/search/articulo-search';
 
 interface Line {
   productId: string;
@@ -27,7 +29,7 @@ interface Line {
 @Component({
   selector: 'app-purchases',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, DialogModule, InputTextModule, InputNumberModule, SelectModule, TableModule, TagModule],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, DialogModule, InputTextModule, InputNumberModule, SelectModule, TableModule, TagModule, BuscadorArticuloComponent],
   template: `
     <section>
       <header class="cat-head">
@@ -72,10 +74,8 @@ interface Line {
 
         <h3>Productos</h3>
         <div class="add-row">
-          <p-select [options]="products()" [(ngModel)]="pickProductId" optionValue="id" [filter]="true" filterBy="name" placeholder="Producto" styleClass="grow">
-            <ng-template let-p pTemplate="item">{{ p.name }}</ng-template>
-            <ng-template let-p pTemplate="selectedItem">{{ p.name }}</ng-template>
-          </p-select>
+          <app-buscador-articulo class="grow" [items]="buscadorItems()" placeholder="Buscar producto por nombre o código…" (select)="onPickProduct($event)" />
+          @if (pickProductName) { <span style="font-size:.82rem;color:#10b981;font-weight:600;white-space:nowrap"><i class="pi pi-check"></i> {{ pickProductName }}</span> }
           <p-inputNumber [(ngModel)]="pickQty" [min]="1" placeholder="Cant." styleClass="qty" />
           <p-inputNumber [(ngModel)]="pickCost" mode="currency" currency="PEN" locale="es-PE" placeholder="Costo" styleClass="cost" />
           <p-button icon="pi pi-plus" (onClick)="addLine()" />
@@ -136,6 +136,7 @@ export class PurchasesComponent implements OnInit {
   warehouseId: string | null = null;
   documentNumber = '';
   pickProductId: string | null = null;
+  pickProductName = '';
   pickQty = 1;
   pickCost: number | null = null;
 
@@ -178,9 +179,15 @@ export class PurchasesComponent implements OnInit {
       { productId: product.id, name: product.name, quantity: this.pickQty, unitCost: this.pickCost, subtotal: Math.round(this.pickCost * this.pickQty * 100) / 100 },
     ]);
     this.pickProductId = null;
+    this.pickProductName = '';
     this.pickQty = 1;
     this.pickCost = null;
   }
+
+  readonly buscadorItems = computed<BuscadorItem[]>(() =>
+    this.products().map((p) => ({ id: p.id, name: p.name, code: p.sku ?? null, category: p.category?.name ?? null, stock: p.stock, data: p })),
+  );
+  onPickProduct(it: BuscadorItem): void { this.pickProductId = it.id || null; this.pickProductName = it.id ? it.name : ''; }
 
   removeLine(i: number): void {
     this.lines.set(this.lines().filter((_, idx) => idx !== i));

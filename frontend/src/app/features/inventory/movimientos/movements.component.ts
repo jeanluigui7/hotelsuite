@@ -14,6 +14,8 @@ import { ActivatedRoute } from '@angular/router';
 import { AuthService } from '../../../core/auth/auth.service';
 import { InventoryApiService } from '../services/inventory-api.service';
 import type { InventoryMovement, Product, Warehouse } from '../services/inventory.models';
+import { BuscadorArticuloComponent } from '../../../shared/search/buscador-articulo.component';
+import type { BuscadorItem } from '../../../shared/search/articulo-search';
 
 const TYPE_META: Record<string, { label: string; severity: 'success' | 'danger' | 'info' | 'warn' | 'secondary' }> = {
   IN: { label: 'Ingreso', severity: 'success' },
@@ -27,7 +29,7 @@ const TYPE_META: Record<string, { label: string; severity: 'success' | 'danger' 
 @Component({
   selector: 'app-movements',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, DialogModule, InputTextModule, InputNumberModule, SelectModule, TableModule, TagModule],
+  imports: [DatePipe, FormsModule, ButtonModule, DialogModule, InputTextModule, InputNumberModule, SelectModule, TableModule, TagModule, BuscadorArticuloComponent],
   template: `
     <section>
       <header class="cat-head">
@@ -73,10 +75,7 @@ const TYPE_META: Record<string, { label: string; severity: 'success' | 'danger' 
     <p-dialog [(visible)]="adjustVisible" [modal]="true" [style]="{ width: '440px' }" header="Ajuste de stock">
       <div class="cat-form">
         <label>Producto</label>
-        <p-select [options]="productOptions()" [(ngModel)]="adj.productId" optionValue="id" [filter]="true" filterBy="name" placeholder="Seleccionar" styleClass="w-full">
-          <ng-template let-p pTemplate="item">{{ p.name }}</ng-template>
-          <ng-template let-p pTemplate="selectedItem">{{ p.name }}</ng-template>
-        </p-select>
+        <app-buscador-articulo [items]="buscadorItems()" [showStock]="true" placeholder="Buscar producto por nombre o código…" [value]="adjProductName" (select)="adj.productId = $event.id || null; adjProductName = $event.id ? $event.name : ''" />
         <label>Almacén</label>
         <p-select [options]="warehouses()" [(ngModel)]="adj.warehouseId" optionLabel="name" optionValue="id" placeholder="Seleccionar" styleClass="w-full" />
         <label>Cantidad (+ ingreso / − salida)</label>
@@ -94,10 +93,7 @@ const TYPE_META: Record<string, { label: string; severity: 'success' | 'danger' 
     <p-dialog [(visible)]="transferVisible" [modal]="true" [style]="{ width: '460px' }" header="Transferencia entre almacenes">
       <div class="cat-form">
         <label>Producto</label>
-        <p-select [options]="productOptions()" [(ngModel)]="tr.productId" optionValue="id" [filter]="true" filterBy="name" placeholder="Seleccionar" styleClass="w-full">
-          <ng-template let-p pTemplate="item">{{ p.name }}</ng-template>
-          <ng-template let-p pTemplate="selectedItem">{{ p.name }}</ng-template>
-        </p-select>
+        <app-buscador-articulo [items]="buscadorItems()" [showStock]="true" placeholder="Buscar producto por nombre o código…" [value]="trProductName" (select)="tr.productId = $event.id || null; trProductName = $event.id ? $event.name : ''" />
         <div class="row">
           <div class="col"><label>Origen</label><p-select [options]="warehouses()" [(ngModel)]="tr.fromWarehouseId" optionLabel="name" optionValue="id" placeholder="Origen" styleClass="w-full" /></div>
           <div class="col"><label>Destino</label><p-select [options]="warehouses()" [(ngModel)]="tr.toWarehouseId" optionLabel="name" optionValue="id" placeholder="Destino" styleClass="w-full" /></div>
@@ -138,6 +134,11 @@ export class MovementsComponent implements OnInit {
   filterWarehouse: string | null = null;
 
   adjustVisible = false;
+  adjProductName = '';
+  trProductName = '';
+  buscadorItems(): BuscadorItem[] {
+    return this.productOptions().map((p) => ({ id: p.id, name: p.name, code: p.sku ?? null, category: p.category?.name ?? null, stock: p.stock, data: p }));
+  }
   adj = { productId: null as string | null, warehouseId: null as string | null, quantity: 0, reference: '' };
   transferVisible = false;
   tr = { productId: null as string | null, fromWarehouseId: null as string | null, toWarehouseId: null as string | null, quantity: 1, reference: '' };
@@ -172,7 +173,7 @@ export class MovementsComponent implements OnInit {
   }
 
   openAdjust(): void {
-    this.adj = { productId: null, warehouseId: null, quantity: 0, reference: '' };
+    this.adj = { productId: null, warehouseId: null, quantity: 0, reference: '' }; this.adjProductName = '';
     this.adjustVisible = true;
   }
 
@@ -197,7 +198,7 @@ export class MovementsComponent implements OnInit {
   }
 
   openTransfer(): void {
-    this.tr = { productId: null, fromWarehouseId: null, toWarehouseId: null, quantity: 1, reference: '' };
+    this.tr = { productId: null, fromWarehouseId: null, toWarehouseId: null, quantity: 1, reference: '' }; this.trProductName = '';
     this.transferVisible = true;
   }
 

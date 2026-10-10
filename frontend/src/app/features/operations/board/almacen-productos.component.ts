@@ -16,6 +16,8 @@ import { printPdf } from '../../../core/utils/export';
 import { AuthService } from '../../../core/auth/auth.service';
 import { InventoryApiService } from '../../inventory/services/inventory-api.service';
 import type { Product, Warehouse } from '../../inventory/services/inventory.models';
+import { BuscadorArticuloComponent } from '../../../shared/search/buscador-articulo.component';
+import { type BuscadorItem, matchesQuery } from '../../../shared/search/articulo-search';
 
 interface Req { id: string; status: string; createdAt: string; requestedBy?: string | null; items: { productId: string; name: string; code?: string | null; quantity: number }[]; }
 interface SendLine { requestId: string; productId: string; name: string; code: string; solicitado: number; stock: number; requestedBy: string | null; createdAt: string; enviar: number; selected: boolean; }
@@ -39,7 +41,7 @@ const IGV_TYPES = [
 @Component({
   selector: 'app-almacen-productos',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, DialogModule, SelectModule, InputNumberModule, InputTextModule, BarcodeScannerComponent],
+  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, DialogModule, SelectModule, InputNumberModule, InputTextModule, BarcodeScannerComponent, BuscadorArticuloComponent],
   template: `
     <section class="ap">
       <header class="top">
@@ -49,7 +51,7 @@ const IGV_TYPES = [
       <div class="banner"><i class="pi pi-check-circle"></i> <span><strong>Operaciones masivas habilitadas</strong> para Almacén de Productos. Selecciona items en la tabla y usa los botones de operaciones.</span></div>
 
       <div class="bar">
-        <span class="search"><i class="pi pi-search"></i><input pInputText placeholder="Buscar artículos..." [(ngModel)]="search" /></span>
+        <span class="search"><app-buscador-articulo [items]="buscadorItems()" [showStock]="true" placeholder="Buscar por nombre o código…" [value]="search" (queryChange)="search = $event" (select)="onBuscarSelect($event)" /></span>
         <button class="sortb" [class.on]="sortBy === 'sku'" (click)="sortBy = 'sku'"><i class="pi pi-arrow-up"></i> Código</button>
         <button class="sortb" [class.on]="sortBy === 'name'" (click)="sortBy = 'name'"><i class="pi pi-sort-alt"></i> Nombre</button>
         <span class="spacer"></span>
@@ -266,7 +268,7 @@ const IGV_TYPES = [
       .img-btn { background: #13243a; border: 1px solid #274468; color: #cbd5e1; border-radius: 8px; padding: 0.45rem 0.8rem; font-size: 0.8rem; cursor: pointer; }
       .img-name { color: #8b97a8; font-size: 0.8rem; }
       .bar { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.8rem; }
-      .search { position: relative; } .search i { position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%); color: #6b7a90; }
+      .search { position: relative; flex: 1 1 260px; min-width: 200px; } .search i { position: absolute; left: 0.7rem; top: 50%; transform: translateY(-50%); color: #6b7a90; }
       .search input { background: #131b27; border: 1px solid #243245; color: #e6e9ef; border-radius: 8px; padding: 0.55rem 0.7rem 0.55rem 2rem; width: 240px; }
       .sortb { background: #0f3d2e; border: 1px solid #14633f; color: #6ee7b7; border-radius: 8px; padding: 0.5rem 0.8rem; cursor: pointer; font-size: 0.82rem; }
       .sortb.on { background: #10b981; color: #04130d; font-weight: 700; }
@@ -370,11 +372,16 @@ export class AlmacenProductosComponent implements OnInit {
     return p.reorderPoint > 0 && p.stock <= p.reorderPoint;
   }
 
+  // Universo para el buscador (nombre · código · categoría · stock). Busca en TODOS los artículos.
+  readonly buscadorItems = computed<BuscadorItem[]>(() =>
+    this.products().map((p) => ({ id: p.id, name: p.name, code: p.sku ?? null, category: p.category?.name ?? null, stock: p.stock, data: p })),
+  );
+  onBuscarSelect(it: BuscadorItem): void { this.search = it.id ? it.name : ''; }
+
   // Método (no computed) para reaccionar a los filtros con props no-signal.
   filtered(): Product[] {
-    const q = this.search.toLowerCase();
     const list = this.products().filter((p) => {
-      if (q && !(p.name.toLowerCase().includes(q) || (p.sku ?? '').toLowerCase().includes(q))) return false;
+      if (!matchesQuery({ name: p.name, code: p.sku ?? null, category: p.category?.name ?? null }, this.search)) return false;
       if (this.categoryFilter && p.categoryId !== this.categoryFilter) return false;
       if (this.statusFilter !== 'all' && p.status !== this.statusFilter) return false;
       if (this.lowStockOnly && !this.isLow(p)) return false;

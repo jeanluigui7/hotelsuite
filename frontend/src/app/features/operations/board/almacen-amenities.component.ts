@@ -14,6 +14,8 @@ import type { ApiResponse } from '../../../core/models/api-response.model';
 import { InventoryApiService } from '../../inventory/services/inventory-api.service';
 import type { Product, Warehouse, WarehouseStock } from '../../inventory/services/inventory.models';
 import { printPdf } from '../../../core/utils/export';
+import { BuscadorArticuloComponent } from '../../../shared/search/buscador-articulo.component';
+import { type BuscadorItem, matchesQuery } from '../../../shared/search/articulo-search';
 
 const LIMP_NAME = 'AMENITIES - LIMPIEZA';
 
@@ -22,7 +24,7 @@ interface Cat { id: string; name: string; type?: string; status?: string }
 @Component({
   selector: 'app-almacen-amenities',
   standalone: true,
-  imports: [FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule, BarcodeScannerComponent],
+  imports: [FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule, BarcodeScannerComponent, BuscadorArticuloComponent],
   template: `
     <section class="ar">
       <header class="top">
@@ -32,7 +34,7 @@ interface Cat { id: string; name: string; type?: string; status?: string }
       <div class="banner"><i class="pi pi-check-circle"></i> Operaciones masivas habilitadas para <b>Almacén de Amenities</b>. Selecciona ítems en la tabla y usa los botones de operaciones.</div>
 
       <div class="bar">
-        <div class="search"><i class="pi pi-search"></i><input [(ngModel)]="search" placeholder="Buscar artículos..." /></div>
+        <app-buscador-articulo class="search" [items]="buscadorItems()" [showStock]="true" placeholder="Buscar por nombre o código…" [value]="search" (queryChange)="search = $event" (select)="onBuscarSelect($event)" />
         <button class="pill" [class.on]="sortBy === 'code'" (click)="sortBy = 'code'"><i class="pi pi-sort-numeric-down"></i> Código</button>
         <button class="pill" [class.on]="sortBy === 'name'" (click)="sortBy = 'name'"><i class="pi pi-sort-alpha-down"></i> Nombre</button>
         <p-select [options]="catOptions()" optionLabel="name" optionValue="id" [(ngModel)]="catFilter" (onChange)="page.set(1)" placeholder="Todas las Categorías" [showClear]="true" styleClass="catf" appendTo="body" />
@@ -192,7 +194,7 @@ interface Cat { id: string; name: string; type?: string; status?: string }
       h1 { margin: 0; font-size: 1.5rem; } .muted { color: #8aa0bd; } .empty { text-align: center; padding: 2rem; color: #8aa0bd; }
       .banner { background: #06281f; border: 1px solid #10b981; color: #6ee7b7; border-radius: 10px; padding: 0.6rem 0.9rem; font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; margin: 0.7rem 0; }
       .bar, .ops { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 0.9rem 0; }
-      .search { display: flex; align-items: center; gap: 0.5rem; background: #0e1626; border: 1px solid #26364f; border-radius: 10px; padding: 0.5rem 0.9rem; color: #8aa0bd; min-width: 220px; }
+      .search { flex: 1 1 260px; min-width: 200px; }
       .search input { background: transparent; border: 0; color: #e2e8f0; outline: none; }
       .pill { display: inline-flex; align-items: center; gap: 0.4rem; background: #13243a; border: 1px solid #274468; color: #cbd5e1; border-radius: 8px; padding: 0.45rem 0.8rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
       .pill.on { background: #10b981; color: #04130d; border-color: #10b981; }
@@ -318,12 +320,16 @@ export class AlmacenAmenitiesComponent implements OnInit {
   allSelected(): boolean { const f = this.filtered(); return f.length > 0 && f.every((r) => this.selected().has(r.id)); }
   toggleAll(): void { const f = this.filtered(); this.selected.set(this.allSelected() ? new Set() : new Set(f.map((r) => r.id))); }
 
+  readonly buscadorItems = computed<BuscadorItem[]>(() =>
+    this.rows().map((r) => ({ id: r.id, name: r.name, code: r.sku ?? null, category: r.category?.name ?? null, stock: r.stock, data: r })),
+  );
+  onBuscarSelect(it: BuscadorItem): void { this.search = it.id ? it.name : ''; this.page.set(1); }
+
   filtered(): Product[] {
-    const q = this.search.trim().toLowerCase();
     return this.rows()
       .filter((r) => !this.catFilter || r.categoryId === this.catFilter)
       .filter((r) => !this.lowOnly || this.below(r))
-      .filter((r) => !q || r.name.toLowerCase().includes(q) || (r.sku ?? '').toLowerCase().includes(q))
+      .filter((r) => matchesQuery({ name: r.name, code: r.sku ?? null, category: r.category?.name ?? null }, this.search))
       .sort((a, b) => (this.sortBy === 'name' ? a.name.localeCompare(b.name) : (a.sku ?? '').localeCompare(b.sku ?? '')));
   }
 

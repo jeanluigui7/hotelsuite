@@ -5,13 +5,15 @@ import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { InventoryApiService } from '../services/inventory-api.service';
 import type { Warehouse, WarehouseStockItem } from '../services/inventory.models';
+import { BuscadorArticuloComponent } from '../../../shared/search/buscador-articulo.component';
+import { type BuscadorItem, matchesQuery } from '../../../shared/search/articulo-search';
 
 const CLEANING_TYPES = ['CLEANING', 'AMENITIES'];
 
 @Component({
   selector: 'app-cleaning-stock',
   standalone: true,
-  imports: [FormsModule, SelectModule, TableModule, TagModule],
+  imports: [FormsModule, SelectModule, TableModule, TagModule, BuscadorArticuloComponent],
   template: `
     <section>
       <header class="head">
@@ -26,7 +28,10 @@ const CLEANING_TYPES = ['CLEANING', 'AMENITIES'];
       @if (warehouses().length === 0) {
         <p class="muted">No hay almacenes de limpieza ni amenities. Créalos en Inventario › Almacenes.</p>
       } @else {
-        <p-table [value]="items()" [loading]="loading()" styleClass="p-datatable-sm" [paginator]="items().length > 15" [rows]="15">
+        <div style="max-width:30rem;margin-bottom:1rem">
+          <app-buscador-articulo [items]="buscadorItems()" [showStock]="true" placeholder="Buscar por nombre o código…" [value]="search" (queryChange)="search = $event" (select)="onBuscarSelect($event)" />
+        </div>
+        <p-table [value]="filteredItems()" [loading]="loading()" styleClass="p-datatable-sm" [paginator]="filteredItems().length > 15" [rows]="15">
           <ng-template pTemplate="header">
             <tr><th>Producto</th><th>SKU</th><th style="width:9rem">Existencia</th><th style="width:9rem">Reposición</th><th style="width:9rem">Estado</th></tr>
           </ng-template>
@@ -61,6 +66,10 @@ export class CleaningStockComponent implements OnInit {
 
   readonly warehouses = signal<Warehouse[]>([]);
   readonly items = signal<WarehouseStockItem[]>([]);
+  search = '';
+  buscadorItems(): BuscadorItem[] { return this.items().map((it) => ({ id: it.productId, name: it.name, code: it.sku ?? null, stock: it.quantity, data: it })); }
+  filteredItems(): WarehouseStockItem[] { return this.items().filter((it) => matchesQuery({ name: it.name, code: it.sku ?? null }, this.search)); }
+  onBuscarSelect(it: BuscadorItem): void { this.search = it.id ? it.name : ''; }
   readonly loading = signal(false);
   selectedId: string | null = null;
 

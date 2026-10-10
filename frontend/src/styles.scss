@@ -37,6 +37,29 @@ textarea {
   font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
+/* ============================================================================
+   iOS — evitar el ZOOM automático al enfocar un campo. Safari hace zoom cuando
+   la fuente del input es < 16px. Forzamos ≥16px en TODOS los campos en móvil
+   (nativos y de PrimeNG), con lo que la página conserva su escala al escribir.
+   ============================================================================ */
+html { -webkit-text-size-adjust: 100%; }
+@media (max-width: 768px) {
+  input,
+  select,
+  textarea,
+  .p-inputtext,
+  .p-select,
+  .p-select-label,
+  .p-dropdown,
+  .p-dropdown-label,
+  .p-multiselect,
+  .p-multiselect-label,
+  .p-inputnumber-input,
+  .p-autocomplete-input {
+    font-size: 16px !important;
+  }
+}
+
 /* Modo oscuro RIZZOS: navy profundo con tinte azul (igual a las imágenes) */
 html.dark {
   --p-content-background: #0b1220;

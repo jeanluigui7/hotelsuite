@@ -14,6 +14,8 @@ import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import type { InventoryCategory } from '../../settings/catalogs/catalog.models';
 import { printPdf } from '../../../core/utils/export';
+import { BuscadorArticuloComponent } from '../../../shared/search/buscador-articulo.component';
+import { type BuscadorItem, matchesQuery } from '../../../shared/search/articulo-search';
 
 interface Row {
   linenItemId: string;
@@ -78,13 +80,13 @@ const SHIFT_LABEL: Record<string, string> = { MANANA: 'Mañana', TARDE: 'Tarde',
 @Component({
   selector: 'app-almacen-ropa',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule, BarcodeScannerComponent],
+  imports: [DatePipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule, BarcodeScannerComponent, BuscadorArticuloComponent],
   template: `
     <section class="ar">
       <header class="top"><div><h1>Almacén de Ropa</h1><p class="muted">Gestiona los artículos del almacén de ropa</p></div></header>
 
       <div class="bar">
-        <div class="search"><i class="pi pi-search"></i><input [(ngModel)]="search" placeholder="Buscar artículos..." /></div>
+        <app-buscador-articulo class="search" [items]="buscadorItems()" [showStock]="true" placeholder="Buscar por nombre o código…" [value]="search" (queryChange)="search = $event" (select)="onBuscarSelect($event)" />
         <button class="pill" [class.on]="sortBy === 'code'" (click)="sortBy = 'code'"><i class="pi pi-sort-numeric-down"></i> Código</button>
         <button class="pill" [class.on]="sortBy === 'name'" (click)="sortBy = 'name'"><i class="pi pi-sort-alpha-down"></i> Nombre</button>
         @for (t of types(); track t) {
@@ -312,7 +314,7 @@ const SHIFT_LABEL: Record<string, string> = { MANANA: 'Mañana', TARDE: 'Tarde',
       .ar { padding: 1.4rem; }
       h1 { margin: 0; font-size: 1.5rem; } .muted { color: #8aa0bd; } .empty { text-align: center; padding: 2rem; color: #8aa0bd; }
       .bar, .ops { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 0.9rem 0; }
-      .search { display: flex; align-items: center; gap: 0.5rem; background: #0e1626; border: 1px solid #26364f; border-radius: 10px; padding: 0.5rem 0.9rem; color: #8aa0bd; min-width: 220px; }
+      .search { flex: 1 1 260px; min-width: 200px; }
       .search input { background: transparent; border: 0; color: #e2e8f0; outline: none; }
       .pill { display: inline-flex; align-items: center; gap: 0.4rem; background: #13243a; border: 1px solid #274468; color: #cbd5e1; border-radius: 8px; padding: 0.45rem 0.8rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
       .pill.on { background: #10b981; color: #04130d; border-color: #10b981; }
@@ -525,12 +527,16 @@ export class AlmacenRopaComponent implements OnInit {
     return [...new Set(this.rows().map((r) => r.type).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
   }
 
+  buscadorItems(): BuscadorItem[] {
+    return this.rows().map((r) => ({ id: r.linenItemId, name: r.name, code: r.code, category: this.typeLabel(r.type), stock: r.disponible, data: r }));
+  }
+  onBuscarSelect(it: BuscadorItem): void { this.search = it.id ? it.name : ''; this.page.set(1); }
+
   filtered(): Row[] {
-    const q = this.search.trim().toLowerCase();
     return this.rows()
       .filter((r) => !this.typeFilter || r.type === this.typeFilter)
       .filter((r) => !this.lowOnly || r.belowStock)
-      .filter((r) => !q || r.name.toLowerCase().includes(q) || r.code.toLowerCase().includes(q))
+      .filter((r) => matchesQuery({ name: r.name, code: r.code, category: this.typeLabel(r.type) }, this.search))
       .sort((a, b) => (this.sortBy === 'name' ? a.name.localeCompare(b.name) : a.code.localeCompare(b.code)));
   }
 

@@ -16,6 +16,8 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { InventoryApiService } from '../../inventory/services/inventory-api.service';
 import type { Product } from '../../inventory/services/inventory.models';
 import { printPdf } from '../../../core/utils/export';
+import { BuscadorArticuloComponent } from '../../../shared/search/buscador-articulo.component';
+import { type BuscadorItem, matchesQuery, searchItems } from '../../../shared/search/articulo-search';
 
 interface ReqLine { productId: string; name: string; sku: string | null; qty: number; }
 
@@ -38,7 +40,7 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
 @Component({
   selector: 'app-inventario-recepcion',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule, TagModule],
+  imports: [DatePipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule, TagModule, BuscadorArticuloComponent],
   template: `
     <section class="inv">
       <header class="top">
@@ -57,7 +59,7 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       </header>
 
       <div class="bar">
-        <span class="search"><i class="pi pi-search"></i><input pInputText placeholder="Buscar artículos por nombre..." [(ngModel)]="search" /></span>
+        <app-buscador-articulo class="search" [items]="buscadorItems()" [showStock]="true" placeholder="Buscar por nombre o código…" [value]="search" (queryChange)="search = $event" (select)="onBuscarSelect($event)" />
         <p-select [options]="categoryOptions()" optionLabel="label" optionValue="value" [(ngModel)]="categoryFilter" placeholder="Todas las Categorías" [showClear]="true" styleClass="dk" />
       </div>
 
@@ -146,7 +148,7 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
       @if (reqSearch && reqSuggestions().length) {
         <div class="rq-sugg">
           @for (p of reqSuggestions(); track p.id) {
-            <button class="sugg" (click)="reqAdd(p)"><span class="sg-n">{{ p.name }}</span><span class="sg-c">{{ p.sku || '—' }}</span></button>
+            <button class="sugg" (click)="reqAdd(p)"><span class="sg-n">{{ p.name }}</span><span class="sg-c">{{ p.sku || '—' }}@if (p.category?.name) { · {{ p.category?.name }} } · stock {{ p.stock }}</span></button>
           }
         </div>
       }
@@ -553,10 +555,14 @@ export class InventarioRecepcionComponent implements OnInit {
     return [...map].map(([value, label]) => ({ label, value }));
   }
 
+  readonly buscadorItems = computed<BuscadorItem[]>(() =>
+    this.items().map((it) => ({ id: it.productId, name: it.name, code: it.sku ?? null, category: it.categoryName ?? null, stock: it.stock, data: it })),
+  );
+  onBuscarSelect(it: BuscadorItem): void { this.search = it.id ? it.name : ''; }
+
   filtered(): InvItem[] {
-    const q = this.search.toLowerCase();
     return this.items().filter((it) => {
-      if (q && !(it.name.toLowerCase().includes(q) || (it.sku ?? '').toLowerCase().includes(q))) return false;
+      if (!matchesQuery({ name: it.name, code: it.sku ?? null, category: it.categoryName ?? null }, this.search)) return false;
       if (this.categoryFilter && it.categoryId !== this.categoryFilter) return false;
       return true;
     });
@@ -790,11 +796,15 @@ export class InventarioRecepcionComponent implements OnInit {
   private codesOf(p: Product): string[] { return p.barcodes ?? (p.barcode ? [p.barcode] : []); }
   /** Sugerencias por nombre / SKU / código (búsqueda parcial). */
   reqSuggestions(): Product[] {
-    const q = this.reqSearch.trim().toLowerCase();
+    const q = this.reqSearch.trim();
     if (!q) return [];
-    return this.catalog()
-      .filter((p) => p.name.toLowerCase().includes(q) || (p.sku ?? '').toLowerCase().includes(q) || this.codesOf(p).some((c) => c.toLowerCase().includes(q)))
-      .slice(0, 8);
+    // Búsqueda flexible y tolerante a errores (mismo criterio que los buscadores de almacén).
+    const items: BuscadorItem[] = this.catalog().map((p) => ({
+      id: p.id, name: p.name,
+      code: [p.sku, ...this.codesOf(p)].filter(Boolean).join(' '),
+      category: p.category?.name ?? null, stock: p.stock, data: p,
+    }));
+    return searchItems(items, q, 8).map((i) => i.data as Product);
   }
   onReqSearch(v: string): void {
     this.reqSearch = v;

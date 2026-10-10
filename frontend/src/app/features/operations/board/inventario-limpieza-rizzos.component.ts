@@ -9,6 +9,8 @@ import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import { forkJoin, of } from 'rxjs';
+import { BuscadorArticuloComponent } from '../../../shared/search/buscador-articulo.component';
+import type { BuscadorItem } from '../../../shared/search/articulo-search';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { AuthService } from '../../../core/auth/auth.service';
@@ -33,7 +35,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
 @Component({
   selector: 'app-inventario-limpieza-rizzos',
   standalone: true,
-  imports: [DatePipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule],
+  imports: [DatePipe, FormsModule, ButtonModule, DialogModule, InputNumberModule, InputTextModule, SelectModule, BuscadorArticuloComponent],
   template: `
     <section class="il">
       <header class="top">
@@ -200,13 +202,13 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
     <p-dialog [(visible)]="addUnregVisible" [modal]="true" [header]="'Agregar ropa no registrada · ' + addUnregFloor" [style]="{ width: '28rem', maxWidth: '95vw' }" styleClass="dk-dialog">
       <div class="form">
         <label class="au-lbl">TOALLA</label>
-        <p-select [options]="catItems('TOALLA')" optionLabel="name" optionValue="id" [(ngModel)]="addSel.toalla" [filter]="true" filterBy="name" [showClear]="true" placeholder="Seleccionar toalla" appendTo="body" styleClass="w" />
+        <app-buscador-articulo [items]="catBuscador('TOALLA')" placeholder="Buscar toalla…" [value]="addSelNames.toalla" (select)="addSel.toalla = $event.id || null; addSelNames.toalla = $event.id ? $event.name : ''" />
         <div class="qrow2"><span>Cantidad</span><p-inputNumber [(ngModel)]="addSel.toallaQty" [min]="0" [showButtons]="true" buttonLayout="horizontal" /></div>
         <label class="au-lbl">SÁBANA</label>
-        <p-select [options]="catItems('SABANA')" optionLabel="name" optionValue="id" [(ngModel)]="addSel.sabana" [filter]="true" filterBy="name" [showClear]="true" placeholder="Seleccionar sábana" appendTo="body" styleClass="w" />
+        <app-buscador-articulo [items]="catBuscador('SABANA')" placeholder="Buscar sábana…" [value]="addSelNames.sabana" (select)="addSel.sabana = $event.id || null; addSelNames.sabana = $event.id ? $event.name : ''" />
         <div class="qrow2"><span>Cantidad</span><p-inputNumber [(ngModel)]="addSel.sabanaQty" [min]="0" [showButtons]="true" buttonLayout="horizontal" /></div>
         <label class="au-lbl">EDREDÓN</label>
-        <p-select [options]="catItems('EDREDON')" optionLabel="name" optionValue="id" [(ngModel)]="addSel.edredon" [filter]="true" filterBy="name" [showClear]="true" placeholder="Seleccionar edredón" appendTo="body" styleClass="w" />
+        <app-buscador-articulo [items]="catBuscador('EDREDON')" placeholder="Buscar edredón…" [value]="addSelNames.edredon" (select)="addSel.edredon = $event.id || null; addSelNames.edredon = $event.id ? $event.name : ''" />
         <div class="qrow2"><span>Cantidad</span><p-inputNumber [(ngModel)]="addSel.edredonQty" [min]="0" [showButtons]="true" buttonLayout="horizontal" /></div>
         <p class="hint"><i class="pi pi-info-circle"></i> Los ítems agregados se incluirán en la fila REM. La fila SUM no se modifica.</p>
       </div>
@@ -475,6 +477,11 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
   addUnregFloor = '';
   addSel: { toalla: string | null; toallaQty: number; sabana: string | null; sabanaQty: number; edredon: string | null; edredonQty: number } =
     { toalla: null, toallaQty: 0, sabana: null, sabanaQty: 0, edredon: null, edredonQty: 0 };
+  addSelNames = { toalla: '', sabana: '', edredon: '' };
+  /** Universo del buscador por tipo de prenda (mismo filtrado que catItems). */
+  catBuscador(cat: 'TOALLA' | 'SABANA' | 'EDREDON'): BuscadorItem[] {
+    return this.catItems(cat).map((i) => ({ id: i.id, name: i.name, category: cat }));
+  }
 
   loadBlocked(): void {
     this.http.get<ApiResponse<string[]>>(`${this.api}/cleaning/linen/regularization/blocked`).subscribe((r) => this.blockedFloors.set(r.data ?? []));
@@ -517,6 +524,7 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
   openAddUnreg(floor: string): void {
     this.addUnregFloor = floor;
     this.addSel = { toalla: null, toallaQty: 0, sabana: null, sabanaQty: 0, edredon: null, edredonQty: 0 };
+    this.addSelNames = { toalla: '', sabana: '', edredon: '' };
     this.addUnregVisible = true;
   }
   confirmAddUnreg(): void {
