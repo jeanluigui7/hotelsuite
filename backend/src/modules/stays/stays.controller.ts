@@ -3,7 +3,7 @@ import { ok } from '../../shared/response';
 import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { staysService } from './stays.service';
-import { changeRoomSchema, checkInSchema, checkOutSchema, payStaySchema, renewSchema, updateStayDetailsSchema } from './stays.schema';
+import { cancelCheckInSchema, cancelRenewalSchema, changeRoomSchema, checkInSchema, checkOutSchema, payStaySchema, renewSchema, updateStayDetailsSchema } from './stays.schema';
 
 export const staysController = {
   async checkIn(req: Request, res: Response): Promise<void> {
@@ -57,6 +57,17 @@ export const staysController = {
     if (!req.scope) throw new UnauthorizedError();
     const dto = payStaySchema.parse(req.body ?? {});
     res.status(200).json(ok(await staysService.pay(req.scope, req.params.id, dto)));
+  },
+
+  async cancelCheckIn(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = cancelCheckInSchema.parse(req.body ?? {});
+    res.status(200).json(ok(await staysService.cancelCheckIn(req.scope, req.params.id, dto)));
+  },
+  async cancelRenewal(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = cancelRenewalSchema.parse(req.body ?? {});
+    res.status(200).json(ok(await staysService.cancelRenewal(req.scope, req.params.id, dto)));
   },
 
   async renewalCleaning(req: Request, res: Response): Promise<void> {

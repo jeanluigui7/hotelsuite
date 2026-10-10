@@ -15,11 +15,12 @@ import { pernoctaService } from '../pernocta/pernocta.service';
 import { wifiService } from '../wifi/wifi.service';
 import { changeCreditsService } from '../change-credits/change-credits.service';
 import { cashRepository } from '../cash/cash.repository';
+import { salesService } from '../sales/sales.service';
 import { recordActivity } from '../activity-log/activity.emitter';
 import { frigobarReviewService } from '../frigobar-review/frigobar-review.service';
 import { customRateBlockService } from '../custom-rate-block/custom-rate-block.service';
 import { staysRepository, type StayWithRelations } from './stays.repository';
-import type { ChangeRoomDto, CheckInDto, CheckOutDto, PayStayDto, RenewDto, UpdateStayDetailsDto } from './stays.schema';
+import type { CancelCheckInDto, CancelRenewalDto, ChangeRoomDto, CheckInDto, CheckOutDto, PayStayDto, RenewDto, UpdateStayDetailsDto } from './stays.schema';
 
 const SORTABLE = ['checkInAt', 'plannedCheckoutAt', 'status'] as const;
 
@@ -524,6 +525,130 @@ export const staysService = {
     return serialize(result as StayWithRelations);
   },
 
+  /**
+   * Anula un CHECK-IN y sincroniza todo: anula los cargos (conservando pagos para la devolución),
+   * marca la estadía CANCELLED (NO cuenta como alquiler ni check-out), libera la habitación
+   * (Disponible o Limpieza en espera), libera WiFi, cancela beneficios/renovaciones, y aplica
+   * penalidad/devolución. No genera check-out ni limpieza ficticios.
+   */
+  async cancelCheckIn(scope: RequestScope, id: string, dto: CancelCheckInDto) {
+    const branchId = requireActiveBranch(scope);
+    const stay = await staysRepository.findById(id);
+    if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
+    const roomNum = stay.room?.number ?? '';
+    const guestName = `${stay.guest?.firstName ?? ''} ${stay.guest?.lastName ?? ''}`.trim();
+    // Reclamo atómico (anti doble-clic): solo una petición anula.
+    const claim = await prisma.stay.updateMany({ where: { id, status: 'OPEN' }, data: { status: 'CANCELLED', checkOutAt: new Date(), closedByUserId: scope.userId } });
+    if (claim.count === 0) throw new ConflictError('La estadía ya fue anulada o cerrada');
+
+    const penaltyAmt = dto.roomOutcome === 'LIMPIEZA_USO' ? round2(dto.penaltyAmount ?? 0) : 0;
+    const penaltyObs = dto.penaltyObservation?.trim() || null;
+    const penaltyDesc = `Uso parcial de habitación${penaltyObs ? ` · ${penaltyObs}` : ''}`;
+
+    // Anular cargos conservando los pagos (para netear la devolución). La penalidad va en la 1ª venta pagada.
+    const sales = await prisma.sale.findMany({ where: { branchId, stayId: id, status: { not: 'CANCELLED' } }, include: { payments: true }, orderBy: { createdAt: 'asc' } });
+    const ordered = [...sales].sort((a, b) => b.payments.reduce((x, p) => x + Number(p.amount), 0) - a.payments.reduce((x, p) => x + Number(p.amount), 0));
+    let totalPaid = 0;
+    let penaltyPlaced = false;
+    for (const s of ordered) {
+      const placePenalty = !penaltyPlaced && penaltyAmt > 0;
+      const res = await salesService.voidAllLines(scope, s.id, { reason: dto.reason || 'Anulación de check-in', penalty: placePenalty ? { amount: penaltyAmt, description: penaltyDesc } : undefined });
+      totalPaid = round2(totalPaid + res.paid);
+      if (placePenalty) penaltyPlaced = true;
+    }
+    // Sin ninguna venta donde colocar la penalidad → crearla como deuda.
+    if (penaltyAmt > 0 && !penaltyPlaced) {
+      await salesService.create(scope, { stayId: id, items: [{ description: penaltyDesc, quantity: 1, unitPrice: penaltyAmt, conceptKind: 'PENALTY', modality: 'VENTA' }], payments: [], suppressActivity: true });
+    }
+    const refundable = round2(Math.max(0, totalPaid - penaltyAmt));
+    if (refundable > 0) {
+      const openS = await cashRepository.findOpen(branchId);
+      await prisma.changeCredit.create({ data: { branchId, stayId: id, guestId: stay.guestId, room: roomNum || null, originSessionId: openS?.id ?? null, amount: refundable, remaining: refundable, kind: 'REFUND', status: 'PENDIENTE', createdByUserId: scope.userId, note: `Devolución por anulación de check-in${dto.refundMethod ? ` · método sugerido: ${dto.refundMethod}` : ''}` } });
+    }
+    // Cancelar beneficios/renovaciones y liberar la habitación (sin check-out ni limpieza ficticios).
+    await prisma.$transaction(async (tx) => {
+      await tx.stayBenefit.updateMany({ where: { stayId: id, status: 'ACTIVE' }, data: { status: 'CANCELLED' } });
+      await tx.stayRenewal.updateMany({ where: { stayId: id, status: 'ACTIVE' }, data: { status: 'CANCELLED', cancelledByUserId: scope.userId, cancelledAt: new Date() } });
+      await tx.room.update({ where: { id: stay.roomId }, data: { status: dto.roomOutcome === 'DISPONIBLE' ? 'FREE' : 'LIMPIEZA_EN_ESPERA' } });
+    });
+    await wifiService.releaseByStay(id).catch(() => undefined);
+    void recordActivity(scope, {
+      activity: 'CHECKIN_VOID', area: 'HOSPEDAJE', roomId: stay.roomId, entityId: id, reference: `Hab. ${roomNum}`,
+      detail: `Check-in anulado · ${guestName || 'Huésped'} · Habitación → ${dto.roomOutcome === 'DISPONIBLE' ? 'Disponible' : 'Limpieza en espera'}${penaltyAmt > 0 ? ` · Penalidad S/ ${penaltyAmt.toFixed(2)}` : ''}${refundable > 0 ? ` · Devolución pendiente S/ ${refundable.toFixed(2)}` : ''}${dto.reason?.trim() ? ` · Motivo: ${dto.reason.trim()}` : ''}`,
+      meta: { stayId: id, outcome: dto.roomOutcome, penalty: penaltyAmt, refundable, paid: totalPaid, reason: dto.reason?.trim() || null },
+    });
+    return serialize((await staysRepository.findById(id)) as StayWithRelations);
+  },
+
+  /**
+   * Anula una RENOVACIÓN. "Continúa ocupada" mantiene la estadía y recalcula la salida con SOLO las
+   * renovaciones válidas; las demás finalizan la estadía y fijan el estado de la habitación. Aplica
+   * penalidad/devolución igual que la anulación de check-in.
+   */
+  async cancelRenewal(scope: RequestScope, id: string, dto: CancelRenewalDto) {
+    const branchId = requireActiveBranch(scope);
+    const stay = await staysRepository.findById(id);
+    if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
+    if (stay.status !== 'OPEN') throw new ConflictError('La estadía no está activa');
+    const ren = await prisma.stayRenewal.findFirst({ where: { id: dto.stayRenewalId, stayId: id, branchId } });
+    if (!ren) throw new ValidationError('Renovación no encontrada');
+    if (ren.status !== 'ACTIVE') throw new ConflictError('La renovación ya fue anulada');
+    const roomNum = stay.room?.number ?? '';
+    const penaltyAmt = dto.roomOutcome === 'LIMPIEZA_USO' ? round2(dto.penaltyAmount ?? 0) : 0;
+    const penaltyObs = dto.penaltyObservation?.trim() || null;
+    const penaltyDesc = `Uso parcial de habitación${penaltyObs ? ` · ${penaltyObs}` : ''}`;
+
+    let paid = 0;
+    let penaltyPlaced = false;
+    if (ren.saleId) {
+      const s = await prisma.sale.findUnique({ where: { id: ren.saleId } });
+      if (s && s.status !== 'CANCELLED') {
+        const res = await salesService.voidAllLines(scope, ren.saleId, { reason: dto.reason || 'Anulación de renovación', penalty: penaltyAmt > 0 ? { amount: penaltyAmt, description: penaltyDesc } : undefined });
+        paid = res.paid; penaltyPlaced = penaltyAmt > 0;
+      }
+    }
+    if (penaltyAmt > 0 && !penaltyPlaced) {
+      await salesService.create(scope, { stayId: id, items: [{ description: penaltyDesc, quantity: 1, unitPrice: penaltyAmt, conceptKind: 'PENALTY', modality: 'VENTA' }], payments: [], suppressActivity: true });
+    }
+    const refundable = round2(Math.max(0, paid - penaltyAmt));
+    if (refundable > 0) {
+      const openS = await cashRepository.findOpen(branchId);
+      await prisma.changeCredit.create({ data: { branchId, stayId: id, guestId: stay.guestId, room: roomNum || null, originSessionId: openS?.id ?? null, amount: refundable, remaining: refundable, kind: 'REFUND', status: 'PENDIENTE', createdByUserId: scope.userId, note: `Devolución por anulación de renovación${dto.refundMethod ? ` · método sugerido: ${dto.refundMethod}` : ''}` } });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.stayRenewal.updateMany({ where: { id: ren.id, status: 'ACTIVE' }, data: { status: 'CANCELLED', cancelledByUserId: scope.userId, cancelledAt: new Date() } });
+      // Cancela los beneficios futuros no usados de esta renovación (preserva lo entregado).
+      if (ren.saleId) {
+        const bens = await tx.stayBenefit.findMany({ where: { saleId: ren.saleId, status: 'ACTIVE' } });
+        for (const b of bens) {
+          if (b.deliveredQty <= 0) await tx.stayBenefit.updateMany({ where: { id: b.id, status: 'ACTIVE' }, data: { status: 'CANCELLED' } });
+          else if (b.includedQty > b.deliveredQty) await tx.stayBenefit.update({ where: { id: b.id }, data: { includedQty: b.deliveredQty } });
+        }
+      }
+      // Recalcula la salida = salida_original + Σ(minutos de renovaciones ACTIVAS restantes).
+      const all = await tx.stayRenewal.findMany({ where: { stayId: id } });
+      const actives = all.filter((r) => r.status === 'ACTIVE');
+      const base = all.length ? new Date(Math.min(...all.map((r) => r.prevCheckoutAt.getTime()))) : null;
+      const newCheckout = base ? new Date(base.getTime() + actives.reduce((a, r) => a + r.addedMinutes, 0) * 60_000) : null;
+      if (dto.roomOutcome === 'OCUPADA') {
+        await tx.stay.update({ where: { id }, data: { ...(newCheckout ? { plannedCheckoutAt: newCheckout } : {}), renewalCount: actives.length, renewedAt: actives.length ? actives[actives.length - 1].createdAt : null } });
+        await tx.room.update({ where: { id: stay.roomId }, data: { status: 'OCCUPIED' } });
+      } else {
+        await tx.stay.update({ where: { id }, data: { status: 'CLOSED', checkOutAt: new Date(), closedByUserId: scope.userId, ...(newCheckout ? { plannedCheckoutAt: newCheckout } : {}), renewalCount: actives.length } });
+        await tx.stayBenefit.updateMany({ where: { stayId: id, status: 'ACTIVE' }, data: { status: 'EXPIRED', expiredAt: new Date() } });
+        await tx.room.update({ where: { id: stay.roomId }, data: { status: dto.roomOutcome === 'DISPONIBLE' ? 'FREE' : 'LIMPIEZA_EN_ESPERA' } });
+      }
+    });
+    if (dto.roomOutcome !== 'OCUPADA') await wifiService.releaseByStay(id).catch(() => undefined);
+    void recordActivity(scope, {
+      activity: 'RENEWAL_VOID', area: 'HOSPEDAJE', roomId: stay.roomId, entityId: id, reference: `Hab. ${roomNum}`,
+      detail: `Renovación anulada · Habitación → ${dto.roomOutcome === 'OCUPADA' ? 'Continúa ocupada' : dto.roomOutcome === 'DISPONIBLE' ? 'Disponible' : 'Limpieza en espera'}${penaltyAmt > 0 ? ` · Penalidad S/ ${penaltyAmt.toFixed(2)}` : ''}${refundable > 0 ? ` · Devolución pendiente S/ ${refundable.toFixed(2)}` : ''}${dto.reason?.trim() ? ` · Motivo: ${dto.reason.trim()}` : ''}`,
+      meta: { stayId: id, renewalId: ren.id, outcome: dto.roomOutcome, penalty: penaltyAmt, refundable, paid, reason: dto.reason?.trim() || null },
+    });
+    return serialize((await staysRepository.findById(id)) as StayWithRelations);
+  },
+
   /** Folio de estancia: agrega huésped, fechas, montos, movimientos, productos, limpiezas y eventos. */
   async folio(scope: RequestScope, id: string) {
     const branchId = requireActiveBranch(scope);
@@ -582,6 +707,15 @@ export const staysService = {
       for (const p of s.payments) {
         movs.push({ at: p.createdAt, type: 'Pago', description: `Pago - ${METHOD[p.method] ?? p.method}`, method: p.method, charge: 0, payment: Number(p.amount), by: uname(p.createdByUserId) });
       }
+    }
+    // Devoluciones/vueltos de la estadía (ChangeCredit): salida de dinero (o pendiente) → se muestra en el folio.
+    const credits = await prisma.changeCredit.findMany({ where: { branchId, stayId: id }, orderBy: { createdAt: 'asc' } });
+    for (const c of credits) {
+      const isRefund = c.kind === 'REFUND';
+      const entregado = c.status === 'ENTREGADO' || c.status === 'CONSUMIDO';
+      // Una devolución ENTREGADA revierte el sobrepago → se registra como cargo (+) para que el saldo
+      // vuelva a 0. Mientras está pendiente, no afecta el saldo (el dinero aún no sale).
+      movs.push({ at: c.createdAt, type: isRefund ? 'Devolución' : 'Vuelto', description: `${isRefund ? 'Devolución' : 'Vuelto'}${entregado ? '' : ' (pendiente)'}${c.note ? ` · ${c.note}` : ''}`, charge: entregado ? Number(c.amount) : 0, payment: 0, by: uname(c.createdByUserId) });
     }
     movs.sort((a, b) => a.at.getTime() - b.at.getTime());
     let bal = 0;
@@ -643,8 +777,13 @@ export const staysService = {
       invoices: stayInvoices.map((inv) => ({ folio: `${inv.series}-${inv.number}`, type: inv.type, total: Number(inv.total), at: inv.issuedAt })),
     };
 
+    // Renovaciones activas (para poder anular una desde el folio, con su fecha resultante).
+    const renewalRows = await prisma.stayRenewal.findMany({ where: { branchId, stayId: id, status: 'ACTIVE' }, orderBy: { createdAt: 'asc' } });
+    const renewalList = renewalRows.map((r, i) => ({ id: r.id, index: i + 1, mode: r.mode, saleId: r.saleId, addedMinutes: r.addedMinutes, prevCheckoutAt: r.prevCheckoutAt, newCheckoutAt: r.newCheckoutAt, createdAt: r.createdAt }));
+
     return {
       folio: { code: stay.folioCode ?? `FP-${stay.id.slice(0, 6).toUpperCase()}`, status: stay.status === 'OPEN' ? 'Activa' : 'Cerrada' },
+      stayStatus: stay.status,
       guest: { name: `${stay.guest.firstName} ${stay.guest.lastName ?? ''}`.trim(), documentType: stay.guest.documentType, documentNumber: stay.guest.documentNumber, nationality: stay.guest.nationality, phone: stay.guest.phone },
       room: { number: room?.number ?? '—', typeName: room?.roomType.name ?? '—' },
       checkInAt: stay.checkInAt,
@@ -660,6 +799,7 @@ export const staysService = {
       products,
       services,
       benefits,
+      renewalList,
       simulator: {
         hospedaje, productos: round2(consumos), ratio, limit, exceeded,
         exceso: exceeded ? round2(consumos - hospedaje * limit / 100) : 0,
@@ -794,6 +934,15 @@ export const staysService = {
       });
       // Enlaza los beneficios del nuevo período a la venta de renovación (para cancelarlos al anularla).
       if (renewBenefits.length) await tx.stayBenefit.createMany({ data: renewBenefits.map((b) => ({ ...b, stayId: id, saleId: rSale.id })) });
+      // Registra la renovación (minutos añadidos) para poder recalcular la salida con solo las válidas.
+      await tx.stayRenewal.create({
+        data: {
+          branchId, stayId: id, saleId: rSale.id,
+          mode: dto.newCheckoutAt ? 'CALENDAR' : dto.mode === 'HOURS' ? 'HOURS' : 'NIGHTS',
+          addedMinutes: Math.round((newCheckout.getTime() - current.getTime()) / 60_000),
+          prevCheckoutAt: current, newCheckoutAt: newCheckout, status: 'ACTIVE', createdByUserId: scope.userId,
+        },
+      });
     });
     const updated = await staysRepository.findById(id);
     // Reasignación de WiFi al renovar: consume el voucher anterior y toma uno nuevo de la categoría.

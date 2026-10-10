@@ -969,6 +969,7 @@ model Stay {
   tier             ClientTier? @relation(fields: [tierId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   additionalGuests StayGuest[]
   benefits         StayBenefit[]
+  renewals         StayRenewal[]
 
   @@index([branchId])
   @@index([roomId])
@@ -976,6 +977,31 @@ model Stay {
   @@index([status])
   @@index([folioCode])
   @@index([reservationId])
+}
+
+/// Renovación/extensión de una estadía, persistida para poder recalcular la fecha de salida usando
+/// SOLO las renovaciones válidas (no "salida − 1 día"). Al anular una, se marca CANCELLED y la salida
+/// de la estadía se recalcula = salida_original + Σ(addedMinutes de las ACTIVAS).
+model StayRenewal {
+  id            String   @id @default(uuid())
+  branchId      String
+  stayId        String
+  saleId        String? // venta de la renovación (al anularla se cancela esta StayRenewal)
+  mode          String   @default("NIGHTS") // NIGHTS | HOURS | CALENDAR
+  addedMinutes  Int // minutos que esta renovación añadió a la salida
+  prevCheckoutAt DateTime // salida ANTES de esta renovación (la mínima = salida original)
+  newCheckoutAt DateTime // salida RESULTANTE de esta renovación
+  status        String   @default("ACTIVE") // ACTIVE | CANCELLED
+  createdByUserId String?
+  cancelledByUserId String?
+  cancelledAt   DateTime?
+  createdAt     DateTime @default(now())
+
+  stay Stay @relation(fields: [stayId], references: [id], onDelete: Cascade)
+
+  @@index([branchId])
+  @@index([stayId])
+  @@index([saleId])
 }
 
 /// Huéspedes adicionales de una estancia.

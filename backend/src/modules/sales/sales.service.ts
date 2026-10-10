@@ -304,6 +304,53 @@ export const salesService = {
     return result;
   },
 
+  /**
+   * Anula los CARGOS de una venta CONSERVANDO los pagos como ingreso (para el neteo de devolución al
+   * anular check-in/renovación). Opcionalmente agrega una línea de PENALIDAD cubierta por lo pagado.
+   * Devuelve lo pagado (base para la devolución = pagado − penalidad). Repone stock de productos.
+   */
+  async voidAllLines(scope: RequestScope, id: string, opts: { reason?: string; penalty?: { amount: number; description: string } }) {
+    const branchId = requireActiveBranch(scope);
+    const sale = await salesRepository.findById(id);
+    if (!sale || sale.branchId !== branchId) throw new NotFoundError('Venta no encontrada');
+    if (sale.status === 'CANCELLED') throw new ConflictError('La venta ya está anulada');
+    const paid = round(sale.payments.reduce((a, p) => a + Number(p.amount), 0));
+    const saleMovs = await prisma.inventoryMovement.findMany({ where: { saleId: id, type: 'SALE' } });
+    const openSession = await cashRepository.findOpen(branchId);
+    const isCurrentTurn = !!sale.cashSessionId && !!openSession && openSession.id === sale.cashSessionId;
+    const penaltyAmt = opts.penalty && opts.penalty.amount > 0 ? round(opts.penalty.amount) : 0;
+    await prisma.$transaction(async (tx) => {
+      for (const it of sale.items) {
+        if (it.voided) continue;
+        await tx.saleItem.update({ where: { id: it.id }, data: { voided: true, voidedAt: new Date(), voidedByUserId: scope.userId, voidReason: opts.reason?.trim() || 'Anulación' } });
+        if (it.modality === 'INCLUIDO' && it.stayBenefitId) await tx.stayBenefit.updateMany({ where: { id: it.stayBenefitId }, data: { deliveredQty: { decrement: it.quantity } } });
+      }
+      for (const mv of saleMovs) {
+        const qty = Math.abs(mv.quantity); if (qty <= 0) continue;
+        await applyStockTx(tx, mv.productId, mv.warehouseId, qty);
+        if (isCurrentTurn) await tx.inventoryMovement.delete({ where: { id: mv.id } });
+        else await createMovementTx(tx, { branchId, productId: mv.productId, warehouseId: mv.warehouseId, type: 'ADJUST', quantity: qty, unitCost: mv.unitCost != null ? Number(mv.unitCost) : null, reference: 'Anulación de operación', adjustType: 'ANULACION_VENTA', cashSessionId: openSession?.id ?? null, refMovementId: mv.id, saleId: id, createdByUserId: scope.userId });
+      }
+      if (penaltyAmt > 0) {
+        await tx.saleItem.create({ data: { saleId: id, description: opts.penalty!.description, quantity: 1, unitPrice: penaltyAmt, subtotal: penaltyAmt, conceptKind: 'PENALTY', modality: 'VENTA' } });
+      }
+      // El cargo queda en la penalidad (o 0). Si hubo pago, el ingreso se conserva (status PAID) y el
+      // sobrante se devolverá; si no hubo pago y hay penalidad, queda como deuda (OPEN).
+      await tx.sale.update({ where: { id }, data: { total: penaltyAmt, status: penaltyAmt > 0 && paid >= penaltyAmt ? 'PAID' : penaltyAmt > 0 ? 'OPEN' : paid > 0 ? 'PAID' : 'OPEN' } });
+      await tx.serviceOrder.updateMany({ where: { saleId: id, operationalStatus: { not: 'CANCELLED' } }, data: { operationalStatus: 'CANCELLED', cancelledAt: new Date(), cancelReason: opts.reason?.trim() || 'Anulación' } });
+    });
+    if (sale.cashSessionId) {
+      await cashRepository.createIntervention({
+        branchId, cashSessionId: sale.cashSessionId, type: 'VOID', targetKind: 'SALE', targetId: id,
+        beforeJson: JSON.stringify({ total: Number(sale.total), status: sale.status, paid }),
+        afterJson: JSON.stringify({ chargesVoided: true, penalty: penaltyAmt, paidKept: paid, reason: opts.reason?.trim() || null }),
+        reason: opts.reason?.trim() || null, createdByUserId: scope.userId,
+      });
+      await cashRepository.markAdjusted(sale.cashSessionId);
+    }
+    return { paid, penalty: penaltyAmt };
+  },
+
   /** Corrige el método de pago de una venta (desde el detalle de caja). */
   async correct(scope: RequestScope, id: string, dto: { method: string; reason?: string }) {
     const branchId = requireActiveBranch(scope);

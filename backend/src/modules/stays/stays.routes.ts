@@ -20,6 +20,9 @@ staysRouter.post('/stays/check-in', requirePermission('operations', 'create'), a
 staysRouter.post('/stays/:id/check-out', requirePermission('operations', 'edit'), asyncHandler(staysController.checkOut));
 staysRouter.post('/stays/:id/change-room', requirePermission('operations', 'edit'), asyncHandler(staysController.changeRoom));
 staysRouter.post('/stays/:id/renew', requirePermission('operations', 'edit'), asyncHandler(staysController.renew));
+// Anular check-in / renovación: requiere permiso de anulación (finance:edit), igual que anular una venta.
+staysRouter.post('/stays/:id/cancel-checkin', requirePermission('finance', 'edit'), asyncHandler(staysController.cancelCheckIn));
+staysRouter.post('/stays/:id/cancel-renewal', requirePermission('finance', 'edit'), asyncHandler(staysController.cancelRenewal));
 staysRouter.post('/stays/:id/pay', requireAnyPermission(['finance', 'create'], ['operations', 'edit']), asyncHandler(staysController.pay));
 staysRouter.post('/stays/:id/renewal-cleaning/:action', requirePermission('operations', 'edit'), asyncHandler(staysController.renewalCleaning));
 staysRouter.post('/stays/:id/request-renewal-cleaning', requirePermission('operations', 'edit'), asyncHandler(staysController.requestRenewalCleaning));

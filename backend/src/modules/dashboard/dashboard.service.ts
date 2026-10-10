@@ -57,8 +57,8 @@ export const dashboardService = {
       await Promise.all([
         prisma.room.groupBy({ by: ['status'], where: { branchId }, _count: { _all: true } }),
         prisma.stay.count({ where: { branchId, status: 'OPEN' } }),
-        prisma.stay.count({ where: { branchId, checkInAt: { gte: start, lt: end } } }),
-        prisma.stay.count({ where: { branchId, checkOutAt: { gte: start, lt: end } } }),
+        prisma.stay.count({ where: { branchId, status: { not: 'CANCELLED' }, checkInAt: { gte: start, lt: end } } }),
+        prisma.stay.count({ where: { branchId, status: { not: 'CANCELLED' }, checkOutAt: { gte: start, lt: end } } }),
         prisma.stay.count({ where: { branchId, status: 'OPEN', plannedCheckoutAt: { lte: now } } }),
         prisma.reservation.count({
           where: { branchId, status: { in: ['PENDING', 'CONFIRMED'] }, expectedCheckInAt: { lt: end } },
