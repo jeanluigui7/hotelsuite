@@ -4,14 +4,17 @@ import { SidebarComponent } from '../sidebar/sidebar.component';
 import { TopbarComponent } from '../topbar/topbar.component';
 import { QuickPillsComponent } from '../quick-pills/quick-pills.component';
 import { CheckoutAlertComponent } from '../checkout-alert/checkout-alert.component';
+import { AnulacionModalesComponent } from '../../shared/anulacion/anulacion-modales.component';
 import { LayoutService } from '../layout.service';
 
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, SidebarComponent, TopbarComponent, QuickPillsComponent, CheckoutAlertComponent],
+  imports: [RouterOutlet, SidebarComponent, TopbarComponent, QuickPillsComponent, CheckoutAlertComponent, AnulacionModalesComponent],
   template: `
     <app-checkout-alert></app-checkout-alert>
+    <!-- Modales de anulación (check-in/renovación), disparables desde Card, Folio o Caja/Movimientos. -->
+    <app-anulacion-modales></app-anulacion-modales>
     <div class="shell">
       <app-sidebar></app-sidebar>
       <!-- Zona sensible en el borde izquierdo: al acercar el mouse, el sidebar reaparece (escritorio). -->

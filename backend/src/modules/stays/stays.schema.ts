@@ -68,9 +68,11 @@ export const cancelCheckInSchema = z.object({
   refundMethod: z.enum(PAYMENT_METHODS).optional(),
 });
 
-/** Anulación de una renovación: OCUPADA mantiene la estadía; las demás la finalizan. */
+/** Anulación de una renovación: OCUPADA mantiene la estadía; las demás la finalizan.
+ * Se identifica por stayRenewalId (folio/card) o por saleId (Caja/Movimientos). */
 export const cancelRenewalSchema = z.object({
-  stayRenewalId: z.string().min(1),
+  stayRenewalId: z.string().min(1).optional(),
+  saleId: z.string().min(1).optional(),
   roomOutcome: z.enum(['OCUPADA', 'DISPONIBLE', 'LIMPIEZA', 'LIMPIEZA_USO']),
   reason: z.string().max(500).optional(),
   penaltyAmount: z.coerce.number().min(0).optional(),

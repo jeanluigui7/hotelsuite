@@ -1,5 +1,6 @@
-import { Component, EventEmitter, Input, OnDestroy, Output, inject, signal } from '@angular/core';
+import { Component, EventEmitter, Input, OnDestroy, Output, effect, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
+import { AnulacionService } from '../../../shared/anulacion/anulacion.service';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
 import { DialogModule } from 'primeng/dialog';
@@ -12,8 +13,11 @@ import { docLabel, natLabel } from '../services/operations.models';
 import { FrigobarInspectionComponent } from './frigobar-inspection.component';
 import { FrigobarRepositionComponent } from './frigobar-reposition.component';
 
+interface FolioRenewal { id: string; index: number; mode: string; saleId: string | null; addedMinutes: number; prevCheckoutAt: string; newCheckoutAt: string; createdAt: string; }
 interface Folio {
   folio: { code: string; status: string };
+  stayStatus?: string;
+  renewalList?: FolioRenewal[];
   guest: { name: string; documentType?: string | null; documentNumber?: string | null; nationality?: string | null; phone?: string | null };
   room: { number: string; typeName: string };
   checkInAt: string; plannedCheckoutAt: string; durationMinutes: number; renewals: number;
@@ -45,6 +49,7 @@ const ACT_LABEL: Record<string, string> = {
   CHECK_IN: 'Registró el check-in', CHECK_OUT: 'Registró el check-out', RENEWAL: 'Registró una renovación',
   DEBT_PAYMENT: 'Registró un cobro', ROOM_CHANGE: 'Cambió de habitación',
   SALE: 'Registró una venta', SALE_VOID: 'Anuló una venta', SALE_CORRECTION: 'Corrigió una venta', FRIGOBAR: 'Registró consumo de frigobar',
+  CHECKIN_VOID: 'Anuló el check-in', RENEWAL_VOID: 'Anuló una renovación',
   SERVICE_INCLUDED: 'Entrega de servicio incluido', SERVICE_COURTESY: 'Entrega de servicio por cortesía',
   SERVICE_SALE: 'Venta de servicio', PENALTY_REGISTERED: 'Registro de penalidad', BENEFIT_EXPIRED: 'Servicio incluido no utilizado',
   CLEANING: 'Limpieza', INSPECTION: 'Inspección de limpieza',
@@ -68,6 +73,9 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
                 <div class="sub">Folio <strong>#{{ f.folio.code }}</strong> · Habitación {{ f.room.number }}</div></div>
             </div>
             <div class="fl-right"><span class="badge" [class.act]="f.folio.status === 'Activa'">● {{ f.folio.status }}</span>
+              @if (f.stayStatus === 'OPEN' && anulacion.canAnular()) {
+                <button class="fl-anul" (click)="anularIngreso(f)"><i class="pi pi-ban"></i> Anular ingreso</button>
+              }
               <button class="x" (click)="onVis(false)"><i class="pi pi-times"></i></button></div>
           </header>
 
@@ -125,6 +133,17 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
                         </div>
                       }
                       @if ((f.benefits.length) > 3) { <button class="svc-more" (click)="showAllBenefits.set(!showAllBenefits())">{{ showAllBenefits() ? 'Ver menos' : 'Ver programación (' + f.benefits.length + ')' }}</button> }
+                    </div>
+                  }
+                  @if (f.stayStatus === 'OPEN' && (f.renewalList?.length || 0) > 0) {
+                    <div class="clean-box svc-box">
+                      <div class="svc-hd"><i class="pi pi-refresh"></i> RENOVACIONES</div>
+                      @for (rn of f.renewalList || []; track rn.id) {
+                        <div class="svc-row">
+                          <div class="svc-main"><b>#{{ rn.index }} · hasta {{ rn.newCheckoutAt | date: 'dd/MM HH:mm' }}</b><small class="svc-hr">{{ rn.mode === 'HOURS' ? 'Tiempo extra' : 'Renovación' }}</small></div>
+                          @if (anulacion.canAnular()) { <button class="cl-btn" (click)="anularRenovacion(f, rn)"><i class="pi pi-ban"></i> Anular</button> }
+                        </div>
+                      }
                     </div>
                   }
                   <div class="dates2">
@@ -304,6 +323,7 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
       .sub { color: #8aa0bd; font-size: 0.8rem; } .sub strong { color: #a78bfa; }
       .fl-right { display: flex; align-items: center; gap: 0.8rem; }
       .badge { font-size: 0.78rem; color: #8aa0bd; } .badge.act { color: #34d399; }
+      .fl-anul { background: rgba(220,53,53,.14); border: 1px solid rgba(220,53,53,.4); color: #f87171; border-radius: 8px; padding: 0.3rem 0.7rem; cursor: pointer; font-size: 0.8rem; font-weight: 600; }
       .x { background: transparent; border: 0; color: #8aa0bd; cursor: pointer; font-size: 1.1rem; }
       .tabs { display: flex; gap: 0.2rem; padding: 0 1.4rem; background: #0f1a2b; border-bottom: 1px solid #1c2c44; }
       .tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; color: #8aa0bd; padding: 0.8rem 1rem; cursor: pointer; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.4rem; }
@@ -454,6 +474,10 @@ export class FolioEstanciaComponent implements OnDestroy {
   private readonly api = environment.apiUrl;
 
   private readonly toast = inject(MessageService);
+  readonly anulacion = inject(AnulacionService);
+  private anulBump = 0;
+  // Al completarse una anulación, cierra el folio y avisa al board para recargar el mapa.
+  private readonly _anulWatch = effect(() => { const n = this.anulacion.completed(); if (n !== this.anulBump) { this.anulBump = n; this.changed.emit(); this.onVis(false); } });
 
   @Input() visible = false;
   @Input() stayId: string | null = null;
@@ -582,6 +606,14 @@ export class FolioEstanciaComponent implements OnDestroy {
     return [...map.values()].sort((a, b) => a.key.localeCompare(b.key));
   }
 
+  anularIngreso(f: Folio): void {
+    if (!this.stayId) return;
+    this.anulacion.start({ kind: 'CHECKIN', stayId: this.stayId, roomNumber: f.room.number, guestName: f.guest.name, paidAmount: f.amounts.paid });
+  }
+  anularRenovacion(f: Folio, rn: FolioRenewal): void {
+    if (!this.stayId) return;
+    this.anulacion.start({ kind: 'RENOVACION', stayId: this.stayId, stayRenewalId: rn.id, saleId: rn.saleId, roomNumber: f.room.number, guestName: f.guest.name, paidAmount: f.amounts.paid });
+  }
   onVis(v: boolean): void { this.visible = v; this.visibleChange.emit(v); }
 
   expired(): boolean {

@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
@@ -14,6 +14,7 @@ import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { AuthService } from '../../../core/auth/auth.service';
 import { FinanceApiService } from '../services/finance-api.service';
+import { AnulacionService } from '../../../shared/anulacion/anulacion.service';
 import type { CashDetail, CashDetailMovement, MovementDetail, MovementHistoryEntry } from '../services/finance.models';
 import { buildCuadreTicket } from '../services/cuadre-ticket';
 import { downloadCsv, downloadXlsxTable } from '../../../core/utils/export';
@@ -690,6 +691,10 @@ export class CashMovementsPageComponent implements OnInit {
   private readonly finance = inject(FinanceApiService);
   private readonly auth = inject(AuthService);
   private readonly messages = inject(MessageService);
+  readonly anulacion = inject(AnulacionService);
+  private anulBump = 0;
+  // Recarga cuando se completa una anulación desde el flujo compartido.
+  private readonly _anulWatch = effect(() => { const n = this.anulacion.completed(); if (n !== this.anulBump) { this.anulBump = n; this.reload(); } });
 
   readonly canEdit = this.auth.can('finance', 'edit');
   readonly canReopen = this.auth.can('settings', 'edit'); // reabrir es solo Admin/Superadmin
@@ -1133,6 +1138,13 @@ export class CashMovementsPageComponent implements OnInit {
   }
 
   anular(m: CashDetailMovement): void {
+    // Check-in / renovación → flujo con consecuencias operativas (modales compartidos, reglas únicas).
+    if (m.saleId && m.stayId && m.status === 'NORMAL') {
+      const isReno = m.type === 'RENOVACION' || /renovaci|tiempo extra|extensi/i.test(m.description);
+      const isCheckin = !isReno && m.type === 'HOSPEDAJE' && /^tarifa/i.test(m.description);
+      if (isReno) { this.anulacion.start({ kind: 'RENOVACION', stayId: m.stayId, saleId: m.saleId, roomNumber: m.room, guestName: m.guest, paidAmount: m.amount }); return; }
+      if (isCheckin) { this.anulacion.start({ kind: 'CHECKIN', stayId: m.stayId, saleId: m.saleId, roomNumber: m.room, guestName: m.guest, paidAmount: m.amount }); return; }
+    }
     if (!m.saleId) {
       const reason = prompt('¿Anular este movimiento? Se conserva para auditoría y se excluye del arqueo.\n\nMotivo (auditoría):', '');
       if (reason === null) return;

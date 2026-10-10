@@ -590,7 +590,9 @@ export const staysService = {
     const stay = await staysRepository.findById(id);
     if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
     if (stay.status !== 'OPEN') throw new ConflictError('La estadía no está activa');
-    const ren = await prisma.stayRenewal.findFirst({ where: { id: dto.stayRenewalId, stayId: id, branchId } });
+    const ren = await prisma.stayRenewal.findFirst({
+      where: { stayId: id, branchId, ...(dto.stayRenewalId ? { id: dto.stayRenewalId } : dto.saleId ? { saleId: dto.saleId } : { id: '__none__' }) },
+    });
     if (!ren) throw new ValidationError('Renovación no encontrada');
     if (ren.status !== 'ACTIVE') throw new ConflictError('La renovación ya fue anulada');
     const roomNum = stay.room?.number ?? '';
