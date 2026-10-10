@@ -25,15 +25,16 @@ export interface MenuItem {
 
 /** PERFIL LIMPIEZA (img. 1 del documento). */
 export const LIMPIEZA_MENU: MenuItem[] = [
+  // Menú simplificado para el personal de limpieza (solo nombres/orden visuales; rutas sin cambios).
   { label: 'Inicio', icon: 'pi pi-th-large', route: '/dashboard/limpieza' },
   { label: 'Habitaciones', icon: 'pi pi-building', route: '/operations/gestion-limpieza' },
-  { label: 'Limpieza por Inventario', icon: 'pi pi-box', route: '/operations/limpieza-inventario' },
-  { label: 'Lavandería (Ropa)', icon: 'pi pi-sync', route: '/operations/lavanderia-ropa' },
+  // "Inventario Limpieza" → nombre claro para el personal (stocks de ropa por piso). Ruta intacta.
+  { label: 'Almacenes de Ropa', icon: 'pi pi-inbox', route: '/operations/inventario-limpieza' },
+  // Stock de productos/amenities de limpieza. Sin usar el término "Kardex".
+  { label: 'Almacén de Productos', icon: 'pi pi-box', route: '/operations/productos-limpieza' },
   { label: 'Historial', icon: 'pi pi-history', route: '/operations/limpiezas' },
-  { label: 'Inventario Limpieza', icon: 'pi pi-box', route: '/operations/inventario-limpieza' },
   { label: 'Revisiones', icon: 'pi pi-verified', route: '/operations/revisiones' },
-  { label: 'Movimientos', icon: 'pi pi-sync', route: '/inventory/movimientos-limpieza' },
-  { label: 'Reporte Turno', icon: 'pi pi-chart-bar', route: '/operations/turno-limpieza' },
+  { label: 'Reporte de Turno', icon: 'pi pi-chart-bar', route: '/operations/turno-limpieza' },
 ];
 
 /** PERFIL RECEPCIONISTA (img. 52 + secciones del documento). */
