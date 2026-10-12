@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, HostListener, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
-import { DatePipe, DecimalPipe } from '@angular/common';
+import { ChangeDetectionStrategy, Component, HostListener, OnDestroy, OnInit, ViewChild, computed, effect, inject, signal } from '@angular/core';
+import { DatePipe, DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
@@ -20,7 +20,8 @@ import { OperationsApiService } from '../services/operations-api.service';
 import { CatalogApiService } from '../../settings/catalogs/catalog-api.service';
 import type { RoomType } from '../../settings/catalogs/catalog.models';
 import { docLabel, natLabel } from '../services/operations.models';
-import type { ActiveStay, CheckoutSummary, RoomMapItem } from '../services/operations.models';
+import type { ActiveStay, CheckoutSummary, Maintenance, RoomMapItem } from '../services/operations.models';
+import { AnulacionService } from '../../../shared/anulacion/anulacion.service';
 import { CheckInDialogComponent } from '../habitaciones/check-in-dialog.component';
 import { VentaProductosComponent } from './venta-productos.component';
 import { ServiciosPenalidadesComponent } from './servicios-penalidades.component';
@@ -61,7 +62,7 @@ const MANT_CATS = [
   // OnPush: evita que eventos ajenos (polls/HTTP/overlays de otras partes) re-rendericen este
   // tablero enorme. El reloj interno (nowTick, 1 s, señal) garantiza refresco ≤1 s de todo el estado.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, DecimalPipe, FormsModule, ButtonModule, SelectModule, InputTextModule, InputNumberModule, DatePickerModule, TooltipModule, DialogModule, CheckInDialogComponent, VentaProductosComponent, ServiciosPenalidadesComponent, FolioEstanciaComponent, FrigobarRepositionComponent, FrigobarInspectionComponent],
+  imports: [DatePipe, DecimalPipe, NgTemplateOutlet, FormsModule, ButtonModule, SelectModule, InputTextModule, InputNumberModule, DatePickerModule, TooltipModule, DialogModule, CheckInDialogComponent, VentaProductosComponent, ServiciosPenalidadesComponent, FolioEstanciaComponent, FrigobarRepositionComponent, FrigobarInspectionComponent],
   template: `
     <section class="board">
       <header class="top">
@@ -78,7 +79,7 @@ const MANT_CATS = [
             <button class="act" (click)="checkInHint()"><i class="pi pi-sign-in"></i> Check-in</button>
             @if (canDeclareStay()) { <button class="act" (click)="declararEstancia()"><i class="pi pi-file-edit"></i> Declarar Estancia</button> }
             <button class="act" (click)="ventaVisible = true"><i class="pi pi-shopping-cart"></i> Venta Productos</button>
-            <button class="act primary" (click)="serviciosVisible = true"><i class="pi pi-tags"></i> Servicios y Penalidades</button>
+            <button class="act primary" (click)="serviciosStayId = null; serviciosVisible = true"><i class="pi pi-tags"></i> Servicios y Penalidades</button>
           </div>
         </div>
 
@@ -116,6 +117,9 @@ const MANT_CATS = [
                         }
                         @if (isAdminProfile()) { <button (click)="act(r, 'edit')"><i class="pi pi-pencil"></i> Editar</button> }
                         @if (canDeleteRoom() && r.status !== 'OCCUPIED') { <button class="dg" (click)="act(r, 'delete')"><i class="pi pi-trash"></i> Eliminar</button> }
+                        <div class="ra-sep"></div>
+                        <div class="ra-head sm">Acciones · Hab. {{ r.number }}</div>
+                        <ng-container *ngTemplateOutlet="roomActions; context: { r: r }"></ng-container>
                       </div>
                     }
                   </div>
@@ -131,6 +135,13 @@ const MANT_CATS = [
           @if (r.activeStay && (r.status === 'OCCUPIED' || r.status === 'LIMPIEZA_SOLICITADA' || r.status === 'LIMPIEZA_EN_CURSO')) {
             <!-- Tarjeta de habitación ocupada / pernoctando (incluye limpieza de renovación en curso) -->
             <article class="ocard" [class.exp]="isExpired(r.activeStay)" [class.cleaning]="r.activeStay.renewalCleaningStatus === 'SOLICITADA' || r.activeStay.renewalCleaningStatus === 'EN_CURSO'">
+              <button class="ra-menu" (click)="toggleActions(r.id, $event)" pTooltip="Acciones de habitación" tooltipPosition="left"><i class="pi pi-ellipsis-h"></i></button>
+              @if (actionsRoomId() === r.id) {
+                <div class="ra-pop" (click)="$event.stopPropagation()">
+                  <div class="ra-head">Acciones · Hab. {{ r.number }}</div>
+                  <div class="ra-list"><ng-container *ngTemplateOutlet="roomActions; context: { r: r }"></ng-container></div>
+                </div>
+              }
               <div class="oc-head">
                 <span class="oc-num"># {{ r.number }} <span class="oc-tag">{{ isPernocta(r.activeStay) ? '🌙 PERNOCTANDO' : 'HOSPEDAJE' }}</span></span>
                 <span class="oc-piso"><i class="pi pi-building"></i> {{ r.floor || '-' }}º piso</span>
@@ -203,6 +214,13 @@ const MANT_CATS = [
             </article>
           } @else {
             <article class="card" [style.background]="st(r).gradient">
+              <button class="ra-menu" (click)="toggleActions(r.id, $event)" pTooltip="Acciones de habitación" tooltipPosition="left"><i class="pi pi-ellipsis-h"></i></button>
+              @if (actionsRoomId() === r.id) {
+                <div class="ra-pop" (click)="$event.stopPropagation()">
+                  <div class="ra-head">Acciones · Hab. {{ r.number }}</div>
+                  <div class="ra-list"><ng-container *ngTemplateOutlet="roomActions; context: { r: r }"></ng-container></div>
+                </div>
+              }
               <div class="rc-head">
                 <span class="rc-left"><span class="num"># {{ r.number }}</span><span class="piso"><i class="pi pi-building"></i> {{ r.floor || '-' }}º piso</span></span>
                 <span class="rc-badges"><span class="rc-type">{{ r.roomType.name }}</span>@if (r.frigobarEnabled) { <span class="frigo-ind sm" title="Esta habitación tiene frigobar">❄️ FRIGOBAR</span> }<span class="rc-state">● {{ st(r).badge ?? st(r).label }}</span></span>
@@ -239,8 +257,36 @@ const MANT_CATS = [
           <p class="muted empty">No hay habitaciones que coincidan con el filtro.</p>
         }
       </div>
+      @if (actionsRoomId()) { <div class="cc-backdrop" (click)="actionsRoomId.set(null)"></div> }
       }
     </section>
+
+    <!-- Menú reutilizable "Acciones de habitación": mismo contenido en vista normal, real y compacta. -->
+    <ng-template #roomActions let-r="r">
+      <button class="ra-i" (click)="actOn(r, 'cambiar')" [disabled]="!r.activeStay || !canChangeRoom()"><i class="pi pi-arrow-right-arrow-left"></i> Cambiar habitación</button>
+      <button class="ra-i" (click)="actOn(r, 'reportar')"><i class="pi pi-exclamation-triangle"></i> Reportar falla</button>
+      <button class="ra-i" (click)="actOn(r, 'verfallas')"><i class="pi pi-list"></i> Ver fallas</button>
+      <button class="ra-i" (click)="actOn(r, 'reserva')"><i class="pi pi-calendar"></i> Gestionar reserva</button>
+      <button class="ra-i" (click)="actOn(r, 'limpieza')"><i class="pi pi-sparkles"></i> Solicitar limpieza</button>
+      <button class="ra-i" (click)="actOn(r, 'revision')"><i class="pi pi-verified"></i> Programar revisión / limpieza profunda</button>
+      @if (r.activeStay) {
+        <button class="ra-i" (click)="actOn(r, 'ropa')"><i class="pi pi-inbox"></i> Solicitar ropa adicional</button>
+        <button class="ra-i" (click)="actOn(r, 'penalidad')"><i class="pi pi-dollar"></i> Registrar penalidad</button>
+      }
+      <button class="ra-i prox" disabled pTooltip="Disponible próximamente"><i class="pi pi-ban"></i> Gestionar bloqueo de habitación <span class="px">Próximamente</span></button>
+      @if (r.activeStay) {
+        <button class="ra-i dg" (click)="actOn(r, 'anular-checkin')" [disabled]="!anulacion.canAnular()"><i class="pi pi-times-circle"></i> Anular check-in</button>
+        @if (r.activeStay.renewed) {
+          <button class="ra-i dg" (click)="actOn(r, 'anular-renov')" [disabled]="!anulacion.canAnular()"><i class="pi pi-undo"></i> Anular renovación</button>
+        }
+      }
+      <button class="ra-i" (click)="actOn(r, 'nota')"><i class="pi pi-pencil"></i> Agregar nota interna</button>
+      <button class="ra-i" (click)="actOn(r, 'historial')"><i class="pi pi-history"></i> Ver historial de la habitación</button>
+      <div class="ra-sep"></div>
+      <button class="ra-i prox" disabled><i class="pi pi-file-edit"></i> Comprobante · Boleta / Factura / SUNAT <span class="px">No disponible</span></button>
+      <button class="ra-i prox" disabled><i class="pi pi-bell"></i> Room service <span class="px">No disponible</span></button>
+      <button class="ra-i prox" disabled><i class="pi pi-phone"></i> Llamar a la habitación <span class="px">No disponible</span></button>
+    </ng-template>
 
     <app-check-in-dialog [(visible)]="checkInVisible" [room]="selectedRoom" (done)="reload()" />
 
@@ -254,7 +300,43 @@ const MANT_CATS = [
       </ng-template>
     </p-dialog>
     <app-venta-productos [(visible)]="ventaVisible" (done)="reload()" />
-    <app-servicios-penalidades [(visible)]="serviciosVisible" (done)="reload()" />
+    <app-servicios-penalidades [(visible)]="serviciosVisible" [preselectStayId]="serviciosStayId" (done)="reload()" />
+
+    <!-- Ver fallas de la habitación (mantenimientos registrados) -->
+    <p-dialog [(visible)]="faultsVisible" [modal]="true" [header]="'Fallas · Hab. ' + (faultsRoom?.number || '')" [style]="{ width: '42rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      @if (faultsLoading()) {
+        <p class="muted" style="margin:0"><i class="pi pi-spin pi-spinner"></i> Cargando fallas…</p>
+      } @else if (!faultsList().length) {
+        <p class="muted" style="margin:0">Sin fallas registradas para esta habitación.</p>
+      } @else {
+        <div class="fl-list">
+          @for (m of faultsList(); track m.id) {
+            <div class="fl-item" [class.crit]="m.status === 'OPEN'">
+              <div class="fl-top">
+                <strong>{{ m.title }}</strong>
+                <span class="fl-badge" [class.open]="m.status === 'OPEN'" [class.done]="m.status === 'DONE'">{{ faultStatusLabel(m.status) }}</span>
+              </div>
+              @if (m.description) { <small class="fl-desc">{{ m.description }}</small> }
+              <small class="fl-date">{{ m.createdAt | date: 'dd/MM/yyyy HH:mm' }}</small>
+            </div>
+          }
+        </div>
+      }
+      <ng-template pTemplate="footer">
+        <p-button label="Reportar nueva falla" icon="pi pi-plus" [text]="true" (onClick)="faultsVisible = false; faultsRoom && openMantFor(faultsRoom)" />
+        <p-button label="Cerrar" severity="secondary" (onClick)="faultsVisible = false" />
+      </ng-template>
+    </p-dialog>
+
+    <!-- Agregar nota interna (observación de la habitación) -->
+    <p-dialog [(visible)]="noteVisible" [modal]="true" [header]="'Nota interna · Hab. ' + (noteRoom?.number || '')" [style]="{ width: '34rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      <p class="muted" style="margin:0 0 0.6rem">Queda registrada como observación de la habitación.</p>
+      <textarea pInputText class="note-ta" rows="4" [(ngModel)]="noteText" placeholder="Escribe la nota…"></textarea>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="noteVisible = false" />
+        <p-button label="Guardar nota" icon="pi pi-check" [loading]="savingNote()" [disabled]="!noteText.trim()" (onClick)="saveNote()" />
+      </ng-template>
+    </p-dialog>
     <!-- Reposición de frigobar pendiente (desde el rack; no bloquea el alquiler) -->
     <app-frigobar-reposition [(visible)]="repoVisible" [reviewId]="repoReviewId" [roomNumber]="repoRoomNumber" contextLabel="Rack" (confirmed)="reload()" />
 
@@ -706,8 +788,8 @@ const MANT_CATS = [
       .grid.compacta .rc-line, .grid.compacta .rc-body > i { display: none; }
       /* Vista compacta agrupada por piso (paneles claros con tarjetas pequeñas). */
       .floor-groups { display: flex; flex-direction: column; gap: 1.1rem; margin-top: 0.5rem; }
-      .fg { background: #ffffff; border: 1px solid #e6e9f0; border-radius: 14px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
-      .fg-head { display: flex; align-items: center; gap: 0.6rem; padding: 0.8rem 1.1rem; background: #f5f7fa; border-bottom: 1px solid #eceff4; }
+      .fg { background: #ffffff; border: 1px solid #e6e9f0; border-radius: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+      .fg-head { display: flex; align-items: center; gap: 0.6rem; padding: 0.8rem 1.1rem; background: #f5f7fa; border-bottom: 1px solid #eceff4; border-radius: 14px 14px 0 0; }
       .fg-n { width: 26px; height: 26px; border-radius: 50%; background: #d1fae5; color: #059669; font-weight: 800; font-size: 0.8rem; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; }
       .fg-head strong { font-size: 1.05rem; color: #111827; }
       .fg-count { color: #9ca3af; font-size: 0.9rem; }
@@ -718,11 +800,38 @@ const MANT_CATS = [
       .cc-type { font-size: 0.72rem; opacity: 0.92; margin-top: 0.25rem; letter-spacing: 0.03em; }
       .cc-menu { position: absolute; top: 0.45rem; right: 0.35rem; background: transparent; border: 0; color: rgba(255,255,255,0.9); cursor: pointer; padding: 0.15rem 0.35rem; border-radius: 6px; line-height: 1; }
       .cc-menu:hover { background: rgba(255,255,255,0.2); }
-      .cc-pop { position: absolute; top: 2rem; right: 0.35rem; z-index: 30; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.22); padding: 0.3rem; min-width: 152px; display: flex; flex-direction: column; }
+      .cc-pop { position: absolute; top: 2rem; right: 0.35rem; z-index: 30; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.22); padding: 0.3rem; min-width: 184px; max-height: min(70vh, 28rem); overflow-y: auto; display: flex; flex-direction: column; }
       .cc-pop button { display: flex; align-items: center; gap: 0.5rem; background: transparent; border: 0; color: #1f2937; padding: 0.5rem 0.6rem; border-radius: 7px; cursor: pointer; font-size: 0.85rem; text-align: left; }
       .cc-pop button:hover { background: #f3f4f6; }
       .cc-pop button.dg { color: #dc2626; }
       .cc-backdrop { position: fixed; inset: 0; z-index: 20; }
+      /* Menú "Acciones de habitación" (⋯) en tarjetas normal/real */
+      .ocard, .card { position: relative; }
+      .ocard .oc-head, .card .rc-head { padding-right: 2.2rem; }
+      .ra-menu { position: absolute; top: 0.5rem; right: 0.5rem; z-index: 15; width: 1.9rem; height: 1.9rem; display: inline-flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.25); color: #fff; border-radius: 8px; cursor: pointer; line-height: 1; }
+      .ra-menu:hover { background: rgba(0,0,0,0.38); }
+      .ra-pop { position: absolute; top: 2.6rem; right: 0.5rem; z-index: 40; width: min(20rem, 88vw); max-height: min(70vh, 30rem); overflow-y: auto; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.28); padding: 0.35rem; display: flex; flex-direction: column; }
+      .ra-head { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: #6b7280; padding: 0.35rem 0.55rem 0.2rem; }
+      .ra-list { display: flex; flex-direction: column; }
+      .ra-i { display: flex; align-items: center; gap: 0.55rem; width: 100%; background: transparent; border: 0; color: #1f2937; padding: 0.6rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; text-align: left; }
+      .ra-i i { width: 1.1rem; text-align: center; color: #6b7280; flex: 0 0 auto; }
+      .ra-i:hover:not(:disabled) { background: #f3f4f6; }
+      .ra-i.dg, .ra-i.dg i { color: #dc2626; }
+      .ra-i:disabled { opacity: 0.55; cursor: not-allowed; }
+      .ra-i.prox, .ra-i.prox i { color: #9ca3af; }
+      .ra-i .px { margin-left: auto; font-size: 0.68rem; font-weight: 700; color: #9ca3af; background: #f3f4f6; border-radius: 999px; padding: 0.1rem 0.5rem; }
+      .ra-sep { height: 1px; background: #eceef1; margin: 0.3rem 0.4rem; }
+      .cc-pop .ra-i { font-size: 0.85rem; padding: 0.5rem 0.6rem; }
+      .fl-list { display: flex; flex-direction: column; gap: 0.55rem; }
+      .fl-item { border: 1px solid #e5e7eb; border-left: 3px solid #d1d5db; border-radius: 10px; padding: 0.55rem 0.7rem; display: flex; flex-direction: column; gap: 0.2rem; }
+      .fl-item.crit { border-left-color: #dc2626; }
+      .fl-top { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+      .fl-badge { font-size: 0.7rem; font-weight: 700; border-radius: 999px; padding: 0.1rem 0.55rem; background: #f3f4f6; color: #6b7280; }
+      .fl-badge.open { background: #fee2e2; color: #b91c1c; }
+      .fl-badge.done { background: #dcfce7; color: #15803d; }
+      .fl-desc { color: #4b5563; font-size: 0.82rem; }
+      .fl-date { color: #9ca3af; font-size: 0.74rem; }
+      .note-ta { width: 100%; resize: vertical; font: inherit; }
       @media (max-width: 680px) { .ccard { width: calc(50% - 0.5rem); } }
       .caption { font-size: 1.05rem; font-weight: 600; }
       .rc-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding-top: 0.6rem; flex-wrap: wrap; }
@@ -994,6 +1103,14 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   private readonly auth = inject(AuthService);
   private readonly catalog = inject(CatalogApiService);
   private readonly http = inject(HttpClient);
+  /** Flujo único de anulación (check-in / renovación). Expuesto al template para gatear por permiso. */
+  readonly anulacion = inject(AnulacionService);
+  private _lastAnul = 0;
+  /** Al completarse una anulación desde el menú de acciones, recarga el mapa. */
+  private readonly _anulEffect = effect(() => {
+    const n = this.anulacion.completed();
+    if (n !== this._lastAnul) { this._lastAnul = n; if (n > 0) this.reload(); }
+  });
   private readonly apiUrl = environment.apiUrl;
   readonly nowTick = signal(Date.now());
 
@@ -1141,6 +1258,8 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   readonly view = signal<ViewMode>('normal');
   /** Menú (⋮) abierto en la vista compacta. */
   readonly menuRoomId = signal<string | null>(null);
+  /** Menú "Acciones de habitación" (⋯) abierto en las tarjetas normal/real. */
+  readonly actionsRoomId = signal<string | null>(null);
   search = '';
   floorFilter: string | null = null;
   stateFilter: string | null = null;
@@ -1154,6 +1273,18 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   checkInVisible = false;
   ventaVisible = false;
   serviciosVisible = false;
+  /** Estancia preseleccionada al abrir Servicios/Penalidades desde el menú de acciones (ropa/penalidad). */
+  serviciosStayId: string | null = null;
+  // ── "Ver fallas" (mantenimientos de la habitación) ──
+  faultsVisible = false;
+  faultsRoom: RoomMapItem | null = null;
+  readonly faultsLoading = signal(false);
+  readonly faultsList = signal<Maintenance[]>([]);
+  // ── "Agregar nota interna" (observación de la habitación) ──
+  noteVisible = false;
+  noteRoom: RoomMapItem | null = null;
+  noteText = '';
+  readonly savingNote = signal(false);
   repoVisible = false;
   repoReviewId: string | null = null;
   repoRoomNumber = '';
@@ -1296,6 +1427,112 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
       case 'delete': this.deleteRoom(r); break;
       case 'vuelto': this.openDeliverVuelto(r); break;
     }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Menú "Acciones de habitación" (⋯) — reutiliza los flujos existentes.
+  // El panel es markup estático: NO hace consultas por tarjeta; cada formulario
+  // o dato se carga sólo al pulsar una acción habilitada.
+  // ─────────────────────────────────────────────────────────────────────────
+  toggleActions(id: string, ev: Event): void {
+    ev.stopPropagation();
+    this.menuRoomId.set(null);
+    this.actionsRoomId.update((cur) => (cur === id ? null : id));
+  }
+
+  /** Dispatcher del menú de acciones. Conecta cada ítem con su flujo/formulario ya existente. */
+  actOn(
+    r: RoomMapItem,
+    action:
+      | 'cambiar' | 'reportar' | 'verfallas' | 'reserva' | 'limpieza' | 'revision'
+      | 'ropa' | 'penalidad' | 'anular-checkin' | 'anular-renov' | 'nota' | 'historial',
+  ): void {
+    this.actionsRoomId.set(null);
+    this.menuRoomId.set(null);
+    const s = r.activeStay;
+    switch (action) {
+      case 'cambiar':
+        if (!this.canChangeRoom()) { this.noPerm(); return; }
+        this.openChange(r); break;
+      case 'reportar': this.openMantFor(r); break;
+      case 'verfallas': this.openFaults(r); break;
+      case 'reserva': void this.router.navigate(['/operations/reservas']); break;
+      case 'limpieza': this.requestCleaning(r); break;
+      case 'revision': void this.router.navigate(['/operations/revision-periodica']); break;
+      case 'ropa':
+      case 'penalidad':
+        if (!s) return;
+        this.serviciosStayId = s.id; this.serviciosVisible = true; break;
+      case 'anular-checkin':
+        if (!s) return;
+        this.anulacion.start({ kind: 'CHECKIN', stayId: s.id, roomNumber: r.number, guestName: s.guestName, paidAmount: this.stayTotal(s) });
+        break;
+      case 'anular-renov':
+        if (!s) return;
+        this.anulacion.start({ kind: 'RENOVACION', stayId: s.id, roomNumber: r.number, guestName: s.guestName });
+        break;
+      case 'nota': this.openNote(r); break;
+      case 'historial': void this.router.navigate(['/operations/estancias']); break;
+    }
+  }
+
+  private noPerm(): void {
+    this.toast.add({ severity: 'warn', summary: 'Sin permiso', detail: 'No tienes habilitada esta acción.' });
+  }
+
+  /** "Reportar falla" para una habitación concreta (igual que el flujo de mantenimiento existente). */
+  openMantFor(r: RoomMapItem): void {
+    this.mantRoom = r;
+    this.mantCritical = true;
+    this.mantCats = MANT_CATS.map((c) => ({ ...c, selected: false, falla: '', observacion: '' }));
+    this.mantVisible = true;
+  }
+
+  /** "Ver fallas": lista los mantenimientos registrados de la habitación (carga bajo demanda). */
+  openFaults(r: RoomMapItem): void {
+    this.faultsRoom = r;
+    this.faultsList.set([]);
+    this.faultsVisible = true;
+    this.faultsLoading.set(true);
+    this.ops.maintenances.list({ pageSize: 100, sortBy: 'createdAt', sortDir: 'desc' }).subscribe({
+      next: (res) => {
+        const all = res.data ?? [];
+        this.faultsList.set(all.filter((m) => m.roomId === r.id || (!!m.roomNumber && m.roomNumber === r.number)));
+        this.faultsLoading.set(false);
+      },
+      error: () => { this.faultsLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las fallas.' }); },
+    });
+  }
+
+  faultStatusLabel(s: Maintenance['status']): string {
+    return { OPEN: 'Abierta', IN_PROGRESS: 'En progreso', DONE: 'Resuelta', CANCELLED: 'Anulada' }[s] ?? s;
+  }
+
+  /** "Solicitar limpieza": crea una tarea de limpieza para la habitación. */
+  requestCleaning(r: RoomMapItem): void {
+    if (!confirm(`¿Solicitar limpieza para la Hab. ${r.number}?`)) return;
+    this.ops.createTask({ roomId: r.id }).subscribe({
+      next: () => { this.toast.add({ severity: 'success', summary: 'Limpieza solicitada', detail: `Hab. ${r.number} en cola de limpieza.` }); this.reload(); },
+      error: (err: HttpErrorResponse) => this.toast.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo solicitar la limpieza.' }),
+    });
+  }
+
+  /** "Agregar nota interna": abre el formulario de observación de la habitación. */
+  openNote(r: RoomMapItem): void {
+    this.noteRoom = r;
+    this.noteText = '';
+    this.noteVisible = true;
+  }
+
+  saveNote(): void {
+    const r = this.noteRoom;
+    const body = this.noteText.trim();
+    if (!r || !body) return;
+    this.savingNote.set(true);
+    this.ops.observations.create({ roomId: r.id, title: `Nota · Hab. ${r.number}`, body, status: 'OPEN' } as never).subscribe({
+      next: () => { this.savingNote.set(false); this.noteVisible = false; this.toast.add({ severity: 'success', summary: 'Nota guardada', detail: `Hab. ${r.number}` }); },
+      error: (err: HttpErrorResponse) => { this.savingNote.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo guardar la nota.' }); },
+    });
   }
 
   ngOnInit(): void {
@@ -1768,6 +2005,10 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
    */
   @HostListener('document:keydown', ['$event'])
   onGlobalKey(e: KeyboardEvent): void {
+    if (e.key === 'Escape') {
+      if (this.actionsRoomId() || this.menuRoomId()) { this.actionsRoomId.set(null); this.menuRoomId.set(null); }
+      return;
+    }
     if (e.key === 'F9') {
       e.preventDefault();
       if (this.checkInVisible || this.ventaVisible) return; // ya hay un modal abierto
