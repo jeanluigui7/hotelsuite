@@ -8,6 +8,8 @@ export interface AuthUser {
   isSuperAdmin: boolean;
   permissions: string[];
   branchIds: string[];
+  /** Si está activo, el usuario debe cambiar su contraseña antes de operar. */
+  mustChangePassword?: boolean;
 }
 
 export interface Branch {

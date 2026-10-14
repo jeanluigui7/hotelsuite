@@ -252,7 +252,7 @@ export class LoginComponent {
             this.selectedBranchId = this.auth.activeBranchId();
             this.step.set('branch');
           } else {
-            this.router.navigateByUrl('/dashboard');
+            this.router.navigateByUrl(this.auth.user()?.mustChangePassword ? '/perfil' : '/dashboard');
           }
         },
         error: (err: HttpErrorResponse) => {
@@ -265,6 +265,6 @@ export class LoginComponent {
   confirmBranch(): void {
     if (!this.selectedBranchId) return;
     this.auth.setActiveBranch(this.selectedBranchId);
-    this.router.navigateByUrl('/dashboard');
+    this.router.navigateByUrl(this.auth.user()?.mustChangePassword ? '/perfil' : '/dashboard');
   }
 }

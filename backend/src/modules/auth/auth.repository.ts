@@ -24,6 +24,7 @@ export function toAuthUser(user: UserWithRelations): AuthUser {
       (rp) => `${rp.permission.module}:${rp.permission.action}`,
     ),
     branchIds: user.branches.map((ub) => ub.branchId),
+    mustChangePassword: user.mustChangePassword ?? false,
   };
 }
 

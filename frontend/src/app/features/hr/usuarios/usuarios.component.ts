@@ -10,6 +10,7 @@ import { PasswordModule } from 'primeng/password';
 import { SelectModule } from 'primeng/select';
 import { TableModule, type TableLazyLoadEvent } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
+import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
 import { UsersApiService, type UserRow, type UserUpsert } from '../services/users-api.service';
@@ -42,6 +43,7 @@ const EMPTY_FORM: UserForm = {
     SelectModule,
     TableModule,
     TagModule,
+    TooltipModule,
   ],
   template: `
     <section>
@@ -106,6 +108,7 @@ const EMPTY_FORM: UserForm = {
             <td class="actions">
               @if (canEdit) {
                 <p-button icon="pi pi-pencil" [text]="true" (onClick)="openEdit(row)" />
+                <p-button icon="pi pi-key" severity="warn" [text]="true" pTooltip="Restablecer contraseña" tooltipPosition="top" (onClick)="confirmReset(row)" />
               }
               @if (canDelete) {
                 <p-button
@@ -183,6 +186,20 @@ const EMPTY_FORM: UserForm = {
         <p-button label="Guardar" icon="pi pi-check" [loading]="saving()" (onClick)="save()" />
       </ng-template>
     </p-dialog>
+
+    <p-dialog [(visible)]="resetVisible" [modal]="true" [style]="{ width: '440px' }" header="Contraseña temporal">
+      <p class="muted">
+        Se generó una contraseña temporal para <strong>{{ resetUserName }}</strong>. Cópiala y entrégasela;
+        el usuario deberá cambiarla en su próximo ingreso. <strong>No se volverá a mostrar.</strong>
+      </p>
+      <div class="temp-pw">
+        <code>{{ resetPasswordValue }}</code>
+        <p-button icon="pi pi-copy" [text]="true" pTooltip="Copiar" (onClick)="copyTemp()" />
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Listo" icon="pi pi-check" (onClick)="resetVisible = false" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -217,6 +234,23 @@ const EMPTY_FORM: UserForm = {
       .actions {
         display: flex;
         gap: 0.2rem;
+      }
+      .temp-pw {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        margin-top: 0.4rem;
+        padding: 0.6rem 0.8rem;
+        background: var(--p-content-hover-background, #f3f4f6);
+        border: 1px dashed var(--p-content-border-color, #d1d5db);
+        border-radius: 8px;
+      }
+      .temp-pw code {
+        font-size: 1.15rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        font-family: ui-monospace, Menlo, Consolas, monospace;
       }
       .form {
         display: flex;
@@ -255,6 +289,11 @@ export class UsuariosComponent implements OnInit {
 
   dialogVisible = false;
   form: UserForm = { ...EMPTY_FORM };
+
+  // Restablecimiento de contraseña (clave temporal mostrada una sola vez).
+  resetVisible = false;
+  resetUserName = '';
+  resetPasswordValue = '';
 
   private lastEvent: TableLazyLoadEvent | null = null;
 
@@ -344,6 +383,35 @@ export class UsuariosComponent implements OnInit {
         });
       },
     });
+  }
+
+  confirmReset(row: UserRow): void {
+    this.confirm.confirm({
+      header: 'Restablecer contraseña',
+      message: `Se generará una contraseña temporal para ${row.name} y se cerrarán sus sesiones activas. ¿Continuar?`,
+      icon: 'pi pi-key',
+      acceptLabel: 'Restablecer',
+      rejectLabel: 'Cancelar',
+      accept: () => {
+        this.usersApi.resetPassword(row.id).subscribe({
+          next: (res) => {
+            this.resetUserName = row.name;
+            this.resetPasswordValue = res.data?.temporaryPassword ?? '';
+            this.resetVisible = true;
+          },
+          error: (err: HttpErrorResponse) => {
+            this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo restablecer.' });
+          },
+        });
+      },
+    });
+  }
+
+  copyTemp(): void {
+    navigator.clipboard?.writeText(this.resetPasswordValue).then(
+      () => this.messages.add({ severity: 'success', summary: 'Copiado', detail: 'Contraseña temporal copiada.' }),
+      () => {},
+    );
   }
 
   confirmDelete(row: UserRow): void {

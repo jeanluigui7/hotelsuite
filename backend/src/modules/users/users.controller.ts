@@ -3,7 +3,7 @@ import { ok } from '../../shared/response';
 import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { usersService } from './users.service';
-import { createUserSchema, updateUserSchema } from './users.schema';
+import { createUserSchema, updateUserSchema, resetPasswordSchema } from './users.schema';
 
 export const usersController = {
   async list(req: Request, res: Response): Promise<void> {
@@ -30,6 +30,13 @@ export const usersController = {
     const dto = updateUserSchema.parse(req.body);
     const user = await usersService.update(req.scope, req.params.id, dto);
     res.status(200).json(ok(user));
+  },
+
+  async resetPassword(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = resetPasswordSchema.parse(req.body);
+    const result = await usersService.resetPassword(req.scope, req.params.id, dto);
+    res.status(200).json(ok(result));
   },
 
   async remove(req: Request, res: Response): Promise<void> {

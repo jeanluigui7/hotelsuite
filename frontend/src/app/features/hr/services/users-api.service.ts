@@ -56,4 +56,9 @@ export class UsersApiService {
   remove(id: string): Observable<ApiResponse<{ success: boolean }>> {
     return this.http.delete<ApiResponse<{ success: boolean }>>(`${this.api}/users/${id}`);
   }
+
+  /** Restablece la contraseña del usuario y devuelve la clave temporal (una sola vez). */
+  resetPassword(id: string, password?: string): Observable<ApiResponse<{ temporaryPassword: string }>> {
+    return this.http.post<ApiResponse<{ temporaryPassword: string }>>(`${this.api}/users/${id}/reset-password`, password ? { password } : {});
+  }
 }

@@ -12,6 +12,7 @@ import {
   ttlToMs,
 } from '../../shared/tokens';
 import { authRepository, toAuthUser } from './auth.repository';
+import { deviceAccessService } from '../device-access/device-access.service';
 import type { LoginDto, UpdateProfileDto, ChangePasswordDto } from './auth.schema';
 
 export interface AuthResult {
@@ -33,7 +34,7 @@ async function issueTokens(user: AuthUser): Promise<{ accessToken: string; refre
 }
 
 export const authService = {
-  async login(dto: LoginDto): Promise<AuthResult> {
+  async login(dto: LoginDto, userAgent?: string): Promise<AuthResult> {
     const record = await authRepository.findUserByEmail(dto.email);
     if (!record || record.status !== 'active') {
       throw new UnauthorizedError('Credenciales inválidas');
@@ -51,6 +52,12 @@ export const authService = {
     }
 
     const user = toAuthUser(record);
+
+    // Control de acceso por tipo de dispositivo y perfil (Super Admin nunca se bloquea).
+    await deviceAccessService.assertAllowed(
+      { roleId: user.roleId, roleName: user.roleName, isSuperAdmin: user.isSuperAdmin },
+      userAgent,
+    );
 
     if (user.branchIds.length === 0 && !user.isSuperAdmin) {
       throw new ForbiddenError('El usuario no tiene sucursales asignadas');
@@ -131,7 +138,7 @@ export const authService = {
     if (!user) throw new UnauthorizedError('Sesión no válida');
     const valid = await verifyPassword(dto.currentPassword, user.passwordHash);
     if (!valid) throw new ValidationError('La contraseña actual es incorrecta');
-    await prisma.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(dto.newPassword) } });
+    await prisma.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(dto.newPassword), mustChangePassword: false } });
     await authRepository.revokeAllForUser(userId);
     // Auditoría: se registra el HECHO del cambio (jamás la contraseña). Resuelve la sucursal del usuario.
     void (async () => {

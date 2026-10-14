@@ -1,7 +1,8 @@
 import type { Prisma } from '@prisma/client';
+import { prisma } from '../../config/prisma';
 import type { RequestScope } from '../../shared/context';
 import { ConflictError, ForbiddenError, NotFoundError } from '../../shared/errors';
-import { hashPassword } from '../../shared/password';
+import { hashPassword, generateTempPassword } from '../../shared/password';
 import {
   buildOrderBy,
   pageMeta,
@@ -10,7 +11,7 @@ import {
 } from '../../shared/pagination';
 import { usersRepository } from './users.repository';
 import { recordActivity } from '../activity-log/activity.emitter';
-import type { CreateUserDto, UpdateUserDto } from './users.schema';
+import type { CreateUserDto, UpdateUserDto, ResetPasswordDto } from './users.schema';
 
 const SORTABLE = ['name', 'email', 'createdAt', 'status'] as const;
 
@@ -120,6 +121,33 @@ export const usersService = {
       meta: { user: user.name, email: user.email, roleBefore: existing.role?.name ?? null, roleAfter: user.role?.name ?? null, statusBefore: existing.status, statusAfter: user.status, passwordReset: pwReset },
     });
     return serialize(user as UserRecord);
+  },
+
+  /**
+   * Restablecimiento administrativo de contraseña. Genera (o acepta) una clave temporal,
+   * fuerza el cambio en el próximo ingreso, cierra las sesiones del usuario y devuelve la
+   * clave temporal UNA sola vez. Nunca se almacena en texto plano.
+   */
+  async resetPassword(scope: RequestScope, id: string, dto: ResetPasswordDto) {
+    const existing = await usersRepository.findById(id);
+    if (!existing) throw new NotFoundError('Usuario no encontrado');
+    // Alcance: un no-super-admin solo puede restablecer usuarios de sus sucursales.
+    if (!scope.isSuperAdmin) {
+      const allowed = new Set(scope.branchIds);
+      if (!existing.branches.some((b) => allowed.has(b.branchId))) {
+        throw new ForbiddenError('No puede restablecer usuarios fuera de su alcance');
+      }
+    }
+    const temporaryPassword = dto.password ?? generateTempPassword();
+    const passwordHash = await hashPassword(temporaryPassword);
+    await prisma.user.update({ where: { id }, data: { passwordHash, mustChangePassword: true } });
+    await prisma.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
+    void recordActivity(scope, {
+      activity: 'USER_PASSWORD_RESET', area: 'USUARIOS', entityId: id, reference: `Usuario ${existing.name}`,
+      detail: `Restablecimiento administrativo de contraseña para ${existing.name}`,
+      meta: { user: existing.name, email: existing.email, passwordReset: true, forced: true },
+    });
+    return { temporaryPassword };
   },
 
   async remove(scope: RequestScope, id: string) {

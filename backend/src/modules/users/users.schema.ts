@@ -18,5 +18,11 @@ export const updateUserSchema = z.object({
   branchIds: z.array(z.string().min(1)).min(1).optional(),
 });
 
+// Restablecimiento administrativo: si no se envía contraseña, el sistema genera una temporal.
+export const resetPasswordSchema = z.object({
+  password: z.string().min(8).max(72).optional(),
+});
+
 export type CreateUserDto = z.infer<typeof createUserSchema>;
 export type UpdateUserDto = z.infer<typeof updateUserSchema>;
+export type ResetPasswordDto = z.infer<typeof resetPasswordSchema>;

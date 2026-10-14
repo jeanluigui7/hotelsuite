@@ -104,6 +104,11 @@ const routes: Routes = [
     loadComponent: () =>
       import('./permisos/permissions-by-category.component').then((m) => m.PermissionsByCategoryComponent),
   },
+  {
+    path: 'acceso-dispositivo',
+    loadComponent: () =>
+      import('./acceso-dispositivo/device-access.component').then((m) => m.DeviceAccessComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 

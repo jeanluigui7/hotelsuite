@@ -43,6 +43,9 @@ const AUDIO_KEY = 'hs_audio';
           }
 
           @if (tab() === 'password') {
+            @if (mustChange()) {
+              <div class="must-change"><i class="pi pi-exclamation-triangle"></i> Tu contraseña fue restablecida por un administrador. Debes cambiarla ahora para continuar.</div>
+            }
             <h3>Cambiar contraseña</h3>
             <p class="muted">Actualiza tu contraseña de acceso</p>
             <div class="fld"><label>Contraseña actual</label><input pInputText type="password" [(ngModel)]="curPass" /></div>
@@ -96,6 +99,7 @@ const AUDIO_KEY = 'hs_audio';
       .fld label { font-size: 0.85rem; font-weight: 600; }
       .fld input[pInputText], .fld input[type=range] { width: 100%; }
       .hint { color: var(--p-text-muted-color, #8aa0bd); font-size: 0.78rem; }
+      .must-change { display: flex; align-items: center; gap: 0.5rem; background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 0.9rem; font-size: 0.9rem; }
       .switch { display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; margin-bottom: 1rem; }
       .seg { display: inline-flex; background: var(--p-content-hover-background, rgba(255,255,255,0.04)); border: 1px solid var(--p-content-border-color, #1c2c44); border-radius: 12px; padding: 4px; gap: 4px; }
       .seg button { background: transparent; border: 0; color: var(--p-text-color, #e6eef7); padding: 0.6rem 1.1rem; border-radius: 9px; cursor: pointer; display: inline-flex; align-items: center; gap: 0.45rem; }
@@ -113,6 +117,12 @@ export class ProfileSettingsComponent {
   readonly busy = signal(false);
 
   private readonly u = computed(() => this.auth.user());
+  /** El administrador restableció la contraseña: hay que cambiarla antes de operar. */
+  readonly mustChange = computed(() => !!this.auth.user()?.mustChangePassword);
+
+  constructor() {
+    if (this.mustChange()) this.tab.set('password');
+  }
   name = this.u()?.name ?? this.u()?.email?.split('@')[0] ?? '';
   email = this.u()?.email ?? '';
   phone = this.u()?.phone ?? '';

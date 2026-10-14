@@ -256,6 +256,7 @@ export const ADMIN_MENU: MenuItem[] = [
       { label: 'Inspección de Limpieza', route: '/settings/inspeccion' },
       { label: 'Horarios', route: '/settings/horarios' },
       { label: 'Autenticación por Roles', route: '/settings/roles' },
+      { label: 'Acceso por Dispositivo', route: '/settings/acceso-dispositivo' },
       { label: 'Huella Digital', route: '/settings/huella' },
       { label: 'Servicios/Penalidades', route: '/settings/items' },
       { label: 'Máquinas de Lavandería', route: '/settings/lavanderia' },

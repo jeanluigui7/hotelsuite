@@ -14,4 +14,5 @@ usersRouter.get('/users', requirePermission('hr', 'view'), asyncHandler(usersCon
 usersRouter.get('/users/:id', requirePermission('hr', 'view'), asyncHandler(usersController.getById));
 usersRouter.post('/users', requirePermission('hr', 'create'), asyncHandler(usersController.create));
 usersRouter.put('/users/:id', requirePermission('hr', 'edit'), asyncHandler(usersController.update));
+usersRouter.post('/users/:id/reset-password', requirePermission('hr', 'edit'), asyncHandler(usersController.resetPassword));
 usersRouter.delete('/users/:id', requirePermission('hr', 'delete'), asyncHandler(usersController.remove));

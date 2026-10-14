@@ -78,6 +78,7 @@ import { inventoryConfigRouter } from './modules/inventory-config/inventory-conf
 import { wifiRouter } from './modules/wifi/wifi.routes';
 import { pernoctaRouter } from './modules/pernocta/pernocta.routes';
 import { operationsConfigRouter } from './modules/operations-config/operations-config.routes';
+import { deviceAccessRouter } from './modules/device-access/device-access.routes';
 import { ticketsConfigRouter } from './modules/tickets-config/tickets-config.routes';
 import { servicesRouter } from './modules/services/services.routes';
 import { receptionInventoryRouter } from './modules/reception-inventory/reception-inventory.routes';
@@ -182,6 +183,7 @@ export function createApp(): Application {
   app.use('/api', wifiRouter);
   app.use('/api', pernoctaRouter);
   app.use('/api', operationsConfigRouter);
+  app.use('/api', deviceAccessRouter);
   app.use('/api', ticketsConfigRouter);
   app.use('/api', servicesRouter);
   app.use('/api', receptionInventoryRouter);

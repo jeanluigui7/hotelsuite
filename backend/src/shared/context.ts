@@ -11,6 +11,8 @@ export interface AuthUser {
   permissions: string[];
   /** Branch ids the user may operate. */
   branchIds: string[];
+  /** Si está activo, el usuario debe cambiar su contraseña en el próximo ingreso. */
+  mustChangePassword: boolean;
 }
 
 /**

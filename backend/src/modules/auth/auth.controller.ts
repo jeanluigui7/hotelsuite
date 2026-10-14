@@ -31,7 +31,7 @@ function clearRefreshCookie(res: Response): void {
 export const authController = {
   async login(req: Request, res: Response): Promise<void> {
     const dto = loginSchema.parse(req.body);
-    const { user, accessToken, refreshToken } = await authService.login(dto);
+    const { user, accessToken, refreshToken } = await authService.login(dto, req.headers['user-agent']);
     setRefreshCookie(res, refreshToken);
     res.status(200).json(ok({ user, accessToken }));
   },

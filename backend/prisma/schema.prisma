@@ -110,6 +110,8 @@ model User {
   phone        String? // teléfono de contacto (perfil)
   passwordHash String
   status       String   @default("active") // active | inactive
+  // Fuerza el cambio de contraseña en el próximo ingreso (p. ej. tras un restablecimiento administrativo).
+  mustChangePassword Boolean @default(false)
   roleId       String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
