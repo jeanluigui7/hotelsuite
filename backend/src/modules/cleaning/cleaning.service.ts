@@ -148,6 +148,8 @@ export const cleaningService = {
     const stay = await prisma.stay.findFirst({ where: { branchId, roomId, status: 'OPEN', renewalCleaningStatus: 'SOLICITADA' } });
     if (!stay) throw new ValidationError('No hay una limpieza solicitada para rechazar (solo antes de iniciarla).');
     await prisma.stay.update({ where: { id: stay.id }, data: { renewalCleaningStatus: 'NONE', renewalCleaningStep: 0, cleaningRequested: false } });
+    // El huésped sigue dentro: la habitación vuelve a OCUPADA (no debe quedar como "pendiente de limpieza").
+    await prisma.room.updateMany({ where: { id: roomId, status: { in: ['LIMPIEZA_SOLICITADA', 'LIMPIEZA_EN_CURSO'] } }, data: { status: 'OCCUPIED' } });
     return { success: true };
   },
 
@@ -156,10 +158,10 @@ export const cleaningService = {
     const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room || room.branchId !== branchId) throw new ValidationError('Habitación no encontrada');
 
-    // RENOVACIÓN solo si el huésped SOLICITÓ una limpieza de renovación (renewalCleaningStatus
-    // SOLICITADA/EN_CURSO). En un CHECK OUT la estancia sigue OPEN hasta cerrar la limpieza,
-    // así que NO basta con "hay estancia abierta" (eso marcaba mal los check-out como renovación).
-    const renewalStay = await prisma.stay.findFirst({ where: { branchId, roomId, status: 'OPEN', renewalCleaningStatus: { in: ['SOLICITADA', 'EN_CURSO'] } } });
+    // Si hay una estancia ABIERTA en la habitación, el huésped sigue dentro: el check-out cierra la
+    // estancia de inmediato (status=CLOSED), así que "estancia OPEN" ⇒ limpieza de RENOVACIÓN y la
+    // habitación NO debe liberarse. Solo sin estancia abierta se trata como CHECK OUT.
+    const renewalStay = await prisma.stay.findFirst({ where: { branchId, roomId, status: 'OPEN' } });
     const type = renewalStay ? 'RENOVACION' : 'CHECKOUT';
 
     // La habitación debe estar pendiente de limpieza, O tener una limpieza de renovación pedida
@@ -355,6 +357,15 @@ export const cleaningService = {
       if (activeStay) {
         await prisma.stay.update({ where: { id: activeStay.id }, data: { renewalCleaningStatus: 'NONE', renewalCleaningStep: 0, renewalCleaningDone: { increment: 1 }, cleaningRequested: false } });
       }
+      return { ok: true, maintenance: false, renewal: true };
+    }
+    // Red de seguridad: si todavía hay una estancia ABIERTA en la habitación, el huésped NO hizo
+    // check-out. No se libera (evita dejar la estancia huérfana y que se re-alquile ocupada): se
+    // devuelve a OCUPADA y se cierra el ciclo de limpieza de renovación.
+    const openStay = await prisma.stay.findFirst({ where: { branchId, roomId, status: 'OPEN' } });
+    if (openStay) {
+      await prisma.room.update({ where: { id: roomId }, data: { status: 'OCCUPIED' } });
+      await prisma.stay.update({ where: { id: openStay.id }, data: { renewalCleaningStatus: 'NONE', renewalCleaningStep: 0, renewalCleaningDone: { increment: 1 }, cleaningRequested: false } });
       return { ok: true, maintenance: false, renewal: true };
     }
     // Check out → habitación disponible.

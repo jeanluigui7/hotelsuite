@@ -1051,6 +1051,11 @@ export const staysService = {
       // Al finalizar, cuenta una limpieza de renovación como completada (avanza done/allowed).
       await prisma.stay.update({ where: { id }, data: { renewalCleaningStatus: 'NONE', renewalCleaningStep: 0, cleaningRequested: false, renewalCleaningDone: { increment: 1 } } });
     }
+    if (action === 'finish' || action === 'reject') {
+      // El huésped sigue dentro: la habitación vuelve a OCUPADA (no debe quedar "pendiente de limpieza"
+      // y así no puede clasificarse luego como CHECK OUT ni liberarse por error).
+      await prisma.room.updateMany({ where: { id: stay.roomId, status: { in: ['LIMPIEZA_SOLICITADA', 'LIMPIEZA_EN_CURSO'] } }, data: { status: 'OCCUPIED' } });
+    }
     const updated = await staysRepository.findById(id);
     if (action !== 'advance') {
       const stateLbl = action === 'start' ? 'Iniciada' : action === 'finish' ? 'Finalizada' : 'Rechazada';

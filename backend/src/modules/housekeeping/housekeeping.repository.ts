@@ -87,7 +87,10 @@ export const housekeepingRepository = {
         include,
       });
       if (args.approved) {
-        await tx.room.update({ where: { id: args.roomId }, data: { status: 'FREE' } });
+        // No liberar si la habitación aún tiene una estancia ABIERTA (el huésped no hizo check-out):
+        // en ese caso vuelve a OCUPADA para no dejar la estancia huérfana.
+        const openStay = await tx.stay.findFirst({ where: { roomId: args.roomId, status: 'OPEN' }, select: { id: true } });
+        await tx.room.update({ where: { id: args.roomId }, data: { status: openStay ? 'OCCUPIED' : 'FREE' } });
       }
       return task;
     });
