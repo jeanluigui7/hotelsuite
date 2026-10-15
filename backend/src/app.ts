@@ -106,9 +106,10 @@ export function createApp(): Application {
   app.use(pinoHttp({ logger }));
   app.use(auditLogger());
 
-  // Rate limiting: global + stricter on auth endpoints.
+  // Rate limiting: global + stricter on login only (por correo, no por IP).
+  // /auth/refresh queda solo bajo el límite global: es automático y el hotel comparte una IP.
   app.use('/api', globalLimiter);
-  app.use(['/api/auth/login', '/api/auth/refresh'], authLimiter);
+  app.use('/api/auth/login', authLimiter);
 
   // Routes (mounted under /api). New module routers are added here per phase.
   app.use('/api', healthRouter);
