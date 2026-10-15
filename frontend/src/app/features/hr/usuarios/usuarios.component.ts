@@ -110,6 +110,9 @@ const EMPTY_FORM: UserForm = {
                 <p-button icon="pi pi-pencil" [text]="true" (onClick)="openEdit(row)" />
                 <p-button icon="pi pi-key" severity="warn" [text]="true" pTooltip="Restablecer contraseña" tooltipPosition="top" (onClick)="confirmReset(row)" />
               }
+              @if (isSuperAdmin) {
+                <p-button icon="pi pi-eye" severity="help" [text]="true" pTooltip="Ver contraseña" tooltipPosition="top" (onClick)="openPassword(row)" />
+              }
               @if (canDelete) {
                 <p-button
                   icon="pi pi-trash"
@@ -200,6 +203,31 @@ const EMPTY_FORM: UserForm = {
         <p-button label="Listo" icon="pi pi-check" (onClick)="resetVisible = false" />
       </ng-template>
     </p-dialog>
+
+    <p-dialog [(visible)]="pwVisible" [modal]="true" [style]="{ width: '460px' }" [header]="'Contraseña · ' + (pwUser?.name || '')">
+      @if (pwLoading()) {
+        <p class="muted"><i class="pi pi-spin pi-spinner"></i> Consultando…</p>
+      } @else {
+        @if (pwAvailable) {
+          <p class="muted" style="margin:0 0 0.4rem">Contraseña actual de <strong>{{ pwUser?.name }}</strong>:</p>
+          <div class="temp-pw">
+            <code>{{ pwValue }}</code>
+            <p-button icon="pi pi-copy" [text]="true" pTooltip="Copiar" (onClick)="copyPw()" />
+          </div>
+        } @else {
+          <p class="muted">Esta contraseña <strong>aún no está registrada</strong> (es anterior a esta función o nunca se asignó desde aquí). No se puede recuperar; asígnale una para poder verla.</p>
+        }
+        <div class="assign">
+          <label>{{ pwAvailable ? 'Asignar otra contraseña' : 'Nueva contraseña' }}</label>
+          <input pInputText type="text" [(ngModel)]="pwAssignInput" placeholder="Mínimo 8 caracteres" />
+          <p-button label="Asignar" icon="pi pi-check" [loading]="pwAssigning()" [disabled]="pwAssignInput.trim().length < 8" (onClick)="assignPassword()" />
+        </div>
+        <small class="hint">Al asignar una contraseña, el usuario la seguirá usando tal cual (no se le obliga a cambiarla) y se cerrarán sus sesiones activas.</small>
+      }
+      <ng-template pTemplate="footer">
+        <p-button label="Cerrar" severity="secondary" (onClick)="pwVisible = false" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -252,6 +280,22 @@ const EMPTY_FORM: UserForm = {
         letter-spacing: 0.05em;
         font-family: ui-monospace, Menlo, Consolas, monospace;
       }
+      .assign {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 0.9rem;
+      }
+      .assign label {
+        flex-basis: 100%;
+        font-size: 0.82rem;
+        color: var(--p-text-muted-color, #a1a1aa);
+      }
+      .assign input[pInputText] {
+        flex: 1;
+        min-width: 160px;
+      }
       .form {
         display: flex;
         flex-direction: column;
@@ -295,6 +339,15 @@ export class UsuariosComponent implements OnInit {
   resetUserName = '';
   resetPasswordValue = '';
 
+  // Ver / asignar contraseña (solo cargo máximo).
+  pwVisible = false;
+  pwUser: UserRow | null = null;
+  readonly pwLoading = signal(false);
+  readonly pwAssigning = signal(false);
+  pwAvailable = false;
+  pwValue: string | null = null;
+  pwAssignInput = '';
+
   private lastEvent: TableLazyLoadEvent | null = null;
 
   readonly statusOptions = [
@@ -305,6 +358,8 @@ export class UsuariosComponent implements OnInit {
   readonly canCreate = this.auth.can('hr', 'create');
   readonly canEdit = this.auth.can('hr', 'edit');
   readonly canDelete = this.auth.can('hr', 'delete');
+  /** Ver contraseñas: SOLO el cargo máximo (Super Admin). */
+  readonly isSuperAdmin = this.auth.user()?.isSuperAdmin ?? false;
 
   ngOnInit(): void {
     this.rolesApi.options().subscribe((res) => this.roles.set(res.data ?? []));
@@ -410,6 +465,54 @@ export class UsuariosComponent implements OnInit {
   copyTemp(): void {
     navigator.clipboard?.writeText(this.resetPasswordValue).then(
       () => this.messages.add({ severity: 'success', summary: 'Copiado', detail: 'Contraseña temporal copiada.' }),
+      () => {},
+    );
+  }
+
+  openPassword(row: UserRow): void {
+    this.pwUser = row;
+    this.pwVisible = true;
+    this.pwLoading.set(true);
+    this.pwAvailable = false;
+    this.pwValue = null;
+    this.pwAssignInput = '';
+    this.usersApi.viewPassword(row.id).subscribe({
+      next: (res) => {
+        this.pwAvailable = res.data?.available ?? false;
+        this.pwValue = res.data?.password ?? null;
+        this.pwLoading.set(false);
+      },
+      error: (err: HttpErrorResponse) => {
+        this.pwLoading.set(false);
+        this.pwVisible = false;
+        this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo consultar.' });
+      },
+    });
+  }
+
+  assignPassword(): void {
+    const pass = this.pwAssignInput.trim();
+    if (!this.pwUser || pass.length < 8) return;
+    this.pwAssigning.set(true);
+    this.usersApi.resetPassword(this.pwUser.id, { password: pass, forceChange: false }).subscribe({
+      next: () => {
+        this.pwAssigning.set(false);
+        this.pwAvailable = true;
+        this.pwValue = pass;
+        this.pwAssignInput = '';
+        this.messages.add({ severity: 'success', summary: 'Contraseña asignada', detail: `${this.pwUser?.name}: clave actualizada.` });
+      },
+      error: (err: HttpErrorResponse) => {
+        this.pwAssigning.set(false);
+        this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo asignar.' });
+      },
+    });
+  }
+
+  copyPw(): void {
+    if (!this.pwValue) return;
+    navigator.clipboard?.writeText(this.pwValue).then(
+      () => this.messages.add({ severity: 'success', summary: 'Copiado', detail: 'Contraseña copiada.' }),
       () => {},
     );
   }

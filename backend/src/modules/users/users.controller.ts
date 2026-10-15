@@ -39,6 +39,12 @@ export const usersController = {
     res.status(200).json(ok(result));
   },
 
+  async viewPassword(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const result = await usersService.viewPassword(req.scope, req.params.id);
+    res.status(200).json(ok(result));
+  },
+
   async remove(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     await usersService.remove(req.scope, req.params.id);

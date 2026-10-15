@@ -57,8 +57,16 @@ export class UsersApiService {
     return this.http.delete<ApiResponse<{ success: boolean }>>(`${this.api}/users/${id}`);
   }
 
-  /** Restablece la contraseña del usuario y devuelve la clave temporal (una sola vez). */
-  resetPassword(id: string, password?: string): Observable<ApiResponse<{ temporaryPassword: string }>> {
-    return this.http.post<ApiResponse<{ temporaryPassword: string }>>(`${this.api}/users/${id}/reset-password`, password ? { password } : {});
+  /** Restablece/asigna la contraseña. forceChange=false => clave fija que el admin conoce. */
+  resetPassword(id: string, opts?: { password?: string; forceChange?: boolean }): Observable<ApiResponse<{ temporaryPassword: string }>> {
+    const body: Record<string, unknown> = {};
+    if (opts?.password) body['password'] = opts.password;
+    if (opts?.forceChange === false) body['forceChange'] = false;
+    return this.http.post<ApiResponse<{ temporaryPassword: string }>>(`${this.api}/users/${id}/reset-password`, body);
+  }
+
+  /** Ver la contraseña actual (solo cargo máximo). */
+  viewPassword(id: string): Observable<ApiResponse<{ available: boolean; password: string | null }>> {
+    return this.http.get<ApiResponse<{ available: boolean; password: string | null }>>(`${this.api}/users/${id}/password`);
   }
 }

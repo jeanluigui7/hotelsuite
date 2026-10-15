@@ -112,6 +112,9 @@ model User {
   status       String   @default("active") // active | inactive
   // Fuerza el cambio de contraseña en el próximo ingreso (p. ej. tras un restablecimiento administrativo).
   mustChangePassword Boolean @default(false)
+  // Contraseña cifrada (reversible) para la visualización administrativa del cargo máximo.
+  // Se captura al crear/asignar/cambiar la clave; las anteriores a esta función quedan en null.
+  passwordEnc  String? @db.NVarChar(Max)
   roleId       String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

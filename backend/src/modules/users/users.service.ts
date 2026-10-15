@@ -3,6 +3,7 @@ import { prisma } from '../../config/prisma';
 import type { RequestScope } from '../../shared/context';
 import { ConflictError, ForbiddenError, NotFoundError } from '../../shared/errors';
 import { hashPassword, generateTempPassword } from '../../shared/password';
+import { sealSecret, openSecret } from '../../shared/secret-box';
 import {
   buildOrderBy,
   pageMeta,
@@ -75,6 +76,7 @@ export const usersService = {
       name: dto.name,
       email: dto.email,
       passwordHash,
+      passwordEnc: sealSecret(dto.password),
       roleId: dto.roleId,
       status: dto.status,
       branchIds: dto.branchIds,
@@ -101,6 +103,7 @@ export const usersService = {
       name: dto.name,
       email: dto.email,
       passwordHash,
+      passwordEnc: dto.password ? sealSecret(dto.password) : undefined,
       roleId: dto.roleId,
       status: dto.status,
       branchIds: dto.branchIds,
@@ -140,14 +143,37 @@ export const usersService = {
     }
     const temporaryPassword = dto.password ?? generateTempPassword();
     const passwordHash = await hashPassword(temporaryPassword);
-    await prisma.user.update({ where: { id }, data: { passwordHash, mustChangePassword: true } });
+    // forceChange=false => el admin ASIGNA una clave fija que él conoce (no se obliga a cambiarla).
+    const forceChange = dto.forceChange ?? true;
+    await prisma.user.update({
+      where: { id },
+      data: { passwordHash, passwordEnc: sealSecret(temporaryPassword), mustChangePassword: forceChange },
+    });
     await prisma.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
     void recordActivity(scope, {
       activity: 'USER_PASSWORD_RESET', area: 'USUARIOS', entityId: id, reference: `Usuario ${existing.name}`,
-      detail: `Restablecimiento administrativo de contraseña para ${existing.name}`,
-      meta: { user: existing.name, email: existing.email, passwordReset: true, forced: true },
+      detail: `${forceChange ? 'Restablecimiento' : 'Asignación'} administrativa de contraseña para ${existing.name}`,
+      meta: { user: existing.name, email: existing.email, passwordReset: true, forced: forceChange },
     });
     return { temporaryPassword };
+  },
+
+  /**
+   * Devuelve la contraseña actual en claro. SOLO para el cargo máximo (Super Admin). Queda auditado
+   * quién consultó la clave de quién. Las contraseñas anteriores a esta función no están registradas.
+   */
+  async viewPassword(scope: RequestScope, id: string) {
+    if (!scope.isSuperAdmin) throw new ForbiddenError('Solo el cargo máximo puede ver contraseñas.');
+    const user = await usersRepository.findById(id);
+    if (!user) throw new NotFoundError('Usuario no encontrado');
+    const full = await prisma.user.findUnique({ where: { id }, select: { passwordEnc: true } });
+    const password = openSecret(full?.passwordEnc);
+    void recordActivity(scope, {
+      activity: 'USER_PASSWORD_VIEW', area: 'USUARIOS', entityId: id, reference: `Usuario ${user.name}`,
+      detail: `Consulta de contraseña de ${user.name}`,
+      meta: { user: user.name, email: user.email, available: !!password },
+    });
+    return { available: !!password, password: password ?? null };
   },
 
   async remove(scope: RequestScope, id: string) {

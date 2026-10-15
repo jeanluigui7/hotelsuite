@@ -19,8 +19,10 @@ export const updateUserSchema = z.object({
 });
 
 // Restablecimiento administrativo: si no se envía contraseña, el sistema genera una temporal.
+// forceChange=false => el admin asigna una clave fija que él conoce (no se obliga a cambiarla).
 export const resetPasswordSchema = z.object({
   password: z.string().min(8).max(72).optional(),
+  forceChange: z.boolean().optional(),
 });
 
 export type CreateUserDto = z.infer<typeof createUserSchema>;

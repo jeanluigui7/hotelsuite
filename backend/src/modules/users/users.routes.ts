@@ -15,4 +15,6 @@ usersRouter.get('/users/:id', requirePermission('hr', 'view'), asyncHandler(user
 usersRouter.post('/users', requirePermission('hr', 'create'), asyncHandler(usersController.create));
 usersRouter.put('/users/:id', requirePermission('hr', 'edit'), asyncHandler(usersController.update));
 usersRouter.post('/users/:id/reset-password', requirePermission('hr', 'edit'), asyncHandler(usersController.resetPassword));
+// Ver contraseña en claro: SOLO el cargo máximo (se valida isSuperAdmin dentro del servicio).
+usersRouter.get('/users/:id/password', requirePermission('hr', 'view'), asyncHandler(usersController.viewPassword));
 usersRouter.delete('/users/:id', requirePermission('hr', 'delete'), asyncHandler(usersController.remove));

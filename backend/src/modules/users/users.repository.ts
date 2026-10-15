@@ -32,6 +32,7 @@ export const usersRepository = {
     name: string;
     email: string;
     passwordHash: string;
+    passwordEnc?: string | null;
     roleId: string;
     status: string;
     branchIds: string[];
@@ -41,6 +42,7 @@ export const usersRepository = {
         name: data.name,
         email: data.email,
         passwordHash: data.passwordHash,
+        passwordEnc: data.passwordEnc ?? null,
         roleId: data.roleId,
         status: data.status,
         branches: { create: data.branchIds.map((branchId) => ({ branchId })) },
@@ -56,6 +58,7 @@ export const usersRepository = {
       name?: string;
       email?: string;
       passwordHash?: string;
+      passwordEnc?: string | null;
       roleId?: string;
       status?: string;
       branchIds?: string[];
@@ -68,6 +71,7 @@ export const usersRepository = {
           name: data.name,
           email: data.email,
           passwordHash: data.passwordHash,
+          passwordEnc: data.passwordEnc,
           roleId: data.roleId,
           status: data.status,
         },

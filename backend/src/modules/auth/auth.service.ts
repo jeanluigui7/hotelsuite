@@ -4,6 +4,7 @@ import { prisma } from '../../config/prisma';
 import { recordActivity } from '../activity-log/activity.emitter';
 import { UnauthorizedError, ForbiddenError, ConflictError, ValidationError } from '../../shared/errors';
 import { verifyPassword, hashPassword } from '../../shared/password';
+import { sealSecret } from '../../shared/secret-box';
 import { logger } from '../../config/logger';
 import {
   generateRefreshToken,
@@ -138,7 +139,7 @@ export const authService = {
     if (!user) throw new UnauthorizedError('Sesión no válida');
     const valid = await verifyPassword(dto.currentPassword, user.passwordHash);
     if (!valid) throw new ValidationError('La contraseña actual es incorrecta');
-    await prisma.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(dto.newPassword), mustChangePassword: false } });
+    await prisma.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(dto.newPassword), passwordEnc: sealSecret(dto.newPassword), mustChangePassword: false } });
     await authRepository.revokeAllForUser(userId);
     // Auditoría: se registra el HECHO del cambio (jamás la contraseña). Resuelve la sucursal del usuario.
     void (async () => {
