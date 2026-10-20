@@ -4,6 +4,7 @@ import type { RequestScope } from '../../shared/context';
 import { ConflictError, ForbiddenError, NotFoundError } from '../../shared/errors';
 import { hashPassword, generateTempPassword } from '../../shared/password';
 import { sealSecret, openSecret } from '../../shared/secret-box';
+import { SUPER_ADMIN_ROLE } from '../../shared/rbac';
 import {
   buildOrderBy,
   pageMeta,
@@ -141,6 +142,12 @@ export const usersService = {
         throw new ForbiddenError('No puede restablecer usuarios fuera de su alcance');
       }
     }
+    // BLINDAJE: al Super Admin NO se le aplica el restablecimiento con clave aleatoria/forzada
+    // (eso cierra su sesión y lo puede dejar fuera). Solo se le permite ASIGNAR una clave elegida
+    // (password presente + forceChange=false).
+    if (existing.role?.name === SUPER_ADMIN_ROLE && !(dto.password && dto.forceChange === false)) {
+      throw new ForbiddenError('Al Super Admin solo se le puede ASIGNAR una contraseña que tú elijas (no restablecer con clave aleatoria).');
+    }
     const temporaryPassword = dto.password ?? generateTempPassword();
     const passwordHash = await hashPassword(temporaryPassword);
     // forceChange=false => el admin ASIGNA una clave fija que él conoce (no se obliga a cambiarla).
@@ -178,14 +185,20 @@ export const usersService = {
 
   async remove(scope: RequestScope, id: string) {
     if (id === scope.userId) {
-      throw new ForbiddenError('No puede eliminar su propio usuario');
+      throw new ForbiddenError('No puede desactivar su propio usuario');
     }
     const existing = await usersRepository.findById(id);
     if (!existing) throw new NotFoundError('Usuario no encontrado');
-    const out = await usersRepository.delete(id);
+    if (existing.role?.name === SUPER_ADMIN_ROLE) {
+      throw new ForbiddenError('No se puede eliminar ni desactivar al Super Admin.');
+    }
+    // BLINDAJE: soft-delete. En vez de DESTRUIR el usuario (irreversible), se DESACTIVA (status=inactive).
+    // El login ya rechaza a los no-activos; se puede reactivar sin pérdida. Se cierran sus sesiones.
+    const out = await usersRepository.update(id, { status: 'inactive' });
+    await prisma.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
     void recordActivity(scope, {
       activity: 'USER_DEACTIVATE', area: 'USUARIOS', entityId: id, reference: `Usuario ${existing.name}`,
-      detail: `Usuario ${existing.name} eliminado`,
+      detail: `Usuario ${existing.name} desactivado`,
       meta: { user: existing.name, email: existing.email, role: existing.role?.name ?? null },
     });
     return out;

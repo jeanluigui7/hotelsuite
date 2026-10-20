@@ -108,16 +108,20 @@ const EMPTY_FORM: UserForm = {
             <td class="actions">
               @if (canEdit) {
                 <p-button icon="pi pi-pencil" [text]="true" (onClick)="openEdit(row)" />
-                <p-button icon="pi pi-key" severity="warn" [text]="true" pTooltip="Restablecer contraseña" tooltipPosition="top" (onClick)="confirmReset(row)" />
+                @if (!isSuper(row)) {
+                  <p-button icon="pi pi-key" severity="warn" [text]="true" pTooltip="Restablecer contraseña" tooltipPosition="top" (onClick)="confirmReset(row)" />
+                }
               }
               @if (isSuperAdmin) {
-                <p-button icon="pi pi-eye" severity="help" [text]="true" pTooltip="Ver contraseña" tooltipPosition="top" (onClick)="openPassword(row)" />
+                <p-button icon="pi pi-eye" severity="help" [text]="true" pTooltip="Ver / asignar contraseña" tooltipPosition="top" (onClick)="openPassword(row)" />
               }
-              @if (canDelete) {
+              @if (canDelete && !isSuper(row)) {
                 <p-button
-                  icon="pi pi-trash"
+                  icon="pi pi-ban"
                   severity="danger"
                   [text]="true"
+                  pTooltip="Desactivar usuario"
+                  tooltipPosition="top"
                   (onClick)="confirmDelete(row)"
                 />
               }
@@ -517,25 +521,29 @@ export class UsuariosComponent implements OnInit {
     );
   }
 
+  isSuper(row: UserRow): boolean {
+    return row.role?.name === 'Super Admin';
+  }
+
   confirmDelete(row: UserRow): void {
     this.confirm.confirm({
-      header: 'Eliminar usuario',
-      message: `¿Eliminar a ${row.name}? Esta acción no se puede deshacer.`,
+      header: 'Desactivar usuario',
+      message: `¿Desactivar a ${row.name}? No podrá iniciar sesión, pero podrás reactivarlo cuando quieras (no se elimina).`,
       icon: 'pi pi-exclamation-triangle',
-      acceptLabel: 'Eliminar',
+      acceptLabel: 'Desactivar',
       rejectLabel: 'Cancelar',
       acceptButtonStyleClass: 'p-button-danger',
       accept: () => {
         this.usersApi.remove(row.id).subscribe({
           next: () => {
-            this.messages.add({ severity: 'success', summary: 'Eliminado', detail: 'Usuario eliminado.' });
+            this.messages.add({ severity: 'success', summary: 'Desactivado', detail: 'Usuario desactivado (reactivable desde Editar).' });
             this.reload();
           },
           error: (err: HttpErrorResponse) => {
             this.messages.add({
               severity: 'error',
               summary: 'Error',
-              detail: err.error?.error?.message ?? 'No se pudo eliminar.',
+              detail: err.error?.error?.message ?? 'No se pudo desactivar.',
             });
           },
         });

@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
+import { prisma } from '../../config/prisma';
 import type { RequestScope } from '../../shared/context';
-import { NotFoundError } from '../../shared/errors';
+import { NotFoundError, ConflictError } from '../../shared/errors';
 import {
   buildOrderBy,
   pageMeta,
@@ -48,6 +49,20 @@ export const branchesService = {
 
   async remove(id: string) {
     await this.getById(id);
+    // BLINDAJE: eliminar una sucursal arrastra EN CASCADA habitaciones, estancias, ventas y cajas.
+    // No se permite borrar una sucursal con datos operativos (evita una pérdida masiva por un clic).
+    const [rooms, stays, sales, cash] = await Promise.all([
+      prisma.room.count({ where: { branchId: id } }),
+      prisma.stay.count({ where: { branchId: id } }),
+      prisma.sale.count({ where: { branchId: id } }),
+      prisma.cashSession.count({ where: { branchId: id } }),
+    ]);
+    if (rooms + stays + sales + cash > 0) {
+      throw new ConflictError(
+        `No se puede eliminar esta sucursal: tiene ${rooms} habitación(es), ${stays} estancia(s), ${sales} venta(s) y ${cash} caja(s). ` +
+          `Eliminarla borraría toda su operación. Solo se pueden eliminar sucursales vacías.`,
+      );
+    }
     return branchesRepository.delete(id);
   },
 };
