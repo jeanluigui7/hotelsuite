@@ -42,10 +42,15 @@ export const workShiftsService = {
         ? 'Debes cerrar tu caja y finalizar tu turno antes de cerrar sesión.'
         : 'Tu caja está cerrada, pero tu turno continúa activo. Finaliza tu turno antes de cerrar sesión.';
     }
-    // Turno de LIMPIEZA abierto: también bloquea el cierre de sesión voluntario.
-    const cleaning = await prisma.cleaningShift.findFirst({ where: { userId, status: 'OPEN' }, orderBy: { openedAt: 'desc' } });
-    if (cleaning) {
-      return 'Envía la ropa a lavandería y finaliza tu turno de limpieza antes de cerrar sesión.';
+    // Turno de LIMPIEZA abierto: bloquea el logout SOLO a usuarios de perfil Limpieza
+    // (un recepcionista con un CleaningShift viejo/colgado NO debe quedar bloqueado).
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: { select: { name: true } } } });
+    const isCleaning = (user?.role?.name ?? '').toLowerCase().includes('limpieza');
+    if (isCleaning) {
+      const cleaning = await prisma.cleaningShift.findFirst({ where: { userId, status: 'OPEN' }, orderBy: { openedAt: 'desc' } });
+      if (cleaning) {
+        return 'Envía la ropa a lavandería y finaliza tu turno de limpieza antes de cerrar sesión.';
+      }
     }
     return null;
   },
