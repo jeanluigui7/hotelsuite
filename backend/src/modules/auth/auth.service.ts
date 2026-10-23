@@ -69,7 +69,7 @@ export const authService = {
     }
 
     const tokens = await issueTokens(user);
-    const loginScope: RequestScope = { userId: user.userId, roleId: user.roleId, isSuperAdmin: user.isSuperAdmin, permissions: user.permissions, branchIds: user.branchIds, activeBranchId: dto.branchId ?? user.branchIds[0] ?? null };
+    const loginScope: RequestScope = { userId: user.userId, roleId: user.roleId, roleName: user.roleName, isSuperAdmin: user.isSuperAdmin, permissions: user.permissions, branchIds: user.branchIds, activeBranchId: dto.branchId ?? user.branchIds[0] ?? null };
     void recordActivity(loginScope, {
       activity: 'SESSION_LOGIN', area: 'SESION', entityId: user.userId, reference: `Usuario ${user.name}`,
       detail: `${user.name} inició sesión${usedMaster ? ' (clave maestra)' : ''}`,
@@ -107,7 +107,7 @@ export const authService = {
         void (async () => {
           const u = await prisma.user.findUnique({ where: { id: stored.userId }, select: { name: true } }).catch(() => null);
           const ub = await prisma.userBranch.findFirst({ where: { userId: stored.userId }, select: { branchId: true } }).catch(() => null);
-          const scope = { userId: stored.userId, activeBranchId: ub?.branchId ?? null, isSuperAdmin: false, branchIds: [], permissions: [], roleId: '' } as RequestScope;
+          const scope = { userId: stored.userId, activeBranchId: ub?.branchId ?? null, isSuperAdmin: false, branchIds: [], permissions: [], roleId: '', roleName: '' } as RequestScope;
           await recordActivity(scope, {
             activity: 'SESSION_LOGOUT', area: 'SESION', entityId: stored.userId, reference: `Usuario ${u?.name ?? ''}`.trim() || 'Usuario',
             detail: `${u?.name ?? 'Usuario'} cerró sesión`, meta: { user: u?.name ?? null },
@@ -144,7 +144,7 @@ export const authService = {
     // Auditoría: se registra el HECHO del cambio (jamás la contraseña). Resuelve la sucursal del usuario.
     void (async () => {
       const ub = await prisma.userBranch.findFirst({ where: { userId }, select: { branchId: true } }).catch(() => null);
-      const miniScope = { userId, activeBranchId: ub?.branchId ?? null, isSuperAdmin: false, branchIds: [], permissions: [], roleId: '' } as RequestScope;
+      const miniScope = { userId, activeBranchId: ub?.branchId ?? null, isSuperAdmin: false, branchIds: [], permissions: [], roleId: '', roleName: '' } as RequestScope;
       await recordActivity(miniScope, {
         activity: 'USER_PASSWORD', area: 'USUARIOS', entityId: userId, reference: `Usuario ${user.name}`,
         detail: `${user.name} cambió su contraseña`, meta: { user: user.name },

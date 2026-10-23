@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { RequestScope } from '../../shared/context';
 import { ValidationError, NotFoundError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
+import { requireCleaningShiftIfCleaner } from '../../shared/cleaning-shift';
 import { prisma } from '../../config/prisma';
 import { productWarehouses } from '../../shared/product-kardex';
 import { recordActivity } from '../activity-log/activity.emitter';
@@ -178,6 +179,7 @@ export const frigobarReviewService = {
    * almacén origen se registra como AJUSTE «Transferencia interna» (no es venta, no toca caja).
    */
   async reposition(scope: RequestScope, reviewId: string, dto: RepositionDto) {
+    await requireCleaningShiftIfCleaner(scope);
     const branchId = requireActiveBranch(scope);
     const review = await prisma.frigobarReview.findUnique({ where: { id: reviewId }, include: { lines: true } });
     if (!review || review.branchId !== branchId) throw new NotFoundError('Revisión no encontrada');

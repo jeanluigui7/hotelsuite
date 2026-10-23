@@ -36,11 +36,18 @@ export const workShiftsService = {
    */
   async logoutBlockReason(userId: string): Promise<string | null> {
     const shift = await this.hasActiveByUser(userId);
-    if (!shift) return null;
-    const openCaja = await cashRepository.findOpen(shift.branchId);
-    return openCaja
-      ? 'Debes cerrar tu caja y finalizar tu turno antes de cerrar sesión.'
-      : 'Tu caja está cerrada, pero tu turno continúa activo. Finaliza tu turno antes de cerrar sesión.';
+    if (shift) {
+      const openCaja = await cashRepository.findOpen(shift.branchId);
+      return openCaja
+        ? 'Debes cerrar tu caja y finalizar tu turno antes de cerrar sesión.'
+        : 'Tu caja está cerrada, pero tu turno continúa activo. Finaliza tu turno antes de cerrar sesión.';
+    }
+    // Turno de LIMPIEZA abierto: también bloquea el cierre de sesión voluntario.
+    const cleaning = await prisma.cleaningShift.findFirst({ where: { userId, status: 'OPEN' }, orderBy: { openedAt: 'desc' } });
+    if (cleaning) {
+      return 'Envía la ropa a lavandería y finaliza tu turno de limpieza antes de cerrar sesión.';
+    }
+    return null;
   },
 
   /** Estado de la Gestión de Turno del usuario: turno activo (si hay) + estado de la caja. */

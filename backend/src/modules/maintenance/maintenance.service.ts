@@ -3,6 +3,7 @@ import type { RequestScope } from '../../shared/context';
 import { NotFoundError, ValidationError } from '../../shared/errors';
 import { pageMeta, toPrismaPaging, type PaginationParams } from '../../shared/pagination';
 import { requireActiveBranch } from '../../shared/scope';
+import { requireCleaningShiftIfCleaner } from '../../shared/cleaning-shift';
 import { prisma } from '../../config/prisma';
 import { maintenanceRepository } from './maintenance.repository';
 import { recordActivity } from '../activity-log/activity.emitter';
@@ -56,6 +57,7 @@ export const maintenanceService = {
   },
 
   async create(scope: RequestScope, dto: CreateMaintenanceDto) {
+    await requireCleaningShiftIfCleaner(scope);
     const branchId = requireActiveBranch(scope);
     await assertRoom(dto.roomId, branchId);
     const m = await maintenanceRepository.create({

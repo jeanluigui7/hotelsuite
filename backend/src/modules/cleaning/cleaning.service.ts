@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { RequestScope } from '../../shared/context';
 import { ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
+import { requireOpenCleaningShift } from '../../shared/cleaning-shift';
 import { prisma } from '../../config/prisma';
 import { notifyAdmin } from '../../shared/notify';
 import { shiftLogsService } from '../shift-logs/shift-logs.service';
@@ -154,6 +155,7 @@ export const cleaningService = {
   },
 
   async start(scope: RequestScope, roomId: string, dto: StartDto) {
+    await requireOpenCleaningShift(scope);
     const branchId = requireActiveBranch(scope);
     const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room || room.branchId !== branchId) throw new ValidationError('Habitación no encontrada');
@@ -201,6 +203,7 @@ export const cleaningService = {
 
   /** Finaliza la limpieza: cierra la tarea y deja la habitación Disponible. */
   async finish(scope: RequestScope, roomId: string, dto?: FinishDto) {
+    await requireOpenCleaningShift(scope);
     const branchId = requireActiveBranch(scope);
     const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room || room.branchId !== branchId) throw new ValidationError('Habitación no encontrada');
@@ -538,6 +541,7 @@ export const cleaningService = {
 
   /** Inicia una revisión periódica: pone la habitación EN REVISIÓN y arranca el cronómetro. */
   async startRevision(scope: RequestScope, roomId: string) {
+    await requireOpenCleaningShift(scope);
     const branchId = requireActiveBranch(scope);
     const room = await prisma.room.findUnique({ where: { id: roomId } });
     if (!room || room.branchId !== branchId) throw new ValidationError('Habitación no encontrada');
@@ -551,6 +555,7 @@ export const cleaningService = {
 
   /** Revisión periódica de una habitación (acciones, tipo de falla, observaciones, foto). */
   async revisionPeriodica(scope: RequestScope, dto: RevisionDto) {
+    await requireOpenCleaningShift(scope);
     const branchId = requireActiveBranch(scope);
     const room = await prisma.room.findUnique({ where: { id: dto.roomId } });
     if (!room || room.branchId !== branchId) throw new ValidationError('Habitación no encontrada');
@@ -1017,6 +1022,7 @@ export const cleaningService = {
 
   /** Solicita ropa al almacén/administrador (queda como movimiento REQUEST pendiente). */
   async requestLinen(scope: RequestScope, dto: RequestLinenDto) {
+    await requireOpenCleaningShift(scope);
     const branchId = requireActiveBranch(scope);
     for (const i of dto.items) {
       await prisma.linenMovement.create({
@@ -1035,6 +1041,7 @@ export const cleaningService = {
 
   /** Envía prenda manchada/deteriorada a lavandería (descuenta del remanente). */
   async sendToLaundry(scope: RequestScope, dto: LaundryDto) {
+    await requireOpenCleaningShift(scope);
     const branchId = requireActiveBranch(scope);
     const stock = await prisma.linenStock.findUnique({ where: { linenItemId_floor: { linenItemId: dto.linenItemId, floor: dto.floor } } });
     if (!stock || stock.branchId !== branchId) throw new ValidationError('No hay stock de esa prenda en el piso');

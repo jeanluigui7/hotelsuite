@@ -22,6 +22,7 @@ export interface AuthUser {
 export interface RequestScope {
   userId: string;
   roleId: string;
+  roleName: string;
   isSuperAdmin: boolean;
   /** Permission keys "module:action" del rol (para gates de negocio, no solo RBAC de ruta). */
   permissions: string[];

@@ -35,6 +35,7 @@ export function tenant() {
       const scope: RequestScope = {
         userId: user.userId,
         roleId: user.roleId,
+        roleName: user.roleName,
         isSuperAdmin: user.isSuperAdmin,
         permissions: user.permissions,
         branchIds: user.branchIds,

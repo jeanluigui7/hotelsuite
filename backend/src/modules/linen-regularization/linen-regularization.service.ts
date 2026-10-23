@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { RequestScope } from '../../shared/context';
 import { ConflictError, NotFoundError, ValidationError, ForbiddenError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
+import { requireCleaningShiftIfCleaner } from '../../shared/cleaning-shift';
 import { prisma } from '../../config/prisma';
 import { recordActivity } from '../activity-log/activity.emitter';
 
@@ -64,6 +65,7 @@ export const linenRegularizationService = {
 
   /** HOUSEKEEPING: crea una solicitud de regularización del REM de un piso (una por piso+turno). */
   async create(scope: RequestScope, dto: CreateRegularizationDto) {
+    await requireCleaningShiftIfCleaner(scope);
     const branchId = requireActiveBranch(scope);
     const { shift, windowStart } = currentShift();
 

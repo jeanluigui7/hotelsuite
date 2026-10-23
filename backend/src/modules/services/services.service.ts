@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { RequestScope } from '../../shared/context';
 import { ValidationError, ConflictError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
+import { requireCleaningShiftIfCleaner } from '../../shared/cleaning-shift';
 import { prisma } from '../../config/prisma';
 import { PAYMENT_METHODS } from '../../shared/payments';
 import { salesService } from '../sales/sales.service';
@@ -475,6 +476,7 @@ export const servicesService = {
    * reserva. Atómico (serializable + guard de estado) → no se puede entregar/rechazar dos veces.
    */
   async deliver(scope: RequestScope, id: string, units?: string[]) {
+    await requireCleaningShiftIfCleaner(scope);
     const branchId = requireActiveBranch(scope);
     const supply = await prisma.roomSupply.findFirst({ where: { id, branchId } });
     if (!supply) throw new ValidationError('Suministro no encontrado');
