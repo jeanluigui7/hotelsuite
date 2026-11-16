@@ -324,7 +324,15 @@ interface FaultLineUI {
               @if (m.categoryLabel) { <small class="fl-cat">{{ m.categoryLabel }}</small> }
               @if (m.description) { <small class="fl-desc">{{ m.description }}</small> }
               @if (m.photo) { <img [src]="m.photo" class="fl-ph" alt="foto de la falla" /> }
-              <small class="fl-date">{{ m.createdAt | date: 'dd/MM/yyyy HH:mm' }}@if (m.reporterName) { · {{ m.reporterName }} }</small>
+              <div class="fl-foot">
+                <small class="fl-date">{{ m.createdAt | date: 'dd/MM/yyyy HH:mm' }}@if (m.reporterName) { · {{ m.reporterName }} }</small>
+                @if (canResolveFault && (m.status === 'OPEN' || m.status === 'IN_PROGRESS')) {
+                  <button class="fl-resolve" (click)="openResolveFault(m)"><i class="pi pi-wrench"></i> Resolver</button>
+                }
+                @else if (m.status === 'DONE' && m.resolverName) {
+                  <small class="fl-done"><i class="pi pi-check-circle"></i> {{ m.repairedBy || m.resolverName }}</small>
+                }
+              </div>
             </div>
           }
         </div>
@@ -332,6 +340,29 @@ interface FaultLineUI {
       <ng-template pTemplate="footer">
         <p-button label="Reportar nueva falla" icon="pi pi-plus" [text]="true" (onClick)="faultsVisible = false; faultsRoom && openMantFor(faultsRoom)" />
         <p-button label="Cerrar" severity="secondary" (onClick)="faultsVisible = false" />
+      </ng-template>
+    </p-dialog>
+
+    <!-- Resolver falla (desde Ver fallas) -->
+    <p-dialog [(visible)]="resolveFaultVisible" [modal]="true" header="Resolver falla" [style]="{ width: '34rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      @if (resolveFaultItem; as m) {
+        <div class="rf">
+          <div class="rf-top"><strong>{{ m.faultLabel || m.title }}</strong>@if (m.severity) { <span class="sevb" [class.leve]="m.severity==='LEVE'" [class.inter]="m.severity==='INTERMEDIA'" [class.crit]="m.severity==='CRITICA'">{{ sevShort(m.severity) }}</span> }</div>
+          @if (m.description) { <small class="muted">{{ m.description }}</small> }
+          <label>Trabajo realizado *</label>
+          <textarea pInputText rows="3" [(ngModel)]="resolveFaultForm.notes" placeholder="Describe la reparación…"></textarea>
+          <label>Quién reparó</label>
+          <input pInputText [(ngModel)]="resolveFaultForm.repairedBy" placeholder="Nombre (interno o externo)" />
+          <div class="rf-up-row">
+            <label class="fl-up"><i class="pi pi-camera"></i> {{ resolveFaultForm.photo ? 'Cambiar foto' : 'Foto de evidencia' }}<input type="file" accept="image/*" (change)="onResolvePhoto($event)" hidden /></label>
+            @if (resolveFaultForm.photo) { <img [src]="resolveFaultForm.photo" class="fl-thumb" alt="evidencia" /> }
+          </div>
+        </div>
+      }
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="resolveFaultVisible = false" />
+        <p-button label="Anular" severity="danger" [outlined]="true" [loading]="savingResolve()" (onClick)="submitResolveFault('CANCELLED')" />
+        <p-button label="Registrar resolución" icon="pi pi-check" [loading]="savingResolve()" (onClick)="submitResolveFault('DONE')" />
       </ng-template>
     </p-dialog>
 
@@ -861,7 +892,16 @@ interface FaultLineUI {
       .fl-desc { color: #4b5563; font-size: 0.82rem; }
       .fl-cat { color: #6b7280; font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
       .fl-ph { max-width: 120px; max-height: 90px; object-fit: cover; border-radius: 8px; border: 1px solid #e5e7eb; margin-top: 0.2rem; }
+      .fl-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-top: 0.2rem; }
       .fl-date { color: #9ca3af; font-size: 0.74rem; }
+      .fl-done { color: #15803d; font-size: 0.74rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem; }
+      .fl-resolve { border: 1px solid #16a34a; background: #dcfce7; color: #15803d; border-radius: 8px; padding: 0.3rem 0.7rem; font-size: 0.78rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; }
+      .fl-resolve:hover { background: #bbf7d0; }
+      .rf { display: flex; flex-direction: column; gap: 0.5rem; }
+      .rf-top { display: flex; align-items: center; gap: 0.5rem; }
+      .rf label { font-size: 0.8rem; font-weight: 700; color: #374151; margin-top: 0.3rem; }
+      .rf textarea[pInputText], .rf input[pInputText] { width: 100%; }
+      .rf-up-row { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.3rem; }
       .note-ta { width: 100%; resize: vertical; font: inherit; }
       @media (max-width: 680px) { .ccard { width: calc(50% - 0.5rem); } }
       .caption { font-size: 1.05rem; font-weight: 600; }
@@ -1337,6 +1377,12 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   faultsRoom: RoomMapItem | null = null;
   readonly faultsLoading = signal(false);
   readonly faultsList = signal<Maintenance[]>([]);
+  // Resolver falla desde "Ver fallas" (solo Admin + personal de Mantenimiento).
+  readonly canResolveFault = this.auth.can('maintenance', 'approve');
+  resolveFaultVisible = false;
+  resolveFaultItem: Maintenance | null = null;
+  resolveFaultForm: { notes: string; repairedBy: string; photo: string | null } = { notes: '', repairedBy: '', photo: null };
+  readonly savingResolve = signal(false);
   // ── "Agregar nota interna" (observación de la habitación) ──
   noteVisible = false;
   noteRoom: RoomMapItem | null = null;
@@ -1619,6 +1665,52 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
 
   faultStatusLabel(s: Maintenance['status']): string {
     return { OPEN: 'Abierta', IN_PROGRESS: 'En progreso', DONE: 'Resuelta', CANCELLED: 'Anulada' }[s] ?? s;
+  }
+
+  openResolveFault(m: Maintenance): void {
+    this.resolveFaultItem = m;
+    this.resolveFaultForm = { notes: '', repairedBy: '', photo: null };
+    this.resolveFaultVisible = true;
+  }
+
+  onResolvePhoto(ev: Event): void {
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    if (file.size > 3 * 1024 * 1024) { this.toast.add({ severity: 'warn', summary: 'Imagen muy grande', detail: 'La foto no debe superar 3 MB.' }); input.value = ''; return; }
+    const reader = new FileReader();
+    reader.onload = () => { this.resolveFaultForm.photo = reader.result as string; };
+    reader.readAsDataURL(file);
+  }
+
+  submitResolveFault(status: 'DONE' | 'CANCELLED'): void {
+    const m = this.resolveFaultItem;
+    if (!m) return;
+    if (status === 'DONE' && !this.resolveFaultForm.notes.trim()) {
+      this.toast.add({ severity: 'warn', summary: 'Falta el trabajo realizado', detail: 'Describe la reparación antes de registrar.' });
+      return;
+    }
+    this.savingResolve.set(true);
+    this.ops.resolveFault(m.id, {
+      resolutionNotes: this.resolveFaultForm.notes.trim() || 'Falla anulada.',
+      repairedBy: this.resolveFaultForm.repairedBy.trim() || undefined,
+      resolutionPhoto: this.resolveFaultForm.photo || undefined,
+      status,
+    }).subscribe({
+      next: (res) => {
+        this.savingResolve.set(false);
+        this.resolveFaultVisible = false;
+        const still = res.data?.stillBlocked;
+        this.toast.add({
+          severity: 'success',
+          summary: status === 'CANCELLED' ? 'Falla anulada' : 'Falla resuelta',
+          detail: still ? 'Quedan otras críticas abiertas: la habitación sigue bloqueada.' : 'Habitación liberada del bloqueo por falla.',
+        });
+        if (this.faultsRoom) this.openFaults(this.faultsRoom);
+        this.reload();
+      },
+      error: (err: HttpErrorResponse) => { this.savingResolve.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo resolver.' }); },
+    });
   }
 
   /** "Solicitar limpieza": crea una tarea de limpieza para la habitación. */

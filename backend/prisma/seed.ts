@@ -20,7 +20,8 @@ const BASE_ROLES: { name: string; description: string; modules: AppModule[] }[] 
     name: 'Gerente',
     description: 'Administrador de sucursal',
     // 'rooms' le da crear/editar habitaciones (no delete). NO incluye 'roomtypes' (no crea/elimina tipos).
-    modules: ['dashboard', 'operations', 'finance', 'inventory', 'logistics', 'hr', 'reports', 'settings', 'rooms'],
+    // 'maintenance' le da RESOLVER fallas (approve).
+    modules: ['dashboard', 'operations', 'finance', 'inventory', 'logistics', 'hr', 'reports', 'settings', 'rooms', 'maintenance'],
   },
   {
     name: 'Recepcionista',
@@ -41,6 +42,12 @@ const BASE_ROLES: { name: string; description: string; modules: AppModule[] }[] 
     name: 'Personal de Limpieza',
     description: 'Tareas de limpieza asignadas',
     modules: ['operations'],
+  },
+  {
+    name: 'Personal de Mantenimiento',
+    description: 'Atiende y resuelve las fallas reportadas',
+    // 'maintenance' le da RESOLVER fallas (approve); 'operations' para ver habitaciones/mantenimientos.
+    modules: ['dashboard', 'operations', 'maintenance'],
   },
   {
     name: 'Logística',
@@ -101,8 +108,9 @@ async function main(): Promise<void> {
       // reports/dashboard solo lectura; el resto operativo (view/create/edit).
       const grant =
         module === 'settings' ? ['view', 'create', 'edit', 'delete']
-          : module === 'reports' || module === 'dashboard' ? ['view']
-            : ['view', 'create', 'edit'];
+          : module === 'maintenance' ? ['view', 'create', 'edit', 'approve'] // approve = RESOLVER falla
+            : module === 'reports' || module === 'dashboard' ? ['view']
+              : ['view', 'create', 'edit'];
       for (const action of ACTIONS) {
         if (!grant.includes(action)) continue;
         const permId = permByKey.get(`${module}:${action}`);

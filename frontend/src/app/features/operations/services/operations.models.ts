@@ -246,6 +246,15 @@ export interface ReportFaultsResult {
   roomStatus: string | null;
 }
 
+/** Datos para resolver una falla (trabajo realizado). */
+export interface ResolveFaultInput {
+  resolutionNotes: string;
+  repairedBy?: string;
+  resolutionPhoto?: string | null;
+  cost?: number;
+  status: 'DONE' | 'CANCELLED';
+}
+
 export interface MaintenanceUpsert {
   roomId?: string | null;
   title: string;

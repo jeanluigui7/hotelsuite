@@ -3,7 +3,7 @@ import { ok } from '../../shared/response';
 import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { maintenanceService } from './maintenance.service';
-import { createMaintenanceSchema, reportFaultsSchema, updateMaintenanceSchema } from './maintenance.schema';
+import { createMaintenanceSchema, reportFaultsSchema, resolveFaultSchema, updateMaintenanceSchema } from './maintenance.schema';
 
 export const maintenanceController = {
   async list(req: Request, res: Response): Promise<void> {
@@ -31,6 +31,11 @@ export const maintenanceController = {
     if (!req.scope) throw new UnauthorizedError();
     const dto = updateMaintenanceSchema.parse(req.body);
     res.status(200).json(ok(await maintenanceService.update(req.scope, req.params.id, dto)));
+  },
+  async resolve(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = resolveFaultSchema.parse(req.body);
+    res.status(200).json(ok(await maintenanceService.resolve(req.scope, req.params.id, dto)));
   },
   async remove(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();

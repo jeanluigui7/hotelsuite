@@ -1,13 +1,13 @@
 import type { Maintenance, Prisma } from '@prisma/client';
 import type { RequestScope } from '../../shared/context';
-import { NotFoundError, ValidationError } from '../../shared/errors';
+import { ConflictError, NotFoundError, ValidationError } from '../../shared/errors';
 import { pageMeta, toPrismaPaging, type PaginationParams } from '../../shared/pagination';
 import { requireActiveBranch } from '../../shared/scope';
 import { requireCleaningShiftIfCleaner } from '../../shared/cleaning-shift';
 import { prisma } from '../../config/prisma';
 import { maintenanceRepository } from './maintenance.repository';
 import { recordActivity } from '../activity-log/activity.emitter';
-import type { CreateMaintenanceDto, ReportFaultsDto, UpdateMaintenanceDto } from './maintenance.schema';
+import type { CreateMaintenanceDto, ReportFaultsDto, ResolveFaultDto, UpdateMaintenanceDto } from './maintenance.schema';
 
 const OPEN_STATUSES = ['OPEN', 'IN_PROGRESS'];
 
@@ -244,6 +244,39 @@ export const maintenanceService = {
       meta: { room: num ?? null, title: m.title, status: m.status },
     });
     return serialize(m, rmap);
+  },
+
+  /**
+   * "Resolver falla": registra el trabajo realizado (quién reparó, quién registró=actual,
+   * fecha auto, foto/costo opcionales), conserva el reporte original y libera el bloqueo
+   * si no quedan críticas abiertas. Permiso: maintenance:approve (Admin + Mantenimiento).
+   */
+  async resolve(scope: RequestScope, id: string, dto: ResolveFaultDto) {
+    const branchId = requireActiveBranch(scope);
+    const m = await this.getEntity(scope, id);
+    if (m.status === 'DONE' || m.status === 'CANCELLED') throw new ConflictError('Esta falla ya fue resuelta o anulada.');
+    const updated = await maintenanceRepository.update(id, {
+      status: dto.status,
+      completedAt: new Date(),
+      resolvedAt: new Date(),
+      resolvedByUserId: scope.userId,
+      repairedBy: dto.repairedBy || null,
+      resolutionNotes: dto.resolutionNotes,
+      resolutionPhoto: dto.resolutionPhoto || null,
+      cost: dto.cost ?? m.cost ?? null,
+    });
+    let blocked = false;
+    if (updated.roomId) blocked = await recomputeRoomBlock(updated.roomId);
+    const rmap = await roomMap(branchId);
+    const num = updated.roomId ? rmap.get(updated.roomId) : null;
+    void recordActivity(scope, {
+      activity: 'MAINTENANCE', area: 'MANTENIMIENTO', roomId: updated.roomId, entityId: updated.id,
+      reference: num ? `Hab. ${num}` : 'Mantenimiento',
+      detail: `${num ? `Hab. ${num} ` : ''}falla ${dto.status === 'CANCELLED' ? 'anulada' : 'resuelta'} · ${updated.faultLabel ?? updated.title}`,
+      meta: { room: num ?? null, status: updated.status, repairedBy: updated.repairedBy ?? null, stillBlocked: blocked },
+    });
+    const users = await userMap([updated.createdByUserId, updated.resolvedByUserId]);
+    return { ...serialize(updated, rmap, users), stillBlocked: blocked };
   },
 
   async remove(scope: RequestScope, id: string) {

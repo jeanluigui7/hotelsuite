@@ -12,6 +12,9 @@ export const MODULES = [
   'reports',
   'whatsapp',
   'settings',
+  // Mantenimiento: 'approve' = RESOLVER fallas (solo Admin + personal de mantenimiento).
+  // Reportar falla sigue en 'operations:create' (sin regresión para Recepción/Limpieza).
+  'maintenance',
   // Permisos dedicados (granularidad fina): crear/eliminar habitaciones y tipos de habitación.
   // Separados de 'operations'/'settings' para poder permitir tarifas pero no tipos, etc.
   'rooms',

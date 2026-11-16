@@ -13,5 +13,7 @@ maintenanceRouter.get('/maintenances', requirePermission('operations', 'view'), 
 maintenanceRouter.post('/maintenances/report-fault', requirePermission('operations', 'create'), asyncHandler(maintenanceController.reportFaults));
 maintenanceRouter.get('/maintenances/:id', requirePermission('operations', 'view'), asyncHandler(maintenanceController.get));
 maintenanceRouter.post('/maintenances', requirePermission('operations', 'create'), asyncHandler(maintenanceController.create));
+// Resolver falla: SOLO Admin + personal de Mantenimiento (maintenance:approve).
+maintenanceRouter.post('/maintenances/:id/resolve', requirePermission('maintenance', 'approve'), asyncHandler(maintenanceController.resolve));
 maintenanceRouter.put('/maintenances/:id', requirePermission('operations', 'edit'), asyncHandler(maintenanceController.update));
 maintenanceRouter.delete('/maintenances/:id', requirePermission('operations', 'delete'), asyncHandler(maintenanceController.remove));

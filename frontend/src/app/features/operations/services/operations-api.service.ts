@@ -17,6 +17,7 @@ import type {
   Observation,
   ReportFaultLine,
   ReportFaultsResult,
+  ResolveFaultInput,
   Reservation,
   Revision,
   RevisionUpsert,
@@ -51,6 +52,11 @@ export class OperationsApiService {
   /** Reporta una o más fallas de una habitación (crea un mantenimiento por cada una). */
   reportFaults(roomId: string, fallas: ReportFaultLine[]): Observable<ApiResponse<ReportFaultsResult>> {
     return this.http.post<ApiResponse<ReportFaultsResult>>(`${this.api}/maintenances/report-fault`, { roomId, fallas });
+  }
+
+  /** Resuelve una falla (solo Admin + personal de Mantenimiento). */
+  resolveFault(id: string, dto: ResolveFaultInput): Observable<ApiResponse<Maintenance & { stillBlocked: boolean }>> {
+    return this.http.post<ApiResponse<Maintenance & { stillBlocked: boolean }>>(`${this.api}/maintenances/${id}/resolve`, dto);
   }
 
   changeRoomStatus(id: string, status: RoomStatus): Observable<ApiResponse<Room>> {
