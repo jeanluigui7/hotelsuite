@@ -8,6 +8,7 @@ import { MessageService } from 'primeng/api';
 import { forkJoin, map } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
+import type { FaultCatalogCategory, FaultSeverity } from '../services/operations.models';
 import { FrigobarInspectionComponent } from './frigobar-inspection.component';
 import { FrigobarRepositionComponent } from './frigobar-reposition.component';
 
@@ -314,8 +315,9 @@ const ACCIONES_PERIODICAS = [
                   <div class="cat-b">
                     <small class="muted">{{ c.hint }}</small>
                     <label>Selecciona la Falla Detectada *</label>
-                    <p-select [options]="fallasFor(c.key)" [(ngModel)]="c.falla" placeholder="Selecciona una falla..." styleClass="wsel" />
-                    @if (!c.falla) { <div class="req"><i class="pi pi-exclamation-triangle"></i> Selecciona una falla específica para continuar</div> }
+                    <p-select [options]="fallaOpts(c.key)" optionLabel="label" optionValue="value" [ngModel]="c.faultTypeId" (onChange)="onCatFalla(c, $event.value)" placeholder="Selecciona una falla..." styleClass="wsel" appendTo="body" />
+                    @if (!c.faultTypeId) { <div class="req"><i class="pi pi-exclamation-triangle"></i> Selecciona una falla específica para continuar</div> }
+                    @else if (c.severity) { <div class="sev-line">Gravedad: <span class="sevb" [class.leve]="c.severity==='LEVE'" [class.inter]="c.severity==='INTERMEDIA'" [class.crit]="c.severity==='CRITICA'">{{ sevShort(c.severity) }}</span>@if (c.severity==='CRITICA') { <span class="sev-warn"><i class="pi pi-lock"></i> bloquea el alquiler</span> }</div> }
                     <label>Observación</label>
                     <textarea [(ngModel)]="c.observacion" rows="2" placeholder="Describe el problema..."></textarea>
                   </div>
@@ -668,6 +670,12 @@ const ACCIONES_PERIODICAS = [
       :host ::ng-deep .cat-b input, :host ::ng-deep .cat-b textarea, :host ::ng-deep .cat-b .wsel { width: 100%; }
       .cat-b textarea { background: #0b1410; border: 1px solid #1f3a2c; color: #e6efe9; border-radius: 8px; padding: 0.5rem 0.7rem; font: inherit; }
       .req { background: rgba(245,158,11,0.12); border: 1px solid #b45309; color: #fbbf24; border-radius: 8px; padding: 0.4rem 0.6rem; font-size: 0.78rem; display: flex; align-items: center; gap: 0.4rem; }
+      .sev-line { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; color: #9fb0c3; }
+      .sevb { font-size: 0.72rem; font-weight: 800; border-radius: 999px; padding: 0.12rem 0.6rem; }
+      .sevb.leve { color: #1f2937; background: #cbd5e1; }
+      .sevb.inter { color: #7c2d12; background: #fcd34d; }
+      .sevb.crit { color: #fff; background: #dc2626; }
+      .sev-warn { color: #f87171; font-size: 0.76rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; }
     `,
   ],
 })
@@ -735,7 +743,9 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     for (const r of all) { const k = r.sectionKey ?? 'OTROS'; const arr = groups.get(k) ?? []; arr.push(r); groups.set(k, arr); }
     return SECTION_ORDER.filter((k) => groups.has(k)).map((k) => ({ key: k, label: SECTION_META[k].label, color: SECTION_META[k].color, isAmenity: k === 'AMENITIES', rows: groups.get(k) as RepoRow[] }));
   });
-  cats: { key: string; label: string; hint: string; selected: boolean; falla: string; observacion: string }[] = [];
+  cats: { key: string; label: string; hint: string; selected: boolean; faultTypeId: string; falla: string; severity: FaultSeverity | ''; observacion: string }[] = [];
+  // Catálogo unificado de fallas (mismo que "Reportar falla" de Recepción).
+  readonly faultCatalog = signal<FaultCatalogCategory[]>([]);
   // Mantenimiento Periódico
   revPerVisible = false;
   revPerRoom: CleanRoom | null = null;
@@ -784,6 +794,10 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.reload();
     this.loadLinen();
+    this.http.get<ApiResponse<FaultCatalogCategory[]>>(`${this.api}/fault-types/catalog`).subscribe({
+      next: (res) => this.faultCatalog.set(res.data ?? []),
+      error: () => {/* sin catálogo: el picker queda vacío */},
+    });
     this.timer = setInterval(() => this.tick.update((v) => v + 1), 1000);
   }
   ngOnDestroy(): void {
@@ -1021,7 +1035,7 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     this.finStep = 'reposicion';
     this.todoOk = null;
     this.obsGenerales = '';
-    this.cats = this.CATS.map((c) => ({ ...c, selected: false, falla: '', observacion: '' }));
+    this.cats = this.CATS.map((c) => ({ ...c, selected: false, faultTypeId: '', falla: '', severity: '' as FaultSeverity | '', observacion: '' }));
     this.reposicion.set({ ropa: [], amenities: [] });
     this.adicRetirados.set([]);
     this.http.get<ApiResponse<{ ropa: RepoRow[]; amenities: RepoRow[]; adicionalesRetirados?: { name: string; category?: string | null; size?: string | null }[] }>>(`${this.api}/cleaning/${r.id}/reposicion`).subscribe((res) => {
@@ -1103,19 +1117,37 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
     return (r.variants ?? []).find((v) => (r.type === 'AMENITY' ? v.productId : v.linenItemId) === id)?.available ?? 0;
   }
   fallasFor(key: string): string[] { return FALLAS[key] ?? ['Otro']; }
+
+  /** Opciones de falla del catálogo para una categoría (con gravedad). */
+  fallaOpts(key: string): { label: string; value: string; severity: FaultSeverity }[] {
+    const cat = this.faultCatalog().find((c) => c.category === key);
+    return (cat?.fallas ?? []).map((f) => ({ label: `${f.label}  ·  ${this.sevShort(f.severity)}`, value: f.id, severity: f.severity }));
+  }
+  onCatFalla(c: { faultTypeId: string; falla: string; severity: FaultSeverity | '' }, faultTypeId: string): void {
+    for (const cat of this.faultCatalog()) {
+      const f = cat.fallas.find((x) => x.id === faultTypeId);
+      if (f) { c.faultTypeId = faultTypeId; c.falla = f.label; c.severity = f.severity; return; }
+    }
+    c.faultTypeId = faultTypeId;
+  }
+  sevShort(s: FaultSeverity | '' | null | undefined): string {
+    const map: Record<string, string> = { LEVE: 'Leve', INTERMEDIA: 'Intermedia', CRITICA: 'Crítica' };
+    return map[s ?? ''] ?? '';
+  }
+
   /** Habilita Finalizar: todo OK, o cada categoría marcada tiene una falla seleccionada. */
   canFinalizar(): boolean {
     if (this.todoOk === null) return false;
     if (this.todoOk === true) return true;
     const sel = this.cats.filter((c) => c.selected);
-    return sel.length > 0 && sel.every((c) => !!c.falla);
+    return sel.length > 0 && sel.every((c) => !!c.faultTypeId);
   }
   confirmFinalizar(): void {
     const r = this.finRoom;
     if (!r || this.todoOk === null) return;
     const problems = this.todoOk
       ? []
-      : this.cats.filter((c) => c.selected).map((c) => ({ category: c.label, falla: c.falla, observacion: c.observacion }));
+      : this.cats.filter((c) => c.selected).map((c) => ({ faultTypeId: c.faultTypeId, category: c.key, categoryLabel: c.label, falla: c.falla, severity: c.severity || undefined, observacion: c.observacion }));
     // Reposición: por cada prenda/amenity recogido, la variante elegida del subalmacén / AMENITIES - LIMPIEZA.
     const ropaRepo = this.reposicion().ropa
       .filter((x) => !x.mantiene && x.recogidoLinenItemId && x.chosenLinenItemId)
@@ -1128,7 +1160,14 @@ export class GestionLimpiezaComponent implements OnInit, OnDestroy {
       next: (res) => {
         this.busy.set(false); this.finVisible = false;
         const m = res.data?.maintenance;
-        this.toast.add({ severity: 'success', summary: 'Limpieza finalizada', detail: m ? `Hab. ${r.number} → Mantenimiento (problemas registrados)` : `Hab. ${r.number} disponible` });
+        const hadProblems = this.todoOk === false;
+        this.toast.add({
+          severity: m ? 'warn' : 'success',
+          summary: 'Limpieza finalizada',
+          detail: m
+            ? `Hab. ${r.number} BLOQUEADA por falla crítica (ver Mantenimientos)`
+            : hadProblems ? `Hab. ${r.number} disponible · fallas registradas` : `Hab. ${r.number} disponible`,
+        });
         this.reload();
       },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'Error.' }); },

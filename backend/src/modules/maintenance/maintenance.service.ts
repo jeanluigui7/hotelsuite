@@ -6,10 +6,9 @@ import { requireActiveBranch } from '../../shared/scope';
 import { requireCleaningShiftIfCleaner } from '../../shared/cleaning-shift';
 import { prisma } from '../../config/prisma';
 import { maintenanceRepository } from './maintenance.repository';
+import { recomputeRoomBlock, resolveFaultSnapshot } from './fault-block';
 import { recordActivity } from '../activity-log/activity.emitter';
 import type { CreateMaintenanceDto, ReportFaultsDto, ResolveFaultDto, UpdateMaintenanceDto } from './maintenance.schema';
-
-const OPEN_STATUSES = ['OPEN', 'IN_PROGRESS'];
 
 async function roomMap(branchId: string): Promise<Map<string, string>> {
   const rooms = await prisma.room.findMany({ where: { branchId }, select: { id: true, number: true } });
@@ -58,52 +57,6 @@ async function assertRoom(roomId: string | null | undefined, branchId: string): 
   if (!roomId) return;
   const room = await prisma.room.findUnique({ where: { id: roomId } });
   if (!room || room.branchId !== branchId) throw new ValidationError('Habitación inválida');
-}
-
-/**
- * Recalcula el bloqueo por falla de una habitación: `blocked` = hay ≥1 mantenimiento
- * CRÍTICO abierto. Mantiene el estado operativo coherente (una habitación LIBRE con
- * falla crítica pasa a MANTENIMIENTO; al desbloquear vuelve a limpieza u ocupada).
- */
-async function recomputeRoomBlock(roomId: string): Promise<boolean> {
-  const openCrit = await prisma.maintenance.count({
-    where: { roomId, severity: 'CRITICA', status: { in: OPEN_STATUSES } },
-  });
-  const blocked = openCrit > 0;
-  const room = await prisma.room.findUnique({ where: { id: roomId }, select: { status: true, blocked: true } });
-  if (!room) return blocked;
-  const data: Prisma.RoomUncheckedUpdateInput = {};
-  if (room.blocked !== blocked) data.blocked = blocked;
-  if (blocked && room.status === 'FREE') data.status = 'MAINTENANCE';
-  if (!blocked && room.status === 'MAINTENANCE') {
-    const hasStay = await prisma.stay.count({ where: { roomId, status: 'OPEN' } });
-    data.status = hasStay ? 'OCCUPIED' : 'CLEANING';
-  }
-  if (Object.keys(data).length) await prisma.room.update({ where: { id: roomId }, data });
-  return blocked;
-}
-
-/** Resuelve la falla contra el catálogo (la gravedad del catálogo manda). */
-async function resolveFaultSnapshot(input: {
-  faultTypeId?: string | null;
-  category?: string | null;
-  categoryLabel?: string | null;
-  faultLabel?: string | null;
-  severity?: string;
-}): Promise<{ faultTypeId: string | null; category: string | null; categoryLabel: string | null; faultLabel: string | null; severity: string }> {
-  if (input.faultTypeId) {
-    const ft = await prisma.faultType.findUnique({ where: { id: input.faultTypeId } });
-    if (ft) {
-      return { faultTypeId: ft.id, category: ft.category, categoryLabel: ft.categoryLabel, faultLabel: ft.label, severity: ft.severity };
-    }
-  }
-  return {
-    faultTypeId: input.faultTypeId ?? null,
-    category: input.category ?? null,
-    categoryLabel: input.categoryLabel ?? null,
-    faultLabel: input.faultLabel ?? null,
-    severity: input.severity ?? 'LEVE',
-  };
 }
 
 export const maintenanceService = {

@@ -9,6 +9,7 @@ import { shiftLogsService } from '../shift-logs/shift-logs.service';
 import { consumeFloorTx, closeLinenShiftForBranch } from '../linen-admin/linen-admin.service';
 import { resolveRoomFloor } from '../room-inventory/room-inventory.service';
 import { frigobarReviewService } from '../frigobar-review/frigobar-review.service';
+import { recomputeRoomBlock, resolveFaultSnapshot } from '../maintenance/fault-block';
 
 /** Flujo de limpieza RIZZOS: iniciar limpieza (recoger ropa con estado OK/ROBADA/DETERIORADA)
  *  → habitación EN CURSO → finalizar limpieza → Disponible. */
@@ -58,9 +59,14 @@ export type RevisionDto = z.infer<typeof revisionSchema>;
 
 export const finishSchema = z.object({
   problems: z.array(z.object({
+    // Snapshot del catálogo de fallas (unificado con "Reportar falla" de Recepción).
+    faultTypeId: z.string().min(1).optional().nullable(),
     category: z.string().max(60),
-    falla: z.string().max(120).optional().or(z.literal('')),
+    categoryLabel: z.string().max(120).optional().or(z.literal('')),
+    falla: z.string().max(160).optional().or(z.literal('')),
+    severity: z.enum(['LEVE', 'INTERMEDIA', 'CRITICA']).optional(),
     observacion: z.string().max(500).optional().or(z.literal('')),
+    photo: z.string().optional().nullable(),
   })).default([]),
   observacionesGenerales: z.string().max(1000).optional().or(z.literal('')),
   // Reposición: por cada prenda/amenity recogido, la variante elegida del subalmacén /
@@ -343,14 +349,41 @@ export const cleaningService = {
     // La tarea ya quedó DONE/APPROVED en el claim atómico del inicio (anti doble-submit).
     const problems = dto?.problems ?? [];
     if (problems.length) {
-      // "No, hay problemas": se registra un mantenimiento y la habitación queda bloqueada.
-      const desc = problems.map((p) => `${p.category}${p.falla ? ' · ' + p.falla : ''}${p.observacion ? ': ' + p.observacion : ''}`).join('\n')
-        + (dto?.observacionesGenerales ? `\n\nGenerales: ${dto.observacionesGenerales}` : '');
-      await prisma.maintenance.create({
-        data: { branchId, roomId, title: `Problemas en limpieza (Hab. ${room.number})`, description: desc, status: 'OPEN', createdByUserId: scope.userId },
-      });
-      await prisma.room.update({ where: { id: roomId }, data: { status: 'MAINTENANCE' } });
-      return { ok: true, maintenance: true };
+      // "No, hay problemas": UNIFICADO con "Reportar falla" de Recepción. Un Maintenance por
+      // problema, con gravedad del catálogo. Solo las CRÍTICAS bloquean la habitación; las
+      // leves/intermedias se registran pero dejan seguir el flujo normal (checkout/renovación).
+      let hasCritical = false;
+      let idx = 0;
+      for (const p of problems) {
+        const snap = await resolveFaultSnapshot({
+          faultTypeId: p.faultTypeId,
+          category: p.category,
+          categoryLabel: p.categoryLabel || p.category,
+          faultLabel: p.falla || null,
+          severity: p.severity,
+        });
+        if (snap.severity === 'CRITICA') hasCritical = true;
+        const parts = [p.observacion || ''];
+        if (idx === 0 && dto?.observacionesGenerales) parts.push(`Generales: ${dto.observacionesGenerales}`);
+        const desc = parts.filter(Boolean).join(' · ') || null;
+        await prisma.maintenance.create({
+          data: {
+            branchId, roomId, status: 'OPEN', createdByUserId: scope.userId,
+            title: `${snap.faultLabel ?? 'Falla'} · Hab. ${room.number}`.slice(0, 150),
+            description: desc,
+            faultTypeId: snap.faultTypeId, category: snap.category, categoryLabel: snap.categoryLabel,
+            faultLabel: snap.faultLabel, severity: snap.severity, photo: p.photo || null,
+          },
+        });
+        idx += 1;
+      }
+      if (hasCritical) {
+        // Crítica: se corta el ciclo y la habitación queda bloqueada en MANTENIMIENTO.
+        await prisma.room.update({ where: { id: roomId }, data: { status: 'MAINTENANCE', blocked: true } });
+        return { ok: true, maintenance: true };
+      }
+      // Sin crítica: recalcula el bloqueo (respeta críticas previas) y sigue el flujo normal.
+      await recomputeRoomBlock(roomId);
     }
     // Renovación (el huésped sigue dentro): la habitación NO se libera, vuelve a OCUPADA
     // y se registra el progreso de la limpieza de renovación.
