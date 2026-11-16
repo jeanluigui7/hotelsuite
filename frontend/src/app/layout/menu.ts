@@ -259,6 +259,7 @@ export const ADMIN_MENU: MenuItem[] = [
       { label: 'Acceso por Dispositivo', route: '/settings/acceso-dispositivo' },
       { label: 'Huella Digital', route: '/settings/huella' },
       { label: 'Servicios/Penalidades', route: '/settings/items' },
+      { label: 'Ítems de Mantenimiento', route: '/settings/items-mantenimiento' },
       { label: 'Máquinas de Lavandería', route: '/settings/lavanderia' },
       { label: 'Recordatorios', route: '/settings/recordatorios' },
       { label: 'Landing Page', route: '/settings/landing' },

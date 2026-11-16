@@ -299,6 +299,41 @@ async function main(): Promise<void> {
     });
   }
 
+  // 11. Catálogo de fallas de mantenimiento (GLOBAL). Idempotente por categoría+falla:
+  // solo CREA lo que falte; nunca pisa la gravedad que el admin haya configurado.
+  const FAULT_CRITICA = new Set<string>([
+    'Fuga de agua', 'Inodoro tapado/atorado', 'Cableado expuesto', 'Puerta no cierra', 'Cerradura dañada',
+  ]);
+  const FAULT_INTERMEDIA = new Set<string>([
+    'TV no enciende', 'Frigobar no enfría', 'Aire acondicionado no funciona', 'Ducha dañada',
+    'Falta presión de agua', 'Grifo goteando', 'Tomacorriente dañado', 'Interruptor no funciona',
+    'Cama rota', 'Colchón manchado', 'Base dañada', 'Vidrio roto', 'Ventana no cierra',
+    'Bisagra suelta', 'Tarjeta/llave no funciona', 'Hueco o grieta', 'Mancha/humedad',
+  ]);
+  const faultCats: { key: string; label: string; fallas: string[] }[] = [
+    { key: 'MOBILIARIO', label: 'MOBILIARIO', fallas: ['Mueble roto', 'Cajón dañado', 'Silla inestable', 'Closet/puerta dañada', 'Mesa de noche dañada', 'Otro'] },
+    { key: 'ARTEFACTOS', label: 'ARTEFACTOS ELÉCTRICOS', fallas: ['TV no enciende', 'Frigobar no enfría', 'Aire acondicionado no funciona', 'Control remoto dañado', 'Secadora dañada', 'Otro'] },
+    { key: 'BANO', label: 'BAÑO', fallas: ['Fuga de agua', 'Inodoro tapado/atorado', 'Grifo goteando', 'Ducha dañada', 'Espejo roto', 'Falta presión de agua', 'Otro'] },
+    { key: 'CAMA', label: 'CAMA/COLCHÓN/CABECERA', fallas: ['Colchón manchado', 'Cama rota', 'Cabecera suelta', 'Base dañada', 'Otro'] },
+    { key: 'ELECTRICIDAD', label: 'ELECTRICIDAD/ILUMINACIÓN', fallas: ['Foco quemado', 'Tomacorriente dañado', 'Interruptor no funciona', 'Cableado expuesto', 'Otro'] },
+    { key: 'PAREDES', label: 'PAREDES', fallas: ['Mancha/humedad', 'Pintura descascarada', 'Hueco o grieta', 'Papel mural dañado', 'Otro'] },
+    { key: 'PUERTA', label: 'PUERTA/CERRADURAS', fallas: ['Cerradura dañada', 'Bisagra suelta', 'Puerta no cierra', 'Tarjeta/llave no funciona', 'Otro'] },
+    { key: 'VENTANAS', label: 'VENTANAS/ESPEJOS', fallas: ['Vidrio roto', 'Cortina dañada', 'Ventana no cierra', 'Espejo rajado', 'Otro'] },
+    { key: 'REPARACION', label: 'REPARACIÓN / REMODELACIÓN', fallas: ['Remodelación pendiente', 'Reparación mayor', 'Cambio de equipo', 'Otro'] },
+  ];
+  let faultCreated = 0;
+  for (const cat of faultCats) {
+    let order = 0;
+    for (const label of cat.fallas) {
+      order += 1;
+      const existing = await prisma.faultType.findFirst({ where: { category: cat.key, label } });
+      if (existing) continue;
+      const severity = FAULT_CRITICA.has(label) ? 'CRITICA' : FAULT_INTERMEDIA.has(label) ? 'INTERMEDIA' : 'LEVE';
+      await prisma.faultType.create({ data: { category: cat.key, categoryLabel: cat.label, label, severity, sortOrder: order } });
+      faultCreated += 1;
+    }
+  }
+
   // eslint-disable-next-line no-console
   console.log(`✅ Seed completo.
    Sucursal:  ${branch.name} (${branch.id})
@@ -307,6 +342,7 @@ async function main(): Promise<void> {
    3A:        ${roomDefs.length} habitaciones
    4A:        almacén "Productos" + ${productDefs.length} productos con stock
    5A:        ${folioDefs.length} series de folios (B001, F001, NC01)
+   Fallas:    +${faultCreated} tipos de falla nuevos en el catálogo global
    Permisos:  ${allPerms.length} (${MODULES.length} módulos × ${ACTIONS.length} acciones)
    Roles:     ${SUPER_ADMIN} + ${BASE_ROLES.length} base
    Usuario:   ${email}  /  contraseña: ${process.env.SEED_ADMIN_PASSWORD ? '(de SEED_ADMIN_PASSWORD)' : password}`);

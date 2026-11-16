@@ -56,6 +56,11 @@ const routes: Routes = [
     loadComponent: () => import('./items/items.component').then((m) => m.ItemsComponent),
   },
   {
+    path: 'items-mantenimiento',
+    loadComponent: () =>
+      import('./items-mantenimiento/maintenance-items.component').then((m) => m.MaintenanceItemsComponent),
+  },
+  {
     path: 'horarios',
     loadComponent: () => import('./horarios/role-shifts.component').then((m) => m.RoleShiftsComponent),
   },

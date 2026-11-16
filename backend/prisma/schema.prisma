@@ -1642,6 +1642,22 @@ model Maintenance {
   @@index([status])
 }
 
+/// Catálogo configurable de fallas de mantenimiento (GLOBAL, compartido entre
+/// Recepción y Limpieza). La gravedad la define la configuración, no quien reporta.
+model FaultType {
+  id            String   @id @default(uuid())
+  category      String // clave de categoría (MOBILIARIO, BANO, ...)
+  categoryLabel String // etiqueta visible de la categoría
+  label         String // nombre de la falla
+  severity      String   @default("LEVE") // LEVE | INTERMEDIA | CRITICA
+  status        String   @default("active") // active | inactive
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([category])
+}
+
 /// Revisión de habitación.
 model Revision {
   id              String   @id @default(uuid())
