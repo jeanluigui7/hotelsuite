@@ -212,6 +212,8 @@ export const staysService = {
     if (!room || room.branchId !== branchId) throw new NotFoundError('Habitación no encontrada');
     // Se puede hacer check-in de una habitación libre o reservada.
     if (room.status !== 'FREE' && room.status !== 'RESERVADA') throw new ConflictError('La habitación no está disponible para check-in');
+    // Bloqueo por falla CRÍTICA sin resolver: no se puede (re)alquilar hasta resolverla.
+    if (room.blocked) throw new ConflictError('Habitación BLOQUEADA por una falla crítica sin resolver. Resuélvela en Operaciones › Mantenimientos antes de alquilar.');
 
     // Tarifa del catálogo o "Tarifa personalizada" (sin rateId → salida + precio propios).
     let rate = null as Prisma.RateGetPayload<{ include: { includedServices: true } }> | null;

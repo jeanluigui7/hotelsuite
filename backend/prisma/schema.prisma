@@ -1633,6 +1633,19 @@ model Maintenance {
   scheduledAt      DateTime?
   completedAt      DateTime?
   createdByUserId  String?
+  // Reporte de falla (snapshot del catálogo FaultType; la gravedad la define el catálogo).
+  faultTypeId   String?
+  category      String?
+  categoryLabel String?
+  faultLabel    String?
+  severity      String  @default("LEVE") // LEVE | INTERMEDIA | CRITICA
+  photo         String? @db.NVarChar(Max)
+  // Resolución de la falla (quién reparó, quién registró, trabajo, evidencia).
+  resolvedAt       DateTime?
+  resolvedByUserId String?
+  repairedBy       String?
+  resolutionNotes  String?
+  resolutionPhoto  String?   @db.NVarChar(Max)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 

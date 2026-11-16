@@ -20,7 +20,7 @@ import { OperationsApiService } from '../services/operations-api.service';
 import { CatalogApiService } from '../../settings/catalogs/catalog-api.service';
 import type { RoomType } from '../../settings/catalogs/catalog.models';
 import { docLabel, natLabel } from '../services/operations.models';
-import type { ActiveStay, CheckoutSummary, Maintenance, RoomMapItem } from '../services/operations.models';
+import type { ActiveStay, CheckoutSummary, FaultCatalogCategory, FaultSeverity, Maintenance, ReportFaultLine, RoomMapItem } from '../services/operations.models';
 import { AnulacionService } from '../../../shared/anulacion/anulacion.service';
 import { CheckInDialogComponent } from '../habitaciones/check-in-dialog.component';
 import { VentaProductosComponent } from './venta-productos.component';
@@ -32,29 +32,15 @@ import { roomState } from './room-states';
 
 type ViewMode = 'normal' | 'compacta' | 'real';
 
-/** Catálogo de fallas por categoría para el registro de mantenimiento (igual a Revisión de Mantenimiento). */
-const MANT_FALLAS: Record<string, string[]> = {
-  MOBILIARIO: ['Mueble roto', 'Cajón dañado', 'Silla inestable', 'Closet/puerta dañada', 'Mesa de noche dañada', 'Otro'],
-  ARTEFACTOS: ['TV no enciende', 'Frigobar no enfría', 'Aire acondicionado no funciona', 'Control remoto dañado', 'Secadora dañada', 'Otro'],
-  BANO: ['Fuga de agua', 'Inodoro tapado', 'Grifo goteando', 'Ducha dañada', 'Espejo roto', 'Falta presión de agua', 'Otro'],
-  CAMA: ['Colchón manchado', 'Cama rota', 'Cabecera suelta', 'Base dañada', 'Otro'],
-  ELECTRICIDAD: ['Foco quemado', 'Tomacorriente dañado', 'Interruptor no funciona', 'Cableado expuesto', 'Otro'],
-  PAREDES: ['Mancha/humedad', 'Pintura descascarada', 'Hueco o grieta', 'Papel mural dañado', 'Otro'],
-  PUERTA: ['Cerradura dañada', 'Bisagra suelta', 'Puerta no cierra', 'Tarjeta/llave no funciona', 'Otro'],
-  VENTANAS: ['Vidrio roto', 'Cortina dañada', 'Ventana no cierra', 'Espejo rajado', 'Otro'],
-  REPARACION: ['Remodelación pendiente', 'Reparación mayor', 'Cambio de equipo', 'Otro'],
-};
-const MANT_CATS = [
-  { key: 'MOBILIARIO', label: 'MOBILIARIO', hint: 'Muebles, cajones, sillas.' },
-  { key: 'ARTEFACTOS', label: 'ARTEFACTOS ELÉCTRICOS', hint: 'TV, frigobar, A/C, control remoto.' },
-  { key: 'BANO', label: 'BAÑO', hint: 'Fugas, goteos, inodoro.' },
-  { key: 'CAMA', label: 'CAMA/COLCHÓN/CABECERA', hint: 'Estado de cama, colchón, cabecera.' },
-  { key: 'ELECTRICIDAD', label: 'ELECTRICIDAD/ILUMINACIÓN', hint: 'Focos, tomas, interruptores.' },
-  { key: 'PAREDES', label: 'PAREDES', hint: 'Manchas, humedad, pintura.' },
-  { key: 'PUERTA', label: 'PUERTA/CERRADURAS', hint: 'Chapas, seguros, bisagras.' },
-  { key: 'VENTANAS', label: 'VENTANAS/ESPEJOS', hint: 'Vidrios, espejos, cortinas.' },
-  { key: 'REPARACION', label: 'REPARACIÓN / REMODELACIÓN', hint: 'Trabajos mayores pendientes.' },
-];
+/** Una línea del formulario "Reportar falla" (en la UI). */
+interface FaultLineUI {
+  category: string;      // clave de categoría del catálogo
+  faultTypeId: string;   // id de la falla elegida
+  faultLabel: string;
+  severity: FaultSeverity | '';
+  observacion: string;
+  photo: string | null;
+}
 
 @Component({
   selector: 'app-habitaciones-board',
@@ -239,13 +225,31 @@ const MANT_CATS = [
                   <button class="frc-btn" (click)="openRepo(r)"><i class="pi pi-box"></i> Ver detalle</button>
                 </div>
               }
+              @if (r.faults?.open) {
+                <div class="flc" [class.crit]="r.blocked">
+                  <div class="flc-h">
+                    <i class="pi" [class.pi-lock]="r.blocked" [class.pi-exclamation-triangle]="!r.blocked"></i>
+                    <div>
+                      <b>{{ r.blocked ? 'BLOQUEADA POR FALLA' : 'FALLA REPORTADA' }}</b>
+                      <small>{{ r.faults!.label }}@if (r.faults!.open > 1) { · +{{ r.faults!.open - 1 }} más }</small>
+                    </div>
+                    <span class="sevb" [class.leve]="r.faults!.topSeverity==='LEVE'" [class.inter]="r.faults!.topSeverity==='INTERMEDIA'" [class.crit]="r.faults!.topSeverity==='CRITICA'">{{ sevShort(r.faults!.topSeverity || '') }}</span>
+                  </div>
+                  @if (r.blocked) { <div class="flc-msg"><i class="pi pi-ban"></i> No se puede alquilar hasta resolver la(s) crítica(s)</div> }
+                  <button class="flc-btn" (click)="openFaults(r)"><i class="pi pi-eye"></i> Ver fallas</button>
+                </div>
+              }
               <div class="rc-foot">
                 <span class="rc-attrs">
                   @if (r.attributes?.length) { {{ attrLabel(r) }} } @else { Sin atributos }
                 </span>
                 <span class="rc-acts">
                   @if (r.status === 'FREE' || r.status === 'RESERVADA') {
-                    <button class="cta sm reg" (click)="openCheckIn(r)"><i class="pi pi-sign-in"></i> Registrar</button>
+                    @if (r.blocked) {
+                      <button class="cta sm reg" disabled pTooltip="Habitación bloqueada por falla crítica" style="opacity:.6;cursor:not-allowed"><i class="pi pi-lock"></i> Bloqueada</button>
+                    } @else {
+                      <button class="cta sm reg" (click)="openCheckIn(r)"><i class="pi pi-sign-in"></i> Registrar</button>
+                    }
                   }
                   @if (isAdminProfile()) { <button class="cta sm light" (click)="openEdit(r)"><i class="pi pi-pencil"></i> Editar</button> }
                   @if (canDeleteRoom()) { <button class="cta sm trash" (click)="deleteRoom(r)" pTooltip="Eliminar habitación"><i class="pi pi-trash"></i></button> }
@@ -311,13 +315,16 @@ const MANT_CATS = [
       } @else {
         <div class="fl-list">
           @for (m of faultsList(); track m.id) {
-            <div class="fl-item" [class.crit]="m.status === 'OPEN'">
+            <div class="fl-item" [class.crit]="m.status === 'OPEN' && m.severity === 'CRITICA'">
               <div class="fl-top">
-                <strong>{{ m.title }}</strong>
+                <strong>{{ m.faultLabel || m.title }}</strong>
+                @if (m.severity) { <span class="sevb" [class.leve]="m.severity==='LEVE'" [class.inter]="m.severity==='INTERMEDIA'" [class.crit]="m.severity==='CRITICA'">{{ sevShort(m.severity) }}</span> }
                 <span class="fl-badge" [class.open]="m.status === 'OPEN'" [class.done]="m.status === 'DONE'">{{ faultStatusLabel(m.status) }}</span>
               </div>
+              @if (m.categoryLabel) { <small class="fl-cat">{{ m.categoryLabel }}</small> }
               @if (m.description) { <small class="fl-desc">{{ m.description }}</small> }
-              <small class="fl-date">{{ m.createdAt | date: 'dd/MM/yyyy HH:mm' }}</small>
+              @if (m.photo) { <img [src]="m.photo" class="fl-ph" alt="foto de la falla" /> }
+              <small class="fl-date">{{ m.createdAt | date: 'dd/MM/yyyy HH:mm' }}@if (m.reporterName) { · {{ m.reporterName }} }</small>
             </div>
           }
         </div>
@@ -710,28 +717,50 @@ const MANT_CATS = [
       </div>
     </p-dialog>
 
-    <!-- Registrar mantenimiento de la habitación -->
-    <p-dialog [(visible)]="mantVisible" [modal]="true" header="Registrar Mantenimiento" [style]="{ width: '46rem', maxWidth: '95vw' }" styleClass="dk-dialog">
-      <p class="muted" style="margin:0 0 0.8rem">Registra el mantenimiento de la habitación <strong>{{ mantRoom?.roomType?.name }} - {{ mantRoom?.number }}</strong>. Selecciona una o más categorías e indica la falla.</p>
-      <div class="mant-cats">
-        @for (c of mantCats; track c.key) {
-          <div class="mant-cat" [class.on]="c.selected">
-            <label class="mant-head"><input type="checkbox" [(ngModel)]="c.selected" /> <span>{{ c.label }}</span></label>
-            <small class="muted">{{ c.hint }}</small>
-            @if (c.selected) {
-              <div class="mant-sec">
-                <p-select [options]="fallasFor(c.key)" [(ngModel)]="c.falla" placeholder="Selecciona la falla..." styleClass="wsel" appendTo="body" />
-                @if (!c.falla) { <div class="req"><i class="pi pi-exclamation-triangle"></i> Selecciona la falla específica</div> }
-                <input pInputText [(ngModel)]="c.observacion" placeholder="Observación (opcional)" class="mant-obs" />
+    <!-- Reportar falla de la habitación -->
+    <p-dialog [(visible)]="mantVisible" [modal]="true" header="Reportar falla" [style]="{ width: '48rem', maxWidth: '96vw' }" styleClass="dk-dialog">
+      <p class="muted" style="margin:0 0 0.8rem">Reporta una o más fallas de la habitación <strong>{{ mantRoom?.roomType?.name }} - {{ mantRoom?.number }}</strong>. La <strong>gravedad</strong> la define la configuración; las <strong>críticas bloquean el alquiler</strong>.</p>
+      @if (faultCatLoading()) {
+        <p class="muted"><i class="pi pi-spin pi-spinner"></i> Cargando catálogo de fallas…</p>
+      } @else if (!faultCatalog().length) {
+        <p class="muted">No hay fallas configuradas. Pídele al administrador que las cargue en <strong>Configuraciones → Ítems de Mantenimiento</strong>.</p>
+      } @else {
+        <div class="fault-lines">
+          @for (line of faultLines; track $index) {
+            <div class="fault-line">
+              <div class="fl-row">
+                <div class="fl-col">
+                  <label>Categoría</label>
+                  <p-select [options]="faultCatOpts()" optionLabel="label" optionValue="value" [ngModel]="line.category" (onChange)="onLineCategory(line, $event.value)" appendTo="body" styleClass="wsel" placeholder="Elegir categoría" />
+                </div>
+                <div class="fl-col">
+                  <label>Falla</label>
+                  <p-select [options]="fallaOpts(line.category)" optionLabel="label" optionValue="value" [ngModel]="line.faultTypeId" (onChange)="onLineFalla(line, $event.value)" appendTo="body" styleClass="wsel" placeholder="Elegir falla" [disabled]="!line.category" />
+                </div>
+                @if (faultLines.length > 1) {
+                  <button class="fl-del" title="Quitar" (click)="removeFaultLine($index)"><i class="pi pi-times"></i></button>
+                }
               </div>
-            }
-          </div>
-        }
-      </div>
-      <label class="mant-crit"><input type="checkbox" [(ngModel)]="mantCritical" /> <span>Mantenimiento crítico</span> <small class="muted">— bloquea la habitación hasta resolverlo</small></label>
+              @if (line.severity) {
+                <div class="fl-sev">
+                  Gravedad:
+                  <span class="sevb" [class.leve]="line.severity==='LEVE'" [class.inter]="line.severity==='INTERMEDIA'" [class.crit]="line.severity==='CRITICA'">{{ sevShort(line.severity) }}</span>
+                  @if (line.severity==='CRITICA') { <span class="fl-warn"><i class="pi pi-lock"></i> bloquea el alquiler</span> }
+                </div>
+              }
+              <input pInputText [(ngModel)]="line.observacion" placeholder="Observación (opcional)" class="fl-obs" />
+              <div class="fl-photo">
+                <label class="fl-up"><i class="pi pi-camera"></i> {{ line.photo ? 'Cambiar foto' : 'Adjuntar foto' }}<input type="file" accept="image/*" (change)="onFaultPhoto(line, $event)" hidden /></label>
+                @if (line.photo) { <img [src]="line.photo" class="fl-thumb" alt="foto" /> <button class="fl-rmphoto" (click)="line.photo = null" title="Quitar foto"><i class="pi pi-trash"></i></button> }
+              </div>
+            </div>
+          }
+        </div>
+        <button class="fl-add" (click)="addFaultLine()"><i class="pi pi-plus"></i> Agregar otra falla</button>
+      }
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="mantVisible = false" />
-        <p-button label="Confirmar Mantenimiento" icon="pi pi-wrench" [disabled]="!canMant() || savingMant()" [loading]="savingMant()" (onClick)="confirmMantenimiento()" />
+        <p-button label="Registrar falla" icon="pi pi-flag" [disabled]="!canMant() || savingMant()" [loading]="savingMant()" (onClick)="confirmMantenimiento()" />
       </ng-template>
     </p-dialog>
 
@@ -830,6 +859,8 @@ const MANT_CATS = [
       .fl-badge.open { background: #fee2e2; color: #b91c1c; }
       .fl-badge.done { background: #dcfce7; color: #15803d; }
       .fl-desc { color: #4b5563; font-size: 0.82rem; }
+      .fl-cat { color: #6b7280; font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+      .fl-ph { max-width: 120px; max-height: 90px; object-fit: cover; border-radius: 8px; border: 1px solid #e5e7eb; margin-top: 0.2rem; }
       .fl-date { color: #9ca3af; font-size: 0.74rem; }
       .note-ta { width: 100%; resize: vertical; font: inherit; }
       @media (max-width: 680px) { .ccard { width: calc(50% - 0.5rem); } }
@@ -843,6 +874,20 @@ const MANT_CATS = [
       .frc-l { display: flex; justify-content: space-between; gap: 0.5rem; background: rgba(0,0,0,0.25); border-radius: 8px; padding: 0.4rem 0.6rem; font-weight: 600; } .frc-q { font-weight: 800; }
       .frc-msg, .frc-ok { margin-top: 0.4rem; font-size: 0.76rem; display: flex; align-items: center; gap: 0.35rem; } .frc-msg { font-style: italic; color: #fde68a; } .frc-ok { color: #bbf7d0; }
       .frc-btn { margin-top: 0.55rem; width: 100%; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.22); color: #fff; border-radius: 9px; padding: 0.55rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
+      /* Banner de falla en la card */
+      .flc { margin: 0.6rem 0; background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.18); border-radius: 12px; padding: 0.7rem 0.8rem; color: #fff; text-align: left; }
+      .flc.crit { background: rgba(127,15,15,0.55); border-color: rgba(248,113,113,0.7); }
+      .flc-h { display: flex; align-items: center; gap: 0.55rem; }
+      .flc-h i { font-size: 1.1rem; }
+      .flc-h div { flex: 1; display: flex; flex-direction: column; }
+      .flc-h b { font-size: 0.82rem; letter-spacing: 0.02em; }
+      .flc-h small { font-size: 0.75rem; opacity: 0.9; }
+      .flc .sevb { font-size: 0.68rem; font-weight: 800; border-radius: 999px; padding: 0.1rem 0.5rem; }
+      .flc .sevb.leve { color: #1f2937; background: #cbd5e1; }
+      .flc .sevb.inter { color: #7c2d12; background: #fcd34d; }
+      .flc .sevb.crit { color: #fff; background: #dc2626; }
+      .flc-msg { margin-top: 0.45rem; font-size: 0.76rem; font-weight: 700; display: flex; align-items: center; gap: 0.3rem; color: #fecaca; }
+      .flc-btn { margin-top: 0.55rem; width: 100%; background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.22); color: #fff; border-radius: 9px; padding: 0.5rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
       .rc-attrs { font-style: italic; font-size: 0.8rem; opacity: 0.85; }
       .rc-acts { display: inline-flex; gap: 0.45rem; }
       .cta.light { background: rgba(255,255,255,0.95); color: #0b1018; }
@@ -1078,15 +1123,27 @@ const MANT_CATS = [
       .dot-opt.green { border-color: #14633f; } .dot-opt.green i { color: #34d399; }
       .dot-opt i { font-size: 1.2rem; color: #93b3d1; flex: 0 0 auto; }
       .dot-opt span { display: flex; flex-direction: column; } .dot-opt strong { font-size: 0.95rem; } .dot-opt small { color: #9fb0c3; font-size: 0.78rem; }
-      .mant-cats { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
-      .mant-cat { background: #131b27; border: 1px solid #243245; border-radius: 10px; padding: 0.7rem 0.8rem; }
-      .mant-cat.on { border-color: #ef4444; }
-      .mant-head { display: flex; align-items: center; gap: 0.5rem; color: #e6e9ef; font-weight: 600; font-size: 0.9rem; cursor: pointer; }
-      .mant-cat small { display: block; margin: 0.15rem 0 0 1.4rem; }
-      .mant-sec { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.4rem; }
-      .mant-sec .mant-obs { width: 100%; background: #0b1220; border: 1px solid #243245; color: #e6e9ef; border-radius: 8px; padding: 0.5rem 0.6rem; }
-      .req { color: #f59e0b; font-size: 0.78rem; display: flex; align-items: center; gap: 0.35rem; }
-      .mant-crit { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.9rem; color: #e6e9ef; font-size: 0.9rem; cursor: pointer; }
+      .fault-lines { display: flex; flex-direction: column; gap: 0.7rem; }
+      .fault-line { background: #131b27; border: 1px solid #243245; border-radius: 10px; padding: 0.7rem 0.8rem; display: flex; flex-direction: column; gap: 0.5rem; }
+      .fl-row { display: flex; gap: 0.6rem; align-items: flex-end; }
+      .fl-col { flex: 1; display: flex; flex-direction: column; gap: 0.3rem; }
+      .fl-col label { font-size: 0.78rem; color: #9fb0c3; font-weight: 600; }
+      .fl-del { flex: 0 0 auto; border: 0; background: transparent; color: #f87171; cursor: pointer; padding: 0.5rem; border-radius: 8px; }
+      .fl-del:hover { background: #2a1620; }
+      .fl-sev { display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: #9fb0c3; }
+      .sevb { font-size: 0.72rem; font-weight: 800; border-radius: 999px; padding: 0.12rem 0.6rem; }
+      .sevb.leve { color: #374151; background: #cbd5e1; }
+      .sevb.inter { color: #7c2d12; background: #fcd34d; }
+      .sevb.crit { color: #fff; background: #dc2626; }
+      .fl-warn { color: #f87171; font-size: 0.76rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.25rem; }
+      .fl-obs { width: 100%; background: #0b1220; border: 1px solid #243245; color: #e6e9ef; border-radius: 8px; padding: 0.5rem 0.6rem; }
+      .fl-photo { display: flex; align-items: center; gap: 0.6rem; }
+      .fl-up { display: inline-flex; align-items: center; gap: 0.4rem; background: #1a2333; border: 1px solid #2c3a4f; color: #cdd7e4; border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.8rem; cursor: pointer; }
+      .fl-up:hover { background: #22304a; }
+      .fl-thumb { width: 42px; height: 42px; object-fit: cover; border-radius: 6px; border: 1px solid #2c3a4f; }
+      .fl-rmphoto { border: 0; background: transparent; color: #f87171; cursor: pointer; padding: 0.3rem; }
+      .fl-add { margin-top: 0.7rem; border: 1px dashed #2c3a4f; background: transparent; color: #93b3d1; border-radius: 8px; padding: 0.5rem 0.8rem; cursor: pointer; font-size: 0.85rem; font-weight: 600; }
+      .fl-add:hover { background: #131b27; }
       :host ::ng-deep .wsel { width: 100%; }
       .est-note { background: #2a1d12; border: 1px solid #6b4f2a; color: #fbbf24; border-radius: 8px; padding: 0.5rem 0.7rem; font-size: 0.8rem; margin: 0; }
     `,
@@ -1329,9 +1386,10 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   // Registro de mantenimiento
   mantVisible = false;
   mantRoom: RoomMapItem | null = null;
-  mantCritical = true;
-  mantCats: { key: string; label: string; hint: string; selected: boolean; falla: string; observacion: string }[] = [];
   readonly savingMant = signal(false);
+  readonly faultCatalog = signal<FaultCatalogCategory[]>([]);
+  readonly faultCatLoading = signal(false);
+  faultLines: FaultLineUI[] = [];
   private timer?: ReturnType<typeof setInterval>;
 
   readonly stateOptions = [
@@ -1483,9 +1541,64 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   /** "Reportar falla" para una habitación concreta (igual que el flujo de mantenimiento existente). */
   openMantFor(r: RoomMapItem): void {
     this.mantRoom = r;
-    this.mantCritical = true;
-    this.mantCats = MANT_CATS.map((c) => ({ ...c, selected: false, falla: '', observacion: '' }));
+    this.faultLines = [this.blankFaultLine()];
     this.mantVisible = true;
+    this.loadFaultCatalog();
+  }
+
+  private blankFaultLine(): FaultLineUI {
+    return { category: '', faultTypeId: '', faultLabel: '', severity: '', observacion: '', photo: null };
+  }
+
+  private loadFaultCatalog(): void {
+    if (this.faultCatalog().length || this.faultCatLoading()) return;
+    this.faultCatLoading.set(true);
+    this.ops.faultCatalog().subscribe({
+      next: (res) => { this.faultCatalog.set(res.data ?? []); this.faultCatLoading.set(false); },
+      error: () => { this.faultCatLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el catálogo de fallas.' }); },
+    });
+  }
+
+  /** Categorías para el p-select (value=clave, label=etiqueta visible). */
+  faultCatOpts(): { label: string; value: string }[] {
+    return this.faultCatalog().map((c) => ({ label: c.categoryLabel, value: c.category }));
+  }
+
+  /** Fallas de una categoría para el p-select (muestra la gravedad). */
+  fallaOpts(catKey: string): { label: string; value: string; severity: FaultSeverity }[] {
+    const cat = this.faultCatalog().find((c) => c.category === catKey);
+    return (cat?.fallas ?? []).map((f) => ({ label: `${f.label}  ·  ${this.sevShort(f.severity)}`, value: f.id, severity: f.severity }));
+  }
+
+  onLineCategory(line: FaultLineUI, catKey: string): void {
+    line.category = catKey;
+    line.faultTypeId = ''; line.faultLabel = ''; line.severity = '';
+  }
+
+  onLineFalla(line: FaultLineUI, faultTypeId: string): void {
+    const cat = this.faultCatalog().find((c) => c.category === line.category);
+    const f = cat?.fallas.find((x) => x.id === faultTypeId);
+    line.faultTypeId = faultTypeId;
+    line.faultLabel = f?.label ?? '';
+    line.severity = f?.severity ?? '';
+  }
+
+  addFaultLine(): void { this.faultLines = [...this.faultLines, this.blankFaultLine()]; }
+  removeFaultLine(i: number): void { this.faultLines = this.faultLines.filter((_, idx) => idx !== i); if (!this.faultLines.length) this.faultLines = [this.blankFaultLine()]; }
+
+  onFaultPhoto(line: FaultLineUI, ev: Event): void {
+    const input = ev.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    if (file.size > 3 * 1024 * 1024) { this.toast.add({ severity: 'warn', summary: 'Imagen muy grande', detail: 'La foto no debe superar 3 MB.' }); input.value = ''; return; }
+    const reader = new FileReader();
+    reader.onload = () => { line.photo = reader.result as string; this.faultLines = [...this.faultLines]; };
+    reader.readAsDataURL(file);
+  }
+
+  sevShort(s: FaultSeverity | '' | null | undefined): string {
+    const map: Record<string, string> = { LEVE: 'Leve', INTERMEDIA: 'Intermedia', CRITICA: 'Crítica' };
+    return map[s ?? ''] ?? '';
   }
 
   /** "Ver fallas": lista los mantenimientos registrados de la habitación (carga bajo demanda). */
@@ -1818,9 +1931,7 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
     // "Mantenimiento" abre el registro de mantenimiento (no fija el estado directamente).
     if (next === 'MAINTENANCE') {
       this.savingEdit.set(false); this.editVisible = false;
-      this.mantRoom = r; this.mantCritical = true;
-      this.mantCats = MANT_CATS.map((c) => ({ ...c, selected: false, falla: '', observacion: '' }));
-      this.mantVisible = true;
+      this.openMantFor(r);
       return;
     }
     // Recepción no puede pasar una habitación en limpieza a Disponible.
@@ -1870,39 +1981,38 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
 
   // ---- Registro de mantenimiento ----
   openMantenimiento(): void {
-    this.mantRoom = this.estadoRoom;
+    const r = this.estadoRoom;
     this.estadoVisible = false;
-    this.mantCritical = true;
-    this.mantCats = MANT_CATS.map((c) => ({ ...c, selected: false, falla: '', observacion: '' }));
-    this.mantVisible = true;
+    if (r) this.openMantFor(r);
   }
 
-  fallasFor(key: string): string[] { return MANT_FALLAS[key] ?? ['Otro']; }
-
-  /** Habilita Confirmar: al menos una categoría marcada y cada una con su falla. */
+  /** Habilita "Registrar falla": al menos una línea con falla elegida. */
   canMant(): boolean {
-    const sel = this.mantCats.filter((c) => c.selected);
-    return sel.length > 0 && sel.every((c) => !!c.falla);
+    return this.faultLines.some((l) => !!l.faultTypeId);
   }
 
   confirmMantenimiento(): void {
     const r = this.mantRoom;
     if (!r || !this.canMant()) return;
-    const sel = this.mantCats.filter((c) => c.selected);
-    const title = `Mantenimiento Hab. ${r.number}: ${sel.map((c) => c.falla).join(', ')}`.slice(0, 150);
-    const description = sel
-      .map((c) => `${c.label}: ${c.falla}${c.observacion ? ` (${c.observacion})` : ''}`)
-      .join(' · ')
-      .slice(0, 500);
+    const fallas: ReportFaultLine[] = this.faultLines
+      .filter((l) => !!l.faultTypeId)
+      .map((l) => ({ faultTypeId: l.faultTypeId, observation: l.observacion || undefined, photo: l.photo || undefined }));
     this.savingMant.set(true);
-    this.ops.maintenances.create({ roomId: r.id, title, description, status: 'OPEN', critical: this.mantCritical }).subscribe({
-      next: () => {
+    this.ops.reportFaults(r.id, fallas).subscribe({
+      next: (res) => {
         this.savingMant.set(false);
         this.mantVisible = false;
-        this.toast.add({ severity: 'success', summary: 'Mantenimiento registrado', detail: 'El estado de la habitación se ha actualizado correctamente.' });
+        const blocked = res.data?.blocked;
+        this.toast.add({
+          severity: blocked ? 'warn' : 'success',
+          summary: blocked ? 'Falla crítica · habitación bloqueada' : 'Falla registrada',
+          detail: blocked
+            ? `Se registró ${fallas.length} falla(s). La habitación quedó BLOQUEADA hasta resolver la(s) crítica(s).`
+            : `Se registró ${fallas.length} falla(s).`,
+        });
         this.reload();
       },
-      error: (err) => { this.savingMant.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo registrar el mantenimiento' }); },
+      error: (err) => { this.savingMant.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo registrar la falla' }); },
     });
   }
 

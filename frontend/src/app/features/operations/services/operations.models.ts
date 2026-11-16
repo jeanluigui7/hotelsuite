@@ -97,6 +97,10 @@ export interface RoomMapItem {
   frigobarEnabled?: boolean;
   // Reposición de frigobar pendiente por falta de stock (la habitación NO se bloquea).
   frigobarReposition?: { reviewId: string; stayId: string; pending: { name: string; qty: number }[]; count: number } | null;
+  // Bloqueo por falla crítica sin resolver (no se puede alquilar).
+  blocked?: boolean;
+  // Resumen de fallas abiertas para el banner de la card.
+  faults?: { open: number; critical: number; intermedia: number; leve: number; topSeverity: 'LEVE' | 'INTERMEDIA' | 'CRITICA' | null; label: string | null } | null;
   activeStay: ActiveStay | null;
 }
 
@@ -187,6 +191,8 @@ export interface ConciergeRequest {
   createdAt: string;
 }
 
+export type FaultSeverity = 'LEVE' | 'INTERMEDIA' | 'CRITICA';
+
 export interface Maintenance {
   id: string;
   roomId?: string | null;
@@ -198,6 +204,46 @@ export interface Maintenance {
   scheduledAt?: string | null;
   completedAt?: string | null;
   createdAt: string;
+  // Falla reportada (catálogo)
+  faultTypeId?: string | null;
+  category?: string | null;
+  categoryLabel?: string | null;
+  faultLabel?: string | null;
+  severity?: FaultSeverity;
+  photo?: string | null;
+  // Reporte / resolución
+  createdByUserId?: string | null;
+  reporterName?: string | null;
+  resolvedAt?: string | null;
+  resolvedByUserId?: string | null;
+  resolverName?: string | null;
+  repairedBy?: string | null;
+  resolutionNotes?: string | null;
+  resolutionPhoto?: string | null;
+}
+
+/** Catálogo de fallas agrupado para el modal "Reportar falla". */
+export interface FaultCatalogCategory {
+  category: string;
+  categoryLabel: string;
+  fallas: { id: string; label: string; severity: FaultSeverity }[];
+}
+
+/** Una línea del formulario "Reportar falla". */
+export interface ReportFaultLine {
+  faultTypeId?: string | null;
+  category?: string | null;
+  categoryLabel?: string | null;
+  faultLabel?: string | null;
+  severity?: FaultSeverity;
+  observation?: string;
+  photo?: string | null;
+}
+
+export interface ReportFaultsResult {
+  items: Maintenance[];
+  blocked: boolean;
+  roomStatus: string | null;
 }
 
 export interface MaintenanceUpsert {

@@ -3,7 +3,7 @@ import { ok } from '../../shared/response';
 import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { maintenanceService } from './maintenance.service';
-import { createMaintenanceSchema, updateMaintenanceSchema } from './maintenance.schema';
+import { createMaintenanceSchema, reportFaultsSchema, updateMaintenanceSchema } from './maintenance.schema';
 
 export const maintenanceController = {
   async list(req: Request, res: Response): Promise<void> {
@@ -13,10 +13,19 @@ export const maintenanceController = {
     const { items, meta } = await maintenanceService.list(req.scope, params, status);
     res.status(200).json(ok(items, meta));
   },
+  async get(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await maintenanceService.get(req.scope, req.params.id)));
+  },
   async create(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const dto = createMaintenanceSchema.parse(req.body);
     res.status(201).json(ok(await maintenanceService.create(req.scope, dto)));
+  },
+  async reportFaults(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = reportFaultsSchema.parse(req.body);
+    res.status(201).json(ok(await maintenanceService.reportFaults(req.scope, dto)));
   },
   async update(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();

@@ -25,6 +25,7 @@ function serializeMap(room: RoomForMap) {
     floor: room.floor,
     tower: room.tower,
     status: room.status,
+    blocked: room.blocked,
     roomType: { id: room.roomType.id, name: room.roomType.name },
     attributes: room.roomType.attributes.map((a) => ({ name: a.attribute.name, icon: a.attribute.icon })),
     notes: room.notes,
@@ -93,6 +94,28 @@ export const roomsService = {
     }
     // Reposición de frigobar pendiente por falta de stock (se muestra en la card aunque esté Disponible).
     const frigoPending = await frigobarReviewService.pendingRepositionByRoom(branchId, rooms.map((r) => r.id));
+    // Fallas abiertas por habitación (para el banner de la card: cantidad, gravedad top y etiqueta).
+    const roomIds = rooms.map((r) => r.id);
+    const openFaults = roomIds.length
+      ? await prisma.maintenance.findMany({
+          where: { branchId, roomId: { in: roomIds }, status: { in: ['OPEN', 'IN_PROGRESS'] } },
+          select: { roomId: true, severity: true, faultLabel: true, title: true },
+        })
+      : [];
+    const sevRank = (s: string): number => (s === 'CRITICA' ? 3 : s === 'INTERMEDIA' ? 2 : 1);
+    type FaultSummary = { open: number; critical: number; intermedia: number; leve: number; topSeverity: string | null; label: string | null; topRank: number };
+    const faultsByRoom = new Map<string, FaultSummary>();
+    for (const f of openFaults) {
+      if (!f.roomId) continue;
+      let g = faultsByRoom.get(f.roomId);
+      if (!g) { g = { open: 0, critical: 0, intermedia: 0, leve: 0, topSeverity: null, label: null, topRank: 0 }; faultsByRoom.set(f.roomId, g); }
+      g.open += 1;
+      if (f.severity === 'CRITICA') g.critical += 1;
+      else if (f.severity === 'INTERMEDIA') g.intermedia += 1;
+      else g.leve += 1;
+      const rank = sevRank(f.severity);
+      if (rank >= g.topRank) { g.topRank = rank; g.topSeverity = f.severity; g.label = f.faultLabel ?? f.title ?? null; }
+    }
     // Resumen de SERVICIOS INCLUIDOS para la card: beneficio del período vigente (o el próximo
     // programado), con progreso entregado/incluido. No muestra vencidos como disponibles.
     const benefitRows = stayIds.length
@@ -125,13 +148,17 @@ export const roomsService = {
       const m = serializeMap(r);
       const fp = frigoPending.get(r.id);
       const frigobarReposition = fp ? { reviewId: fp.reviewId, stayId: fp.stayId, pending: fp.pending, count: fp.pending.reduce((a, l) => a + l.qty, 0) } : null;
+      const g = faultsByRoom.get(r.id);
+      const faults = g
+        ? { open: g.open, critical: g.critical, intermedia: g.intermedia, leve: g.leve, topSeverity: g.topSeverity, label: g.label }
+        : null;
       if (m.activeStay) {
         const bd = m.activeStay.balanceDue ? Number(m.activeStay.balanceDue) : 0;
         const sp = salesPending.get(m.activeStay.id) ?? 0;
         const cons = Math.round((consumos.get(m.activeStay.id) ?? 0) * 100) / 100;
-        return { ...m, frigobarReposition, activeStay: { ...m.activeStay, pending: Math.round((bd + sp) * 100) / 100, consumosTotal: cons, renewalCleaningTotal: cleaningTotal, benefit: cardBenefit(benefitByStay.get(m.activeStay.id)) } };
+        return { ...m, frigobarReposition, faults, activeStay: { ...m.activeStay, pending: Math.round((bd + sp) * 100) / 100, consumosTotal: cons, renewalCleaningTotal: cleaningTotal, benefit: cardBenefit(benefitByStay.get(m.activeStay.id)) } };
       }
-      return { ...m, frigobarReposition };
+      return { ...m, frigobarReposition, faults };
     });
   },
 

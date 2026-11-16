@@ -9,11 +9,14 @@ import type {
   CheckoutSummary,
   ConciergeRequest,
   ConsumptionInput,
+  FaultCatalogCategory,
   HousekeepingTask,
   InspectInput,
   Maintenance,
   MaintenanceUpsert,
   Observation,
+  ReportFaultLine,
+  ReportFaultsResult,
   Reservation,
   Revision,
   RevisionUpsert,
@@ -38,6 +41,16 @@ export class OperationsApiService {
 
   map(): Observable<ApiResponse<RoomMapItem[]>> {
     return this.http.get<ApiResponse<RoomMapItem[]>>(`${this.api}/rooms/map`);
+  }
+
+  /** Catálogo de fallas (agrupado por categoría) para el modal "Reportar falla". */
+  faultCatalog(): Observable<ApiResponse<FaultCatalogCategory[]>> {
+    return this.http.get<ApiResponse<FaultCatalogCategory[]>>(`${this.api}/fault-types/catalog`);
+  }
+
+  /** Reporta una o más fallas de una habitación (crea un mantenimiento por cada una). */
+  reportFaults(roomId: string, fallas: ReportFaultLine[]): Observable<ApiResponse<ReportFaultsResult>> {
+    return this.http.post<ApiResponse<ReportFaultsResult>>(`${this.api}/maintenances/report-fault`, { roomId, fallas });
   }
 
   changeRoomStatus(id: string, status: RoomStatus): Observable<ApiResponse<Room>> {

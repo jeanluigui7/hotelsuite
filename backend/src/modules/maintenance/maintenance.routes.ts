@@ -10,6 +10,8 @@ export const maintenanceRouter = Router();
 maintenanceRouter.use(authenticate(), tenant());
 
 maintenanceRouter.get('/maintenances', requirePermission('operations', 'view'), asyncHandler(maintenanceController.list));
+maintenanceRouter.post('/maintenances/report-fault', requirePermission('operations', 'create'), asyncHandler(maintenanceController.reportFaults));
+maintenanceRouter.get('/maintenances/:id', requirePermission('operations', 'view'), asyncHandler(maintenanceController.get));
 maintenanceRouter.post('/maintenances', requirePermission('operations', 'create'), asyncHandler(maintenanceController.create));
 maintenanceRouter.put('/maintenances/:id', requirePermission('operations', 'edit'), asyncHandler(maintenanceController.update));
 maintenanceRouter.delete('/maintenances/:id', requirePermission('operations', 'delete'), asyncHandler(maintenanceController.remove));
