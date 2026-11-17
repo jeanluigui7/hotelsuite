@@ -20,6 +20,14 @@ const routes: Routes = [
     loadComponent: () => import('./reservas/reservas-shell.component').then((m) => m.ReservasShellComponent),
   },
   {
+    path: 'reservas/nueva',
+    loadComponent: () => import('./reservas/reservas-wizard.component').then((m) => m.ReservasWizardComponent),
+  },
+  {
+    path: 'reservas/:id/editar',
+    loadComponent: () => import('./reservas/reservas-wizard.component').then((m) => m.ReservasWizardComponent),
+  },
+  {
     path: 'observaciones',
     loadComponent: () => import('./observaciones/observations.component').then((m) => m.ObservationsComponent),
   },

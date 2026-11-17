@@ -246,6 +246,7 @@ export class ReservasShellComponent implements OnInit {
 
   onAction(a: ReservaAction): void {
     if (a.type === 'ver') { this.openDetail(a.reserva); return; }
+    if (a.type === 'modificar') { this.router.navigate(['/operations/reservas', a.reserva.id, 'editar']); return; }
     const labels: Record<ReservaAction['type'], string> = {
       ver: 'Ver', documentos: 'Documentos', pago: 'Registrar pago', modificar: 'Modificar',
       confirmar: 'Confirmar tentativa', checkin: 'Preparar check-in', cancelar: 'Cancelar reserva', noshow: 'No presentación',
@@ -253,8 +254,9 @@ export class ReservasShellComponent implements OnInit {
     this.pendiente(labels[a.type]);
   }
 
-  nueva(_k: 'reserva' | 'proforma'): void {
-    this.pendiente('Nueva ' + _k + ' (asistente)');
+  nueva(k: 'reserva' | 'proforma'): void {
+    if (k === 'reserva') { this.router.navigate(['/operations/reservas/nueva']); return; }
+    this.pendiente('Nueva proforma (asistente)');
   }
   goConfig(): void {
     this.pendiente('Configuración de reservas');

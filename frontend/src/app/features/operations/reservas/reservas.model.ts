@@ -96,6 +96,8 @@ export interface ReservaHabitacion {
   rateLabel?: string | null;
   precio?: number | null;
   guestsCount: number;
+  adults?: number;
+  children?: number;
   /** Atributos obligatorios (requisitos) vs. preferencias (deseables). */
   requisitos: string[];
   preferencias: string[];
@@ -279,6 +281,37 @@ export function reservaFromApi(r: Reservation, index: number): Reserva {
     origin: 'REAL',
     persistencia: 'CONECTADO',
   };
+}
+
+/**
+ * Lista de campos de la operación que el backend actual NO puede conservar, por lo que
+ * un guardado real descartaría datos. Si devuelve algo, el guardado queda "pendiente de
+ * conexión" (no se guarda parcial ni en silencio). Vacío = representable con el endpoint.
+ */
+export function representabilityBlockers(r: Reserva): string[] {
+  const b: string[] = [];
+  if (r.habitaciones.length !== 1) b.push('Más de una habitación');
+  const h = r.habitaciones[0];
+  if (h) {
+    if (!h.roomTypeId) b.push('Tipo de habitación sin definir');
+    if (h.requisitos.length || h.preferencias.length) b.push('Requisitos/preferencias de habitación');
+    if (h.huespedes.length > 0) b.push('Huéspedes detallados por habitación');
+  }
+  if (r.cochera.requiere) b.push('Cochera');
+  if (r.pagos.length) b.push('Pagos recibidos');
+  if (r.pagosProgramados.length) b.push('Pagos programados');
+  if (r.contacto.tipo === 'EMPRESA') b.push('Datos de empresa');
+  if (r.contacto.email) b.push('Correo del contacto');
+  if (r.contacto.telefonoAlt) b.push('Teléfono adicional');
+  if (r.origen !== 'RECEPCION') b.push('Origen distinto de Recepción');
+  if (r.observacionCliente) b.push('Observación visible al cliente');
+  return b;
+}
+
+/** Duración en minutos entre entrada y salida (mínimo 1). */
+export function durationMinutesOf(entradaAt: string, salidaAt: string): number {
+  const mins = Math.round((new Date(salidaAt).getTime() - new Date(entradaAt).getTime()) / 60000);
+  return Math.max(1, mins);
 }
 
 /** Resumen "N de M habitaciones …" para listas y tarjetas. */

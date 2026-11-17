@@ -121,7 +121,26 @@ export class ReservasStore {
   }
 
   byId(id: string): Reserva | undefined {
-    return this.reservas().find((r) => r.id === id);
+    return this.reservas().find((r) => r.id === id) ?? this.demoReservas().find((r) => r.id === id) ?? this.realReservas().find((r) => r.id === id);
+  }
+
+  /** Siguiente código correlativo R-#### sobre la fuente activa (solo presentación). */
+  nextCodigo(): string {
+    const n = this.reservas().length + 1;
+    return `R-${String(n).padStart(4, '0')}`;
+  }
+
+  /** Guarda una reserva SOLO en la demostración aislada (nunca toca backend ni caja). */
+  addDemoReserva(r: Reserva): void {
+    if (this.demoReservas().length === 0) this.seedDemo();
+    this.demoReservas.update((list) => [{ ...r, origin: 'DEMO', persistencia: 'PENDIENTE_CONEXION' }, ...list]);
+    this.source.set('DEMO');
+  }
+
+  /** Reemplaza una reserva de la demostración por su versión editada. */
+  updateDemoReserva(r: Reserva): void {
+    this.demoReservas.update((list) => list.map((x) => (x.id === r.id ? { ...r, origin: 'DEMO' } : x)));
+    this.source.set('DEMO');
   }
 
   // ── Datos de demostración (aislados, sello DEMO) ──

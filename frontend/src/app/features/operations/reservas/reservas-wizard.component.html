@@ -1,0 +1,280 @@
+<section class="wz">
+  <header class="wz-top">
+    <div>
+      <h1>{{ mode === 'edit' ? 'Editar reserva' : 'Nueva reserva' }}</h1>
+      <span class="code">{{ codigo }}</span>
+    </div>
+    <p-button icon="pi pi-times" [text]="true" severity="secondary" (onClick)="cancelar()" label="Cerrar" />
+  </header>
+
+  <ol class="wz-steps">
+    @for (s of steps; track s; let i = $index) {
+      <li [class.active]="step() === i + 1" [class.done]="step() > i + 1">
+        <span class="n">{{ i + 1 }}</span>{{ s }}
+      </li>
+    }
+  </ol>
+
+  <div class="wz-body">
+    @switch (step()) {
+      <!-- PASO 1 -->
+      @case (1) {
+        <div class="panel">
+          <h3>Estadía</h3>
+          <div class="grid">
+            <div class="fld"><label>Modalidad</label><p-select [options]="modalidadOpts" optionLabel="label" optionValue="value" [(ngModel)]="modalidad" styleClass="w-full" /></div>
+            <div class="fld"><label>Entrada</label><input type="datetime-local" [(ngModel)]="entradaAt" /></div>
+            <div class="fld"><label>Salida</label><input type="datetime-local" [(ngModel)]="salidaAt" /></div>
+            <div class="fld"><label>Duración</label><div class="readonly">{{ duracionLabel() }}</div></div>
+          </div>
+          <p-button label="Consultar disponibilidad" icon="pi pi-search" severity="secondary" size="small" (onClick)="consultarDisponibilidad()" />
+          @if (availabilityChecked) { <span class="muted small aprox"><i class="pi pi-info-circle"></i> Disponibilidad aproximada (sin validación real de fechas/atributos — conexión pendiente).</span> }
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>Habitaciones</h3><p-button label="Agregar habitación" icon="pi pi-plus" size="small" (onClick)="addRoom()" /></div>
+          @for (r of rooms; track r.uid; let i = $index) {
+            <div class="room-card">
+              <div class="room-head"><strong>Habitación {{ i + 1 }}</strong>@if (rooms.length > 1) { <p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="removeRoom(r)" /> }</div>
+              <div class="grid">
+                <div class="fld"><label>Tipo</label><p-select [options]="roomTypeOpts()" optionLabel="label" optionValue="value" [(ngModel)]="r.roomTypeId" (onChange)="onRoomTypeChange(r)" placeholder="Seleccionar" styleClass="w-full" /></div>
+                <div class="fld"><label>Tarifa</label><p-select [options]="ratesFor(r.roomTypeId)" optionLabel="label" optionValue="id" [(ngModel)]="r.rateId" (onChange)="onRateChange(r)" placeholder="—" styleClass="w-full"><ng-template let-rt pTemplate="item">{{ rt.label }} · S/ {{ rt.price }}</ng-template></p-select></div>
+                <div class="fld"><label>Precio (S/)</label><p-inputNumber [(ngModel)]="r.precio" mode="decimal" [minFractionDigits]="2" styleClass="w-full" /></div>
+                <div class="fld"><label>Adultos</label><p-inputNumber [(ngModel)]="r.adults" [min]="1" styleClass="w-full" /></div>
+                <div class="fld"><label>Niños</label><p-inputNumber [(ngModel)]="r.children" [min]="0" styleClass="w-full" /></div>
+              </div>
+              <div class="grid">
+                <div class="fld"><label>Requisitos (obligatorios)</label><p-multiSelect [options]="attrOpts()" optionLabel="label" optionValue="value" [(ngModel)]="r.requisitos" placeholder="Atributos exigidos" styleClass="w-full" /></div>
+                <div class="fld"><label>Preferencias (deseables)</label><p-multiSelect [options]="attrOpts()" optionLabel="label" optionValue="value" [(ngModel)]="r.preferencias" placeholder="Atributos deseables" styleClass="w-full" /></div>
+              </div>
+              <div class="grid">
+                <div class="fld">
+                  <label>Número de habitación</label>
+                  <p-select [options]="freeRoomsFor(r)" optionLabel="number" optionValue="id" [(ngModel)]="r.roomId" (onChange)="onAssignRoom(r)" [showClear]="true" placeholder="Por asignar" styleClass="w-full">
+                    <ng-template let-rm pTemplate="item">Hab. {{ rm.number }}</ng-template>
+                  </p-select>
+                  @if (!availabilityChecked) { <span class="muted small">Pulsa "Consultar disponibilidad" para asignar ahora, o déjala por asignar.</span> }
+                </div>
+              </div>
+            </div>
+          }
+        </div>
+
+        <div class="panel">
+          <h3>Cochera</h3>
+          <label class="chk"><input type="checkbox" [(ngModel)]="cochera.requiere" /> ¿Requiere cochera?</label>
+          @if (cochera.requiere) {
+            <div class="grid">
+              <div class="fld"><label>Vehículos</label><p-inputNumber [(ngModel)]="cochera.vehiculos" [min]="1" styleClass="w-full" /></div>
+              <div class="fld"><label>Estado</label><p-select [options]="[{label:'Solicitada',value:'SOLICITADA'},{label:'Confirmada',value:'CONFIRMADA'}]" optionLabel="label" optionValue="value" [(ngModel)]="cochera.estado" styleClass="w-full" /></div>
+              <div class="fld"><label>Precio (S/)</label><p-inputNumber [(ngModel)]="cochera.precio" mode="decimal" [minFractionDigits]="2" styleClass="w-full" /></div>
+              <div class="fld"><label>Placas (opcional, separadas por coma)</label><input pInputText [(ngModel)]="cochera.placasText" placeholder="ABC-123, XYZ-789" /></div>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- PASO 2 -->
+      @case (2) {
+        <div class="panel">
+          <h3>Persona que reserva</h3>
+          <div class="grid">
+            <div class="fld"><label>Tipo</label><p-select [options]="tipoOpts" optionLabel="label" optionValue="value" [(ngModel)]="contacto.tipo" styleClass="w-full" /></div>
+            <div class="fld">
+              <label>Buscar cliente existente</label>
+              <div class="search-row"><input pInputText placeholder="Nombre o documento…" [(ngModel)]="guestSearch" (keyup.enter)="searchGuests()" /><p-button icon="pi pi-search" (onClick)="searchGuests()" /></div>
+            </div>
+            <div class="fld"><label>Cliente registrado</label><p-select [options]="guestResults()" optionValue="id" [(ngModel)]="contacto.guestId" [showClear]="true" placeholder="Sin vincular" (onChange)="onGuestPick()" styleClass="w-full"><ng-template let-g pTemplate="item">{{ g.firstName }} {{ g.lastName }} · {{ g.documentNumber }}</ng-template><ng-template let-g pTemplate="selectedItem">{{ g.firstName }} {{ g.lastName }}</ng-template></p-select></div>
+          </div>
+          <div class="grid">
+            <div class="fld"><label>Tipo doc.</label><p-select [options]="docOpts" optionLabel="label" optionValue="value" [(ngModel)]="contacto.documentType" styleClass="w-full" /></div>
+            <div class="fld"><label>Número doc.</label><input pInputText [(ngModel)]="contacto.documentNumber" /></div>
+            <div class="fld"><label>{{ contacto.tipo === 'EMPRESA' ? 'Razón social' : 'Nombre completo' }}</label><input pInputText [(ngModel)]="contacto.nombre" /></div>
+          </div>
+          <div class="grid">
+            <div class="fld"><label>Teléfono principal</label><input pInputText [(ngModel)]="contacto.telefono" placeholder="+51 …" /></div>
+            <div class="fld"><label>Teléfono adicional</label><input pInputText [(ngModel)]="contacto.telefonoAlt" /></div>
+            <div class="fld"><label>Correo</label><input pInputText [(ngModel)]="contacto.email" /></div>
+            <div class="fld"><label>Origen</label><p-select [options]="origenOpts" optionLabel="label" optionValue="value" [(ngModel)]="origen" styleClass="w-full" /></div>
+          </div>
+          <label class="chk"><input type="checkbox" [(ngModel)]="contacto.seHospeda" /> La persona que reserva también se hospedará</label>
+          @if (contacto.seHospeda) {
+            <div class="fld narrow"><label>¿En qué habitación?</label><p-select [options]="rooms" optionValue="uid" [(ngModel)]="contacto.hospedajeRoomUid" placeholder="Seleccionar" styleClass="w-full"><ng-template let-rm pTemplate="item">{{ rm.roomTypeName || 'Habitación' }} {{ rm.roomNumber ? '· ' + rm.roomNumber : '(por asignar)' }}</ng-template></p-select></div>
+          }
+        </div>
+
+        <div class="panel">
+          <h3>Huéspedes por habitación</h3>
+          @for (r of rooms; track r.uid; let i = $index) {
+            <div class="room-card">
+              <div class="room-head">
+                <strong>Habitación {{ i + 1 }} — {{ r.roomTypeName || 'Tipo' }} {{ r.roomNumber ? '· ' + r.roomNumber : '(por asignar)' }}</strong>
+                <p-button label="Agregar huésped" icon="pi pi-user-plus" size="small" [text]="true" (onClick)="openHuesped(r.uid)" />
+              </div>
+              @if (r.huespedes.length === 0) { <span class="muted small"><i class="pi pi-exclamation-circle"></i> Sin huéspedes registrados (se podrán completar antes del check-in).</span> }
+              @for (h of r.huespedes; track h.uid) {
+                <div class="guest-row"><span>{{ h.firstName }} {{ h.lastName }} · {{ h.documentType }} {{ h.documentNumber }}</span><p-button icon="pi pi-times" [text]="true" severity="danger" size="small" (onClick)="removeHuesped(r, h)" /></div>
+              }
+            </div>
+          }
+        </div>
+
+        <div class="panel">
+          <h3>Datos para comprobante</h3>
+          <div class="grid">
+            <div class="fld"><label>Tipo</label><p-select [options]="[{label:'Boleta',value:'BOLETA'},{label:'Factura',value:'FACTURA'},{label:'Completar después',value:'DESPUES'}]" optionLabel="label" optionValue="value" [(ngModel)]="comprobante" styleClass="w-full" /></div>
+            @if (comprobante === 'FACTURA') {
+              <div class="fld"><label>Titular / RUC (si difiere)</label><input pInputText [(ngModel)]="comprobanteTitular" /></div>
+            }
+          </div>
+          @if (comprobante === 'FACTURA') { <span class="muted small"><i class="pi pi-link"></i> La facturación se emite en el módulo fiscal; aquí solo se registran los datos (conexión pendiente).</span> }
+        </div>
+      }
+
+      <!-- PASO 3 -->
+      @case (3) {
+        <div class="panel">
+          <h3>Resumen</h3>
+          <div class="totals">
+            <div><span>Total</span><b>S/ {{ totalVal | number: '1.2-2' }}</b></div>
+            <div><span>Pagos recibidos</span><b>S/ {{ pagadoVal | number: '1.2-2' }}</b></div>
+            <div><span>Saldo</span><b [class.pos]="saldoVal > 0">S/ {{ saldoVal | number: '1.2-2' }}</b></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>Pagos recibidos</h3><p-button label="Registrar pago" icon="pi pi-plus" size="small" (onClick)="openPago()" /></div>
+          @if (pagos.length === 0) { <span class="muted small">Sin pagos. Puedes guardar sin pago por ahora.</span> }
+          @for (p of pagos; track p.id) {
+            <div class="line"><span>S/ {{ p.importe | number: '1.2-2' }} · {{ p.medio }} @if (p.operacion) { · op. {{ p.operacion }} }</span><p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="removePago(p)" /></div>
+          }
+          <span class="muted small note"><i class="pi pi-link"></i> Registrar un pago aquí no mueve caja todavía (conexión pendiente). Queda en la reserva.</span>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>Próximos pagos (programados)</h3><p-button label="Agregar" icon="pi pi-plus" size="small" severity="secondary" (onClick)="openProg()" /></div>
+          @if (programados.length === 0) { <span class="muted small">Sin pagos programados. Un pago programado no cuenta como dinero recibido.</span> }
+          @for (p of programados; track p.id) {
+            <div class="line"><span>Vence {{ p.vence || '—' }} · {{ p.modo === 'FIJO' ? ('S/ ' + p.valor) : (p.valor + '% de ' + (p.base === 'TOTAL' ? 'total' : 'saldo')) }} = <b>S/ {{ progImporte(p) | number: '1.2-2' }}</b></span><p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="removeProg(p)" /></div>
+          }
+        </div>
+
+        <div class="panel">
+          <h3>Condiciones</h3>
+          <div class="grid">
+            <div class="fld"><label>Política aplicable</label><input pInputText [(ngModel)]="condiciones.politica" placeholder="(desde configuración — pendiente)" /></div>
+            <div class="fld"><label>Adelanto requerido (S/)</label><p-inputNumber [(ngModel)]="condiciones.adelanto" mode="decimal" [minFractionDigits]="2" styleClass="w-full" /></div>
+            <div class="fld"><label>Vence la tentativa</label><input type="datetime-local" [(ngModel)]="condiciones.venceTentativa" /></div>
+            <div class="fld"><label>Plazo para pagar</label><input pInputText [(ngModel)]="condiciones.plazo" /></div>
+          </div>
+          <div class="grid">
+            <div class="fld"><label>Condiciones de cancelación</label><input pInputText [(ngModel)]="condiciones.cancelacion" /></div>
+            <div class="fld"><label>Condiciones de no presentación</label><input pInputText [(ngModel)]="condiciones.noShow" /></div>
+            <div class="fld"><label>Aceptación</label><p-select [options]="[{label:'Pendiente',value:'PENDIENTE'},{label:'Registrada',value:'REGISTRADA'}]" optionLabel="label" optionValue="value" [(ngModel)]="condiciones.aceptacion" styleClass="w-full" /></div>
+          </div>
+          <span class="muted small note"><i class="pi pi-info-circle"></i> Los porcentajes y plazos definitivos saldrán de la configuración de reservas (tanda posterior).</span>
+        </div>
+      }
+
+      <!-- PASO 4 -->
+      @case (4) {
+        <div class="panel review">
+          <h3>Revisión</h3>
+          <div class="rev-grid">
+            <div><h4>Contacto</h4><p>{{ contacto.nombre || '—' }}<br /><span class="muted small">{{ contacto.telefono }} · {{ origenLabel[origen] }}</span></p></div>
+            <div><h4>Estadía</h4><p>{{ modalidadLabel[modalidad] }}<br /><span class="muted small">{{ entradaAt }} → {{ salidaAt }} · {{ duracionLabel() }}</span></p></div>
+            <div><h4>Cochera</h4><p>{{ cochera.requiere ? (cochera.vehiculos + ' vehículo(s) · ' + cochera.estado) : 'No requiere' }}</p></div>
+            <div><h4>Importes</h4><p>Total S/ {{ totalVal | number: '1.2-2' }} · Pagado S/ {{ pagadoVal | number: '1.2-2' }} · Saldo S/ {{ saldoVal | number: '1.2-2' }}</p></div>
+          </div>
+          <h4>Habitaciones solicitadas</h4>
+          @for (r of rooms; track r.uid; let i = $index) {
+            <div class="rev-room">
+              <strong>{{ i + 1 }}. {{ r.roomTypeName || 'Tipo' }}</strong> — {{ r.roomNumber ? ('Hab. ' + r.roomNumber) : 'Por asignar' }} · {{ r.adults }}A/{{ r.children }}N · S/ {{ r.precio ?? 0 | number: '1.2-2' }}
+              @if (r.requisitos.length) { <div class="muted small">Obligatorio: {{ r.requisitos.join(', ') }}</div> }
+              @if (r.preferencias.length) { <div class="muted small">Preferencia: {{ r.preferencias.join(', ') }}</div> }
+              @if (r.huespedes.length) { <div class="muted small">Huéspedes: {{ r.huespedes.length }}</div> } @else { <div class="pend-pill small"><i class="pi pi-exclamation-circle"></i> Huéspedes pendientes</div> }
+            </div>
+          }
+          <div class="grid">
+            <div class="fld"><label>Nota interna (no se muestra al cliente)</label><input pInputText [(ngModel)]="notaInterna" /></div>
+            <div class="fld"><label>Observación visible para el cliente</label><input pInputText [(ngModel)]="observacionCliente" /></div>
+          </div>
+        </div>
+      }
+    }
+  </div>
+
+  <footer class="wz-foot">
+    <p-button label="Atrás" icon="pi pi-arrow-left" severity="secondary" [disabled]="step() === 1" (onClick)="back()" />
+    <div class="spacer"></div>
+    @if (step() < 4) {
+      <p-button label="Siguiente" icon="pi pi-arrow-right" iconPos="right" (onClick)="next()" />
+    } @else {
+      <p-button label="Guardar tentativa" icon="pi pi-bookmark" severity="secondary" [loading]="saving()" (onClick)="guardar('TENTATIVA')" />
+      <p-button label="Guardar y confirmar" icon="pi pi-check" [loading]="saving()" (onClick)="guardar('CONFIRMADA')" />
+    }
+  </footer>
+</section>
+
+<!-- Agregar huésped -->
+<p-dialog [(visible)]="huespedDialog" [modal]="true" [style]="{ width: '760px' }" header="Agregar huésped">
+  <div class="grid">
+    <div class="fld"><label>Nombres</label><input pInputText [(ngModel)]="huespedForm.firstName" /></div>
+    <div class="fld"><label>Apellidos</label><input pInputText [(ngModel)]="huespedForm.lastName" /></div>
+    <div class="fld"><label>Tipo doc.</label><p-select [options]="docOpts" optionLabel="label" optionValue="value" [(ngModel)]="huespedForm.documentType" styleClass="w-full" /></div>
+    <div class="fld"><label>Número doc.</label><input pInputText [(ngModel)]="huespedForm.documentNumber" /></div>
+    <div class="fld"><label>Nacionalidad</label><input pInputText [(ngModel)]="huespedForm.nationality" /></div>
+    <div class="fld"><label>Teléfono (opcional)</label><input pInputText [(ngModel)]="huespedForm.phone" /></div>
+  </div>
+  <ng-template pTemplate="footer">
+    <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="huespedDialog = false" />
+    <p-button label="Guardar" icon="pi pi-check" (onClick)="saveHuesped()" />
+  </ng-template>
+</p-dialog>
+
+<!-- Registrar pago -->
+<p-dialog [(visible)]="pagoDialog" [modal]="true" [style]="{ width: '620px' }" header="Registrar pago recibido">
+  <div class="grid">
+    <div class="fld"><label>Importe (S/)</label><p-inputNumber [(ngModel)]="pagoForm.importe" mode="decimal" [minFractionDigits]="2" styleClass="w-full" /></div>
+    <div class="fld"><label>Medio de pago</label><p-select [options]="payMethods" optionLabel="label" optionValue="value" [(ngModel)]="pagoForm.medio" styleClass="w-full" /></div>
+    <div class="fld"><label>Caja / cuenta destino</label><input pInputText [(ngModel)]="pagoForm.destino" /></div>
+    <div class="fld"><label>Fecha y hora</label><input type="datetime-local" [(ngModel)]="pagoForm.fecha" /></div>
+    <div class="fld"><label>N° de operación</label><input pInputText [(ngModel)]="pagoForm.operacion" /></div>
+    <div class="fld"><label>Observación</label><input pInputText [(ngModel)]="pagoForm.observacion" /></div>
+  </div>
+  <span class="muted small"><i class="pi pi-link"></i> Registra dinero recibido en la reserva; no realiza un cargo en tarjeta ni mueve caja (conexión pendiente).</span>
+  <ng-template pTemplate="footer">
+    <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="pagoDialog = false" />
+    <p-button label="Agregar pago" icon="pi pi-check" (onClick)="savePago()" />
+  </ng-template>
+</p-dialog>
+
+<!-- Pago programado -->
+<p-dialog [(visible)]="progDialog" [modal]="true" [style]="{ width: '560px' }" header="Próximo pago">
+  <div class="grid">
+    <div class="fld"><label>Vence</label><input type="datetime-local" [(ngModel)]="progForm.vence" /></div>
+    <div class="fld"><label>Modo</label><p-select [options]="modoProgOpts" optionLabel="label" optionValue="value" [(ngModel)]="progForm.modo" styleClass="w-full" /></div>
+    <div class="fld"><label>{{ progForm.modo === 'FIJO' ? 'Monto (S/)' : 'Porcentaje (%)' }}</label><p-inputNumber [(ngModel)]="progForm.valor" styleClass="w-full" /></div>
+    @if (progForm.modo === 'PORCENTAJE') {
+      <div class="fld"><label>Base</label><p-select [options]="baseProgOpts" optionLabel="label" optionValue="value" [(ngModel)]="progForm.base" styleClass="w-full" /></div>
+    }
+  </div>
+  <ng-template pTemplate="footer">
+    <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="progDialog = false" />
+    <p-button label="Agregar" icon="pi pi-check" (onClick)="saveProg()" />
+  </ng-template>
+</p-dialog>
+
+<!-- Guardado pendiente de conexión -->
+<p-dialog [(visible)]="pendingVisible" [modal]="true" [style]="{ width: '560px' }" header="Guardado pendiente de conexión">
+  <p>Esta operación incluye datos que el sistema todavía no puede guardar de forma íntegra:</p>
+  <ul class="blockers">
+    @for (b of pendingBlockers(); track b) { <li><i class="pi pi-link"></i> {{ b }}</li> }
+    @if (editingDemo) { <li><i class="pi pi-flask"></i> Es una reserva de demostración</li> }
+  </ul>
+  <p class="muted small">Para no descartar datos ni guardar a medias, puedes conservarla en la <strong>Demostración aislada</strong> (no toca backend ni caja). El guardado real completo llega en las siguientes etapas.</p>
+  <ng-template pTemplate="footer">
+    <p-button label="Volver a editar" severity="secondary" [text]="true" (onClick)="pendingVisible = false" />
+    <p-button label="Guardar en Demostración" icon="pi pi-flask" (onClick)="guardarEnDemo()" />
+  </ng-template>
+</p-dialog>
