@@ -114,6 +114,10 @@ const routes: Routes = [
     loadComponent: () =>
       import('./acceso-dispositivo/device-access.component').then((m) => m.DeviceAccessComponent),
   },
+  {
+    path: 'reservas',
+    loadComponent: () => import('./reservas/reservas-config.component').then((m) => m.ReservasConfigComponent),
+  },
   { path: ':sub', component: PlaceholderPageComponent },
 ];
 

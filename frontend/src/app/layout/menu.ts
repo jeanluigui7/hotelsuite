@@ -241,6 +241,7 @@ export const ADMIN_MENU: MenuItem[] = [
       { label: 'Sucursales', route: '/settings/sucursales' },
       { label: 'Hotel', route: '/settings/hotel' },
       { label: 'Configuración Operativa', route: '/settings/configuracion-operativa' },
+      { label: 'Reservas', route: '/settings/reservas' },
       { label: 'Pernoctación (Día Hotelero)', route: '/settings/pernoctacion' },
       { label: 'Tickets', route: '/settings/tickets' },
       { label: 'Clientes', route: '/settings/clientes' },

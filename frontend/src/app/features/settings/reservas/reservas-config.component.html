@@ -1,0 +1,138 @@
+<section>
+  <header class="cfg-head">
+    <div>
+      <h1>Configuración de reservas</h1>
+      <p class="muted">Estructura y campos de la política de reservas. Separada de las condiciones de estadía.</p>
+    </div>
+    @if (canEdit) { <p-button label="Guardar borrador" icon="pi pi-save" (onClick)="guardar()" /> }
+  </header>
+
+  <div class="cfg-banner">
+    <i class="pi pi-info-circle"></i>
+    <span>Diseño de estructura. Los valores se guardan como <strong>borrador local</strong>; la persistencia en el sistema y la <strong>activación de reglas</strong> se conectan en una etapa posterior. Editar una política no reescribe las condiciones de reservas ya emitidas.</span>
+  </div>
+
+  <div class="cfg-wrap">
+    <nav class="cfg-nav">
+      @for (s of sections; track s.key) {
+        <button [class.active]="section() === s.key" (click)="section.set(s.key)"><i [class]="s.icon"></i> {{ s.label }}</button>
+      }
+    </nav>
+
+    <div class="cfg-panel">
+      @switch (section()) {
+        @case ('horarios') {
+          <h3>Horarios y preparación</h3>
+          <div class="grid">
+            <div class="fld"><label>Hora de check-in por defecto</label><input type="time" [(ngModel)]="cfg.horarios.checkinHora" /></div>
+            <div class="fld"><label>Hora de check-out por defecto</label><input type="time" [(ngModel)]="cfg.horarios.checkoutHora" /></div>
+            <div class="fld"><label>Tiempo de preparación (min)</label><p-inputNumber [(ngModel)]="cfg.horarios.preparacionMin" [min]="0" styleClass="w-full" /></div>
+            <div class="fld"><label>Margen entre reservas (min)</label><p-inputNumber [(ngModel)]="cfg.horarios.margenMin" [min]="0" styleClass="w-full" /></div>
+          </div>
+          <p class="muted small">El tiempo de preparación se incluirá en el cálculo de ocupación al conectar la disponibilidad real.</p>
+        }
+
+        @case ('tentativas') {
+          <h3>Tentativas y vencimientos</h3>
+          <div class="grid">
+            <div class="fld"><label>Vigencia de la tentativa (horas)</label><p-inputNumber [(ngModel)]="cfg.tentativas.vigenciaHoras" [min]="1" styleClass="w-full" /></div>
+            <div class="fld"><label>Recordatorio antes de vencer (horas)</label><p-inputNumber [(ngModel)]="cfg.tentativas.recordarHoras" [min]="0" styleClass="w-full" /></div>
+          </div>
+          <label class="chk"><p-toggleswitch [(ngModel)]="cfg.tentativas.autoVencer" /> Vencer tentativas automáticamente al cumplirse el plazo</label>
+        }
+
+        @case ('pagos') {
+          <h3>Adelantos y pagos</h3>
+          <div class="grid">
+            <div class="fld"><label>Adelanto requerido (%)</label><p-inputNumber [(ngModel)]="cfg.pagos.adelantoPct" [min]="0" [max]="100" styleClass="w-full" /></div>
+            <div class="fld"><label>Plazo para pagar (horas)</label><p-inputNumber [(ngModel)]="cfg.pagos.plazoPagoHoras" [min]="0" styleClass="w-full" /></div>
+            <div class="fld"><label>Medios de pago permitidos</label><p-multiSelect [options]="medioOpts" optionLabel="label" optionValue="value" [(ngModel)]="cfg.pagos.mediosPermitidos" styleClass="w-full" /></div>
+          </div>
+          <label class="chk"><p-toggleswitch [(ngModel)]="cfg.pagos.permitirParcial" /> Permitir pagos parciales</label>
+        }
+
+        @case ('cancelacion') {
+          <h3>Cancelaciones y no presentación</h3>
+          <div class="grid">
+            <div class="fld"><label>Penalidad por cancelación (%)</label><p-inputNumber [(ngModel)]="cfg.cancelacion.penalidadPct" [min]="0" [max]="100" styleClass="w-full" /></div>
+            <div class="fld"><label>Ventana sin penalidad (horas antes)</label><p-inputNumber [(ngModel)]="cfg.cancelacion.ventanaSinPenalidadHoras" [min]="0" styleClass="w-full" /></div>
+            <div class="fld"><label>Penalidad por no presentación (%)</label><p-inputNumber [(ngModel)]="cfg.cancelacion.noShowPenalidadPct" [min]="0" [max]="100" styleClass="w-full" /></div>
+          </div>
+          <div class="fld"><label>Texto de condiciones de cancelación (para el cliente)</label><textarea rows="2" [(ngModel)]="cfg.cancelacion.textoCancelacion" class="ta"></textarea></div>
+          <div class="fld"><label>Texto de no presentación</label><textarea rows="2" [(ngModel)]="cfg.cancelacion.textoNoShow" class="ta"></textarea></div>
+        }
+
+        @case ('promociones') {
+          <div class="panel-head"><h3>Promociones</h3><p-button label="Agregar promoción" icon="pi pi-plus" size="small" (onClick)="openPromo()" /></div>
+          @if (cfg.promociones.length === 0) { <p class="muted small">Sin promociones. El tiempo adicional debe incluirse en el cálculo de ocupación (al conectar).</p> }
+          @for (p of cfg.promociones; track p.id) {
+            <div class="row-item">
+              <div><strong>{{ p.nombre }}</strong> <p-tag [value]="p.tipo === 'FIJO' ? 'Fijo' : p.tipo === 'PORCENTAJE' ? '%' : 'Tiempo'" severity="info" /><div class="muted small">{{ p.desde }} → {{ p.hasta }} @if (p.compatible) { · compatible con otras } @else { · no acumulable }</div></div>
+              <div class="cat-actions"><p-button icon="pi pi-pencil" [text]="true" size="small" (onClick)="openPromo(p)" /><p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="removePromo(p)" /></div>
+            </div>
+          }
+        }
+
+        @case ('politicas') {
+          <div class="panel-head"><h3>Políticas</h3><p-button label="Nueva política" icon="pi pi-plus" size="small" (onClick)="openPolicy()" /></div>
+          <p class="muted small">Separe políticas de reserva de condiciones de estadía. Cada reserva conserva la versión que le correspondió.</p>
+          @if (cfg.politicas.length === 0) { <p class="muted small">Sin políticas definidas.</p> }
+          @for (p of cfg.politicas; track p.id) {
+            <div class="row-item">
+              <div><strong>{{ p.nombre }}</strong> · {{ p.version }} <p-tag [value]="p.ambito === 'RESERVA' ? 'Reserva' : 'Estadía'" [severity]="p.ambito === 'RESERVA' ? 'success' : 'secondary'" /><div class="muted small">{{ p.vigenciaDesde }} → {{ p.vigenciaHasta || 'sin fin' }}</div></div>
+              <div class="cat-actions"><p-button icon="pi pi-pencil" [text]="true" size="small" (onClick)="openPolicy(p)" /><p-button icon="pi pi-trash" [text]="true" severity="danger" size="small" (onClick)="removePolicy(p)" /></div>
+            </div>
+          }
+        }
+
+        @case ('documentos') {
+          <h3>Documentos</h3>
+          <div class="grid">
+            <div class="fld"><label>Formato por defecto</label><p-select [options]="formatoOpts" optionLabel="label" optionValue="value" [(ngModel)]="cfg.documentos.formatoDefecto" styleClass="w-full" /></div>
+          </div>
+          <label class="chk"><p-toggleswitch [(ngModel)]="cfg.documentos.mostrarLogo" /> Mostrar logo del hospedaje</label>
+          <div class="fld"><label>Texto legal</label><textarea rows="2" [(ngModel)]="cfg.documentos.textoLegal" class="ta"></textarea></div>
+          <div class="fld"><label>Pie del documento</label><textarea rows="2" [(ngModel)]="cfg.documentos.pie" class="ta"></textarea></div>
+          <p class="muted small">La identidad del hospedaje (nombre, RUC, dirección, logo) se toma de Configuración › Hotel.</p>
+        }
+      }
+    </div>
+  </div>
+</section>
+
+<!-- Editor de promoción -->
+<p-dialog [(visible)]="promoDialog" [modal]="true" [style]="{ width: '680px' }" header="Promoción">
+  <div class="grid">
+    <div class="fld"><label>Nombre</label><input pInputText [(ngModel)]="promoForm.nombre" /></div>
+    <div class="fld"><label>Tipo de descuento</label><p-select [options]="tipoPromoOpts" optionLabel="label" optionValue="value" [(ngModel)]="promoForm.tipo" styleClass="w-full" /></div>
+    <div class="fld"><label>{{ promoForm.tipo === 'TIEMPO' ? 'Tiempo adicional (min)' : promoForm.tipo === 'FIJO' ? 'Monto (S/)' : 'Porcentaje (%)' }}</label><p-inputNumber [(ngModel)]="promoForm.valor" styleClass="w-full" /></div>
+    <div class="fld"><label>Desde</label><input type="date" [(ngModel)]="promoForm.desde" /></div>
+    <div class="fld"><label>Hasta</label><input type="date" [(ngModel)]="promoForm.hasta" /></div>
+    <div class="fld"><label>Tarifas aplicables</label><input pInputText [(ngModel)]="promoForm.tarifas" placeholder="Ej. Matrimonial, Suite" /></div>
+    <div class="fld"><label>Condición de pago</label><input pInputText [(ngModel)]="promoForm.condicionPago" /></div>
+  </div>
+  <label class="chk"><p-toggleswitch [(ngModel)]="promoForm.compatible" /> Compatible con otras promociones</label>
+  <ng-template pTemplate="footer">
+    <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="promoDialog = false" />
+    <p-button label="Guardar" icon="pi pi-check" (onClick)="savePromo()" />
+  </ng-template>
+</p-dialog>
+
+<!-- Editor de política -->
+<p-dialog [(visible)]="policyDialog" [modal]="true" [style]="{ width: '720px' }" header="Política">
+  <div class="grid">
+    <div class="fld"><label>Nombre</label><input pInputText [(ngModel)]="policyForm.nombre" /></div>
+    <div class="fld"><label>Versión</label><input pInputText [(ngModel)]="policyForm.version" /></div>
+    <div class="fld"><label>Ámbito de aplicación</label><p-select [options]="ambitoOpts" optionLabel="label" optionValue="value" [(ngModel)]="policyForm.ambito" styleClass="w-full" /></div>
+    <div class="fld"><label>Vigencia desde</label><input type="date" [(ngModel)]="policyForm.vigenciaDesde" /></div>
+    <div class="fld"><label>Vigencia hasta</label><input type="date" [(ngModel)]="policyForm.vigenciaHasta" /></div>
+  </div>
+  <div class="fld"><label>Texto para el cliente</label><textarea rows="3" [(ngModel)]="policyForm.textoCliente" class="ta"></textarea></div>
+  <div class="fld"><label>Reglas relacionadas (referencia)</label><textarea rows="2" [(ngModel)]="policyForm.reglas" class="ta"></textarea></div>
+  <p-button label="Vista previa" icon="pi pi-eye" [text]="true" size="small" (onClick)="policyPreview = !policyPreview" />
+  @if (policyPreview) { <div class="preview">{{ policyForm.textoCliente || '(sin texto)' }}</div> }
+  <ng-template pTemplate="footer">
+    <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="policyDialog = false" />
+    <p-button label="Guardar" icon="pi pi-check" (onClick)="savePolicy()" />
+  </ng-template>
+</p-dialog>

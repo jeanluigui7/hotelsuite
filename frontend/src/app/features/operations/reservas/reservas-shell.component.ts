@@ -228,7 +228,7 @@ export class ReservasShellComponent implements OnInit {
     this.router.navigate(['/operations/reservas/nueva'], { queryParams: { modo: 'proforma' } });
   }
   goConfig(): void {
-    this.pendiente('Configuración de reservas');
+    this.router.navigate(['/settings/reservas']);
   }
 
   /** Mensaje honesto: la acción aún no está conectada (no simula éxito). */
