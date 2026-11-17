@@ -121,10 +121,19 @@
       }
 
       @case ('documentos') {
-        <div class="rv-empty">
-          <i class="pi pi-file"></i>
-          <p>Los documentos (constancia de tentativa / confirmación) se generan en la siguiente tanda.</p>
-          <span class="pend-pill"><i class="pi pi-link"></i> Vista previa y envío: pendiente de conexión.</span>
+        <div class="box">
+          <h4>Documentos de la reserva</h4>
+          <div class="line">
+            <span><b>Constancia de reserva tentativa</b> · v1 @if (r.estadoReserva === 'TENTATIVA') { <span class="pill">vigente</span> } @else { <span class="muted small">sustituida</span> }</span>
+            <p-button label="Ver" icon="pi pi-file" size="small" [text]="true" (onClick)="abrirDoc('TENTATIVA')" />
+          </div>
+          @if (r.estadoReserva === 'CONFIRMADA' || r.estadoReserva === 'EN_ESTADIA' || r.estadoReserva === 'FINALIZADA') {
+            <div class="line">
+              <span><b>Confirmación de reserva</b> · v1 <span class="pill">vigente</span></span>
+              <p-button label="Ver" icon="pi pi-file" size="small" (onClick)="abrirDoc('CONFIRMACION')" />
+            </div>
+          }
+          <p class="muted small"><i class="pi pi-palette"></i> Vista previa de diseño. El PDF oficial y el historial de envío se habilitan en etapas posteriores.</p>
         </div>
       }
 
@@ -213,6 +222,8 @@
   </p-dialog>
 
   <app-check-in-dialog [(visible)]="checkInVisible" [room]="checkInRoom" [prefillGuestId]="checkInGuestId" [reservationId]="id" (done)="onCheckInDone()" />
+
+  <app-reservas-documento [(visible)]="docVisible" [reserva]="reserva()" [tipo]="docTipo" (verReserva)="docVisible = false" />
 } @else {
   <div class="rv-empty">
     <i class="pi pi-calendar-times"></i>

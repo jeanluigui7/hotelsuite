@@ -16,6 +16,7 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { OperationsApiService } from '../services/operations-api.service';
 import type { RoomMapItem } from '../services/operations.models';
 import { CheckInDialogComponent } from '../habitaciones/check-in-dialog.component';
+import { ReservasDocumentoComponent } from './reservas-documento.component';
 import { ReservasStore } from './reservas-store.service';
 import {
   ASIGNACION_META,
@@ -44,6 +45,7 @@ type Tab = 'resumen' | 'habitaciones' | 'pagos' | 'documentos' | 'historial';
     TagModule,
     MenuModule,
     CheckInDialogComponent,
+    ReservasDocumentoComponent,
   ],
   templateUrl: './reservas-detalle.component.html',
   styleUrls: ['./reservas.styles.scss', './reservas-detalle.component.scss'],
@@ -81,6 +83,8 @@ export class ReservasDetalleComponent implements OnInit {
   checkInVisible = false;
   checkInRoom: RoomMapItem | null = null;
   checkInGuestId: string | null = null;
+  docVisible = false;
+  docTipo: 'TENTATIVA' | 'CONFIRMACION' = 'TENTATIVA';
   saving = signal(false);
 
   readonly payMethods = [
@@ -100,6 +104,14 @@ export class ReservasDetalleComponent implements OnInit {
     }
     const accion = this.route.snapshot.queryParamMap.get('accion');
     if (accion) setTimeout(() => this.runAccion(accion), 500);
+    if (this.route.snapshot.queryParamMap.get('doc')) setTimeout(() => this.abrirDoc(), 500);
+  }
+
+  abrirDoc(tipo?: 'TENTATIVA' | 'CONFIRMACION'): void {
+    const r = this.reserva();
+    if (!r) return;
+    this.docTipo = tipo ?? (r.estadoReserva === 'CONFIRMADA' || r.estadoReserva === 'EN_ESTADIA' ? 'CONFIRMACION' : 'TENTATIVA');
+    this.docVisible = true;
   }
 
   refresh(): void {

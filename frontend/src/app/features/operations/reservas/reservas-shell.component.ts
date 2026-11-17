@@ -4,7 +4,6 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
-import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { MessageService } from 'primeng/api';
@@ -13,6 +12,7 @@ import { ReservasStore } from './reservas-store.service';
 import { ReservasListaComponent, type ReservaAction } from './views/reservas-lista.component';
 import { ReservasCalendarioComponent } from './views/reservas-calendario.component';
 import { ReservasAnticiposComponent } from './views/reservas-anticipos.component';
+import { ReservasProformasComponent } from './views/reservas-proformas.component';
 import {
   ASIGNACION_META,
   MODALIDAD_LABEL,
@@ -34,12 +34,12 @@ type Vista = 'calendario' | 'lista' | 'proformas' | 'anticipos';
     FormsModule,
     ButtonModule,
     DialogModule,
-    TableModule,
     TagModule,
     ToggleSwitchModule,
     ReservasListaComponent,
     ReservasCalendarioComponent,
     ReservasAnticiposComponent,
+    ReservasProformasComponent,
   ],
   template: `
     <section>
@@ -97,25 +97,7 @@ type Vista = 'calendario' | 'lista' | 'proformas' | 'anticipos';
           <app-reservas-lista (action)="onAction($event)" />
         }
         @case ('proformas') {
-          @if (store.proformas().length === 0) {
-            <div class="rv-empty"><i class="pi pi-file"></i><p>Sin proformas.{{ store.isDemo() ? '' : ' Las proformas se conectan en una tanda posterior.' }}</p></div>
-          } @else {
-            <p-table [value]="store.proformas()" styleClass="p-datatable-sm">
-              <ng-template pTemplate="header"><tr><th>Código</th><th>Cliente</th><th>Fecha</th><th>Validez</th><th>Hab.</th><th>Total</th><th>Estado</th><th></th></tr></ng-template>
-              <ng-template pTemplate="body" let-p>
-                <tr>
-                  <td><span class="code">{{ p.codigo }}</span> <span class="demo-chip">DEMO</span></td>
-                  <td>{{ p.cliente }}</td>
-                  <td>{{ p.fecha | date: 'dd/MM/yy' }}</td>
-                  <td>{{ p.validezAt | date: 'dd/MM/yy' }}</td>
-                  <td>{{ p.habitaciones }}</td>
-                  <td>S/ {{ p.total | number: '1.2-2' }}</td>
-                  <td><p-tag [value]="p.estado" [severity]="p.estado === 'VIGENTE' ? 'success' : p.estado === 'CONVERTIDA' ? 'secondary' : 'danger'" /></td>
-                  <td><p-button label="Crear reserva" size="small" [text]="true" (onClick)="pendiente('Convertir proforma')" /></td>
-                </tr>
-              </ng-template>
-            </p-table>
-          }
+          <app-reservas-proformas />
         }
         @case ('anticipos') {
           <app-reservas-anticipos />
@@ -243,7 +225,7 @@ export class ReservasShellComponent implements OnInit {
 
   nueva(k: 'reserva' | 'proforma'): void {
     if (k === 'reserva') { this.router.navigate(['/operations/reservas/nueva']); return; }
-    this.pendiente('Nueva proforma (asistente)');
+    this.router.navigate(['/operations/reservas/nueva'], { queryParams: { modo: 'proforma' } });
   }
   goConfig(): void {
     this.pendiente('Configuración de reservas');

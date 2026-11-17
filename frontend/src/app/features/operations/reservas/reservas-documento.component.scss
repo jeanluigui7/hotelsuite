@@ -1,0 +1,221 @@
+.doc-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+}
+.doc-toolbar .left,
+.doc-toolbar .right {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.design-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--p-orange-400, #fb923c);
+  border: 1px solid color-mix(in srgb, var(--p-orange-500, #f59e0b) 45%, transparent);
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+}
+:host ::ng-deep .fmt {
+  width: 140px;
+}
+
+.doc-stage {
+  background: #4b5563;
+  padding: 1.5rem;
+  border-radius: 10px;
+  max-height: 68vh;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+}
+
+/* Hoja del documento: siempre fondo blanco y texto oscuro (es un documento imprimible). */
+.doc-sheet {
+  background: #ffffff;
+  color: #1a1a1a;
+  width: 720px;
+  max-width: 100%;
+  padding: 2.2rem 2.4rem;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.doc-sheet.ticket {
+  width: 320px;
+  padding: 1.2rem 1rem;
+  font-size: 12px;
+}
+.doc-sheet h1,
+.doc-sheet h2,
+.doc-sheet h3 {
+  color: #111;
+}
+.doc-sheet .muted {
+  color: #666;
+}
+.doc-sheet .small {
+  font-size: 0.82em;
+}
+.doc-sheet .right {
+  text-align: right;
+}
+
+.doc-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+.doc-sheet.ticket .doc-top {
+  flex-direction: column;
+}
+.brand {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+.brand .logo {
+  width: 54px;
+  height: 54px;
+  object-fit: contain;
+}
+.brand h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+.doc-meta {
+  text-align: right;
+}
+.doc-sheet.ticket .doc-meta {
+  text-align: left;
+}
+.doc-meta .code {
+  font-weight: 800;
+  font-size: 1.15rem;
+}
+.badge {
+  display: inline-block;
+  border: 1px solid #999;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.doc-title {
+  font-size: 1.25rem;
+  margin: 1rem 0 0.6rem;
+  text-align: center;
+  border-top: 2px solid #111;
+  border-bottom: 2px solid #111;
+  padding: 0.4rem 0;
+}
+
+.callout {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.9em;
+  margin-bottom: 0.8rem;
+}
+
+.doc-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin: 0.5rem 0;
+}
+.doc-sheet.ticket .doc-cols {
+  grid-template-columns: 1fr;
+}
+.doc-sheet h3 {
+  font-size: 0.95rem;
+  margin: 0.9rem 0 0.3rem;
+}
+.doc-sheet table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.doc-sheet th,
+.doc-sheet td {
+  padding: 0.35rem 0.4rem;
+  border-bottom: 1px solid #e2e2e2;
+  text-align: left;
+  font-size: 0.9em;
+}
+.hr {
+  border-top: 2px solid #111;
+  margin: 0.7rem 0;
+}
+.doc-totals {
+  display: flex;
+  gap: 1.5rem;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.doc-totals div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.doc-totals span {
+  font-size: 0.75em;
+  color: #666;
+}
+.doc-totals b {
+  font-size: 1.05rem;
+}
+.cond {
+  margin: 0.3rem 0;
+  padding-left: 1.1rem;
+  font-size: 0.9em;
+}
+.doc-foot {
+  margin-top: 1.2rem;
+  border-top: 1px dashed #bbb;
+  padding-top: 0.5rem;
+  text-align: center;
+}
+
+/* Enviar */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+.fld {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+.fld label {
+  font-size: 0.8rem;
+  color: var(--p-text-muted-color, #94a3b8);
+}
+.fld input[pInputText],
+.ta {
+  width: 100%;
+  background: var(--p-content-background, #0f172a);
+  color: inherit;
+  border: 1px solid var(--p-content-border-color, #334155);
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+}
+.warn-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--p-orange-400, #fb923c);
+  font-size: 0.85rem;
+}

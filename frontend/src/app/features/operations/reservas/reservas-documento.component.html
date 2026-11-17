@@ -1,0 +1,128 @@
+<p-dialog [visible]="visible" (visibleChange)="visible = $event; visibleChange.emit($event)" [modal]="true" [style]="{ width: '1200px', maxWidth: '96vw' }" [header]="'Documento de reserva'" [dismissableMask]="true">
+  @if (reserva; as r) {
+    <div class="doc-toolbar">
+      <div class="left">
+        <span class="design-badge"><i class="pi pi-palette"></i> Vista previa de diseño</span>
+        <p-select [options]="formatoOpts" optionLabel="label" optionValue="value" [ngModel]="formato()" (ngModelChange)="formato.set($event)" styleClass="fmt" />
+      </div>
+      <div class="right">
+        <p-button label="Descargar PDF" icon="pi pi-download" severity="secondary" size="small" (onClick)="descargarPdf()" />
+        <p-button label="Imprimir" icon="pi pi-print" severity="secondary" size="small" (onClick)="imprimir()" />
+        <p-button label="Enviar" icon="pi pi-send" severity="secondary" size="small" (onClick)="openEnviar()" />
+        <p-button label="Ver reserva" icon="pi pi-eye" size="small" (onClick)="verReserva.emit(r.id); close()" />
+      </div>
+    </div>
+
+    <div class="doc-stage" [class.ticket]="formato() === 'TICKET'">
+      <article #sheet class="doc-sheet" [class.ticket]="formato() === 'TICKET'">
+        <header class="doc-top">
+          <div class="brand">
+            @if (branch()?.logoUrl) { <img [src]="branch()!.logoUrl" alt="logo" class="logo" /> }
+            <div>
+              <h2>{{ branch()?.name || 'Hospedaje' }}</h2>
+              <p class="muted">
+                {{ branch()?.legalName }}@if (branch()?.taxId) { · RUC {{ branch()?.taxId }} }<br />
+                {{ branch()?.address }}<br />
+                @if (branch()?.landline || branch()?.mobile || branch()?.phone) { Tel. {{ branch()?.landline || branch()?.mobile || branch()?.phone }} } @if (branch()?.email) { · {{ branch()?.email }} }
+              </p>
+            </div>
+          </div>
+          <div class="doc-meta">
+            <span class="badge">{{ tipo === 'CONFIRMACION' ? 'CONFIRMADA' : 'TENTATIVA' }}</span>
+            <div class="code">{{ r.codigo }}</div>
+            <div class="muted small">Emitido {{ today | date: 'dd/MM/yyyy HH:mm' }}</div>
+          </div>
+        </header>
+
+        <h1 class="doc-title">{{ titulo() }}</h1>
+
+        @if (tipo === 'TENTATIVA') {
+          <div class="callout">
+            <strong>Estado: tentativa.</strong>
+            @if (r.condiciones.venceTentativaAt) { Cupo mantenido hasta el {{ r.condiciones.venceTentativaAt | date: 'dd/MM/yyyy HH:mm' }}. }
+            @if (r.condiciones.adelantoRequerido) { Para confirmar, registrar el adelanto de {{ moneda() }} {{ r.condiciones.adelantoRequerido | number: '1.2-2' }} antes del vencimiento. }
+            Situación de pago: {{ r.estadoPago === 'PAGADO' ? 'pagado' : r.estadoPago === 'PARCIAL' ? 'pago parcial' : 'sin pago' }}.
+          </div>
+        }
+
+        <section class="doc-cols">
+          <div>
+            <h3>Cliente</h3>
+            <p>{{ r.contacto.nombre }}<br />
+              <span class="muted small">@if (r.contacto.documentNumber) { {{ r.contacto.documentType }} {{ r.contacto.documentNumber }}<br /> } {{ r.contacto.telefono }} @if (r.contacto.email) { · {{ r.contacto.email }} }</span>
+            </p>
+          </div>
+          <div>
+            <h3>Estadía</h3>
+            <p>Entrada: <b>{{ r.entradaAt | date: 'dd/MM/yyyy HH:mm' }}</b><br />Salida: <b>{{ r.salidaAt | date: 'dd/MM/yyyy HH:mm' }}</b></p>
+          </div>
+        </section>
+
+        <h3>Habitaciones</h3>
+        <table>
+          <thead><tr><th>Tipo</th><th>Atributos garantizados</th><th>Número</th><th class="right">Precio</th></tr></thead>
+          <tbody>
+            @for (h of r.habitaciones; track h.uid) {
+              <tr>
+                <td>{{ h.roomTypeName }}</td>
+                <td class="muted">{{ h.requisitos.length ? h.requisitos.join(', ') : '—' }}</td>
+                <td>{{ h.roomNumber ? ('Hab. ' + h.roomNumber) : 'Por asignar' }}</td>
+                <td class="right">{{ h.precio != null ? (moneda() + ' ' + (h.precio | number: '1.2-2')) : '—' }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+
+        @if (r.cochera.requiere) {
+          <p class="muted small">Cochera: {{ r.cochera.vehiculos }} vehículo(s) · {{ r.cochera.estado === 'CONFIRMADA' ? 'confirmada' : 'solicitada' }}.</p>
+        }
+
+        <div class="hr"></div>
+        <section class="doc-totals">
+          <div><span>Precio total</span><b>{{ r.total != null ? (moneda() + ' ' + (r.total | number: '1.2-2')) : '—' }}</b></div>
+          <div><span>Pagos recibidos</span><b>{{ r.pagado != null ? (moneda() + ' ' + (r.pagado | number: '1.2-2')) : '—' }}</b></div>
+          <div><span>Saldo</span><b>{{ r.saldo != null ? (moneda() + ' ' + (r.saldo | number: '1.2-2')) : '—' }}</b></div>
+        </section>
+
+        @if (tipo === 'CONFIRMACION') {
+          <p class="muted small">Habitaciones y atributos comprometidos según el detalle anterior. Instrucciones de llegada: presentarse en recepción con documento de identidad.</p>
+        }
+
+        @if (r.condiciones.cancelacion || r.condiciones.noShow || r.condiciones.politicaNombre) {
+          <h3>Condiciones</h3>
+          <ul class="cond">
+            @if (r.condiciones.politicaNombre) { <li>Política: {{ r.condiciones.politicaNombre }}</li> }
+            @if (r.condiciones.cancelacion) { <li>Cancelación: {{ r.condiciones.cancelacion }}</li> }
+            @if (r.condiciones.noShow) { <li>No presentación: {{ r.condiciones.noShow }}</li> }
+          </ul>
+        }
+
+        @if (r.observacionCliente) {
+          <h3>Observaciones</h3>
+          <p>{{ r.observacionCliente }}</p>
+        }
+
+        <footer class="doc-foot muted small">
+          Este documento es una {{ tipo === 'CONFIRMACION' ? 'confirmación de reserva' : 'constancia de reserva tentativa' }} y no reemplaza una boleta o factura.
+        </footer>
+      </article>
+    </div>
+  }
+</p-dialog>
+
+<!-- Enviar documento -->
+<p-dialog [(visible)]="enviarDialog" [modal]="true" [style]="{ width: '560px' }" header="Enviar documento">
+  @if (reserva; as r) {
+    <div class="grid">
+      <div class="fld"><label>Canal</label><p-select [options]="canalOpts" optionLabel="label" optionValue="value" [(ngModel)]="canal" styleClass="w-full" /></div>
+      <div class="fld"><label>Destinatario</label><input pInputText [value]="destinatario()" readonly /></div>
+    </div>
+    <div class="fld"><label>Documento</label><input pInputText [value]="titulo() + ' · ' + r.codigo" readonly /></div>
+    <div class="fld"><label>Mensaje</label><textarea rows="3" [(ngModel)]="mensaje" class="ta"></textarea></div>
+    <p class="warn-line"><i class="pi pi-link"></i> Canal no conectado. El envío por {{ canal === 'CORREO' ? 'correo' : 'WhatsApp' }} se habilita en la etapa de integraciones. Puedes imprimir/descargar para compartir manualmente.</p>
+  }
+  <ng-template pTemplate="footer">
+    <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="enviarDialog = false" />
+    <p-button label="Enviar" icon="pi pi-send" [disabled]="true" />
+  </ng-template>
+</p-dialog>

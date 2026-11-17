@@ -24,6 +24,7 @@ import {
   representabilityBlockers,
   type Modalidad,
   type Origen,
+  type Proforma,
   type Reserva,
   type ReservaEstado,
 } from './reservas.model';
@@ -109,6 +110,7 @@ export class ReservasWizardComponent implements OnInit {
   mode: 'new' | 'edit' = 'new';
   editId: string | null = null;
   editingDemo = false;
+  isProforma = false;
 
   // Catálogos
   readonly roomTypes = signal<RoomType[]>([]);
@@ -198,6 +200,7 @@ export class ReservasWizardComponent implements OnInit {
     });
     this.searchGuests();
 
+    const q = this.route.snapshot.queryParamMap;
     const id = this.route.snapshot.paramMap.get('id');
     if (id) {
       this.mode = 'edit';
@@ -213,6 +216,21 @@ export class ReservasWizardComponent implements OnInit {
       const out = new Date(now.getTime() + 22 * 3600000);
       this.entradaAt = this.toLocal(now);
       this.salidaAt = this.toLocal(out);
+
+      if (q.get('modo') === 'proforma') {
+        this.isProforma = true;
+        this.codigo = `P-${String(this.store.proformas().length + 1).padStart(4, '0')}`;
+      }
+      const pfId = q.get('desdeProforma');
+      if (pfId) {
+        this.store.load();
+        const pf = this.store.proformaById(pfId);
+        if (pf) {
+          this.contacto.nombre = pf.cliente;
+          this.rooms = Array.from({ length: Math.max(1, pf.habitaciones) }, () => this.emptyRoom());
+          this.messages.add({ severity: 'info', summary: 'Desde proforma', detail: 'Datos precargados. Consulta disponibilidad y tarifas nuevamente; no se confirma automáticamente.' });
+        }
+      }
     }
   }
 
@@ -545,11 +563,13 @@ export class ReservasWizardComponent implements OnInit {
     this.saving.set(true);
     const req$ = this.mode === 'edit' && this.editId ? this.ops.reservations.update(this.editId, dto) : this.ops.reservations.create(dto);
     req$.subscribe({
-      next: () => {
+      next: (res) => {
         this.saving.set(false);
         this.store.setSource('REAL');
-        this.messages.add({ severity: 'success', summary: estado === 'CONFIRMADA' ? 'Reserva confirmada' : 'Tentativa guardada', detail: 'Guardada en el sistema. El documento se genera en una etapa posterior.' });
-        this.router.navigate(['/operations/reservas'], { queryParams: { vista: 'lista' } });
+        this.messages.add({ severity: 'success', summary: estado === 'CONFIRMADA' ? 'Reserva confirmada' : 'Tentativa guardada', detail: 'Guardada en el sistema.' });
+        const newId = this.editId ?? res.data?.id;
+        if (newId) this.router.navigate(['/operations/reservas', newId], { queryParams: { doc: 1 } });
+        else this.router.navigate(['/operations/reservas'], { queryParams: { vista: 'lista' } });
       },
       error: (err: HttpErrorResponse) => {
         this.saving.set(false);
@@ -566,7 +586,30 @@ export class ReservasWizardComponent implements OnInit {
     else this.store.addDemoReserva(r);
     this.pendingVisible = false;
     this.messages.add({ severity: 'info', summary: 'Guardado en Demostración', detail: 'No se tocó el backend ni la caja. Visible solo en Modo demostración.' });
-    this.router.navigate(['/operations/reservas'], { queryParams: { vista: 'lista' } });
+    this.router.navigate(['/operations/reservas', r.id], { queryParams: { doc: 1 } });
+  }
+
+  /** Guarda una proforma (cotización) en la demostración, reutilizando el formulario. */
+  guardarProforma(): void {
+    if (!this.contacto.nombre && !this.contacto.guestId) {
+      this.messages.add({ severity: 'warn', summary: 'Falta el contacto', detail: 'Indica el cliente (paso 2).' });
+      this.step.set(2);
+      return;
+    }
+    const p: Proforma = {
+      id: 'pf-' + uid(),
+      codigo: this.codigo,
+      cliente: this.contacto.nombre || 'Cliente',
+      fecha: new Date().toISOString(),
+      validezAt: new Date(Date.now() + 7 * 86400000).toISOString(),
+      habitaciones: this.rooms.length,
+      total: this.totalVal || null,
+      estado: 'VIGENTE',
+      origin: 'DEMO',
+    };
+    this.store.addDemoProforma(p);
+    this.messages.add({ severity: 'info', summary: 'Proforma guardada', detail: 'Cotización guardada en Demostración. No bloquea inventario.' });
+    this.router.navigate(['/operations/reservas'], { queryParams: { vista: 'proformas' } });
   }
 
   cancelar(): void {

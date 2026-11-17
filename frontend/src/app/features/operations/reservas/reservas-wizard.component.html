@@ -1,7 +1,7 @@
 <section class="wz">
   <header class="wz-top">
     <div>
-      <h1>{{ mode === 'edit' ? 'Editar reserva' : 'Nueva reserva' }}</h1>
+      <h1>{{ mode === 'edit' ? 'Editar reserva' : (isProforma ? 'Nueva proforma' : 'Nueva reserva') }}</h1>
       <span class="code">{{ codigo }}</span>
     </div>
     <p-button icon="pi pi-times" [text]="true" severity="secondary" (onClick)="cancelar()" label="Cerrar" />
@@ -209,6 +209,8 @@
     <div class="spacer"></div>
     @if (step() < 4) {
       <p-button label="Siguiente" icon="pi pi-arrow-right" iconPos="right" (onClick)="next()" />
+    } @else if (isProforma) {
+      <p-button label="Guardar proforma" icon="pi pi-file-edit" [loading]="saving()" (onClick)="guardarProforma()" />
     } @else {
       <p-button label="Guardar tentativa" icon="pi pi-bookmark" severity="secondary" [loading]="saving()" (onClick)="guardar('TENTATIVA')" />
       <p-button label="Guardar y confirmar" icon="pi pi-check" [loading]="saving()" (onClick)="guardar('CONFIRMADA')" />

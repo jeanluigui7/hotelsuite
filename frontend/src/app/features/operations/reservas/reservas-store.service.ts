@@ -182,6 +182,19 @@ export class ReservasStore {
     this.source.set('DEMO');
   }
 
+  // ── Proformas (demostración) ──
+  addDemoProforma(p: Proforma): void {
+    if (this.demoProformasData().length === 0) this.seedDemo();
+    this.demoProformasData.update((list) => [{ ...p, origin: 'DEMO' }, ...list]);
+    this.source.set('DEMO');
+  }
+  proformaById(id: string): Proforma | undefined {
+    return this.demoProformasData().find((p) => p.id === id) ?? this.proformas().find((p) => p.id === id);
+  }
+  setProformaConvertida(id: string): void {
+    this.demoProformasData.update((list) => list.map((p) => (p.id === id ? { ...p, estado: 'CONVERTIDA' } : p)));
+  }
+
   /** Aplica parte de un anticipo a una reserva (no genera segundo ingreso en caja). */
   applyDemoAnticipo(anticipoId: string, reservaId: string, importe: number): void {
     this.demoAnticiposData.update((list) =>
