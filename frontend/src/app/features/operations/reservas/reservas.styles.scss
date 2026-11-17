@@ -115,6 +115,9 @@
 .rv-toolbar input[pInputText] {
   min-width: 220px;
 }
+.rv-toolbar .spacer {
+  flex: 1;
+}
 
 .muted {
   color: var(--p-text-muted-color, #94a3b8);

@@ -1,0 +1,222 @@
+@if (reserva(); as r) {
+  <section>
+    <button class="back-link" (click)="volver()"><i class="pi pi-arrow-left"></i> Reservas</button>
+
+    <header class="dt-head">
+      <div>
+        <h1>{{ r.codigo }} @if (r.origin === 'DEMO') { <span class="demo-chip">DEMO</span> }</h1>
+        <p class="muted">
+          {{ r.contacto.nombre }} · {{ origenLabel[r.origen] }} · creada {{ r.createdAt | date: 'dd/MM/yy HH:mm' }}
+          @if (r.createdByName) { · {{ r.createdByName }} }
+        </p>
+        <div class="tags">
+          <p-tag [value]="estadoMeta[r.estadoReserva].label" [severity]="estadoMeta[r.estadoReserva].severity" />
+          <p-tag [value]="pagoMeta[r.estadoPago].label" [severity]="pagoMeta[r.estadoPago].severity" />
+          <p-tag [value]="asignMeta[r.estadoAsignacion].label" [severity]="asignMeta[r.estadoAsignacion].severity" />
+        </div>
+      </div>
+      <div class="dt-actions">
+        @if (canEdit) {
+          <p-button label="Modificar" icon="pi pi-pencil" severity="secondary" (onClick)="editar()" />
+          <p-button label="Registrar pago" icon="pi pi-wallet" severity="secondary" (onClick)="openPago()" />
+          @if (r.estadoReserva === 'CONFIRMADA') { <p-button label="Preparar check-in" icon="pi pi-sign-in" (onClick)="openPrep()" /> }
+          <p-button icon="pi pi-ellipsis-v" severity="secondary" [text]="true" (onClick)="more.toggle($event)" />
+          <p-menu #more [popup]="true" [model]="moreItems()" appendTo="body" />
+        }
+      </div>
+    </header>
+
+    <nav class="rv-tabs">
+      <button class="rv-tab" [class.active]="tab() === 'resumen'" (click)="tab.set('resumen')">Resumen</button>
+      <button class="rv-tab" [class.active]="tab() === 'habitaciones'" (click)="tab.set('habitaciones')">Habitaciones</button>
+      <button class="rv-tab" [class.active]="tab() === 'pagos'" (click)="tab.set('pagos')">Pagos</button>
+      <button class="rv-tab" [class.active]="tab() === 'documentos'" (click)="tab.set('documentos')">Documentos</button>
+      <button class="rv-tab" [class.active]="tab() === 'historial'" (click)="tab.set('historial')">Historial</button>
+    </nav>
+
+    @switch (tab()) {
+      @case ('resumen') {
+        <div class="cards2">
+          <div class="box">
+            <h3>Estadía</h3>
+            <div class="kv"><span>Modalidad</span><b>{{ modalidadLabel[r.modalidad] }}</b></div>
+            <div class="kv"><span>Entrada</span><b>{{ r.entradaAt | date: 'dd/MM/yy HH:mm' }}</b></div>
+            <div class="kv"><span>Salida</span><b>{{ r.salidaAt | date: 'dd/MM/yy HH:mm' }}</b></div>
+            <div class="kv"><span>Habitaciones</span><b>{{ resumen(r).total }} · {{ resumen(r).tipos }}</b></div>
+          </div>
+          <div class="box">
+            <h3>Contacto</h3>
+            <div class="kv"><span>{{ r.contacto.tipo === 'EMPRESA' ? 'Empresa' : 'Cliente' }}</span><b>{{ r.contacto.nombre }}</b></div>
+            <div class="kv"><span>Teléfono</span><b>{{ r.contacto.telefono || '—' }}</b></div>
+            <div class="kv"><span>Correo</span><b>{{ r.contacto.email || '—' }}</b></div>
+          </div>
+          <div class="box">
+            <h3>Cochera</h3>
+            @if (r.cochera.requiere) {
+              <div class="kv"><span>Vehículos</span><b>{{ r.cochera.vehiculos }}</b></div>
+              <div class="kv"><span>Estado</span><b>{{ r.cochera.estado }}</b></div>
+              @if (r.cochera.placas.length) { <div class="kv"><span>Placas</span><b>{{ r.cochera.placas.join(', ') }}</b></div> }
+            } @else { <p class="muted small">No requiere cochera.</p> }
+          </div>
+          <div class="box">
+            <h3>Importes</h3>
+            @if (r.total === null) {
+              <p class="pend-pill"><i class="pi pi-link"></i> Pagos/saldo pendientes de conexión.</p>
+            } @else {
+              <div class="kv"><span>Total</span><b>S/ {{ r.total | number: '1.2-2' }}</b></div>
+              <div class="kv"><span>Pagado</span><b>S/ {{ r.pagado | number: '1.2-2' }}</b></div>
+              <div class="kv"><span>Saldo</span><b>S/ {{ r.saldo | number: '1.2-2' }}</b></div>
+            }
+          </div>
+        </div>
+        @if (r.condiciones.venceTentativaAt || r.condiciones.politicaNombre) {
+          <div class="box">
+            <h3>Condiciones</h3>
+            @if (r.condiciones.politicaNombre) { <div class="kv"><span>Política</span><b>{{ r.condiciones.politicaNombre }}</b></div> }
+            @if (r.condiciones.venceTentativaAt) { <div class="kv"><span>Vence tentativa</span><b>{{ r.condiciones.venceTentativaAt | date: 'dd/MM/yy HH:mm' }}</b></div> }
+            <div class="kv"><span>Aceptación</span><b>{{ r.condiciones.aceptacion === 'REGISTRADA' ? 'Registrada' : 'Pendiente' }}</b></div>
+          </div>
+        }
+      }
+
+      @case ('habitaciones') {
+        @for (h of r.habitaciones; track h.uid; let i = $index) {
+          <div class="box room">
+            <div class="room-top">
+              <strong>{{ i + 1 }}. {{ h.roomTypeName || 'Tipo' }}</strong>
+              <p-tag [value]="h.roomNumber ? ('Hab. ' + h.roomNumber) : 'Por asignar'" [severity]="h.roomNumber ? 'success' : 'warn'" />
+              <span class="muted small">{{ h.estadoUnidad }}</span>
+            </div>
+            <div class="muted small">{{ (h.adults ?? h.guestsCount) }} adulto(s)@if (h.children) { · {{ h.children }} niño(s) } @if (h.precio != null) { · S/ {{ h.precio | number: '1.2-2' }} }</div>
+            @if (h.requisitos.length) { <div class="muted small">Obligatorio: {{ h.requisitos.join(', ') }}</div> }
+            @if (h.preferencias.length) { <div class="muted small">Preferencia: {{ h.preferencias.join(', ') }}</div> }
+            <div class="guests">
+              @if (h.huespedes.length === 0) { <span class="pend-pill small"><i class="pi pi-exclamation-circle"></i> Huéspedes pendientes</span> }
+              @for (g of h.huespedes; track g.uid) { <span class="pill">{{ g.firstName }} {{ g.lastName }}</span> }
+            </div>
+          </div>
+        }
+      }
+
+      @case ('pagos') {
+        <div class="box">
+          <h4>Pagos recibidos</h4>
+          @if (r.pagos.length === 0) {
+            @if (r.origin === 'DEMO') { <p class="muted small">Sin pagos.</p> }
+            @else { <p class="pend-pill"><i class="pi pi-link"></i> Los pagos de reserva se conectan con caja en una etapa posterior.</p> }
+          }
+          @for (p of r.pagos; track p.id) {
+            <div class="line"><span>{{ p.fecha | date: 'dd/MM/yy HH:mm' }} · {{ p.medio }} @if (p.tipo === 'ANTICIPO_APLICADO') { <span class="demo-chip">ANTICIPO</span> }</span><b>S/ {{ p.importe | number: '1.2-2' }}</b></div>
+          }
+        </div>
+        @if (r.pagosProgramados.length) {
+          <div class="box">
+            <h4>Próximos pagos (programados)</h4>
+            @for (p of r.pagosProgramados; track p.id) {
+              <div class="line"><span>Vence {{ p.vence | date: 'dd/MM/yy' }} · {{ p.modo === 'FIJO' ? 'fijo' : (p.valor + '% de ' + (p.base === 'TOTAL' ? 'total' : 'saldo')) }}</span><b>S/ {{ p.importeCalculado | number: '1.2-2' }}</b></div>
+            }
+            <p class="muted small">Un pago programado no cuenta como dinero recibido.</p>
+          </div>
+        }
+      }
+
+      @case ('documentos') {
+        <div class="rv-empty">
+          <i class="pi pi-file"></i>
+          <p>Los documentos (constancia de tentativa / confirmación) se generan en la siguiente tanda.</p>
+          <span class="pend-pill"><i class="pi pi-link"></i> Vista previa y envío: pendiente de conexión.</span>
+        </div>
+      }
+
+      @case ('historial') {
+        <div class="box">
+          <div class="line"><span>{{ r.createdAt | date: 'dd/MM/yy HH:mm' }} · Reserva creada</span><b>{{ r.createdByName || '—' }}</b></div>
+          <p class="muted small">El historial completo de cambios se registra al conectar las operaciones (etapas posteriores). No se inventan eventos.</p>
+        </div>
+      }
+    }
+  </section>
+
+  <!-- Registrar pago -->
+  <p-dialog [(visible)]="pagoDialog" [modal]="true" [style]="{ width: '760px' }" header="Registrar pago">
+    <div class="pay-head">
+      <span>{{ r.codigo }} · {{ r.contacto.nombre }}</span>
+      <span>Total <b>S/ {{ (r.total ?? 0) | number: '1.2-2' }}</b> · Abonado <b>S/ {{ (r.pagado ?? 0) | number: '1.2-2' }}</b> · Saldo <b>S/ {{ saldoActual | number: '1.2-2' }}</b></span>
+    </div>
+    <div class="grid">
+      <div class="fld"><label>Monto (S/)</label><p-inputNumber [(ngModel)]="pagoForm.importe" mode="decimal" [minFractionDigits]="2" styleClass="w-full" /></div>
+      <div class="fld"><label>Medio de pago</label><p-select [options]="payMethods" optionLabel="label" optionValue="value" [(ngModel)]="pagoForm.medio" styleClass="w-full" /></div>
+      <div class="fld"><label>Caja / cuenta destino</label><input pInputText [(ngModel)]="pagoForm.destino" /></div>
+      <div class="fld"><label>Fecha y hora</label><input type="datetime-local" [(ngModel)]="pagoForm.fecha" /></div>
+      <div class="fld"><label>N° de operación</label><input pInputText [(ngModel)]="pagoForm.operacion" /></div>
+      <div class="fld"><label>Observación</label><input pInputText [(ngModel)]="pagoForm.observacion" /></div>
+    </div>
+    <div class="resumen-pago">
+      <div><span>Abonado actual</span><b>S/ {{ (r.pagado ?? 0) | number: '1.2-2' }}</b></div>
+      <div><span>Nuevo pago</span><b>S/ {{ (pagoForm.importe || 0) | number: '1.2-2' }}</b></div>
+      <div><span>Abonado resultante</span><b>S/ {{ abonadoResultante | number: '1.2-2' }}</b></div>
+      <div><span>Saldo resultante</span><b [class.neg]="saldoResultante < 0">S/ {{ saldoResultante | number: '1.2-2' }}</b></div>
+    </div>
+    @if (excedente > 0) { <p class="warn-line"><i class="pi pi-exclamation-triangle"></i> El pago excede el saldo en S/ {{ excedente | number: '1.2-2' }}. No se permiten sobrepagos silenciosos.</p> }
+    <p class="muted small"><i class="pi pi-link"></i> Registra dinero recibido en la reserva; no realiza un cargo en tarjeta.</p>
+    <ng-template pTemplate="footer">
+      <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="pagoDialog = false" />
+      <p-button label="Registrar pago" icon="pi pi-check" (onClick)="savePago()" />
+    </ng-template>
+  </p-dialog>
+
+  <!-- Cancelar -->
+  <p-dialog [(visible)]="cancelDialog" [modal]="true" [style]="{ width: '760px' }" header="Cancelar reserva">
+    <div class="grid">
+      <div class="fld"><label>Tipo</label><p-select [options]="[{label:'Cancelación total',value:'TOTAL'},{label:'Cancelación parcial',value:'PARCIAL'}]" optionLabel="label" optionValue="value" [(ngModel)]="cancelMode" styleClass="w-full" /></div>
+      <div class="fld"><label>Motivo</label><input pInputText [(ngModel)]="cancelMotivo" /></div>
+    </div>
+    @if (cancelMode === 'PARCIAL') {
+      <label class="lbl">Habitaciones afectadas</label>
+      @for (h of r.habitaciones; track h.uid; let i = $index) {
+        <label class="chk"><input type="checkbox" [checked]="cancelHabs.includes(h.uid)" (change)="toggleCancelHab(h.uid)" /> {{ i + 1 }}. {{ h.roomTypeName }} {{ h.roomNumber ? '· ' + h.roomNumber : '(por asignar)' }}</label>
+      }
+    }
+    <div class="resumen-pago">
+      <div><span>Pagos recibidos</span><b>S/ {{ (r.pagado ?? 0) | number: '1.2-2' }}</b></div>
+      <div><span>Potencialmente reembolsable</span><b>S/ {{ (r.pagado ?? 0) | number: '1.2-2' }}</b></div>
+    </div>
+    <p class="warn-line"><i class="pi pi-info-circle"></i> Cancelar la reserva no registra automáticamente una devolución de dinero. La reserva se conserva.</p>
+    <ng-template pTemplate="footer">
+      <p-button label="Volver" severity="secondary" [text]="true" (onClick)="cancelDialog = false" />
+      <p-button label="Confirmar cancelación" icon="pi pi-times-circle" severity="danger" [loading]="saving()" (onClick)="confirmCancel()" />
+    </ng-template>
+  </p-dialog>
+
+  <!-- Preparar check-in -->
+  <p-dialog [(visible)]="prepDialog" [modal]="true" [style]="{ width: '1100px' }" header="Preparar check-in">
+    <p class="muted small">Selecciona las habitaciones que realmente ingresarán. Las demás mantienen su reserva.</p>
+    <table class="prep">
+      <thead><tr><th></th><th>Tipo / requisitos</th><th>Número</th><th>Huéspedes</th><th>Estado</th></tr></thead>
+      <tbody>
+        @for (pr of prepRooms(); track pr.hab.uid) {
+          <tr>
+            <td><input type="checkbox" [(ngModel)]="pr.selected" [disabled]="!pr.mapRoom" /></td>
+            <td>{{ pr.hab.roomTypeName }}@if (pr.hab.requisitos.length) { <div class="muted small">{{ pr.hab.requisitos.join(', ') }}</div> }</td>
+            <td>{{ pr.hab.roomNumber ? ('Hab. ' + pr.hab.roomNumber) : '—' }}</td>
+            <td>{{ pr.hab.huespedes.length || (pr.hab.adults ?? pr.hab.guestsCount) }}</td>
+            <td>@if (pr.mapRoom) { <span class="muted small">{{ pr.mapRoom.status }}</span> } @else { <span class="pend-pill small"><i class="pi pi-link"></i> Sin asignar</span> }</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+    <p class="muted small"><i class="pi pi-info-circle"></i> Reutiliza el check-in de recepción; no cobra de nuevo anticipos ya registrados.</p>
+    <ng-template pTemplate="footer">
+      <p-button label="Cerrar" severity="secondary" [text]="true" (onClick)="prepDialog = false" />
+      <p-button label="Continuar a recepción" icon="pi pi-arrow-right" (onClick)="continuarRecepcion()" />
+    </ng-template>
+  </p-dialog>
+
+  <app-check-in-dialog [(visible)]="checkInVisible" [room]="checkInRoom" [prefillGuestId]="checkInGuestId" [reservationId]="id" (done)="onCheckInDone()" />
+} @else {
+  <div class="rv-empty">
+    <i class="pi pi-calendar-times"></i>
+    <p>Reserva no encontrada. Ábrela desde la lista de reservas.</p>
+    <p-button label="Ir a Reservas" (onClick)="volver()" />
+  </div>
+}

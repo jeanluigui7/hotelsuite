@@ -1,0 +1,82 @@
+<div class="rv-toolbar">
+  <div class="spacer"></div>
+  <p-button label="Registrar anticipo" icon="pi pi-plus" (onClick)="openReg()" />
+</div>
+
+@if (store.anticipos().length === 0) {
+  <div class="rv-empty">
+    <i class="pi pi-wallet"></i>
+    <p>Sin anticipos.{{ store.isDemo() ? '' : ' Los anticipos se guardan en Demostración (sin backend aún).' }}</p>
+    <p-button label="Registrar anticipo" [text]="true" (onClick)="openReg()" />
+  </div>
+} @else {
+  <p-table [value]="store.anticipos()" styleClass="p-datatable-sm">
+    <ng-template pTemplate="header">
+      <tr><th>Código</th><th>Cliente</th><th>Fecha</th><th>Recibido</th><th>Aplicado</th><th>Disponible</th><th>Estado</th><th></th></tr>
+    </ng-template>
+    <ng-template pTemplate="body" let-a>
+      <tr>
+        <td><span class="code">{{ a.codigo }}</span> <span class="demo-chip">DEMO</span></td>
+        <td>{{ a.cliente }}<div class="muted small">{{ a.telefono }}</div></td>
+        <td>{{ a.fecha | date: 'dd/MM/yy' }}</td>
+        <td>S/ {{ a.recibido | number: '1.2-2' }}</td>
+        <td>S/ {{ a.aplicado | number: '1.2-2' }}</td>
+        <td>S/ {{ a.disponible | number: '1.2-2' }}</td>
+        <td><p-tag [value]="estadoLabel(a.estado)" [severity]="a.estado === 'APLICADO' ? 'secondary' : a.estado === 'PARCIAL' ? 'info' : 'warn'" /></td>
+        <td>@if (a.disponible > 0) { <p-button label="Aplicar" size="small" [text]="true" (onClick)="openApply(a)" /> }</td>
+      </tr>
+    </ng-template>
+  </p-table>
+}
+
+<!-- Registrar anticipo -->
+<p-dialog [(visible)]="regDialog" [modal]="true" [style]="{ width: '760px' }" header="Registrar anticipo">
+  <div class="grid">
+    <div class="fld"><label>Cliente</label><input pInputText [(ngModel)]="regForm.cliente" /></div>
+    <div class="fld"><label>Teléfono</label><input pInputText [(ngModel)]="regForm.telefono" /></div>
+    <div class="fld"><label>Importe (S/)</label><p-inputNumber [(ngModel)]="regForm.importe" mode="decimal" [minFractionDigits]="2" styleClass="w-full" /></div>
+    <div class="fld"><label>Medio de pago</label><p-select [options]="payMethods" optionLabel="label" optionValue="value" [(ngModel)]="regForm.medio" styleClass="w-full" /></div>
+    <div class="fld"><label>Caja / cuenta destino</label><input pInputText [(ngModel)]="regForm.destino" /></div>
+    <div class="fld"><label>Fecha y hora</label><input type="datetime-local" [(ngModel)]="regForm.fecha" /></div>
+    <div class="fld"><label>N° de operación</label><input pInputText [(ngModel)]="regForm.operacion" /></div>
+    <div class="fld"><label>Referencia del cliente</label><input pInputText [(ngModel)]="regForm.referencia" /></div>
+    <div class="fld"><label>Condiciones</label><input pInputText [(ngModel)]="regForm.condiciones" /></div>
+    <div class="fld"><label>Observación</label><input pInputText [(ngModel)]="regForm.observacion" /></div>
+  </div>
+  <p class="muted small"><i class="pi pi-info-circle"></i> Este anticipo conserva un saldo a favor. No garantiza habitaciones ni fechas hasta crear y confirmar una reserva.</p>
+  <ng-template pTemplate="footer">
+    <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="regDialog = false" />
+    <p-button label="Registrar" icon="pi pi-check" (onClick)="saveReg()" />
+  </ng-template>
+</p-dialog>
+
+<!-- Aplicar anticipo -->
+<p-dialog [(visible)]="applyDialog" [modal]="true" [style]="{ width: '680px' }" header="Aplicar anticipo">
+  @if (applyAnticipo; as a) {
+    <div class="pay-head">
+      <span>{{ a.codigo }} · {{ a.cliente }}</span>
+      <span>Disponible <b>S/ {{ a.disponible | number: '1.2-2' }}</b></span>
+    </div>
+    <div class="grid">
+      <div class="fld">
+        <label>Reserva de destino</label>
+        <p-select [options]="reservaOpts()" optionValue="id" [(ngModel)]="applyReservaId" placeholder="Seleccionar reserva" styleClass="w-full">
+          <ng-template let-r pTemplate="item">{{ r.codigo }} · {{ r.contacto.nombre }} (saldo S/ {{ r.saldo ?? 0 }})</ng-template>
+          <ng-template let-r pTemplate="selectedItem">{{ r.codigo }} · {{ r.contacto.nombre }}</ng-template>
+        </p-select>
+      </div>
+      <div class="fld"><label>Importe a aplicar (S/)</label><p-inputNumber [(ngModel)]="applyImporte" mode="decimal" [minFractionDigits]="2" styleClass="w-full" /></div>
+    </div>
+    <div class="resumen-pago">
+      <div><span>Anticipo original</span><b>S/ {{ a.recibido | number: '1.2-2' }}</b></div>
+      <div><span>Saldo disponible</span><b>S/ {{ a.disponible | number: '1.2-2' }}</b></div>
+      <div><span>Restante del anticipo</span><b>S/ {{ restanteAnticipo | number: '1.2-2' }}</b></div>
+      <div><span>Saldo resultante reserva</span><b>S/ {{ saldoResultanteReserva | number: '1.2-2' }}</b></div>
+    </div>
+    <p class="muted small"><i class="pi pi-info-circle"></i> Aplicar el anticipo no genera un segundo ingreso en caja.</p>
+  }
+  <ng-template pTemplate="footer">
+    <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="applyDialog = false" />
+    <p-button label="Aplicar" icon="pi pi-check" (onClick)="confirmApply()" />
+  </ng-template>
+</p-dialog>

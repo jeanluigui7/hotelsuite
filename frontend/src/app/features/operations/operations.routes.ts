@@ -28,6 +28,10 @@ const routes: Routes = [
     loadComponent: () => import('./reservas/reservas-wizard.component').then((m) => m.ReservasWizardComponent),
   },
   {
+    path: 'reservas/:id',
+    loadComponent: () => import('./reservas/reservas-detalle.component').then((m) => m.ReservasDetalleComponent),
+  },
+  {
     path: 'observaciones',
     loadComponent: () => import('./observaciones/observations.component').then((m) => m.ObservationsComponent),
   },

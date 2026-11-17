@@ -143,6 +143,58 @@ export class ReservasStore {
     this.source.set('DEMO');
   }
 
+  /** Recalcula estado de pago y saldo a partir de total/pagos. */
+  private recompute(r: Reserva): Reserva {
+    const pagado = r.pagos.reduce((s, p) => s + (p.importe ?? 0), 0);
+    const total = r.total ?? 0;
+    const estadoPago = pagado <= 0 ? 'SIN_PAGO' : total > 0 && pagado >= total ? 'PAGADO' : 'PARCIAL';
+    return { ...r, pagado, saldo: r.total === null ? null : total - pagado, estadoPago };
+  }
+
+  private mutateDemo(id: string, fn: (r: Reserva) => Reserva): void {
+    this.demoReservas.update((list) => list.map((x) => (x.id === id ? this.recompute(fn(x)) : x)));
+  }
+
+  /** Cambia el estado de una reserva de demostración (confirmar / no-show / cancelar). */
+  setEstadoDemo(id: string, estado: Reserva['estadoReserva']): void {
+    this.mutateDemo(id, (r) => ({ ...r, estadoReserva: estado }));
+  }
+
+  /** Agrega un pago recibido a una reserva de demostración. */
+  addPagoDemo(id: string, pago: Reserva['pagos'][number]): void {
+    this.mutateDemo(id, (r) => ({ ...r, pagos: [...r.pagos, pago] }));
+  }
+
+  /** Cancela (total o por habitaciones) una reserva de demostración sin borrarla. */
+  cancelDemo(id: string, habUids: string[] | null): void {
+    this.mutateDemo(id, (r) => {
+      if (!habUids || habUids.length === 0 || habUids.length === r.habitaciones.length) {
+        return { ...r, estadoReserva: 'CANCELADA', habitaciones: r.habitaciones.map((h) => ({ ...h, estadoUnidad: 'CANCELADA' })) };
+      }
+      return { ...r, habitaciones: r.habitaciones.map((h) => (habUids.includes(h.uid) ? { ...h, estadoUnidad: 'CANCELADA' } : h)) };
+    });
+  }
+
+  // ── Anticipos (demostración) ──
+  addDemoAnticipo(a: Anticipo): void {
+    if (this.demoAnticiposData().length === 0) this.seedDemo();
+    this.demoAnticiposData.update((list) => [{ ...a, origin: 'DEMO' }, ...list]);
+    this.source.set('DEMO');
+  }
+
+  /** Aplica parte de un anticipo a una reserva (no genera segundo ingreso en caja). */
+  applyDemoAnticipo(anticipoId: string, reservaId: string, importe: number): void {
+    this.demoAnticiposData.update((list) =>
+      list.map((a) => {
+        if (a.id !== anticipoId) return a;
+        const aplicado = a.aplicado + importe;
+        const disponible = Math.max(0, a.recibido - aplicado);
+        return { ...a, aplicado, disponible, estado: disponible <= 0 ? 'APLICADO' : 'PARCIAL' };
+      }),
+    );
+    this.addPagoDemo(reservaId, { id: Math.random().toString(36).slice(2, 10), importe, medio: 'Anticipo', fecha: new Date().toISOString(), tipo: 'ANTICIPO_APLICADO' });
+  }
+
   // ── Datos de demostración (aislados, sello DEMO) ──
   private seedDemo(): void {
     const now = Date.now();

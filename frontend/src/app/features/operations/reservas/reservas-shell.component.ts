@@ -12,6 +12,7 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { ReservasStore } from './reservas-store.service';
 import { ReservasListaComponent, type ReservaAction } from './views/reservas-lista.component';
 import { ReservasCalendarioComponent } from './views/reservas-calendario.component';
+import { ReservasAnticiposComponent } from './views/reservas-anticipos.component';
 import {
   ASIGNACION_META,
   MODALIDAD_LABEL,
@@ -38,6 +39,7 @@ type Vista = 'calendario' | 'lista' | 'proformas' | 'anticipos';
     ToggleSwitchModule,
     ReservasListaComponent,
     ReservasCalendarioComponent,
+    ReservasAnticiposComponent,
   ],
   template: `
     <section>
@@ -116,25 +118,7 @@ type Vista = 'calendario' | 'lista' | 'proformas' | 'anticipos';
           }
         }
         @case ('anticipos') {
-          @if (store.anticipos().length === 0) {
-            <div class="rv-empty"><i class="pi pi-wallet"></i><p>Sin anticipos.{{ store.isDemo() ? '' : ' Los anticipos se conectan en una tanda posterior.' }}</p></div>
-          } @else {
-            <p-table [value]="store.anticipos()" styleClass="p-datatable-sm">
-              <ng-template pTemplate="header"><tr><th>Código</th><th>Cliente</th><th>Fecha</th><th>Recibido</th><th>Aplicado</th><th>Disponible</th><th>Estado</th><th></th></tr></ng-template>
-              <ng-template pTemplate="body" let-a>
-                <tr>
-                  <td><span class="code">{{ a.codigo }}</span> <span class="demo-chip">DEMO</span></td>
-                  <td>{{ a.cliente }}<div class="muted small">{{ a.telefono }}</div></td>
-                  <td>{{ a.fecha | date: 'dd/MM/yy' }}</td>
-                  <td>S/ {{ a.recibido | number: '1.2-2' }}</td>
-                  <td>S/ {{ a.aplicado | number: '1.2-2' }}</td>
-                  <td>S/ {{ a.disponible | number: '1.2-2' }}</td>
-                  <td><p-tag [value]="a.estado === 'POR_APLICAR' ? 'Por aplicar' : a.estado === 'PARCIAL' ? 'Parcial' : 'Aplicado'" [severity]="a.estado === 'APLICADO' ? 'secondary' : 'info'" /></td>
-                  <td><p-button label="Aplicar" size="small" [text]="true" (onClick)="pendiente('Aplicar anticipo')" /></td>
-                </tr>
-              </ng-template>
-            </p-table>
-          }
+          <app-reservas-anticipos />
         }
       }
     </section>
@@ -173,11 +157,11 @@ type Vista = 'calendario' | 'lista' | 'proformas' | 'anticipos';
             <div class="kv"><span>Saldo</span><b>S/ {{ r.saldo | number: '1.2-2' }}</b></div>
           }
 
-          <p class="muted small note"><i class="pi pi-info-circle"></i> El detalle completo (pestañas Resumen/Habitaciones/Pagos/Documentos/Historial) llega en la siguiente tanda.</p>
         </div>
       }
       <ng-template pTemplate="footer">
         <p-button label="Cerrar" severity="secondary" [text]="true" (onClick)="detailVisible = false" />
+        @if (selected(); as r) { <p-button label="Abrir detalle" icon="pi pi-arrow-right" (onClick)="goDetalle(r.id)" /> }
       </ng-template>
     </p-dialog>
   `,
@@ -247,11 +231,14 @@ export class ReservasShellComponent implements OnInit {
   onAction(a: ReservaAction): void {
     if (a.type === 'ver') { this.openDetail(a.reserva); return; }
     if (a.type === 'modificar') { this.router.navigate(['/operations/reservas', a.reserva.id, 'editar']); return; }
-    const labels: Record<ReservaAction['type'], string> = {
-      ver: 'Ver', documentos: 'Documentos', pago: 'Registrar pago', modificar: 'Modificar',
-      confirmar: 'Confirmar tentativa', checkin: 'Preparar check-in', cancelar: 'Cancelar reserva', noshow: 'No presentación',
-    };
-    this.pendiente(labels[a.type]);
+    // El resto de acciones viven en el detalle; abrimos el detalle (y auto-abrimos el modal que aplique).
+    const accion = a.type === 'pago' || a.type === 'cancelar' || a.type === 'checkin' ? a.type : null;
+    this.router.navigate(['/operations/reservas', a.reserva.id], accion ? { queryParams: { accion } } : {});
+  }
+
+  goDetalle(id: string): void {
+    this.detailVisible = false;
+    this.router.navigate(['/operations/reservas', id]);
   }
 
   nueva(k: 'reserva' | 'proforma'): void {

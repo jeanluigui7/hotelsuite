@@ -1,0 +1,196 @@
+.back-link {
+  background: none;
+  border: none;
+  color: var(--p-text-muted-color, #94a3b8);
+  cursor: pointer;
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0;
+  margin-bottom: 0.75rem;
+}
+.back-link:hover {
+  color: var(--p-text-color, #e2e8f0);
+}
+
+.dt-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.dt-head h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+.dt-head .tags {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+.dt-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.cards2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.box {
+  background: var(--p-content-background, #1e293b);
+  border: 1px solid var(--p-content-border-color, #334155);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+.box h3 {
+  margin: 0 0 0.6rem;
+  font-size: 0.95rem;
+}
+.box h4 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  color: var(--p-text-muted-color, #94a3b8);
+}
+.kv {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.25rem 0;
+  border-bottom: 1px dashed var(--p-content-border-color, #334155);
+  font-size: 0.88rem;
+}
+.kv span {
+  color: var(--p-text-muted-color, #94a3b8);
+}
+
+.room .room-top {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+.guests {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-top: 0.4rem;
+}
+.pill {
+  background: color-mix(in srgb, var(--p-primary-color, #34d399) 16%, transparent);
+  border-radius: 6px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.78rem;
+}
+
+.line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--p-content-border-color, #334155);
+  font-size: 0.86rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.fld {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.fld label {
+  font-size: 0.8rem;
+  color: var(--p-text-muted-color, #94a3b8);
+}
+.fld input[type='datetime-local'],
+.fld input[pInputText] {
+  width: 100%;
+  background: var(--p-content-background, #0f172a);
+  color: inherit;
+  border: 1px solid var(--p-content-border-color, #334155);
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+}
+.lbl {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--p-text-muted-color, #94a3b8);
+  margin: 0.6rem 0 0.3rem;
+}
+.chk {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.pay-head {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding-bottom: 0.6rem;
+  margin-bottom: 0.6rem;
+  border-bottom: 1px solid var(--p-content-border-color, #334155);
+  font-size: 0.85rem;
+  color: var(--p-text-muted-color, #94a3b8);
+}
+.resumen-pago {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  padding: 0.6rem;
+  border: 1px dashed var(--p-content-border-color, #334155);
+  border-radius: 8px;
+}
+.resumen-pago div {
+  display: flex;
+  flex-direction: column;
+}
+.resumen-pago span {
+  font-size: 0.74rem;
+  color: var(--p-text-muted-color, #94a3b8);
+}
+.resumen-pago b.neg {
+  color: var(--p-red-400, #f87171);
+}
+.warn-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--p-orange-400, #fb923c);
+  font-size: 0.85rem;
+}
+
+table.prep {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+}
+table.prep th,
+table.prep td {
+  border-bottom: 1px solid var(--p-content-border-color, #334155);
+  padding: 0.5rem;
+  text-align: left;
+  font-size: 0.86rem;
+}
+table.prep th {
+  color: var(--p-text-muted-color, #94a3b8);
+  font-weight: 600;
+}
