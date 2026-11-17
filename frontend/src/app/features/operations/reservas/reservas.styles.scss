@@ -1,0 +1,163 @@
+:host {
+  display: block;
+}
+
+.rv-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.rv-head h1 {
+  margin: 0;
+  font-size: 1.45rem;
+}
+.rv-head .muted {
+  margin: 0.2rem 0 0;
+  color: var(--p-text-muted-color, #94a3b8);
+  font-size: 0.9rem;
+}
+.rv-head .actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* Banda de modo demostración */
+.rv-demo-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.9rem;
+  border-radius: 10px;
+  margin-bottom: 1rem;
+  background: color-mix(in srgb, var(--p-orange-500, #f59e0b) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--p-orange-500, #f59e0b) 45%, transparent);
+  color: var(--p-text-color, #e2e8f0);
+  font-size: 0.86rem;
+}
+.rv-demo-banner i {
+  color: var(--p-orange-500, #f59e0b);
+}
+
+/* Tarjetas de indicadores */
+.rv-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.1rem;
+}
+.rv-card {
+  background: var(--p-content-background, #1e293b);
+  border: 1px solid var(--p-content-border-color, #334155);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+}
+.rv-card .lbl {
+  font-size: 0.8rem;
+  color: var(--p-text-muted-color, #94a3b8);
+}
+.rv-card .val {
+  font-size: 1.7rem;
+  font-weight: 700;
+  margin-top: 0.15rem;
+  font-variant-numeric: tabular-nums;
+}
+.rv-card .pend {
+  font-size: 0.74rem;
+  color: var(--p-orange-400, #fb923c);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+}
+
+/* Barra de pestañas */
+.rv-tabs {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--p-content-border-color, #334155);
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+.rv-tab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--p-text-muted-color, #94a3b8);
+  padding: 0.6rem 0.9rem;
+  font: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.rv-tab:hover {
+  color: var(--p-text-color, #e2e8f0);
+}
+.rv-tab.active {
+  color: var(--p-primary-color, #34d399);
+  border-bottom-color: var(--p-primary-color, #34d399);
+  font-weight: 600;
+}
+
+/* Toolbar de filtros */
+.rv-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 0.9rem;
+}
+.rv-toolbar input[pInputText] {
+  min-width: 220px;
+}
+
+.muted {
+  color: var(--p-text-muted-color, #94a3b8);
+}
+.small {
+  font-size: 0.78rem;
+}
+.center {
+  text-align: center;
+}
+.demo-chip {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.05rem 0.35rem;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--p-orange-500, #f59e0b) 22%, transparent);
+  color: var(--p-orange-400, #fb923c);
+  vertical-align: middle;
+}
+.code {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Estado vacío */
+.rv-empty {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--p-text-muted-color, #94a3b8);
+}
+.rv-empty i {
+  font-size: 2.2rem;
+  opacity: 0.5;
+  display: block;
+  margin-bottom: 0.6rem;
+}
+
+/* Marca "pendiente de conexión" en celdas/valores */
+.pend-pill {
+  font-size: 0.72rem;
+  color: var(--p-orange-400, #fb923c);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}

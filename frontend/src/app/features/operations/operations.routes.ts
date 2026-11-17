@@ -17,7 +17,7 @@ const routes: Routes = [
   },
   {
     path: 'reservas',
-    loadComponent: () => import('./reservas/reservations.component').then((m) => m.ReservationsComponent),
+    loadComponent: () => import('./reservas/reservas-shell.component').then((m) => m.ReservasShellComponent),
   },
   {
     path: 'observaciones',
