@@ -121,6 +121,25 @@ export const reservationsRepository = {
     await prisma.reservationDocument.create({ data: { reservationId, type, version, current: true } });
   },
 
+  /**
+   * Check-in consume la reserva: marca una unidad de esa habitación como EN_ESTADIA y,
+   * si todas las unidades activas ya ingresaron, pasa la reserva a IN_STAY.
+   */
+  async markRoomInStay(reservationId: string, roomId: string): Promise<void> {
+    const unit = await prisma.reservationRoom.findFirst({ where: { reservationId, roomId, unitStatus: { in: ['RESERVADA', 'ASIGNADA'] } } });
+    if (unit) {
+      await prisma.reservationRoom.update({ where: { id: unit.id }, data: { unitStatus: 'EN_ESTADIA', roomId } });
+    } else {
+      // La habitación asignada no coincide con ninguna unidad por asignar: toma la primera libre.
+      const free = await prisma.reservationRoom.findFirst({ where: { reservationId, unitStatus: { in: ['RESERVADA', 'ASIGNADA'] } } });
+      if (free) await prisma.reservationRoom.update({ where: { id: free.id }, data: { unitStatus: 'EN_ESTADIA', roomId } });
+    }
+    const units = await prisma.reservationRoom.findMany({ where: { reservationId }, select: { unitStatus: true } });
+    const active = units.filter((u) => u.unitStatus !== 'CANCELADA');
+    const allIn = active.length > 0 && active.every((u) => u.unitStatus === 'EN_ESTADIA');
+    await prisma.reservation.update({ where: { id: reservationId }, data: { status: allIn ? 'IN_STAY' : 'CONFIRMED' } });
+  },
+
   /** Marca habitaciones como canceladas; devuelve cuántas unidades quedan activas. */
   async cancelUnits(reservationId: string, roomIds: string[]): Promise<number> {
     if (roomIds.length) await prisma.reservationRoom.updateMany({ where: { id: { in: roomIds }, reservationId }, data: { unitStatus: 'CANCELADA' } });

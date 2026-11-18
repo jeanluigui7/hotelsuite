@@ -205,21 +205,23 @@
   <!-- Preparar check-in -->
   <p-dialog [(visible)]="prepDialog" [modal]="true" [style]="{ width: '1100px' }" header="Preparar check-in">
     <p class="muted small">Selecciona las habitaciones que realmente ingresarán. Las demás mantienen su reserva.</p>
+    @if (reserva()?.pagado) { <p class="muted small">Pagado en la reserva: <b>S/ {{ reserva()!.pagado | number: '1.2-2' }}</b> · se acreditará a la estancia al conectar la caja (3B).</p> }
     <table class="prep">
-      <thead><tr><th></th><th>Tipo / requisitos</th><th>Número</th><th>Huéspedes</th><th>Estado</th></tr></thead>
+      <thead><tr><th></th><th>Tipo / requisitos</th><th>Número</th><th>Huéspedes</th><th class="center">Precio</th><th>Estado</th></tr></thead>
       <tbody>
         @for (pr of prepRooms(); track pr.hab.uid) {
           <tr>
-            <td><input type="checkbox" [(ngModel)]="pr.selected" [disabled]="!pr.mapRoom" /></td>
+            <td><input type="checkbox" [(ngModel)]="pr.selected" [disabled]="!pr.mapRoom || pr.hab.estadoUnidad === 'EN_ESTADIA'" /></td>
             <td>{{ pr.hab.roomTypeName }}@if (pr.hab.requisitos.length) { <div class="muted small">{{ pr.hab.requisitos.join(', ') }}</div> }</td>
             <td>{{ pr.hab.roomNumber ? ('Hab. ' + pr.hab.roomNumber) : '—' }}</td>
             <td>{{ pr.hab.huespedes.length || (pr.hab.adults ?? pr.hab.guestsCount) }}</td>
-            <td>@if (pr.mapRoom) { <span class="muted small">{{ pr.mapRoom.status }}</span> } @else { <span class="pend-pill small"><i class="pi pi-link"></i> Sin asignar</span> }</td>
+            <td class="center">{{ pr.hab.precio != null ? ('S/ ' + (pr.hab.precio | number: '1.2-2')) : '—' }}</td>
+            <td>@if (pr.hab.estadoUnidad === 'EN_ESTADIA') { <span class="pill">ingresó</span> } @else if (pr.mapRoom) { <span class="muted small">{{ pr.mapRoom.status }}</span> } @else { <span class="pend-pill small"><i class="pi pi-link"></i> Sin asignar</span> }</td>
           </tr>
         }
       </tbody>
     </table>
-    <p class="muted small"><i class="pi pi-info-circle"></i> Reutiliza el check-in de recepción; no cobra de nuevo anticipos ya registrados.</p>
+    <p class="muted small"><i class="pi pi-info-circle"></i> Reutiliza el check-in de recepción; el precio acordado de la reserva se muestra como referencia.</p>
     <ng-template pTemplate="footer">
       <p-button label="Cerrar" severity="secondary" [text]="true" (onClick)="prepDialog = false" />
       <p-button label="Continuar a recepción" icon="pi pi-arrow-right" (onClick)="continuarRecepcion()" />

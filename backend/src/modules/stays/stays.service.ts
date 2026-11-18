@@ -15,6 +15,7 @@ import { pernoctaService } from '../pernocta/pernocta.service';
 import { wifiService } from '../wifi/wifi.service';
 import { changeCreditsService } from '../change-credits/change-credits.service';
 import { cashRepository } from '../cash/cash.repository';
+import { reservationsRepository } from '../reservations/reservations.repository';
 import { salesService } from '../sales/sales.service';
 import { recordActivity } from '../activity-log/activity.emitter';
 import { frigobarReviewService } from '../frigobar-review/frigobar-review.service';
@@ -414,6 +415,8 @@ export const staysService = {
         : 'ESTADIA_CORTA';
     const gName = `${created.guest?.firstName ?? ''} ${created.guest?.lastName ?? ''}`.trim();
     await wifiService.assignAvailableToStay(branchId, created.id, wifiCat, room.number, gName || null);
+    // ETAPA 3 · el check-in consume la reserva: marca la unidad EN_ESTADIA y avanza el estado.
+    if (dto.reservationId) await reservationsRepository.markRoomInStay(dto.reservationId, room.id);
     void recordActivity(scope, {
       activity: 'CHECK_IN', area: 'HOSPEDAJE', roomId: room.id, entityId: created.id,
       reference: `Hab. ${room.number}`,
