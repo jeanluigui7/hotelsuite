@@ -121,15 +121,16 @@ CREATE INDEX [ReservationScheduledPayment_reservationId_idx] ON [dbo].[Reservati
 IF OBJECT_ID('dbo.ReservationScheduledPayment_reservationId_fkey','F') IS NULL
 ALTER TABLE [dbo].[ReservationScheduledPayment] ADD CONSTRAINT [ReservationScheduledPayment_reservationId_fkey] FOREIGN KEY ([reservationId]) REFERENCES [dbo].[Reservation]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
 
--- ── Backfill: una ReservationRoom por cada reserva existente que no tenga hijos ──
-INSERT INTO [dbo].[ReservationRoom] ([id], [reservationId], [roomTypeId], [roomTypeName], [roomId], [roomNumber], [adults], [children], [unitStatus], [sortOrder], [createdAt])
+-- ── Backfill (vía EXEC para que compile DESPUÉS de crear tablas/columnas en el mismo lote) ──
+-- Una ReservationRoom por cada reserva existente que no tenga hijos.
+EXEC('INSERT INTO [dbo].[ReservationRoom] ([id], [reservationId], [roomTypeId], [roomTypeName], [roomId], [roomNumber], [adults], [children], [unitStatus], [sortOrder], [createdAt])
 SELECT CONVERT(NVARCHAR(36), NEWID()), r.[id], r.[roomTypeId], rt.[name], r.[roomId], rm.[number], r.[adults], r.[children],
-       CASE WHEN r.[roomId] IS NOT NULL THEN 'ASIGNADA' ELSE 'RESERVADA' END, 0, SYSUTCDATETIME()
+       CASE WHEN r.[roomId] IS NOT NULL THEN ''ASIGNADA'' ELSE ''RESERVADA'' END, 0, SYSUTCDATETIME()
 FROM [dbo].[Reservation] r
 LEFT JOIN [dbo].[RoomType] rt ON rt.[id] = r.[roomTypeId]
 LEFT JOIN [dbo].[Room] rm ON rm.[id] = r.[roomId]
-WHERE NOT EXISTS (SELECT 1 FROM [dbo].[ReservationRoom] rr WHERE rr.[reservationId] = r.[id]);
+WHERE NOT EXISTS (SELECT 1 FROM [dbo].[ReservationRoom] rr WHERE rr.[reservationId] = r.[id])');
 
 -- Copiar nombre/teléfono de contacto desde los campos legados cuando falten.
-UPDATE [dbo].[Reservation] SET [contactName] = [guestName] WHERE [contactName] IS NULL AND [guestName] IS NOT NULL;
-UPDATE [dbo].[Reservation] SET [contactPhone] = [phone] WHERE [contactPhone] IS NULL AND [phone] IS NOT NULL;
+EXEC('UPDATE [dbo].[Reservation] SET [contactName] = [guestName] WHERE [contactName] IS NULL AND [guestName] IS NOT NULL');
+EXEC('UPDATE [dbo].[Reservation] SET [contactPhone] = [phone] WHERE [contactPhone] IS NULL AND [phone] IS NOT NULL');
