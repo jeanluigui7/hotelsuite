@@ -26,6 +26,7 @@ import type {
   RoomStatus,
   Stay,
 } from './operations.models';
+import type { Reserva as ReservaLike, ReservaApiInput } from '../reservas/reservas.model';
 
 @Injectable({ providedIn: 'root' })
 export class OperationsApiService {
@@ -42,6 +43,20 @@ export class OperationsApiService {
 
   map(): Observable<ApiResponse<RoomMapItem[]>> {
     return this.http.get<ApiResponse<RoomMapItem[]>>(`${this.api}/rooms/map`);
+  }
+
+  // ── Reservas (ETAPA 2: modelo rico) ──
+  reservationGet(id: string): Observable<ApiResponse<ReservaLike>> {
+    return this.http.get<ApiResponse<ReservaLike>>(`${this.api}/reservations/${id}`);
+  }
+  reservationCreate(dto: ReservaApiInput): Observable<ApiResponse<ReservaLike>> {
+    return this.http.post<ApiResponse<ReservaLike>>(`${this.api}/reservations`, dto);
+  }
+  reservationUpdate(id: string, dto: ReservaApiInput): Observable<ApiResponse<ReservaLike>> {
+    return this.http.put<ApiResponse<ReservaLike>>(`${this.api}/reservations/${id}`, dto);
+  }
+  reservationStatus(id: string, body: { estado: 'CONFIRMADA' | 'CANCELADA' | 'NO_SHOW' | 'VENCIDA'; motivo?: string }): Observable<ApiResponse<ReservaLike>> {
+    return this.http.post<ApiResponse<ReservaLike>>(`${this.api}/reservations/${id}/status`, body);
   }
 
   /** Catálogo de fallas (agrupado por categoría) para el modal "Reportar falla". */

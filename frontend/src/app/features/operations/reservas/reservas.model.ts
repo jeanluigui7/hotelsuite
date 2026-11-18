@@ -221,6 +221,53 @@ export interface Anticipo {
   origin: DataOrigin;
 }
 
+/** Cuerpo que el asistente envía al backend (ETAPA 2). */
+export interface ReservaApiInput {
+  codigo?: string | null;
+  estado: 'TENTATIVA' | 'CONFIRMADA';
+  modalidad: Modalidad;
+  entradaAt: string;
+  salidaAt: string;
+  origen: Origen;
+  contacto: {
+    tipo: 'PERSONA' | 'EMPRESA';
+    guestId?: string | null;
+    documentType?: string | null;
+    documentNumber?: string | null;
+    nombre?: string | null;
+    telefono?: string | null;
+    telefonoAlt?: string | null;
+    email?: string | null;
+  };
+  habitaciones: {
+    roomTypeId: string;
+    roomTypeName?: string | null;
+    roomId?: string | null;
+    rateId?: string | null;
+    precio?: number | null;
+    adults: number;
+    children: number;
+    requisitos: string[];
+    preferencias: string[];
+    huespedes: { guestId?: string | null; firstName: string; lastName?: string | null; documentType?: string | null; documentNumber?: string | null; nationality?: string | null; phone?: string | null }[];
+  }[];
+  cochera?: { requiere: boolean; vehiculos: number; estado: 'SOLICITADA' | 'CONFIRMADA'; precio?: number | null; placas: string[] };
+  pagos: { importe: number; medio: string; destino?: string | null; operacion?: string | null; observacion?: string | null; fecha?: string }[];
+  pagosProgramados: { vence?: string | null; modo: 'FIJO' | 'PORCENTAJE'; valor: number; base: 'TOTAL' | 'SALDO' }[];
+  condiciones?: {
+    politicaNombre?: string | null;
+    politicaVersion?: string | null;
+    adelantoRequerido?: number | null;
+    plazoPago?: string | null;
+    venceTentativaAt?: string | null;
+    cancelacion?: string | null;
+    noShow?: string | null;
+    aceptacion: 'PENDIENTE' | 'REGISTRADA';
+  };
+  notaInterna?: string | null;
+  observacionCliente?: string | null;
+}
+
 // ── Mapeo del backend actual (reserva simple) → modelo rico ──
 
 const ESTADO_FROM_API: Record<ReservationStatus, ReservaEstado> = {

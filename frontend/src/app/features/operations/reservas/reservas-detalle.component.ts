@@ -115,7 +115,16 @@ export class ReservasDetalleComponent implements OnInit {
   }
 
   refresh(): void {
-    this.reserva.set(this.store.byId(this.id) ?? null);
+    const local = this.store.byId(this.id);
+    if (local && local.origin === 'DEMO') {
+      this.reserva.set(local);
+      return;
+    }
+    // Reserva real: traer el detalle completo (habitaciones, huéspedes, pagos).
+    this.ops.reservationGet(this.id).subscribe({
+      next: (res) => this.reserva.set((res.data as Reserva) ?? local ?? null),
+      error: () => this.reserva.set(local ?? null),
+    });
   }
 
   isDemo(): boolean {
@@ -152,8 +161,8 @@ export class ReservasDetalleComponent implements OnInit {
       return;
     }
     this.saving.set(true);
-    this.ops.reservations.update(r.id, { status: 'CONFIRMED' } as never).subscribe({
-      next: () => { this.saving.set(false); this.messages.add({ severity: 'success', summary: 'Confirmada', detail: 'Reserva confirmada.' }); this.reloadReal(); },
+    this.ops.reservationStatus(r.id, { estado: 'CONFIRMADA' }).subscribe({
+      next: () => { this.saving.set(false); this.messages.add({ severity: 'success', summary: 'Confirmada', detail: 'Reserva confirmada.' }); this.refresh(); },
       error: (e: HttpErrorResponse) => { this.saving.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo confirmar.' }); },
     });
   }
@@ -165,9 +174,12 @@ export class ReservasDetalleComponent implements OnInit {
       this.store.setEstadoDemo(r.id, 'NO_SHOW');
       this.refresh();
       this.messages.add({ severity: 'info', summary: 'No presentación', detail: 'Registrada (demostración).' });
-    } else {
-      this.messages.add({ severity: 'info', summary: 'Pendiente de conexión', detail: 'El estado "No se presentó" requiere soporte de backend (etapa posterior).' });
+      return;
     }
+    this.ops.reservationStatus(r.id, { estado: 'NO_SHOW' }).subscribe({
+      next: () => { this.messages.add({ severity: 'info', summary: 'No presentación', detail: 'Registrada.' }); this.refresh(); },
+      error: (e: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo registrar.' }),
+    });
   }
 
   // ── Pago ──
@@ -231,8 +243,8 @@ export class ReservasDetalleComponent implements OnInit {
       return;
     }
     this.saving.set(true);
-    this.ops.reservations.update(r.id, { status: 'CANCELLED', notes: this.cancelMotivo || undefined } as never).subscribe({
-      next: () => { this.saving.set(false); this.cancelDialog = false; this.messages.add({ severity: 'info', summary: 'Reserva cancelada', detail: 'Cancelada. No se registró devolución automática.' }); this.reloadReal(); },
+    this.ops.reservationStatus(r.id, { estado: 'CANCELADA', motivo: this.cancelMotivo || undefined }).subscribe({
+      next: () => { this.saving.set(false); this.cancelDialog = false; this.messages.add({ severity: 'info', summary: 'Reserva cancelada', detail: 'Cancelada. No se registró devolución automática.' }); this.refresh(); },
       error: (e: HttpErrorResponse) => { this.saving.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo cancelar.' }); },
     });
   }
@@ -272,10 +284,7 @@ export class ReservasDetalleComponent implements OnInit {
   // ── Utilidades ──
   reloadReal(): void {
     this.store.setSource('REAL');
-    setTimeout(() => {
-      this.refresh();
-      if (!this.reserva()) this.router.navigate(['/operations/reservas'], { queryParams: { vista: 'lista' } });
-    }, 400);
+    this.refresh();
   }
   nowLocal(): string {
     const d = new Date();

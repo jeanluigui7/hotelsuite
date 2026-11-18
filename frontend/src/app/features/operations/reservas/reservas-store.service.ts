@@ -14,7 +14,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { OperationsApiService } from '../services/operations-api.service';
 import {
-  reservaFromApi,
   type Anticipo,
   type DataOrigin,
   type Proforma,
@@ -63,29 +62,14 @@ export class ReservasStore {
     const activas = list.filter((r) => r.estadoReserva === 'TENTATIVA' || r.estadoReserva === 'CONFIRMADA');
     const llegadasHoy = activas.filter((r) => sameDay(r.entradaAt)).length;
     const sinAsignar = activas.filter((r) => r.estadoAsignacion !== 'ASIGNADA').length;
-    const demo = this.isDemo();
-    // Tentativas por vencer y saldo pendiente requieren venceTentativaAt / saldo: solo real en demo.
-    const porVencer = activas.filter(
-      (r) => r.estadoReserva === 'TENTATIVA' && r.condiciones.venceTentativaAt,
-    ).length;
-    const conSaldo = list.filter((r) => (r.saldo ?? 0) > 0).length;
+    // ETAPA 2: ya se calculan con datos reales (vencimiento y saldo persistidos).
+    const porVencer = activas.filter((r) => r.estadoReserva === 'TENTATIVA' && r.condiciones.venceTentativaAt && new Date(r.condiciones.venceTentativaAt) >= now).length;
+    const conSaldo = list.filter((r) => (r.saldo ?? 0) > 0 && r.estadoReserva !== 'CANCELADA').length;
     return [
       { key: 'llegadas', label: 'Llegadas de hoy', value: llegadasHoy, pendiente: false },
-      {
-        key: 'porVencer',
-        label: 'Tentativas por vencer',
-        value: demo ? porVencer : null,
-        pendiente: !demo,
-        hint: demo ? undefined : 'Requiere vencimiento de tentativa (conexión pendiente).',
-      },
+      { key: 'porVencer', label: 'Tentativas por vencer', value: porVencer, pendiente: false },
       { key: 'sinAsignar', label: 'Hab. pendientes de asignación', value: sinAsignar, pendiente: false },
-      {
-        key: 'saldo',
-        label: 'Reservas con saldo pendiente',
-        value: demo ? conSaldo : null,
-        pendiente: !demo,
-        hint: demo ? undefined : 'Requiere pagos de reserva (conexión pendiente).',
-      },
+      { key: 'saldo', label: 'Reservas con saldo pendiente', value: conSaldo, pendiente: false },
     ];
   });
 
@@ -109,8 +93,8 @@ export class ReservasStore {
       .list({ pageSize: 200, sortBy: 'expectedCheckInAt', sortDir: 'desc' })
       .subscribe({
         next: (res) => {
-          const items = (res.data ?? []).map((r, i) => reservaFromApi(r, i));
-          this.realReservas.set(items);
+          // El backend (ETAPA 2) ya devuelve el modelo rico serializado.
+          this.realReservas.set((res.data ?? []) as unknown as Reserva[]);
           this.loading.set(false);
         },
         error: () => {

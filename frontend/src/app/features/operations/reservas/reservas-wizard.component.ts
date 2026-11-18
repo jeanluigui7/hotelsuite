@@ -15,17 +15,17 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { CatalogApiService } from '../../settings/catalogs/catalog-api.service';
 import type { Guest, Rate, RoomAttribute, RoomType } from '../../settings/catalogs/catalog.models';
 import { OperationsApiService } from '../services/operations-api.service';
-import type { RoomMapItem, ReservationStatus } from '../services/operations.models';
+import type { RoomMapItem } from '../services/operations.models';
 import { ReservasStore } from './reservas-store.service';
 import {
   MODALIDAD_LABEL,
   ORIGEN_LABEL,
   durationMinutesOf,
-  representabilityBlockers,
   type Modalidad,
   type Origen,
   type Proforma,
   type Reserva,
+  type ReservaApiInput,
   type ReservaEstado,
 } from './reservas.model';
 
@@ -165,10 +165,6 @@ export class ReservasWizardComponent implements OnInit {
   pagoForm: WPago = this.emptyPago();
   progDialog = false;
   progForm: WProg = this.emptyProg();
-  pendingVisible = false;
-  pendingBlockers = signal<string[]>([]);
-  private pendingReserva: Reserva | null = null;
-  private pendingStatus: ReservaEstado = 'TENTATIVA';
   saving = signal(false);
 
   readonly modalidadOpts = (Object.keys(MODALIDAD_LABEL) as Modalidad[]).map((v) => ({ label: MODALIDAD_LABEL[v], value: v }));
@@ -206,9 +202,16 @@ export class ReservasWizardComponent implements OnInit {
       this.mode = 'edit';
       this.editId = id;
       this.store.load();
-      const r = this.store.byId(id);
-      if (r) this.hydrate(r);
-      else this.messages.add({ severity: 'warn', summary: 'Reserva no disponible', detail: 'Abre la edición desde la lista de reservas.' });
+      const local = this.store.byId(id);
+      if (local && local.origin === 'DEMO') {
+        this.hydrate(local);
+      } else {
+        // Reserva real: traer el detalle completo del backend.
+        this.ops.reservationGet(id).subscribe({
+          next: (res) => (res.data ? this.hydrate(res.data as Reserva) : this.messages.add({ severity: 'warn', summary: 'Reserva no disponible', detail: 'No se encontró la reserva.' })),
+          error: () => this.messages.add({ severity: 'warn', summary: 'Reserva no disponible', detail: 'Abre la edición desde la lista de reservas.' }),
+        });
+      }
     } else {
       // Valores por defecto de fechas (hoy 14:00 → mañana 12:00)
       const now = new Date();
@@ -527,47 +530,86 @@ export class ReservasWizardComponent implements OnInit {
 
   // ── Guardado ──
   guardar(estado: 'TENTATIVA' | 'CONFIRMADA'): void {
-    const reserva = this.buildReserva(estado);
-    if (!reserva.contacto.nombre && !reserva.contacto.guestId) {
+    if (!this.contacto.nombre && !this.contacto.guestId) {
       this.messages.add({ severity: 'warn', summary: 'Falta el contacto', detail: 'Indica quién reserva (paso 2).' });
       this.step.set(2);
       return;
     }
-    const blockers = representabilityBlockers(reserva);
-    if (this.editingDemo || blockers.length) {
-      this.pendingReserva = reserva;
-      this.pendingStatus = estado;
-      this.pendingBlockers.set(blockers);
-      this.pendingVisible = true;
+    if (this.rooms.some((r) => !r.roomTypeId)) {
+      this.messages.add({ severity: 'warn', summary: 'Falta tipo', detail: 'Cada habitación necesita un tipo (paso 1).' });
+      this.step.set(1);
       return;
     }
-    this.realSave(reserva, estado);
+    // En Modo demostración (o editando una reserva demo) se guarda aislado, sin tocar backend.
+    if (this.editingDemo || this.store.isDemo()) {
+      const reserva = this.buildReserva(estado);
+      if (this.mode === 'edit' && this.editingDemo) this.store.updateDemoReserva(reserva);
+      else this.store.addDemoReserva(reserva);
+      this.messages.add({ severity: 'info', summary: 'Guardado en Demostración', detail: 'No se tocó el backend ni la caja. Visible solo en Modo demostración.' });
+      this.router.navigate(['/operations/reservas', reserva.id], { queryParams: { doc: 1 } });
+      return;
+    }
+    this.realSave(estado);
   }
 
-  private realSave(reserva: Reserva, estado: 'TENTATIVA' | 'CONFIRMADA'): void {
-    const h = reserva.habitaciones[0];
-    const status: ReservationStatus = estado === 'CONFIRMADA' ? 'CONFIRMED' : 'PENDING';
-    const dto = {
-      roomTypeId: h.roomTypeId!,
-      roomId: h.roomId ?? undefined,
-      guestId: reserva.contacto.guestId ?? undefined,
-      guestName: reserva.contacto.nombre || undefined,
-      phone: reserva.contacto.telefono || undefined,
-      expectedCheckInAt: reserva.entradaAt,
-      durationMinutes: durationMinutesOf(reserva.entradaAt, reserva.salidaAt),
-      adults: h.adults ?? 1,
-      children: h.children ?? 0,
-      status,
-      notes: reserva.notaInterna || undefined,
+  private buildApiInput(estado: 'TENTATIVA' | 'CONFIRMADA'): ReservaApiInput {
+    const placas = this.cochera.placasText.split(',').map((s) => s.trim()).filter(Boolean);
+    return {
+      codigo: this.codigo,
+      estado,
+      modalidad: this.modalidad,
+      entradaAt: new Date(this.entradaAt).toISOString(),
+      salidaAt: new Date(this.salidaAt).toISOString(),
+      origen: this.origen,
+      contacto: {
+        tipo: this.contacto.tipo,
+        guestId: this.contacto.guestId,
+        documentType: this.contacto.documentType,
+        documentNumber: this.contacto.documentNumber,
+        nombre: this.contacto.nombre,
+        telefono: this.contacto.telefono,
+        telefonoAlt: this.contacto.telefonoAlt,
+        email: this.contacto.email,
+      },
+      habitaciones: this.rooms.map((r) => ({
+        roomTypeId: r.roomTypeId as string,
+        roomTypeName: r.roomTypeName,
+        roomId: r.roomId,
+        rateId: r.rateId,
+        precio: r.precio,
+        adults: r.adults,
+        children: r.children,
+        requisitos: r.requisitos,
+        preferencias: r.preferencias,
+        huespedes: r.huespedes.map((g) => ({ guestId: null, firstName: g.firstName, lastName: g.lastName, documentType: g.documentType, documentNumber: g.documentNumber, nationality: g.nationality, phone: g.phone })),
+      })),
+      cochera: { requiere: this.cochera.requiere, vehiculos: this.cochera.vehiculos, estado: this.cochera.estado, precio: this.cochera.precio, placas },
+      pagos: this.pagos.map((p) => ({ importe: p.importe, medio: p.medio, destino: p.destino, operacion: p.operacion, observacion: p.observacion, fecha: new Date(p.fecha).toISOString() })),
+      pagosProgramados: this.programados.map((p) => ({ vence: p.vence ? new Date(p.vence).toISOString() : null, modo: p.modo, valor: p.valor, base: p.base })),
+      condiciones: {
+        politicaNombre: this.condiciones.politica || null,
+        adelantoRequerido: this.condiciones.adelanto,
+        plazoPago: this.condiciones.plazo || null,
+        venceTentativaAt: this.condiciones.venceTentativa ? new Date(this.condiciones.venceTentativa).toISOString() : null,
+        cancelacion: this.condiciones.cancelacion || null,
+        noShow: this.condiciones.noShow || null,
+        aceptacion: this.condiciones.aceptacion,
+      },
+      notaInterna: this.notaInterna || null,
+      observacionCliente: this.observacionCliente || null,
     };
+  }
+
+  private realSave(estado: 'TENTATIVA' | 'CONFIRMADA'): void {
+    const dto = this.buildApiInput(estado);
     this.saving.set(true);
-    const req$ = this.mode === 'edit' && this.editId ? this.ops.reservations.update(this.editId, dto) : this.ops.reservations.create(dto);
+    const req$ = this.mode === 'edit' && this.editId && !this.editingDemo ? this.ops.reservationUpdate(this.editId, dto) : this.ops.reservationCreate(dto);
     req$.subscribe({
       next: (res) => {
         this.saving.set(false);
         this.store.setSource('REAL');
         this.messages.add({ severity: 'success', summary: estado === 'CONFIRMADA' ? 'Reserva confirmada' : 'Tentativa guardada', detail: 'Guardada en el sistema.' });
-        const newId = this.editId ?? res.data?.id;
+        const newId = res.data?.id ?? this.editId;
         if (newId) this.router.navigate(['/operations/reservas', newId], { queryParams: { doc: 1 } });
         else this.router.navigate(['/operations/reservas'], { queryParams: { vista: 'lista' } });
       },
@@ -576,17 +618,6 @@ export class ReservasWizardComponent implements OnInit {
         this.messages.add({ severity: 'error', summary: 'No se guardó', detail: err.error?.error?.message ?? 'No se pudo guardar la reserva.' });
       },
     });
-  }
-
-  /** Confirmación del guardado pendiente: la única vía es la Demostración aislada. */
-  guardarEnDemo(): void {
-    if (!this.pendingReserva) return;
-    const r = { ...this.pendingReserva, id: this.editId ?? 'demo-' + uid(), codigo: this.codigo };
-    if (this.mode === 'edit' && this.editingDemo) this.store.updateDemoReserva(r);
-    else this.store.addDemoReserva(r);
-    this.pendingVisible = false;
-    this.messages.add({ severity: 'info', summary: 'Guardado en Demostración', detail: 'No se tocó el backend ni la caja. Visible solo en Modo demostración.' });
-    this.router.navigate(['/operations/reservas', r.id], { queryParams: { doc: 1 } });
   }
 
   /** Guarda una proforma (cotización) en la demostración, reutilizando el formulario. */

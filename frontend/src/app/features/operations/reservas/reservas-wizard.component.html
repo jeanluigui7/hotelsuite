@@ -267,16 +267,3 @@
   </ng-template>
 </p-dialog>
 
-<!-- Guardado pendiente de conexión -->
-<p-dialog [(visible)]="pendingVisible" [modal]="true" [style]="{ width: '560px' }" header="Guardado pendiente de conexión">
-  <p>Esta operación incluye datos que el sistema todavía no puede guardar de forma íntegra:</p>
-  <ul class="blockers">
-    @for (b of pendingBlockers(); track b) { <li><i class="pi pi-link"></i> {{ b }}</li> }
-    @if (editingDemo) { <li><i class="pi pi-flask"></i> Es una reserva de demostración</li> }
-  </ul>
-  <p class="muted small">Para no descartar datos ni guardar a medias, puedes conservarla en la <strong>Demostración aislada</strong> (no toca backend ni caja). El guardado real completo llega en las siguientes etapas.</p>
-  <ng-template pTemplate="footer">
-    <p-button label="Volver a editar" severity="secondary" [text]="true" (onClick)="pendingVisible = false" />
-    <p-button label="Guardar en Demostración" icon="pi pi-flask" (onClick)="guardarEnDemo()" />
-  </ng-template>
-</p-dialog>

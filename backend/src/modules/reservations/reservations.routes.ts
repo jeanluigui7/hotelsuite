@@ -13,4 +13,5 @@ reservationsRouter.get('/reservations', requirePermission('operations', 'view'),
 reservationsRouter.get('/reservations/:id', requirePermission('operations', 'view'), asyncHandler(reservationsController.getById));
 reservationsRouter.post('/reservations', requirePermission('operations', 'create'), asyncHandler(reservationsController.create));
 reservationsRouter.put('/reservations/:id', requirePermission('operations', 'edit'), asyncHandler(reservationsController.update));
+reservationsRouter.post('/reservations/:id/status', requirePermission('operations', 'edit'), asyncHandler(reservationsController.changeStatus));
 reservationsRouter.delete('/reservations/:id', requirePermission('operations', 'delete'), asyncHandler(reservationsController.remove));

@@ -1031,29 +1031,156 @@ model StayGuest {
 model Reservation {
   id                String   @id @default(uuid())
   branchId          String
-  roomTypeId        String
+  code              String? // correlativo legible por sucursal (R-0001)
+  roomTypeId        String // tipo de la unidad principal (back-compat; detalle en ReservationRoom)
   roomId            String?
   guestId           String?
   guestName         String? // si no hay Guest registrado aún
   phone             String?
-  expectedCheckInAt DateTime
-  durationMinutes   Int      @default(1440)
-  adults            Int      @default(1)
-  children          Int      @default(0)
-  status            String   @default("PENDING") // PENDING | CONFIRMED | CANCELLED | FULFILLED
-  notes             String?
-  createdByUserId   String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  // Cabecera enriquecida (ETAPA 2)
+  modalidad          String   @default("PERNOCTE") // HORAS | PERNOCTE
+  expectedCheckInAt  DateTime
+  expectedCheckOutAt DateTime?
+  durationMinutes    Int      @default(1440)
+  adults             Int      @default(1)
+  children           Int      @default(0)
+  status             String   @default("PENDING") // PENDING(tentativa) | CONFIRMED | CANCELLED | FULFILLED | EXPIRED(vencida) | NO_SHOW | IN_STAY
+  paymentStatus      String   @default("SIN_PAGO") // SIN_PAGO | PARCIAL | PAGADO
+  origin             String   @default("RECEPCION") // RECEPCION | WHATSAPP | TELEFONO_FIJO | CELULAR | WEB | OTA | OTRO
+  // Contacto
+  contactType     String  @default("PERSONA") // PERSONA | EMPRESA
+  contactDocType  String?
+  contactDocNumber String?
+  contactName     String?
+  contactPhone    String?
+  contactPhoneAlt String?
+  contactEmail    String?
+  // Montos
+  total   Decimal? @db.Decimal(10, 2)
+  paid    Decimal? @db.Decimal(10, 2)
+  balance Decimal? @db.Decimal(10, 2)
+  // Condiciones
+  policyName        String?
+  policyVersion     String?
+  advanceRequired   Decimal?  @db.Decimal(10, 2)
+  tentativeDueAt    DateTime?
+  cancellationTerms String?
+  noShowTerms       String?
+  acceptance        String    @default("PENDIENTE") // PENDIENTE | REGISTRADA
+  acceptanceAt      DateTime?
+  // Cochera
+  parkingRequired Boolean  @default(false)
+  parkingVehicles Int      @default(0)
+  parkingStatus   String   @default("SOLICITADA") // SOLICITADA | CONFIRMADA
+  parkingPrice    Decimal? @db.Decimal(10, 2)
+  parkingPlates   String? // CSV simple
+  // Notas
+  internalNote String?
+  clientNote   String?
+  notes        String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
   roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   room     Room?    @relation(fields: [roomId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   guest    Guest?   @relation(fields: [guestId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
+  rooms             ReservationRoom[]
+  payments          ReservationPayment[]
+  scheduledPayments ReservationScheduledPayment[]
+
   @@index([branchId])
   @@index([status])
   @@index([roomTypeId])
+}
+
+/// Una habitación solicitada dentro de una reserva (la reserva es multi-habitación).
+model ReservationRoom {
+  id            String   @id @default(uuid())
+  reservationId String
+  roomTypeId    String?
+  roomTypeName  String? // snapshot del nombre para listados
+  roomId        String?
+  roomNumber    String?
+  rateId        String?
+  price         Decimal? @db.Decimal(10, 2)
+  adults        Int      @default(1)
+  children      Int      @default(0)
+  unitStatus    String   @default("RESERVADA") // RESERVADA | ASIGNADA | EN_ESTADIA | FINALIZADA | CANCELADA
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  reservation Reservation                 @relation(fields: [reservationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  attributes  ReservationRoomAttribute[]
+  guests      ReservationGuest[]
+
+  @@index([reservationId])
+}
+
+/// Atributo exigido (REQUISITO) o deseado (PREFERENCIA) de una unidad de reserva.
+model ReservationRoomAttribute {
+  id                String @id @default(uuid())
+  reservationRoomId String
+  attributeId       String?
+  attributeName     String // snapshot
+  kind              String @default("REQUISITO") // REQUISITO | PREFERENCIA
+
+  reservationRoom ReservationRoom @relation(fields: [reservationRoomId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([reservationRoomId])
+}
+
+/// Huésped asignado a una unidad de la reserva.
+model ReservationGuest {
+  id                String  @id @default(uuid())
+  reservationRoomId String
+  guestId           String?
+  firstName         String
+  lastName          String?
+  documentType      String?
+  documentNumber    String?
+  nationality       String?
+  phone             String?
+
+  reservationRoom ReservationRoom @relation(fields: [reservationRoomId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([reservationRoomId])
+}
+
+/// Pago recibido a nivel de reserva (NO mueve caja todavía — eso es ETAPA 3).
+model ReservationPayment {
+  id            String   @id @default(uuid())
+  reservationId String
+  amount        Decimal  @db.Decimal(10, 2)
+  method        String
+  destination   String?
+  reference     String?
+  note          String?
+  kind          String   @default("RECIBIDO") // RECIBIDO | ANTICIPO_APLICADO
+  advanceId     String?
+  paidAt        DateTime @default(now())
+  createdByUserId String?
+
+  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([reservationId])
+}
+
+/// Próximo pago programado (no cuenta como dinero recibido).
+model ReservationScheduledPayment {
+  id            String    @id @default(uuid())
+  reservationId String
+  dueAt         DateTime?
+  mode          String    @default("PORCENTAJE") // FIJO | PORCENTAJE
+  value         Decimal   @db.Decimal(10, 2)
+  base          String    @default("TOTAL") // TOTAL | SALDO
+  amount        Decimal   @db.Decimal(10, 2)
+
+  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([reservationId])
 }
 
 /// Observación operativa (general o asociada a una habitación).
