@@ -1,13 +1,13 @@
 import type { Prisma } from '@prisma/client';
 import type { RequestScope } from '../../shared/context';
-import { NotFoundError, ValidationError } from '../../shared/errors';
+import { ConflictError, NotFoundError, ValidationError } from '../../shared/errors';
 import { buildOrderBy, pageMeta, toPrismaPaging, type PaginationParams } from '../../shared/pagination';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { recordActivity } from '../activity-log/activity.emitter';
 import { reservationsRepository, type ReservationFull, type ReservationListRow, type RichReservationInput } from './reservations.repository';
 import { availabilityService } from './availability.service';
-import type { ChangeStatusDto, CreateReservationDto, UpdateReservationDto } from './reservations.schema';
+import type { AddPaymentDto, ChangeStatusDto, CreateReservationDto, UpdateReservationDto } from './reservations.schema';
 
 const SORTABLE = ['expectedCheckInAt', 'createdAt', 'status'] as const;
 
@@ -292,6 +292,32 @@ export const reservationsService = {
       activity: 'RESERVATION_UPDATE', area: 'RESERVAS', entityId: id, reference: `Reserva ${code}`,
       detail: `Reserva modificada · ${dto.contacto.nombre ?? 'Cliente'}`,
       meta: { reservationId: id, code },
+    });
+    return serialize(r);
+  },
+
+  async addPayment(scope: RequestScope, id: string, dto: AddPaymentDto) {
+    const existing = await this.getEntity(scope, id);
+    const total = Number(existing.total ?? 0);
+    const paid = Number(existing.paid ?? 0);
+    const balance = total - paid;
+    if (total > 0 && dto.importe > balance + 0.009) {
+      throw new ConflictError(`El pago (S/ ${dto.importe.toFixed(2)}) excede el saldo pendiente (S/ ${balance.toFixed(2)}). No se permiten sobrepagos.`);
+    }
+    const r = await reservationsRepository.addPayment(id, {
+      amount: dto.importe,
+      method: dto.medio,
+      destination: dto.destino ?? null,
+      reference: dto.operacion ?? null,
+      note: dto.observacion ?? null,
+      kind: 'RECIBIDO',
+      paidAt: dto.fecha ?? new Date(),
+      createdByUserId: scope.userId,
+    });
+    void recordActivity(scope, {
+      activity: 'RESERVATION_UPDATE', area: 'RESERVAS', entityId: id, reference: `Reserva ${r.code ?? id.slice(0, 6)}`,
+      detail: `Pago recibido S/ ${dto.importe.toFixed(2)} (${dto.medio})`,
+      meta: { reservationId: id, amount: dto.importe, method: dto.medio },
     });
     return serialize(r);
   },

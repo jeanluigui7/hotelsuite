@@ -98,6 +98,20 @@ export const reservationsRepository = {
     return (await this.findById(id))!;
   },
 
+  /** Agrega un pago y recalcula pagado/saldo/estado de la reserva (transaccional). */
+  async addPayment(reservationId: string, payment: Omit<Prisma.ReservationPaymentUncheckedCreateInput, 'reservationId'>): Promise<ReservationFull> {
+    await prisma.$transaction(async (tx) => {
+      await tx.reservationPayment.create({ data: { ...payment, reservationId } });
+      const agg = await tx.reservationPayment.aggregate({ where: { reservationId }, _sum: { amount: true } });
+      const paid = Number(agg._sum.amount ?? 0);
+      const r = await tx.reservation.findUnique({ where: { id: reservationId }, select: { total: true } });
+      const total = Number(r?.total ?? 0);
+      const paymentStatus = paid <= 0 ? 'SIN_PAGO' : total > 0 && paid >= total ? 'PAGADO' : 'PARCIAL';
+      await tx.reservation.update({ where: { id: reservationId }, data: { paid, balance: total - paid, paymentStatus } });
+    });
+    return (await this.findById(reservationId))!;
+  },
+
   async delete(id: string) {
     return prisma.$transaction(async (tx) => {
       await deleteChildren(tx, id);

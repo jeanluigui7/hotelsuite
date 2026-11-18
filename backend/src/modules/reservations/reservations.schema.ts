@@ -89,6 +89,17 @@ export const createReservationSchema = z.object({
 
 export const updateReservationSchema = createReservationSchema;
 
+/** Alta de un pago recibido a una reserva existente (desde el detalle). */
+export const addPaymentSchema = z.object({
+  importe: z.coerce.number().positive(),
+  medio: z.string().min(1).max(40),
+  destino: z.string().max(120).optional().nullable(),
+  operacion: z.string().max(120).optional().nullable(),
+  observacion: z.string().max(300).optional().nullable(),
+  fecha: z.coerce.date().optional(),
+});
+export type AddPaymentDto = z.infer<typeof addPaymentSchema>;
+
 /** Cambios de estado puntuales desde el detalle. */
 export const changeStatusSchema = z.object({
   estado: z.enum(['CONFIRMADA', 'CANCELADA', 'NO_SHOW', 'VENCIDA']),

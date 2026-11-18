@@ -35,6 +35,7 @@ import { shiftLogsRouter } from './modules/shift-logs/shift-logs.routes';
 import { roomsRouter } from './modules/rooms/rooms.routes';
 import { staysRouter } from './modules/stays/stays.routes';
 import { reservationsRouter } from './modules/reservations/reservations.routes';
+import { advancesRouter } from './modules/advances/advances.routes';
 import { observationsRouter } from './modules/observations/observations.routes';
 import { conciergeRouter } from './modules/concierge/concierge.routes';
 import { productsRouter } from './modules/products/products.routes';
@@ -144,6 +145,7 @@ export function createApp(): Application {
   app.use('/api', roomsRouter);
   app.use('/api', staysRouter);
   app.use('/api', reservationsRouter);
+  app.use('/api', advancesRouter);
   app.use('/api', observationsRouter);
   app.use('/api', conciergeRouter);
   app.use('/api', productsRouter);

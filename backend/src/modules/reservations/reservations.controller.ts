@@ -4,7 +4,7 @@ import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { reservationsService } from './reservations.service';
 import { availabilityService } from './availability.service';
-import { availabilityQuerySchema, changeStatusSchema, createReservationSchema, updateReservationSchema } from './reservations.schema';
+import { addPaymentSchema, availabilityQuerySchema, changeStatusSchema, createReservationSchema, updateReservationSchema } from './reservations.schema';
 
 export const reservationsController = {
   async list(req: Request, res: Response): Promise<void> {
@@ -32,6 +32,11 @@ export const reservationsController = {
     if (!req.scope) throw new UnauthorizedError();
     const dto = updateReservationSchema.parse(req.body);
     res.status(200).json(ok(await reservationsService.update(req.scope, req.params.id, dto)));
+  },
+  async addPayment(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = addPaymentSchema.parse(req.body);
+    res.status(201).json(ok(await reservationsService.addPayment(req.scope, req.params.id, dto)));
   },
   async changeStatus(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();

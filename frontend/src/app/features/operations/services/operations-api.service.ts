@@ -26,7 +26,7 @@ import type {
   RoomStatus,
   Stay,
 } from './operations.models';
-import type { AvailabilityResult, Reserva as ReservaLike, ReservaApiInput } from '../reservas/reservas.model';
+import type { Anticipo, AvailabilityResult, Reserva as ReservaLike, ReservaApiInput } from '../reservas/reservas.model';
 
 @Injectable({ providedIn: 'root' })
 export class OperationsApiService {
@@ -60,6 +60,18 @@ export class OperationsApiService {
   }
   reservationAvailability(params: { from: string; to: string; roomTypeId?: string; vehicles?: number; excludeReservationId?: string }): Observable<ApiResponse<AvailabilityResult>> {
     return this.http.get<ApiResponse<AvailabilityResult>>(`${this.api}/reservations/availability`, { params: toHttpParams(params) });
+  }
+  reservationAddPayment(id: string, dto: { importe: number; medio: string; destino?: string; operacion?: string; observacion?: string; fecha?: string }): Observable<ApiResponse<ReservaLike>> {
+    return this.http.post<ApiResponse<ReservaLike>>(`${this.api}/reservations/${id}/payments`, dto);
+  }
+  advanceList(): Observable<ApiResponse<Anticipo[]>> {
+    return this.http.get<ApiResponse<Anticipo[]>>(`${this.api}/advances`);
+  }
+  advanceCreate(dto: { cliente: string; telefono?: string; importe: number; medio?: string; destino?: string; operacion?: string; referencia?: string; observacion?: string; fecha?: string }): Observable<ApiResponse<Anticipo>> {
+    return this.http.post<ApiResponse<Anticipo>>(`${this.api}/advances`, dto);
+  }
+  advanceApply(id: string, dto: { reservationId: string; importe: number }): Observable<ApiResponse<Anticipo>> {
+    return this.http.post<ApiResponse<Anticipo>>(`${this.api}/advances/${id}/apply`, dto);
   }
 
   /** Catálogo de fallas (agrupado por categoría) para el modal "Reportar falla". */

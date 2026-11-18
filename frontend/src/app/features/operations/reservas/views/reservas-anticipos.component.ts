@@ -1,5 +1,6 @@
-import { Component, inject } from '@angular/core';
+import { Component, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
@@ -9,6 +10,7 @@ import { SelectModule } from 'primeng/select';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
+import { OperationsApiService } from '../../services/operations-api.service';
 import { ReservasStore } from '../reservas-store.service';
 import type { Anticipo, Reserva } from '../reservas.model';
 
@@ -27,10 +29,30 @@ const uid = () => Math.random().toString(36).slice(2, 10);
   templateUrl: './reservas-anticipos.component.html',
   styleUrls: ['../reservas.styles.scss', '../reservas-wizard.component.scss', '../reservas-detalle.component.scss'],
 })
-export class ReservasAnticiposComponent {
+export class ReservasAnticiposComponent implements OnInit {
   readonly store = inject(ReservasStore);
+  private readonly ops = inject(OperationsApiService);
   private readonly messages = inject(MessageService);
   readonly payMethods = PAY_METHODS;
+
+  private readonly realAdvances = signal<Anticipo[]>([]);
+  /** Fuente activa: demostración (store) o reales (API). */
+  readonly rows = computed<Anticipo[]>(() => (this.store.isDemo() ? this.store.anticipos() : this.realAdvances()));
+
+  constructor() {
+    // Recarga los anticipos reales cada vez que la fuente vuelve a REAL.
+    effect(() => {
+      if (this.store.source() === 'REAL') this.reload();
+    });
+  }
+
+  ngOnInit(): void {
+    if (!this.store.isDemo()) this.reload();
+  }
+
+  reload(): void {
+    this.ops.advanceList().subscribe({ next: (res) => this.realAdvances.set(res.data ?? []), error: () => this.realAdvances.set([]) });
+  }
 
   regDialog = false;
   regForm = { cliente: '', telefono: '', importe: 0, medio: 'CASH', destino: '', fecha: '', operacion: '', referencia: '', condiciones: '', observacion: '' };
@@ -59,22 +81,20 @@ export class ReservasAnticiposComponent {
       this.messages.add({ severity: 'warn', summary: 'Datos incompletos', detail: 'Indica cliente e importe.' });
       return;
     }
-    const n = this.store.anticipos().length + 1;
-    const a: Anticipo = {
-      id: 'an-' + uid(),
-      codigo: `A-${String(n).padStart(4, '0')}`,
-      cliente: this.regForm.cliente,
-      telefono: this.regForm.telefono,
-      fecha: new Date(this.regForm.fecha).toISOString(),
-      recibido: this.regForm.importe,
-      aplicado: 0,
-      disponible: this.regForm.importe,
-      estado: 'POR_APLICAR',
-      origin: 'DEMO',
-    };
-    this.store.addDemoAnticipo(a);
-    this.regDialog = false;
-    this.messages.add({ severity: 'info', summary: 'Anticipo registrado', detail: 'Guardado en Demostración (no toca caja). No garantiza habitaciones ni fechas.' });
+    if (this.store.isDemo()) {
+      const n = this.store.anticipos().length + 1;
+      const a: Anticipo = { id: 'an-' + uid(), codigo: `A-${String(n).padStart(4, '0')}`, cliente: this.regForm.cliente, telefono: this.regForm.telefono, fecha: new Date(this.regForm.fecha).toISOString(), recibido: this.regForm.importe, aplicado: 0, disponible: this.regForm.importe, estado: 'POR_APLICAR', origin: 'DEMO' };
+      this.store.addDemoAnticipo(a);
+      this.regDialog = false;
+      this.messages.add({ severity: 'info', summary: 'Anticipo registrado', detail: 'Guardado en Demostración (no toca caja).' });
+      return;
+    }
+    this.ops
+      .advanceCreate({ cliente: this.regForm.cliente, telefono: this.regForm.telefono || undefined, importe: this.regForm.importe, medio: this.regForm.medio, destino: this.regForm.destino || undefined, operacion: this.regForm.operacion || undefined, referencia: this.regForm.referencia || undefined, observacion: this.regForm.observacion || undefined, fecha: new Date(this.regForm.fecha).toISOString() })
+      .subscribe({
+        next: () => { this.regDialog = false; this.reload(); this.messages.add({ severity: 'success', summary: 'Anticipo registrado', detail: 'Saldo a favor creado. No garantiza habitaciones ni fechas hasta crear y confirmar una reserva.' }); },
+        error: (e: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo registrar.' }),
+      });
   }
 
   openApply(a: Anticipo): void {
@@ -101,8 +121,15 @@ export class ReservasAnticiposComponent {
     if (!a || !this.applyReservaId) { this.messages.add({ severity: 'warn', summary: 'Falta reserva', detail: 'Elige la reserva de destino.' }); return; }
     if (this.applyImporte <= 0) { this.messages.add({ severity: 'warn', summary: 'Importe inválido', detail: 'Indica cuánto aplicar.' }); return; }
     if (this.applyImporte > a.disponible) { this.messages.add({ severity: 'warn', summary: 'Anticipo insuficiente', detail: `Disponible S/ ${a.disponible.toFixed(2)}.` }); return; }
-    this.store.applyDemoAnticipo(a.id, this.applyReservaId, this.applyImporte);
-    this.applyDialog = false;
-    this.messages.add({ severity: 'info', summary: 'Anticipo aplicado', detail: 'Aplicado a la reserva (no genera un segundo ingreso en caja).' });
+    if (this.store.isDemo()) {
+      this.store.applyDemoAnticipo(a.id, this.applyReservaId, this.applyImporte);
+      this.applyDialog = false;
+      this.messages.add({ severity: 'info', summary: 'Anticipo aplicado', detail: 'Aplicado a la reserva (no genera un segundo ingreso en caja).' });
+      return;
+    }
+    this.ops.advanceApply(a.id, { reservationId: this.applyReservaId, importe: this.applyImporte }).subscribe({
+      next: () => { this.applyDialog = false; this.reload(); this.store.load(); this.messages.add({ severity: 'success', summary: 'Anticipo aplicado', detail: 'Aplicado a la reserva (no genera un segundo ingreso en caja).' }); },
+      error: (e: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo aplicar.' }),
+    });
   }
 }

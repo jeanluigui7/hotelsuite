@@ -1168,6 +1168,27 @@ model ReservationPayment {
   @@index([reservationId])
 }
 
+/// Anticipo de un cliente sin reserva definida (saldo a favor que luego se aplica).
+model Advance {
+  id              String   @id @default(uuid())
+  branchId        String
+  code            String? // A-0001
+  clientName      String
+  phone           String?
+  amount          Decimal  @db.Decimal(10, 2) // importe recibido
+  applied         Decimal  @default(0) @db.Decimal(10, 2) // importe aplicado a reservas
+  status          String   @default("POR_APLICAR") // POR_APLICAR | PARCIAL | APLICADO
+  method          String?
+  destination     String?
+  reference       String?
+  note            String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([branchId])
+}
+
 /// Próximo pago programado (no cuenta como dinero recibido).
 model ReservationScheduledPayment {
   id            String    @id @default(uuid())

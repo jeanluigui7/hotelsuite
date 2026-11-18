@@ -210,10 +210,14 @@ export class ReservasDetalleComponent implements OnInit {
       this.refresh();
       this.pagoDialog = false;
       this.messages.add({ severity: 'success', summary: 'Pago registrado', detail: 'Abono agregado a la reserva (demostración).' });
-    } else {
-      this.pagoDialog = false;
-      this.messages.add({ severity: 'info', summary: 'Pendiente de conexión', detail: 'Registrar un pago de reserva en una reserva real requiere conexión con caja (etapa posterior). No se registró.' });
+      return;
     }
+    this.ops
+      .reservationAddPayment(r.id, { importe: this.pagoForm.importe, medio: this.pagoForm.medio, destino: this.pagoForm.destino || undefined, operacion: this.pagoForm.operacion || undefined, observacion: this.pagoForm.observacion || undefined, fecha: new Date(this.pagoForm.fecha).toISOString() })
+      .subscribe({
+        next: () => { this.pagoDialog = false; this.messages.add({ severity: 'success', summary: 'Pago registrado', detail: 'Abono registrado en la reserva.' }); this.refresh(); },
+        error: (e: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'No se registró', detail: e.error?.error?.message ?? 'No se pudo registrar el pago.' }),
+      });
   }
 
   // ── Cancelación ──

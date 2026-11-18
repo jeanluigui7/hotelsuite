@@ -3,20 +3,20 @@
   <p-button label="Registrar anticipo" icon="pi pi-plus" (onClick)="openReg()" />
 </div>
 
-@if (store.anticipos().length === 0) {
+@if (rows().length === 0) {
   <div class="rv-empty">
     <i class="pi pi-wallet"></i>
-    <p>Sin anticipos.{{ store.isDemo() ? '' : ' Los anticipos se guardan en Demostración (sin backend aún).' }}</p>
+    <p>Sin anticipos.</p>
     <p-button label="Registrar anticipo" [text]="true" (onClick)="openReg()" />
   </div>
 } @else {
-  <p-table [value]="store.anticipos()" styleClass="p-datatable-sm">
+  <p-table [value]="rows()" styleClass="p-datatable-sm">
     <ng-template pTemplate="header">
       <tr><th>Código</th><th>Cliente</th><th>Fecha</th><th>Recibido</th><th>Aplicado</th><th>Disponible</th><th>Estado</th><th></th></tr>
     </ng-template>
     <ng-template pTemplate="body" let-a>
       <tr>
-        <td><span class="code">{{ a.codigo }}</span> <span class="demo-chip">DEMO</span></td>
+        <td><span class="code">{{ a.codigo }}</span> @if (a.origin === 'DEMO') { <span class="demo-chip">DEMO</span> }</td>
         <td>{{ a.cliente }}<div class="muted small">{{ a.telefono }}</div></td>
         <td>{{ a.fecha | date: 'dd/MM/yy' }}</td>
         <td>S/ {{ a.recibido | number: '1.2-2' }}</td>
