@@ -102,11 +102,10 @@
         <div class="box">
           <h4>Pagos recibidos</h4>
           @if (r.pagos.length === 0) {
-            @if (r.origin === 'DEMO') { <p class="muted small">Sin pagos.</p> }
-            @else { <p class="pend-pill"><i class="pi pi-link"></i> Los pagos de reserva se conectan con caja en una etapa posterior.</p> }
+            <p class="muted small">Sin pagos registrados.</p>
           }
           @for (p of r.pagos; track p.id) {
-            <div class="line"><span>{{ p.fecha | date: 'dd/MM/yy HH:mm' }} · {{ p.medio }} @if (p.tipo === 'ANTICIPO_APLICADO') { <span class="demo-chip">ANTICIPO</span> }</span><b>S/ {{ p.importe | number: '1.2-2' }}</b></div>
+            <div class="line"><span>{{ p.fecha | date: 'dd/MM/yy HH:mm' }} · {{ p.medio }} @if (p.tipo === 'ANTICIPO_APLICADO') { <span class="demo-chip">ANTICIPO</span> } @if (p.conciliado === false) { <span class="pend-chip" title="Se registró sin caja abierta; se conciliará al abrir turno">PENDIENTE DE CONCILIAR</span> }</span><b>S/ {{ p.importe | number: '1.2-2' }}</b></div>
           }
         </div>
         @if (r.pagosProgramados.length) {

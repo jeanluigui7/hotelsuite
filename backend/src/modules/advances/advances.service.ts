@@ -3,6 +3,7 @@ import type { RequestScope } from '../../shared/context';
 import { ConflictError, NotFoundError, ValidationError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import { recordActivity } from '../activity-log/activity.emitter';
+import { cashRepository } from '../cash/cash.repository';
 import { reservationsRepository } from '../reservations/reservations.repository';
 import { advancesRepository } from './advances.repository';
 import type { ApplyAdvanceDto, CreateAdvanceDto } from './advances.schema';
@@ -20,6 +21,8 @@ function serialize(a: Advance) {
     aplicado: applied,
     disponible: Math.max(0, amount - applied),
     estado: a.status,
+    conciliado: a.conciliated,
+    pendienteConciliar: !a.conciliated,
     origin: 'REAL' as const,
   };
 }
@@ -34,6 +37,27 @@ export const advancesService = {
   async create(scope: RequestScope, dto: CreateAdvanceDto) {
     const branchId = requireActiveBranch(scope);
     const code = `A-${String((await advancesRepository.maxCodeNumber(branchId)) + 1).padStart(4, '0')}`;
+    // ETAPA 3 (3B): recibir un anticipo es dinero que entra. Con caja abierta genera un CashMovement
+    // IN y queda conciliado; sin caja abierta se registra igual y queda "pendiente de conciliar".
+    const open = await cashRepository.findOpen(branchId);
+    let cashMovementId: string | null = null;
+    let cashSessionId: string | null = null;
+    if (open) {
+      const mov = await cashRepository.addMovement({
+        cashSessionId: open.id,
+        branchId,
+        type: 'IN',
+        amount: dto.importe,
+        concept: `Anticipo ${code} · ${dto.cliente}`,
+        method: dto.medio ?? 'CASH',
+        reference: dto.operacion ?? null,
+        note: dto.observacion ?? null,
+        category: 'ANTICIPO',
+        createdByUserId: scope.userId,
+      });
+      cashMovementId = mov.id;
+      cashSessionId = open.id;
+    }
     const a = await advancesRepository.create({
       branchId,
       code,
@@ -48,11 +72,14 @@ export const advancesService = {
       note: dto.observacion ?? null,
       createdByUserId: scope.userId,
       createdAt: dto.fecha ?? new Date(),
+      cashMovementId,
+      cashSessionId,
+      conciliated: !!open,
     });
     void recordActivity(scope, {
       activity: 'RESERVATION_CREATE', area: 'RESERVAS', entityId: a.id, reference: `Anticipo ${code}`,
-      detail: `Anticipo de ${dto.cliente} · S/ ${dto.importe.toFixed(2)}`,
-      meta: { advanceId: a.id, amount: dto.importe },
+      detail: `Anticipo de ${dto.cliente} · S/ ${dto.importe.toFixed(2)}${open ? '' : ' · pendiente de conciliar (sin caja abierta)'}`,
+      meta: { advanceId: a.id, amount: dto.importe, conciliated: !!open, cashSessionId },
     });
     return serialize(a);
   },
@@ -80,6 +107,8 @@ export const advancesService = {
       advanceId,
       paidAt: new Date(),
       createdByUserId: scope.userId,
+      // El dinero ya ingresó a caja al crear el anticipo; aplicarlo no es un segundo ingreso.
+      conciliated: true,
     });
     const updated = await advancesRepository.applyAmount(advanceId, dto.importe);
     void recordActivity(scope, {

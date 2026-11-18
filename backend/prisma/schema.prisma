@@ -1196,6 +1196,11 @@ model ReservationPayment {
   advanceId     String?
   paidAt        DateTime @default(now())
   createdByUserId String?
+  // ETAPA 3 · enlace a caja real: si hay turno abierto el pago genera un CashMovement IN y queda
+  // conciliado; sin turno abierto se registra igual y queda "pendiente de conciliar" (conciliated=false).
+  cashMovementId String?
+  cashSessionId  String?
+  conciliated    Boolean @default(false)
 
   reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -1217,6 +1222,10 @@ model Advance {
   reference       String?
   note            String?
   createdByUserId String?
+  // ETAPA 3 · enlace a caja real al recibir el anticipo (igual criterio que ReservationPayment).
+  cashMovementId  String?
+  cashSessionId   String?
+  conciliated     Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

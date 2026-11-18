@@ -136,6 +136,8 @@ export interface ReservaPago {
   operacion?: string;
   observacion?: string;
   tipo: 'RECIBIDO' | 'ANTICIPO_APLICADO';
+  /** ETAPA 3: true si el pago se registró en una caja abierta; false = pendiente de conciliar. */
+  conciliado?: boolean;
 }
 
 export interface ReservaPagoProgramado {
@@ -218,6 +220,9 @@ export interface Anticipo {
   aplicado: number;
   disponible: number;
   estado: 'POR_APLICAR' | 'PARCIAL' | 'APLICADO';
+  /** ETAPA 3: true si entró a una caja abierta; false = pendiente de conciliar. */
+  conciliado?: boolean;
+  pendienteConciliar?: boolean;
   origin: DataOrigin;
 }
 

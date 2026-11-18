@@ -138,6 +138,19 @@
   color: var(--p-orange-400, #fb923c);
   vertical-align: middle;
 }
+/* ETAPA 3: pago/anticipo registrado sin caja abierta (aún no ingresó a un turno). */
+.pend-chip {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.05rem 0.35rem;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--p-amber-500, #f59e0b) 18%, transparent);
+  color: var(--p-amber-600, #d97706);
+  border: 1px solid color-mix(in srgb, var(--p-amber-500, #f59e0b) 40%, transparent);
+  vertical-align: middle;
+  white-space: nowrap;
+}
 .code {
   font-weight: 700;
   font-variant-numeric: tabular-nums;

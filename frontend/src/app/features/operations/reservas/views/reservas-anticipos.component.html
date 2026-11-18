@@ -16,7 +16,7 @@
     </ng-template>
     <ng-template pTemplate="body" let-a>
       <tr>
-        <td><span class="code">{{ a.codigo }}</span> @if (a.origin === 'DEMO') { <span class="demo-chip">DEMO</span> }</td>
+        <td><span class="code">{{ a.codigo }}</span> @if (a.origin === 'DEMO') { <span class="demo-chip">DEMO</span> } @if (a.pendienteConciliar) { <span class="pend-chip" title="Se registró sin caja abierta; se conciliará al abrir turno">PENDIENTE DE CONCILIAR</span> }</td>
         <td>{{ a.cliente }}<div class="muted small">{{ a.telefono }}</div></td>
         <td>{{ a.fecha | date: 'dd/MM/yy' }}</td>
         <td>S/ {{ a.recibido | number: '1.2-2' }}</td>
@@ -43,7 +43,7 @@
     <div class="fld"><label>Condiciones</label><input pInputText [(ngModel)]="regForm.condiciones" /></div>
     <div class="fld"><label>Observación</label><input pInputText [(ngModel)]="regForm.observacion" /></div>
   </div>
-  <p class="muted small"><i class="pi pi-info-circle"></i> Este anticipo conserva un saldo a favor. No garantiza habitaciones ni fechas hasta crear y confirmar una reserva.</p>
+  <p class="muted small"><i class="pi pi-info-circle"></i> Este anticipo conserva un saldo a favor. No garantiza habitaciones ni fechas hasta crear y confirmar una reserva. El importe ingresa a la caja abierta; si no hay turno abierto se registra igual y queda <b>pendiente de conciliar</b>.</p>
   <ng-template pTemplate="footer">
     <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="regDialog = false" />
     <p-button label="Registrar" icon="pi pi-check" (onClick)="saveReg()" />

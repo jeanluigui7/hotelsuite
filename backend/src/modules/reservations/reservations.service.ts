@@ -5,6 +5,7 @@ import { buildOrderBy, pageMeta, toPrismaPaging, type PaginationParams } from '.
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { recordActivity } from '../activity-log/activity.emitter';
+import { cashRepository } from '../cash/cash.repository';
 import { reservationsRepository, type ReservationFull, type ReservationListRow, type RichReservationInput } from './reservations.repository';
 import { availabilityService } from './availability.service';
 import type { AddPaymentDto, ChangeStatusDto, CreateReservationDto, UpdateReservationDto } from './reservations.schema';
@@ -73,7 +74,7 @@ function serialize(r: ReservationFull) {
     total: num(r.total),
     pagado: num(r.paid),
     saldo: num(r.balance),
-    pagos: r.payments.map((p) => ({ id: p.id, importe: num(p.amount) ?? 0, medio: p.method, destino: p.destination ?? undefined, fecha: p.paidAt.toISOString(), operacion: p.reference ?? undefined, observacion: p.note ?? undefined, tipo: p.kind })),
+    pagos: r.payments.map((p) => ({ id: p.id, importe: num(p.amount) ?? 0, medio: p.method, destino: p.destination ?? undefined, fecha: p.paidAt.toISOString(), operacion: p.reference ?? undefined, observacion: p.note ?? undefined, tipo: p.kind, conciliado: p.conciliated })),
     pagosProgramados: r.scheduledPayments.map((s) => ({ id: s.id, vence: iso(s.dueAt) ?? '', modo: s.mode, valor: num(s.value) ?? 0, base: s.base, importeCalculado: num(s.amount) ?? 0 })),
     documentos: r.documents.map((d) => ({ id: d.id, tipo: d.type, version: d.version, vigente: d.current, emitidoAt: d.issuedAt.toISOString() })),
     condiciones: {
@@ -319,12 +320,35 @@ export const reservationsService = {
   },
 
   async addPayment(scope: RequestScope, id: string, dto: AddPaymentDto) {
+    const branchId = requireActiveBranch(scope);
     const existing = await this.getEntity(scope, id);
     const total = Number(existing.total ?? 0);
     const paid = Number(existing.paid ?? 0);
     const balance = total - paid;
     if (total > 0 && dto.importe > balance + 0.009) {
       throw new ConflictError(`El pago (S/ ${dto.importe.toFixed(2)}) excede el saldo pendiente (S/ ${balance.toFixed(2)}). No se permiten sobrepagos.`);
+    }
+    // ETAPA 3 (3B): el pago de reserva es dinero que entra. Con caja abierta se registra un
+    // CashMovement IN y queda conciliado; sin caja abierta NO se bloquea: se registra el pago y
+    // queda "pendiente de conciliar" (se regularizará cuando haya turno).
+    const open = await cashRepository.findOpen(branchId);
+    let cashMovementId: string | null = null;
+    let cashSessionId: string | null = null;
+    if (open) {
+      const mov = await cashRepository.addMovement({
+        cashSessionId: open.id,
+        branchId,
+        type: 'IN',
+        amount: dto.importe,
+        concept: `Reserva ${existing.code ?? id.slice(0, 6)} · ${existing.contactName ?? existing.guestName ?? 'Cliente'}`,
+        method: dto.medio,
+        reference: dto.operacion ?? null,
+        note: dto.observacion ?? null,
+        category: 'RESERVA',
+        createdByUserId: scope.userId,
+      });
+      cashMovementId = mov.id;
+      cashSessionId = open.id;
     }
     const r = await reservationsRepository.addPayment(id, {
       amount: dto.importe,
@@ -335,11 +359,14 @@ export const reservationsService = {
       kind: 'RECIBIDO',
       paidAt: dto.fecha ?? new Date(),
       createdByUserId: scope.userId,
+      cashMovementId,
+      cashSessionId,
+      conciliated: !!open,
     });
     void recordActivity(scope, {
       activity: 'RESERVATION_UPDATE', area: 'RESERVAS', entityId: id, reference: `Reserva ${r.code ?? id.slice(0, 6)}`,
-      detail: `Pago recibido S/ ${dto.importe.toFixed(2)} (${dto.medio})`,
-      meta: { reservationId: id, amount: dto.importe, method: dto.medio },
+      detail: `Pago recibido S/ ${dto.importe.toFixed(2)} (${dto.medio})${open ? '' : ' · pendiente de conciliar (sin caja abierta)'}`,
+      meta: { reservationId: id, amount: dto.importe, method: dto.medio, conciliated: !!open, cashSessionId },
     });
     return serialize(r);
   },
