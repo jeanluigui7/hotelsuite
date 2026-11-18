@@ -268,6 +268,28 @@ export interface ReservaApiInput {
   observacionCliente?: string | null;
 }
 
+// ── Disponibilidad (ETAPA 2 · 2B) ──
+export interface AvailabilityRoom {
+  id: string;
+  number: string;
+  floor: string | null;
+  roomTypeId: string;
+  roomTypeName: string | null;
+  available: boolean;
+  reason?: string;
+  conflictFrom?: string;
+  conflictTo?: string;
+  latestCheckIn?: string;
+}
+export interface AvailabilityResult {
+  from: string;
+  to: string;
+  prepMin: number;
+  rooms: AvailabilityRoom[];
+  availableCount: number;
+  parking: { capacity: number | null; used: number; requested: number; available: number | null; ok: boolean };
+}
+
 // ── Mapeo del backend actual (reserva simple) → modelo rico ──
 
 const ESTADO_FROM_API: Record<ReservationStatus, ReservaEstado> = {

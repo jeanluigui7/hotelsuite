@@ -196,6 +196,12 @@
   gap: 0.35rem;
   margin-left: 0.6rem;
 }
+.conflicts {
+  margin-top: 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
 .note {
   display: flex;
   align-items: center;

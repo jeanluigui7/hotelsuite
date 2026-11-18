@@ -3,7 +3,8 @@ import { ok } from '../../shared/response';
 import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { reservationsService } from './reservations.service';
-import { changeStatusSchema, createReservationSchema, updateReservationSchema } from './reservations.schema';
+import { availabilityService } from './availability.service';
+import { availabilityQuerySchema, changeStatusSchema, createReservationSchema, updateReservationSchema } from './reservations.schema';
 
 export const reservationsController = {
   async list(req: Request, res: Response): Promise<void> {
@@ -12,6 +13,11 @@ export const reservationsController = {
     const status = typeof req.query.status === 'string' ? req.query.status : undefined;
     const { items, meta } = await reservationsService.list(req.scope, params, status);
     res.status(200).json(ok(items, meta));
+  },
+  async availability(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const q = availabilityQuerySchema.parse(req.query);
+    res.status(200).json(ok(await availabilityService.check(req.scope, q)));
   },
   async getById(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();

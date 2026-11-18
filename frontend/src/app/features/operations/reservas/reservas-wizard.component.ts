@@ -1,5 +1,5 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
-import { DecimalPipe } from '@angular/common';
+import { DatePipe, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -15,12 +15,13 @@ import { AuthService } from '../../../core/auth/auth.service';
 import { CatalogApiService } from '../../settings/catalogs/catalog-api.service';
 import type { Guest, Rate, RoomAttribute, RoomType } from '../../settings/catalogs/catalog.models';
 import { OperationsApiService } from '../services/operations-api.service';
-import type { RoomMapItem } from '../services/operations.models';
 import { ReservasStore } from './reservas-store.service';
 import {
   MODALIDAD_LABEL,
   ORIGEN_LABEL,
   durationMinutesOf,
+  type AvailabilityResult,
+  type AvailabilityRoom,
   type Modalidad,
   type Origen,
   type Proforma,
@@ -82,6 +83,7 @@ const uid = () => Math.random().toString(36).slice(2, 10);
   selector: 'app-reservas-wizard',
   standalone: true,
   imports: [
+    DatePipe,
     DecimalPipe,
     FormsModule,
     ButtonModule,
@@ -117,7 +119,8 @@ export class ReservasWizardComponent implements OnInit {
   readonly attributes = signal<RoomAttribute[]>([]);
   readonly ratesByType = new Map<string, Rate[]>();
   readonly guestResults = signal<Guest[]>([]);
-  readonly availability = signal<RoomMapItem[]>([]);
+  readonly availability = signal<AvailabilityRoom[]>([]);
+  readonly parking = signal<AvailabilityResult['parking'] | null>(null);
   availabilityChecked = false;
   guestSearch = '';
 
@@ -301,14 +304,30 @@ export class ReservasWizardComponent implements OnInit {
   }
 
   consultarDisponibilidad(): void {
-    this.ops.map().subscribe((res) => {
-      this.availability.set((res.data ?? []).filter((x) => x.status === 'FREE'));
-      this.availabilityChecked = true;
-      this.messages.add({ severity: 'info', summary: 'Disponibilidad aproximada', detail: 'Muestra habitaciones libres ahora. La validación real por fechas/atributos se conecta en una etapa posterior.' });
-    });
+    if (!this.entradaAt || !this.salidaAt || new Date(this.salidaAt) <= new Date(this.entradaAt)) {
+      this.messages.add({ severity: 'warn', summary: 'Fechas', detail: 'Indica una entrada y salida válidas primero.' });
+      return;
+    }
+    const vehicles = this.cochera.requiere ? this.cochera.vehiculos : 0;
+    this.ops
+      .reservationAvailability({ from: new Date(this.entradaAt).toISOString(), to: new Date(this.salidaAt).toISOString(), vehicles, excludeReservationId: this.editId ?? undefined })
+      .subscribe({
+        next: (res) => {
+          this.availability.set(res.data?.rooms ?? []);
+          this.parking.set(res.data?.parking ?? null);
+          this.availabilityChecked = true;
+          const n = res.data?.availableCount ?? 0;
+          this.messages.add({ severity: n > 0 ? 'success' : 'warn', summary: 'Disponibilidad', detail: `${n} habitación(es) disponible(s) para ese horario.` });
+        },
+        error: (err: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo consultar disponibilidad.' }),
+      });
   }
-  freeRoomsFor(r: WRoom) {
-    return this.availability().filter((x) => !r.roomTypeId || x.roomType.id === r.roomTypeId);
+  freeRoomsFor(r: WRoom): AvailabilityRoom[] {
+    return this.availability().filter((x) => x.available && (!r.roomTypeId || x.roomTypeId === r.roomTypeId));
+  }
+  /** Habitaciones ocupadas del tipo (para mostrar el motivo del conflicto). */
+  busyRoomsFor(r: WRoom): AvailabilityRoom[] {
+    return this.availability().filter((x) => !x.available && (!r.roomTypeId || x.roomTypeId === r.roomTypeId));
   }
   onAssignRoom(r: WRoom): void {
     const room = this.availability().find((x) => x.id === r.roomId);

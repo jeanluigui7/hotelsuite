@@ -28,7 +28,14 @@
             <div class="fld"><label>Duración</label><div class="readonly">{{ duracionLabel() }}</div></div>
           </div>
           <p-button label="Consultar disponibilidad" icon="pi pi-search" severity="secondary" size="small" (onClick)="consultarDisponibilidad()" />
-          @if (availabilityChecked) { <span class="muted small aprox"><i class="pi pi-info-circle"></i> Disponibilidad aproximada (sin validación real de fechas/atributos — conexión pendiente).</span> }
+          @if (availabilityChecked) {
+            <span class="muted small aprox"><i class="pi pi-check-circle"></i> {{ availability().length }} habitaciones evaluadas para el horario.</span>
+            @if (parking(); as pk) {
+              @if (pk.capacity !== null) {
+                <span class="small aprox" [class.pend-pill]="!pk.ok"><i class="pi pi-car"></i> Cochera: {{ pk.used }}/{{ pk.capacity }}@if (pk.requested) { · pides {{ pk.requested }} }@if (!pk.ok) { · sin cupo }</span>
+              }
+            }
+          }
         </div>
 
         <div class="panel">
@@ -54,6 +61,14 @@
                     <ng-template let-rm pTemplate="item">Hab. {{ rm.number }}</ng-template>
                   </p-select>
                   @if (!availabilityChecked) { <span class="muted small">Pulsa "Consultar disponibilidad" para asignar ahora, o déjala por asignar.</span> }
+                  @else if (freeRoomsFor(r).length === 0) { <span class="pend-pill small"><i class="pi pi-exclamation-triangle"></i> Sin habitaciones libres de este tipo en el horario.</span> }
+                  @if (availabilityChecked && busyRoomsFor(r).length) {
+                    <div class="muted small conflicts">
+                      @for (b of busyRoomsFor(r); track b.id) {
+                        <div>Hab. {{ b.number }}: {{ b.reason }}@if (b.latestCheckIn) { · ingreso corto hasta {{ b.latestCheckIn | date: 'HH:mm' }} }</div>
+                      }
+                    </div>
+                  }
                 </div>
               </div>
             </div>

@@ -6,6 +6,7 @@ import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
 import { recordActivity } from '../activity-log/activity.emitter';
 import { reservationsRepository, type ReservationFull, type ReservationListRow, type RichReservationInput } from './reservations.repository';
+import { availabilityService } from './availability.service';
 import type { ChangeStatusDto, CreateReservationDto, UpdateReservationDto } from './reservations.schema';
 
 const SORTABLE = ['expectedCheckInAt', 'createdAt', 'status'] as const;
@@ -264,6 +265,7 @@ export const reservationsService = {
   async create(scope: RequestScope, dto: CreateReservationDto) {
     const branchId = requireActiveBranch(scope);
     await assertRefs(branchId, dto);
+    await availabilityService.assertAssignedRoomsFree(scope, dto);
     const code = dto.codigo && /R-\d+/i.test(dto.codigo) ? dto.codigo : `R-${String((await reservationsRepository.maxCodeNumber(branchId)) + 1).padStart(4, '0')}`;
     const { input } = await buildInput(branchId, scope, dto, code);
     const r = await reservationsRepository.createFull(input);
@@ -279,6 +281,7 @@ export const reservationsService = {
     const branchId = requireActiveBranch(scope);
     const existing = await this.getEntity(scope, id);
     await assertRefs(branchId, dto);
+    await availabilityService.assertAssignedRoomsFree(scope, dto, id);
     const code = existing.code ?? (dto.codigo && /R-\d+/i.test(dto.codigo) ? dto.codigo : `R-${String((await reservationsRepository.maxCodeNumber(branchId)) + 1).padStart(4, '0')}`);
     const { input } = await buildInput(branchId, scope, dto, code);
     // No re-crear la reserva: reutilizar la cabecera con su id (updateFull borra hijos y reescribe).

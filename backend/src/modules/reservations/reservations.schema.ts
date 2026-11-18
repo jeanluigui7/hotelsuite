@@ -95,6 +95,20 @@ export const changeStatusSchema = z.object({
   motivo: z.string().max(300).optional().nullable(),
 });
 
+export const availabilityQuerySchema = z.object({
+  from: z.coerce.date(),
+  to: z.coerce.date(),
+  roomTypeId: z.string().optional(),
+  requisitos: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .transform((v) => (Array.isArray(v) ? v : v ? v.split(',').map((s) => s.trim()).filter(Boolean) : [])),
+  prepMin: z.coerce.number().int().min(0).optional(),
+  vehicles: z.coerce.number().int().min(0).optional(),
+  excludeReservationId: z.string().optional(),
+});
+
+export type AvailabilityQueryDto = z.infer<typeof availabilityQuerySchema>;
 export type CreateReservationDto = z.infer<typeof createReservationSchema>;
 export type UpdateReservationDto = z.infer<typeof updateReservationSchema>;
 export type ChangeStatusDto = z.infer<typeof changeStatusSchema>;
