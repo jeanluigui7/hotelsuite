@@ -113,6 +113,7 @@ export class ReservasWizardComponent implements OnInit {
   editId: string | null = null;
   editingDemo = false;
   isProforma = false;
+  fromProformaId: string | null = null;
 
   // Catálogos
   readonly roomTypes = signal<RoomType[]>([]);
@@ -229,13 +230,12 @@ export class ReservasWizardComponent implements OnInit {
       }
       const pfId = q.get('desdeProforma');
       if (pfId) {
-        this.store.load();
-        const pf = this.store.proformaById(pfId);
-        if (pf) {
-          this.contacto.nombre = pf.cliente;
-          this.rooms = Array.from({ length: Math.max(1, pf.habitaciones) }, () => this.emptyRoom());
-          this.messages.add({ severity: 'info', summary: 'Desde proforma', detail: 'Datos precargados. Consulta disponibilidad y tarifas nuevamente; no se confirma automáticamente.' });
-        }
+        this.fromProformaId = pfId;
+        const cliente = q.get('cliente');
+        const roomsN = parseInt(q.get('rooms') ?? '1', 10);
+        if (cliente) this.contacto.nombre = cliente;
+        this.rooms = Array.from({ length: Math.max(1, Number.isNaN(roomsN) ? 1 : roomsN) }, () => this.emptyRoom());
+        this.messages.add({ severity: 'info', summary: 'Desde proforma', detail: 'Datos precargados. Consulta disponibilidad y tarifas nuevamente; no se confirma automáticamente.' });
       }
     }
   }
@@ -629,6 +629,7 @@ export class ReservasWizardComponent implements OnInit {
         this.store.setSource('REAL');
         this.messages.add({ severity: 'success', summary: estado === 'CONFIRMADA' ? 'Reserva confirmada' : 'Tentativa guardada', detail: 'Guardada en el sistema.' });
         const newId = res.data?.id ?? this.editId;
+        if (newId && this.fromProformaId) this.ops.proformaConvert(this.fromProformaId, { reservationId: newId }).subscribe({ next: () => undefined, error: () => undefined });
         if (newId) this.router.navigate(['/operations/reservas', newId], { queryParams: { doc: 1 } });
         else this.router.navigate(['/operations/reservas'], { queryParams: { vista: 'lista' } });
       },
@@ -646,20 +647,20 @@ export class ReservasWizardComponent implements OnInit {
       this.step.set(2);
       return;
     }
-    const p: Proforma = {
-      id: 'pf-' + uid(),
-      codigo: this.codigo,
-      cliente: this.contacto.nombre || 'Cliente',
-      fecha: new Date().toISOString(),
-      validezAt: new Date(Date.now() + 7 * 86400000).toISOString(),
-      habitaciones: this.rooms.length,
-      total: this.totalVal || null,
-      estado: 'VIGENTE',
-      origin: 'DEMO',
-    };
-    this.store.addDemoProforma(p);
-    this.messages.add({ severity: 'info', summary: 'Proforma guardada', detail: 'Cotización guardada en Demostración. No bloquea inventario.' });
-    this.router.navigate(['/operations/reservas'], { queryParams: { vista: 'proformas' } });
+    if (this.store.isDemo()) {
+      const p: Proforma = { id: 'pf-' + uid(), codigo: this.codigo, cliente: this.contacto.nombre || 'Cliente', fecha: new Date().toISOString(), validezAt: new Date(Date.now() + 7 * 86400000).toISOString(), habitaciones: this.rooms.length, total: this.totalVal || null, estado: 'VIGENTE', origin: 'DEMO' };
+      this.store.addDemoProforma(p);
+      this.messages.add({ severity: 'info', summary: 'Proforma guardada', detail: 'Cotización guardada en Demostración. No bloquea inventario.' });
+      this.router.navigate(['/operations/reservas'], { queryParams: { vista: 'proformas' } });
+      return;
+    }
+    this.saving.set(true);
+    this.ops
+      .proformaCreate({ cliente: this.contacto.nombre || 'Cliente', telefono: this.contacto.telefono || undefined, habitaciones: this.rooms.length, total: this.totalVal || null, validezDias: 7 })
+      .subscribe({
+        next: () => { this.saving.set(false); this.messages.add({ severity: 'success', summary: 'Proforma guardada', detail: 'Cotización registrada. No bloquea inventario.' }); this.router.navigate(['/operations/reservas'], { queryParams: { vista: 'proformas' } }); },
+        error: (err: HttpErrorResponse) => { this.saving.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo guardar la proforma.' }); },
+      });
   }
 
   cancelar(): void {

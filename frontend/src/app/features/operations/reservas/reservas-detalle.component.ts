@@ -242,13 +242,10 @@ export class ReservasDetalleComponent implements OnInit {
       this.messages.add({ severity: 'info', summary: 'Reserva cancelada', detail: 'Registrada sin devolución automática (demostración).' });
       return;
     }
-    if (this.cancelMode === 'PARCIAL') {
-      this.messages.add({ severity: 'info', summary: 'Pendiente de conexión', detail: 'La cancelación parcial por habitación requiere backend (etapa posterior).' });
-      return;
-    }
     this.saving.set(true);
-    this.ops.reservationStatus(r.id, { estado: 'CANCELADA', motivo: this.cancelMotivo || undefined }).subscribe({
-      next: () => { this.saving.set(false); this.cancelDialog = false; this.messages.add({ severity: 'info', summary: 'Reserva cancelada', detail: 'Cancelada. No se registró devolución automática.' }); this.refresh(); },
+    const body = this.cancelMode === 'PARCIAL' ? { rooms: this.cancelHabs, motivo: this.cancelMotivo || undefined } : { motivo: this.cancelMotivo || undefined };
+    this.ops.reservationCancel(r.id, body).subscribe({
+      next: () => { this.saving.set(false); this.cancelDialog = false; this.messages.add({ severity: 'info', summary: this.cancelMode === 'PARCIAL' ? 'Cancelación parcial' : 'Reserva cancelada', detail: 'Registrada. No se registró devolución automática.' }); this.refresh(); },
       error: (e: HttpErrorResponse) => { this.saving.set(false); this.messages.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo cancelar.' }); },
     });
   }

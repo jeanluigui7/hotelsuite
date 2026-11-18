@@ -1090,10 +1090,44 @@ model Reservation {
   rooms             ReservationRoom[]
   payments          ReservationPayment[]
   scheduledPayments ReservationScheduledPayment[]
+  documents         ReservationDocument[]
 
   @@index([branchId])
   @@index([status])
   @@index([roomTypeId])
+}
+
+/// Documento emitido de una reserva (constancia de tentativa / confirmación), versionado.
+model ReservationDocument {
+  id            String   @id @default(uuid())
+  reservationId String
+  type          String // TENTATIVA | CONFIRMACION
+  version       Int      @default(1)
+  current       Boolean  @default(true)
+  issuedAt      DateTime @default(now())
+
+  reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([reservationId])
+}
+
+/// Proforma (cotización). No bloquea inventario; al convertir abre una reserva nueva.
+model Proforma {
+  id                     String    @id @default(uuid())
+  branchId               String
+  code                   String? // P-0001
+  clientName             String
+  phone                  String?
+  rooms                  Int       @default(1)
+  total                  Decimal?  @db.Decimal(10, 2)
+  validUntil             DateTime?
+  status                 String    @default("VIGENTE") // VIGENTE | VENCIDA | CONVERTIDA
+  convertedReservationId String?
+  createdByUserId        String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([branchId])
 }
 
 /// Una habitación solicitada dentro de una reserva (la reserva es multi-habitación).

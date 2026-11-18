@@ -75,7 +75,7 @@ function serialize(r: ReservationFull) {
     saldo: num(r.balance),
     pagos: r.payments.map((p) => ({ id: p.id, importe: num(p.amount) ?? 0, medio: p.method, destino: p.destination ?? undefined, fecha: p.paidAt.toISOString(), operacion: p.reference ?? undefined, observacion: p.note ?? undefined, tipo: p.kind })),
     pagosProgramados: r.scheduledPayments.map((s) => ({ id: s.id, vence: iso(s.dueAt) ?? '', modo: s.mode, valor: num(s.value) ?? 0, base: s.base, importeCalculado: num(s.amount) ?? 0 })),
-    documentos: [],
+    documentos: r.documents.map((d) => ({ id: d.id, tipo: d.type, version: d.version, vigente: d.current, emitidoAt: d.issuedAt.toISOString() })),
     condiciones: {
       politicaNombre: r.policyName,
       politicaVersion: r.policyVersion,
@@ -233,6 +233,8 @@ async function buildInput(branchId: string, scope: RequestScope, dto: CreateRese
 export const reservationsService = {
   async list(scope: RequestScope, params: PaginationParams, status?: string) {
     const branchId = requireActiveBranch(scope);
+    // Vencimiento automático de tentativas pasadas (auto-vencer).
+    await prisma.reservation.updateMany({ where: { branchId, status: 'PENDING', tentativeDueAt: { not: null, lt: new Date() } }, data: { status: 'EXPIRED' } });
     const where: Prisma.ReservationWhereInput = { branchId };
     if (status) where.status = status;
     if (params.search) {
@@ -269,12 +271,13 @@ export const reservationsService = {
     const code = dto.codigo && /R-\d+/i.test(dto.codigo) ? dto.codigo : `R-${String((await reservationsRepository.maxCodeNumber(branchId)) + 1).padStart(4, '0')}`;
     const { input } = await buildInput(branchId, scope, dto, code);
     const r = await reservationsRepository.createFull(input);
+    await reservationsRepository.addDocument(r.id, dto.estado === 'CONFIRMADA' ? 'CONFIRMACION' : 'TENTATIVA');
     void recordActivity(scope, {
       activity: 'RESERVATION_CREATE', area: 'RESERVAS', entityId: r.id, reference: `Reserva ${code}`,
       detail: `${dto.contacto.nombre ?? 'Cliente'} · ${dto.habitaciones.length} hab · ${dto.entradaAt.toLocaleString('es-PE')}`,
       meta: { reservationId: r.id, code, rooms: dto.habitaciones.length, estado: dto.estado },
     });
-    return serialize(r);
+    return serialize((await reservationsRepository.findById(r.id))!);
   },
 
   async update(scope: RequestScope, id: string, dto: UpdateReservationDto) {
@@ -287,11 +290,30 @@ export const reservationsService = {
     // No re-crear la reserva: reutilizar la cabecera con su id (updateFull borra hijos y reescribe).
     const { reservation, ...rest } = input;
     const headerUpdate: Prisma.ReservationUncheckedUpdateInput = { ...reservation, branchId: undefined, createdByUserId: undefined };
-    const r = await reservationsRepository.updateFull(id, headerUpdate, { reservation, ...rest });
+    await reservationsRepository.updateFull(id, headerUpdate, { reservation, ...rest });
+    await reservationsRepository.addDocument(id, dto.estado === 'CONFIRMADA' ? 'CONFIRMACION' : 'TENTATIVA');
     void recordActivity(scope, {
       activity: 'RESERVATION_UPDATE', area: 'RESERVAS', entityId: id, reference: `Reserva ${code}`,
       detail: `Reserva modificada · ${dto.contacto.nombre ?? 'Cliente'}`,
       meta: { reservationId: id, code },
+    });
+    return serialize((await reservationsRepository.findById(id))!);
+  },
+
+  async cancel(scope: RequestScope, id: string, dto: { rooms?: string[]; motivo?: string | null }) {
+    const existing = await this.getEntity(scope, id);
+    const allRoomIds = existing.rooms.map((r) => r.id);
+    const target = dto.rooms && dto.rooms.length ? dto.rooms.filter((x) => allRoomIds.includes(x)) : allRoomIds;
+    const remaining = await reservationsRepository.cancelUnits(id, target);
+    const data: Prisma.ReservationUncheckedUpdateInput = {};
+    if (remaining === 0) data.status = 'CANCELLED';
+    if (dto.motivo) data.notes = dto.motivo;
+    const r = await reservationsRepository.patchHeader(id, data);
+    const parcial = remaining > 0;
+    void recordActivity(scope, {
+      activity: 'RESERVATION_CANCEL', area: 'RESERVAS', entityId: id, reference: `Reserva ${r.code ?? id.slice(0, 6)}`,
+      detail: parcial ? `Cancelación parcial (${target.length} hab)${dto.motivo ? ` · ${dto.motivo}` : ''}` : `Reserva cancelada${dto.motivo ? ` · ${dto.motivo}` : ''}`,
+      meta: { reservationId: id, rooms: target.length, parcial },
     });
     return serialize(r);
   },
@@ -327,7 +349,9 @@ export const reservationsService = {
     const status = STATUS_FROM_ESTADO[dto.estado];
     const data: Prisma.ReservationUncheckedUpdateInput = { status };
     if (dto.estado === 'CANCELADA' && dto.motivo) data.notes = dto.motivo;
-    const r = await reservationsRepository.patchHeader(id, data);
+    await reservationsRepository.patchHeader(id, data);
+    if (dto.estado === 'CONFIRMADA') await reservationsRepository.addDocument(id, 'CONFIRMACION');
+    const r = (await reservationsRepository.findById(id))!;
     void recordActivity(scope, {
       activity: dto.estado === 'CANCELADA' ? 'RESERVATION_CANCEL' : 'RESERVATION_UPDATE', area: 'RESERVAS', entityId: id,
       reference: `Reserva ${r.code ?? id.slice(0, 6)}`,

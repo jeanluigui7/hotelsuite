@@ -123,17 +123,22 @@
       @case ('documentos') {
         <div class="box">
           <h4>Documentos de la reserva</h4>
-          <div class="line">
-            <span><b>Constancia de reserva tentativa</b> · v1 @if (r.estadoReserva === 'TENTATIVA') { <span class="pill">vigente</span> } @else { <span class="muted small">sustituida</span> }</span>
-            <p-button label="Ver" icon="pi pi-file" size="small" [text]="true" (onClick)="abrirDoc('TENTATIVA')" />
-          </div>
-          @if (r.estadoReserva === 'CONFIRMADA' || r.estadoReserva === 'EN_ESTADIA' || r.estadoReserva === 'FINALIZADA') {
+          @if (r.documentos && r.documentos.length) {
+            @for (d of r.documentos; track d.id) {
+              <div class="line">
+                <span><b>{{ d.tipo === 'CONFIRMACION' ? 'Confirmación de reserva' : 'Constancia de reserva tentativa' }}</b> · v{{ d.version }}
+                  @if (d.vigente) { <span class="pill">vigente</span> } @else { <span class="muted small">sustituida</span> }
+                  <span class="muted small"> · {{ d.emitidoAt | date: 'dd/MM/yy HH:mm' }}</span></span>
+                <p-button label="Ver" icon="pi pi-file" size="small" [text]="!d.vigente" (onClick)="abrirDoc(d.tipo)" />
+              </div>
+            }
+          } @else {
             <div class="line">
-              <span><b>Confirmación de reserva</b> · v1 <span class="pill">vigente</span></span>
-              <p-button label="Ver" icon="pi pi-file" size="small" (onClick)="abrirDoc('CONFIRMACION')" />
+              <span><b>Constancia de reserva tentativa</b> · v1</span>
+              <p-button label="Ver" icon="pi pi-file" size="small" [text]="true" (onClick)="abrirDoc('TENTATIVA')" />
             </div>
           }
-          <p class="muted small"><i class="pi pi-palette"></i> Vista previa de diseño. El PDF oficial y el historial de envío se habilitan en etapas posteriores.</p>
+          <p class="muted small"><i class="pi pi-palette"></i> Vista previa de diseño. El PDF oficial y el envío se habilitan en etapas posteriores.</p>
         </div>
       }
 

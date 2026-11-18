@@ -26,7 +26,7 @@ import type {
   RoomStatus,
   Stay,
 } from './operations.models';
-import type { Anticipo, AvailabilityResult, Reserva as ReservaLike, ReservaApiInput } from '../reservas/reservas.model';
+import type { Anticipo, AvailabilityResult, Proforma, Reserva as ReservaLike, ReservaApiInput } from '../reservas/reservas.model';
 
 @Injectable({ providedIn: 'root' })
 export class OperationsApiService {
@@ -57,6 +57,18 @@ export class OperationsApiService {
   }
   reservationStatus(id: string, body: { estado: 'CONFIRMADA' | 'CANCELADA' | 'NO_SHOW' | 'VENCIDA'; motivo?: string }): Observable<ApiResponse<ReservaLike>> {
     return this.http.post<ApiResponse<ReservaLike>>(`${this.api}/reservations/${id}/status`, body);
+  }
+  reservationCancel(id: string, body: { rooms?: string[]; motivo?: string }): Observable<ApiResponse<ReservaLike>> {
+    return this.http.post<ApiResponse<ReservaLike>>(`${this.api}/reservations/${id}/cancel`, body);
+  }
+  proformaList(): Observable<ApiResponse<Proforma[]>> {
+    return this.http.get<ApiResponse<Proforma[]>>(`${this.api}/proformas`);
+  }
+  proformaCreate(dto: { cliente: string; telefono?: string; habitaciones: number; total?: number | null; validezDias?: number }): Observable<ApiResponse<Proforma>> {
+    return this.http.post<ApiResponse<Proforma>>(`${this.api}/proformas`, dto);
+  }
+  proformaConvert(id: string, body: { reservationId: string }): Observable<ApiResponse<Proforma>> {
+    return this.http.post<ApiResponse<Proforma>>(`${this.api}/proformas/${id}/convert`, body);
   }
   reservationAvailability(params: { from: string; to: string; roomTypeId?: string; vehicles?: number; excludeReservationId?: string }): Observable<ApiResponse<AvailabilityResult>> {
     return this.http.get<ApiResponse<AvailabilityResult>>(`${this.api}/reservations/availability`, { params: toHttpParams(params) });

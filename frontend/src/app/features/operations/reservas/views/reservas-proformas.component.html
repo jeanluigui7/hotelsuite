@@ -4,20 +4,20 @@
   <p-button label="Nueva proforma" icon="pi pi-plus" (onClick)="nueva()" />
 </div>
 
-@if (store.proformas().length === 0) {
+@if (rows().length === 0) {
   <div class="rv-empty">
     <i class="pi pi-file"></i>
-    <p>Sin proformas.{{ store.isDemo() ? '' : ' Las cotizaciones se guardan en Demostración (sin backend aún).' }}</p>
+    <p>Sin proformas.</p>
     <p-button label="Nueva proforma" [text]="true" (onClick)="nueva()" />
   </div>
 } @else {
-  <p-table [value]="store.proformas()" styleClass="p-datatable-sm">
+  <p-table [value]="rows()" styleClass="p-datatable-sm">
     <ng-template pTemplate="header">
       <tr><th>Código</th><th>Cliente</th><th>Fecha</th><th>Validez</th><th>Hab.</th><th>Total</th><th>Estado</th><th style="width:16rem"></th></tr>
     </ng-template>
     <ng-template pTemplate="body" let-p>
       <tr>
-        <td><span class="code">{{ p.codigo }}</span> <span class="demo-chip">DEMO</span></td>
+        <td><span class="code">{{ p.codigo }}</span> @if (p.origin === 'DEMO') { <span class="demo-chip">DEMO</span> }</td>
         <td>{{ p.cliente }}</td>
         <td>{{ p.fecha | date: 'dd/MM/yy' }}</td>
         <td>{{ p.validezAt | date: 'dd/MM/yy' }}</td>

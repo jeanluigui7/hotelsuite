@@ -122,4 +122,10 @@ export const availabilityQuerySchema = z.object({
 export type AvailabilityQueryDto = z.infer<typeof availabilityQuerySchema>;
 export type CreateReservationDto = z.infer<typeof createReservationSchema>;
 export type UpdateReservationDto = z.infer<typeof updateReservationSchema>;
+export const cancelReservationSchema = z.object({
+  rooms: z.array(z.string()).optional(),
+  motivo: z.string().max(300).optional().nullable(),
+});
+
 export type ChangeStatusDto = z.infer<typeof changeStatusSchema>;
+export type CancelReservationDto = z.infer<typeof cancelReservationSchema>;

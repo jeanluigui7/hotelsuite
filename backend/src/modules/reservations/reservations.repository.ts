@@ -8,6 +8,7 @@ const fullInclude = {
   },
   payments: { orderBy: { paidAt: 'asc' as const } },
   scheduledPayments: true,
+  documents: { orderBy: { issuedAt: 'asc' as const } },
 } satisfies Prisma.ReservationInclude;
 
 const listInclude = {
@@ -110,6 +111,20 @@ export const reservationsRepository = {
       await tx.reservation.update({ where: { id: reservationId }, data: { paid, balance: total - paid, paymentStatus } });
     });
     return (await this.findById(reservationId))!;
+  },
+
+  /** Emite un documento (nueva versión) y marca los anteriores como no vigentes. */
+  async addDocument(reservationId: string, type: 'TENTATIVA' | 'CONFIRMACION'): Promise<void> {
+    const docs = await prisma.reservationDocument.findMany({ where: { reservationId }, select: { version: true } });
+    const version = docs.reduce((m, d) => Math.max(m, d.version), 0) + 1;
+    await prisma.reservationDocument.updateMany({ where: { reservationId }, data: { current: false } });
+    await prisma.reservationDocument.create({ data: { reservationId, type, version, current: true } });
+  },
+
+  /** Marca habitaciones como canceladas; devuelve cuántas unidades quedan activas. */
+  async cancelUnits(reservationId: string, roomIds: string[]): Promise<number> {
+    if (roomIds.length) await prisma.reservationRoom.updateMany({ where: { id: { in: roomIds }, reservationId }, data: { unitStatus: 'CANCELADA' } });
+    return prisma.reservationRoom.count({ where: { reservationId, unitStatus: { not: 'CANCELADA' } } });
   },
 
   async delete(id: string) {
