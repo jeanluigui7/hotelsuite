@@ -65,7 +65,7 @@
                   @if (availabilityChecked && busyRoomsFor(r).length) {
                     <div class="muted small conflicts">
                       @for (b of busyRoomsFor(r); track b.id) {
-                        <div>Hab. {{ b.number }}: {{ b.reason }}@if (b.latestCheckIn) { · ingreso corto hasta {{ b.latestCheckIn | date: 'HH:mm' }} }</div>
+                        <div>Hab. {{ b.number }}: {{ b.reason }}@if (b.latestCheckIn) { · ingreso corto hasta {{ b.latestCheckIn | date: 'HH:mm' }} }@if (b.availableFrom) { · lista ~{{ b.availableFrom | date: 'HH:mm' }} }</div>
                       }
                     </div>
                   }

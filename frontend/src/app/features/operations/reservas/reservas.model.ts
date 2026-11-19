@@ -285,11 +285,14 @@ export interface AvailabilityRoom {
   conflictFrom?: string;
   conflictTo?: string;
   latestCheckIn?: string;
+  /** Si está en limpieza y el ingreso es inminente: hora estimada en que quedaría habilitada. */
+  availableFrom?: string;
 }
 export interface AvailabilityResult {
   from: string;
   to: string;
   prepMin: number;
+  cleaningBufferMin?: number;
   rooms: AvailabilityRoom[];
   availableCount: number;
   parking: { capacity: number | null; used: number; requested: number; available: number | null; ok: boolean };

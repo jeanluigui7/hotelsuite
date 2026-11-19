@@ -5,6 +5,8 @@ import { prisma } from '../../config/prisma';
 import type { CreateReservationDto } from './reservations.schema';
 
 const ACTIVE = ['PENDING', 'CONFIRMED'];
+/** Estados de Room que significan "no lista para recibir huésped ahora" (requiere limpieza/inspección). */
+const CLEANING_STATES = new Set(['LIMPIEZA_EN_ESPERA', 'LIMPIEZA_SOLICITADA', 'LIMPIEZA_EN_CURSO', 'LIMPIEZA_USO', 'CLEANING']);
 
 export interface AvailabilityQuery {
   from: Date;
@@ -28,6 +30,8 @@ interface RoomResult {
   conflictTo?: string;
   /** Hora límite de ingreso para una estadía de la misma duración antes del próximo conflicto. */
   latestCheckIn?: string;
+  /** Si está en limpieza y el ingreso es inminente: hora estimada en que quedaría habilitada. */
+  availableFrom?: string;
 }
 
 const overlaps = (aFrom: number, aTo: number, bFrom: number, bTo: number): boolean => aFrom < bTo && aTo > bFrom;
@@ -40,6 +44,13 @@ async function parkingCapacity(branchId: string): Promise<number | null> {
   return Number.isNaN(n) ? null : n;
 }
 
+/** Minutos que tarda el ciclo de limpieza entre un checkout y el próximo ingreso (Setting `ops.cleaningBufferMin`, default 30). */
+async function cleaningBufferMin(branchId: string): Promise<number> {
+  const s = await prisma.setting.findUnique({ where: { branchId_key: { branchId, key: 'ops.cleaningBufferMin' } } }).catch(() => null);
+  const n = s ? parseInt(s.value, 10) : NaN;
+  return Number.isNaN(n) ? 30 : Math.max(0, n);
+}
+
 export const availabilityService = {
   /**
    * Habitaciones candidatas (del tipo y con los requisitos de atributo) descontando:
@@ -48,7 +59,12 @@ export const availabilityService = {
    */
   async check(scope: RequestScope, q: AvailabilityQuery) {
     const branchId = requireActiveBranch(scope);
-    const prepMs = Math.max(0, q.prepMin ?? 0) * 60000;
+    // El buffer de preparación se ata al ciclo de limpieza: tras un checkout la habitación no está
+    // disponible hasta cubrir el tiempo de limpieza (piso del prepMin pedido).
+    const cleanBufMin = await cleaningBufferMin(branchId);
+    const effPrepMin = Math.max(0, q.prepMin ?? 0, cleanBufMin);
+    const prepMs = effPrepMin * 60000;
+    const cleanBufMs = cleanBufMin * 60000;
     const windowFrom = q.from.getTime() - prepMs;
     const windowTo = q.to.getTime() + prepMs;
     const durationMs = Math.max(60000, q.to.getTime() - q.from.getTime());
@@ -75,7 +91,7 @@ export const availabilityService = {
     }
 
     const roomIds = candidates.map((r) => r.id);
-    const [stays, resRooms] = await Promise.all([
+    const [stays, resRooms, cleaningTasks] = await Promise.all([
       roomIds.length ? prisma.stay.findMany({ where: { roomId: { in: roomIds }, status: 'OPEN' }, select: { roomId: true, checkInAt: true, plannedCheckoutAt: true } }) : Promise.resolve([]),
       roomIds.length
         ? prisma.reservationRoom.findMany({
@@ -83,11 +99,24 @@ export const availabilityService = {
             select: { roomId: true, reservation: { select: { code: true, expectedCheckInAt: true, expectedCheckOutAt: true, durationMinutes: true } } },
           })
         : Promise.resolve([]),
+      roomIds.length ? prisma.housekeepingTask.findMany({ where: { roomId: { in: roomIds }, status: { in: ['PENDING', 'IN_PROGRESS'] } }, select: { roomId: true } }) : Promise.resolve([]),
     ]);
+    const roomsInCleaning = new Set(cleaningTasks.map((t) => t.roomId));
 
     const result: RoomResult[] = candidates.map((room) => {
       const base: RoomResult = { id: room.id, number: room.number, floor: room.floor, roomTypeId: room.roomTypeId, roomTypeName: room.roomType?.name ?? null, available: true };
       if (room.blocked || room.status === 'MAINTENANCE') return { ...base, available: false, reason: 'Habitación bloqueada por mantenimiento' };
+
+      // Limpieza real: en estado de limpieza o con tarea de limpieza abierta no está lista AHORA.
+      // Solo bloquea si el ingreso pedido es inminente (dentro del buffer de limpieza); una reserva
+      // futura ya se habrá limpiado para entonces, así que no se bloquea.
+      const inCleaning = CLEANING_STATES.has(room.status) || roomsInCleaning.has(room.id);
+      if (inCleaning) {
+        const readyAt = Date.now() + cleanBufMs;
+        if (q.from.getTime() <= readyAt) {
+          return { ...base, available: false, reason: 'En limpieza (se habilita al terminar)', availableFrom: new Date(readyAt).toISOString() };
+        }
+      }
 
       // Conflicto por estancia abierta.
       for (const s of stays.filter((x) => x.roomId === room.id)) {
@@ -132,7 +161,8 @@ export const availabilityService = {
     return {
       from: q.from.toISOString(),
       to: q.to.toISOString(),
-      prepMin: q.prepMin ?? 0,
+      prepMin: effPrepMin,
+      cleaningBufferMin: cleanBufMin,
       rooms: result,
       availableCount: result.filter((r) => r.available).length,
       parking: { capacity: cap, used, requested, available, ok: parkingOk },
