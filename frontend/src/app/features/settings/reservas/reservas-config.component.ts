@@ -1,4 +1,5 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
+import { HttpClient, type HttpErrorResponse } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
@@ -10,6 +11,8 @@ import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
+import { environment } from '../../../../environments/environment';
+import type { ApiResponse } from '../../../core/models/api-response.model';
 
 type Section = 'horarios' | 'tentativas' | 'pagos' | 'cancelacion' | 'promociones' | 'politicas' | 'documentos';
 
@@ -69,8 +72,11 @@ function defaultConfig(): ReservasConfig {
 export class ReservasConfigComponent implements OnInit {
   private readonly messages = inject(MessageService);
   private readonly auth = inject(AuthService);
+  private readonly http = inject(HttpClient);
+  private readonly api = environment.apiUrl;
 
   readonly section = signal<Section>('horarios');
+  readonly saving = signal(false);
   cfg: ReservasConfig = defaultConfig();
 
   readonly canEdit = this.auth.can('settings', 'edit');
@@ -113,12 +119,22 @@ export class ReservasConfigComponent implements OnInit {
   policyPreview = false;
 
   ngOnInit(): void {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) this.cfg = { ...defaultConfig(), ...JSON.parse(raw) };
-    } catch {
-      /* draft local no disponible */
-    }
+    this.load();
+  }
+
+  /** Carga la config real de la sucursal; si falla, cae a un borrador local previo (si lo hubiera). */
+  private load(): void {
+    this.http.get<ApiResponse<ReservasConfig>>(`${this.api}/reservations-config`).subscribe({
+      next: (res) => { if (res.data) this.cfg = { ...defaultConfig(), ...res.data }; },
+      error: () => {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) this.cfg = { ...defaultConfig(), ...JSON.parse(raw) };
+        } catch {
+          /* draft local no disponible */
+        }
+      },
+    });
   }
 
   emptyPromo(): Promo {
@@ -161,11 +177,20 @@ export class ReservasConfigComponent implements OnInit {
   }
 
   guardar(): void {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.cfg));
-      this.messages.add({ severity: 'success', summary: 'Borrador guardado', detail: 'Guardado como borrador local. La persistencia en el sistema y la activación de reglas se conectan en una etapa posterior.' });
-    } catch {
-      this.messages.add({ severity: 'warn', summary: 'No se pudo guardar', detail: 'El almacenamiento local no está disponible en este navegador.' });
-    }
+    if (!this.canEdit) return;
+    this.saving.set(true);
+    this.http.put<ApiResponse<ReservasConfig>>(`${this.api}/reservations-config`, this.cfg).subscribe({
+      next: (res) => {
+        if (res.data) this.cfg = { ...defaultConfig(), ...res.data };
+        this.saving.set(false);
+        // Respaldo local best-effort (por si se quiere recuperar sin conexión).
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(this.cfg)); } catch { /* ignore */ }
+        this.messages.add({ severity: 'success', summary: 'Guardado', detail: 'Configuración de reservas actualizada. Las nuevas reservas tomarán estos valores por defecto.' });
+      },
+      error: (e: HttpErrorResponse) => {
+        this.saving.set(false);
+        this.messages.add({ severity: 'error', summary: 'No se pudo guardar', detail: e.error?.error?.message ?? 'Error al guardar la configuración.' });
+      },
+    });
   }
 }

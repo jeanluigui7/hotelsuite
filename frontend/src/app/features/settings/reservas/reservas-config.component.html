@@ -4,12 +4,12 @@
       <h1>Configuración de reservas</h1>
       <p class="muted">Estructura y campos de la política de reservas. Separada de las condiciones de estadía.</p>
     </div>
-    @if (canEdit) { <p-button label="Guardar borrador" icon="pi pi-save" (onClick)="guardar()" /> }
+    @if (canEdit) { <p-button label="Guardar" icon="pi pi-save" (onClick)="guardar()" [loading]="saving()" /> }
   </header>
 
   <div class="cfg-banner">
     <i class="pi pi-info-circle"></i>
-    <span>Diseño de estructura. Los valores se guardan como <strong>borrador local</strong>; la persistencia en el sistema y la <strong>activación de reglas</strong> se conectan en una etapa posterior. Editar una política no reescribe las condiciones de reservas ya emitidas.</span>
+    <span>Configuración por sucursal. Los valores se guardan en el sistema y las <strong>nuevas reservas</strong> toman estos defaults (plazos, adelanto, textos de cancelación/no-show). Editar una política <strong>no</strong> reescribe las condiciones de reservas ya emitidas.</span>
   </div>
 
   <div class="cfg-wrap">
