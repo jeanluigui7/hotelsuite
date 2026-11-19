@@ -26,7 +26,9 @@ import {
   RESERVA_ESTADO_META,
   habitacionesResumen,
   type Reserva,
+  type ReservaDocumento,
 } from './reservas.model';
+import type { DocHotel } from './reservas-documento.component';
 
 type Tab = 'resumen' | 'habitaciones' | 'pagos' | 'documentos' | 'historial';
 
@@ -85,6 +87,11 @@ export class ReservasDetalleComponent implements OnInit {
   checkInGuestId: string | null = null;
   docVisible = false;
   docTipo: 'TENTATIVA' | 'CONFIRMACION' = 'TENTATIVA';
+  // ETAPA 4C · documento definitivo abierto desde su snapshot congelado.
+  docReserva: Reserva | null = null;
+  docHotel: DocHotel | null = null;
+  docDefinitivo = false;
+  docVersion: number | null = null;
   saving = signal(false);
 
   readonly payMethods = [
@@ -110,8 +117,31 @@ export class ReservasDetalleComponent implements OnInit {
   abrirDoc(tipo?: 'TENTATIVA' | 'CONFIRMACION'): void {
     const r = this.reserva();
     if (!r) return;
+    // Vista viva de la reserva (borrador): usa el estado actual.
+    this.docReserva = r;
+    this.docHotel = null;
+    this.docDefinitivo = false;
+    this.docVersion = null;
     this.docTipo = tipo ?? (r.estadoReserva === 'CONFIRMADA' || r.estadoReserva === 'EN_ESTADIA' ? 'CONFIRMACION' : 'TENTATIVA');
     this.docVisible = true;
+  }
+
+  /** ETAPA 4C · abre un documento DEFINITIVO reproduciendo su snapshot congelado (no la reserva viva). */
+  abrirDocDefinitivo(d: ReservaDocumento): void {
+    if (!d.final) { this.abrirDoc(d.tipo); return; }
+    this.ops.reservationDocument(this.id, d.id).subscribe({
+      next: (res) => {
+        const snap = res.data?.snapshot;
+        if (!snap?.reserva) { this.abrirDoc(d.tipo); return; }
+        this.docReserva = snap.reserva;
+        this.docHotel = snap.hotel ?? null;
+        this.docDefinitivo = true;
+        this.docVersion = res.data?.version ?? d.version;
+        this.docTipo = d.tipo;
+        this.docVisible = true;
+      },
+      error: () => this.abrirDoc(d.tipo),
+    });
   }
 
   refresh(): void {

@@ -155,6 +155,8 @@ export interface ReservaDocumento {
   version: number;
   emitidoAt: string;
   vigente: boolean;
+  /** ETAPA 4C · documento definitivo (emitido al confirmar; tiene snapshot congelado). */
+  final?: boolean;
 }
 
 export interface ReservaCondiciones {
@@ -297,6 +299,20 @@ export interface ReservasConfigData {
   documentos: { mostrarLogo: boolean; formatoDefecto: 'A4' | 'TICKET'; textoLegal: string; pie: string };
   promociones: unknown[];
   politicas: { id: string; nombre: string; version: string; ambito: 'RESERVA' | 'ESTADIA'; vigenciaDesde: string; vigenciaHasta: string; textoCliente: string; reglas: string }[];
+}
+/** Snapshot congelado de un documento definitivo (ETAPA 4C). */
+export interface ReservaDocSnapshot {
+  id: string;
+  tipo: 'TENTATIVA' | 'CONFIRMACION';
+  version: number;
+  vigente: boolean;
+  final: boolean;
+  emitidoAt: string;
+  snapshot: {
+    emitidoAt: string;
+    hotel: { nombre?: string; legalName?: string | null; ruc?: string | null; direccion?: string | null; telefono?: string | null; email?: string | null; logoUrl?: string | null } | null;
+    reserva: Reserva;
+  } | null;
 }
 export interface AvailabilityResult {
   from: string;

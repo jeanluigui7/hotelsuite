@@ -113,12 +113,21 @@ export const reservationsRepository = {
     return (await this.findById(reservationId))!;
   },
 
-  /** Emite un documento (nueva versión) y marca los anteriores como no vigentes. */
-  async addDocument(reservationId: string, type: 'TENTATIVA' | 'CONFIRMACION'): Promise<void> {
+  /** Emite un documento (nueva versión) y marca los anteriores como no vigentes.
+   *  `final` = documento definitivo (al confirmar); `snapshot` = contenido congelado en JSON. */
+  async addDocument(
+    reservationId: string,
+    type: 'TENTATIVA' | 'CONFIRMACION',
+    opts?: { final?: boolean; snapshot?: string | null },
+  ): Promise<void> {
     const docs = await prisma.reservationDocument.findMany({ where: { reservationId }, select: { version: true } });
     const version = docs.reduce((m, d) => Math.max(m, d.version), 0) + 1;
     await prisma.reservationDocument.updateMany({ where: { reservationId }, data: { current: false } });
-    await prisma.reservationDocument.create({ data: { reservationId, type, version, current: true } });
+    await prisma.reservationDocument.create({ data: { reservationId, type, version, current: true, final: opts?.final ?? false, snapshot: opts?.snapshot ?? null } });
+  },
+
+  getDocument(id: string) {
+    return prisma.reservationDocument.findUnique({ where: { id } });
   },
 
   /**

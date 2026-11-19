@@ -1105,6 +1105,11 @@ model ReservationDocument {
   version       Int      @default(1)
   current       Boolean  @default(true)
   issuedAt      DateTime @default(now())
+  // ETAPA 4C · documento definitivo: `final` true cuando se emite al confirmar (no es borrador);
+  // `snapshot` congela el contenido (términos + montos + cliente + habitaciones + identidad del hotel)
+  // en JSON para reproducir el documento aunque la reserva cambie luego.
+  final         Boolean  @default(false)
+  snapshot      String?  @db.NVarChar(Max)
 
   reservation Reservation @relation(fields: [reservationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 

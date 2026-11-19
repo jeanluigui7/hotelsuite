@@ -126,9 +126,10 @@
             @for (d of r.documentos; track d.id) {
               <div class="line">
                 <span><b>{{ d.tipo === 'CONFIRMACION' ? 'Confirmación de reserva' : 'Constancia de reserva tentativa' }}</b> · v{{ d.version }}
+                  @if (d.final) { <span class="pill" style="color:var(--p-green-500,#22c55e)">definitivo</span> }
                   @if (d.vigente) { <span class="pill">vigente</span> } @else { <span class="muted small">sustituida</span> }
                   <span class="muted small"> · {{ d.emitidoAt | date: 'dd/MM/yy HH:mm' }}</span></span>
-                <p-button label="Ver" icon="pi pi-file" size="small" [text]="!d.vigente" (onClick)="abrirDoc(d.tipo)" />
+                <p-button label="Ver" icon="pi pi-file" size="small" [text]="!d.vigente" (onClick)="abrirDocDefinitivo(d)" />
               </div>
             }
           } @else {
@@ -137,7 +138,7 @@
               <p-button label="Ver" icon="pi pi-file" size="small" [text]="true" (onClick)="abrirDoc('TENTATIVA')" />
             </div>
           }
-          <p class="muted small"><i class="pi pi-palette"></i> Vista previa de diseño. El PDF oficial y el envío se habilitan en etapas posteriores.</p>
+          <p class="muted small"><i class="pi pi-download"></i> Usa <b>Descargar PDF</b> dentro del documento y elige "Guardar como PDF". Un documento <b>definitivo</b> reproduce su contenido congelado al confirmar.</p>
         </div>
       }
 
@@ -229,7 +230,7 @@
 
   <app-check-in-dialog [(visible)]="checkInVisible" [room]="checkInRoom" [prefillGuestId]="checkInGuestId" [reservationId]="id" (done)="onCheckInDone()" />
 
-  <app-reservas-documento [(visible)]="docVisible" [reserva]="reserva()" [tipo]="docTipo" (verReserva)="docVisible = false" />
+  <app-reservas-documento [(visible)]="docVisible" [reserva]="docReserva ?? reserva()" [tipo]="docTipo" [definitivo]="docDefinitivo" [hotelOverride]="docHotel" [docVersion]="docVersion" (verReserva)="docVisible = false" />
 } @else {
   <div class="rv-empty">
     <i class="pi pi-calendar-times"></i>

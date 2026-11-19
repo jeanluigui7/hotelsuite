@@ -77,7 +77,7 @@ function serialize(r: ReservationFull) {
     saldo: num(r.balance),
     pagos: r.payments.map((p) => ({ id: p.id, importe: num(p.amount) ?? 0, medio: p.method, destino: p.destination ?? undefined, fecha: p.paidAt.toISOString(), operacion: p.reference ?? undefined, observacion: p.note ?? undefined, tipo: p.kind, conciliado: p.conciliated })),
     pagosProgramados: r.scheduledPayments.map((s) => ({ id: s.id, vence: iso(s.dueAt) ?? '', modo: s.mode, valor: num(s.value) ?? 0, base: s.base, importeCalculado: num(s.amount) ?? 0 })),
-    documentos: r.documents.map((d) => ({ id: d.id, tipo: d.type, version: d.version, vigente: d.current, emitidoAt: d.issuedAt.toISOString() })),
+    documentos: r.documents.map((d) => ({ id: d.id, tipo: d.type, version: d.version, vigente: d.current, final: d.final, emitidoAt: d.issuedAt.toISOString() })),
     condiciones: {
       politicaNombre: r.policyName,
       politicaVersion: r.policyVersion,
@@ -95,6 +95,25 @@ function serialize(r: ReservationFull) {
     origin: 'REAL',
     persistencia: 'CONECTADO',
   };
+}
+
+/**
+ * ETAPA 4C · snapshot inmutable del documento (JSON de términos + montos + cliente + habitaciones +
+ * identidad del hotel) congelado al emitirlo, para reproducir el documento aunque la reserva cambie.
+ */
+async function buildDocSnapshot(branchId: string, full: ReservationFull): Promise<string> {
+  const branch = await prisma.branch.findUnique({
+    where: { id: branchId },
+    select: { name: true, legalName: true, taxId: true, address: true, phone: true, email: true, logoUrl: true },
+  });
+  const snap = {
+    emitidoAt: new Date().toISOString(),
+    hotel: branch
+      ? { nombre: branch.name, legalName: branch.legalName, ruc: branch.taxId, direccion: branch.address, telefono: branch.phone, email: branch.email, logoUrl: branch.logoUrl }
+      : null,
+    reserva: serialize(full),
+  };
+  return JSON.stringify(snap);
 }
 
 function serializeList(r: ReservationListRow) {
@@ -285,6 +304,22 @@ export const reservationsService = {
     return serialize(await this.getEntity(scope, id));
   },
 
+  /** ETAPA 4C · snapshot congelado de un documento emitido (para imprimir/descargar el definitivo). */
+  async getDocumentSnapshot(scope: RequestScope, reservationId: string, docId: string) {
+    await this.getEntity(scope, reservationId); // valida pertenencia a la sucursal del usuario
+    const doc = await reservationsRepository.getDocument(docId);
+    if (!doc || doc.reservationId !== reservationId) throw new NotFoundError('Documento no encontrado');
+    return {
+      id: doc.id,
+      tipo: doc.type,
+      version: doc.version,
+      vigente: doc.current,
+      final: doc.final,
+      emitidoAt: doc.issuedAt.toISOString(),
+      snapshot: doc.snapshot ? (JSON.parse(doc.snapshot) as unknown) : null,
+    };
+  },
+
   async create(scope: RequestScope, dto: CreateReservationDto) {
     const branchId = requireActiveBranch(scope);
     await assertRefs(branchId, dto);
@@ -292,7 +327,9 @@ export const reservationsService = {
     const code = dto.codigo && /R-\d+/i.test(dto.codigo) ? dto.codigo : `R-${String((await reservationsRepository.maxCodeNumber(branchId)) + 1).padStart(4, '0')}`;
     const { input } = await buildInput(branchId, scope, dto, code);
     const r = await reservationsRepository.createFull(input);
-    await reservationsRepository.addDocument(r.id, dto.estado === 'CONFIRMADA' ? 'CONFIRMACION' : 'TENTATIVA');
+    const fullNew = (await reservationsRepository.findById(r.id))!;
+    const isConfirmed = dto.estado === 'CONFIRMADA';
+    await reservationsRepository.addDocument(r.id, isConfirmed ? 'CONFIRMACION' : 'TENTATIVA', { final: isConfirmed, snapshot: await buildDocSnapshot(branchId, fullNew) });
     void recordActivity(scope, {
       activity: 'RESERVATION_CREATE', area: 'RESERVAS', entityId: r.id, reference: `Reserva ${code}`,
       detail: `${dto.contacto.nombre ?? 'Cliente'} · ${dto.habitaciones.length} hab · ${dto.entradaAt.toLocaleString('es-PE')}`,
@@ -312,7 +349,9 @@ export const reservationsService = {
     const { reservation, ...rest } = input;
     const headerUpdate: Prisma.ReservationUncheckedUpdateInput = { ...reservation, branchId: undefined, createdByUserId: undefined };
     await reservationsRepository.updateFull(id, headerUpdate, { reservation, ...rest });
-    await reservationsRepository.addDocument(id, dto.estado === 'CONFIRMADA' ? 'CONFIRMACION' : 'TENTATIVA');
+    const fullUpd = (await reservationsRepository.findById(id))!;
+    const isConfirmedUpd = dto.estado === 'CONFIRMADA';
+    await reservationsRepository.addDocument(id, isConfirmedUpd ? 'CONFIRMACION' : 'TENTATIVA', { final: isConfirmedUpd, snapshot: await buildDocSnapshot(branchId, fullUpd) });
     void recordActivity(scope, {
       activity: 'RESERVATION_UPDATE', area: 'RESERVAS', entityId: id, reference: `Reserva ${code}`,
       detail: `Reserva modificada · ${dto.contacto.nombre ?? 'Cliente'}`,
@@ -392,12 +431,16 @@ export const reservationsService = {
   },
 
   async changeStatus(scope: RequestScope, id: string, dto: ChangeStatusDto) {
+    const branchId = requireActiveBranch(scope);
     await this.getEntity(scope, id);
     const status = STATUS_FROM_ESTADO[dto.estado];
     const data: Prisma.ReservationUncheckedUpdateInput = { status };
     if (dto.estado === 'CANCELADA' && dto.motivo) data.notes = dto.motivo;
     await reservationsRepository.patchHeader(id, data);
-    if (dto.estado === 'CONFIRMADA') await reservationsRepository.addDocument(id, 'CONFIRMACION');
+    if (dto.estado === 'CONFIRMADA') {
+      const full = (await reservationsRepository.findById(id))!;
+      await reservationsRepository.addDocument(id, 'CONFIRMACION', { final: true, snapshot: await buildDocSnapshot(branchId, full) });
+    }
     const r = (await reservationsRepository.findById(id))!;
     void recordActivity(scope, {
       activity: dto.estado === 'CANCELADA' ? 'RESERVATION_CANCEL' : 'RESERVATION_UPDATE', area: 'RESERVAS', entityId: id,

@@ -2,7 +2,11 @@
   @if (reserva; as r) {
     <div class="doc-toolbar">
       <div class="left">
-        <span class="design-badge"><i class="pi pi-palette"></i> Vista previa de diseño</span>
+        @if (definitivo) {
+          <span class="design-badge def"><i class="pi pi-verified"></i> Documento definitivo@if (docVersion) { · v{{ docVersion }} }</span>
+        } @else {
+          <span class="design-badge"><i class="pi pi-palette"></i> Vista previa de diseño</span>
+        }
         <p-select [options]="formatoOpts" optionLabel="label" optionValue="value" [ngModel]="formato()" (ngModelChange)="formato.set($event)" styleClass="fmt" />
       </div>
       <div class="right">
@@ -17,13 +21,13 @@
       <article #sheet class="doc-sheet" [class.ticket]="formato() === 'TICKET'">
         <header class="doc-top">
           <div class="brand">
-            @if (branch()?.logoUrl) { <img [src]="branch()!.logoUrl" alt="logo" class="logo" /> }
+            @if (hotel().logoUrl) { <img [src]="hotel().logoUrl" alt="logo" class="logo" /> }
             <div>
-              <h2>{{ branch()?.name || 'Hospedaje' }}</h2>
+              <h2>{{ hotel().nombre || 'Hospedaje' }}</h2>
               <p class="muted">
-                {{ branch()?.legalName }}@if (branch()?.taxId) { · RUC {{ branch()?.taxId }} }<br />
-                {{ branch()?.address }}<br />
-                @if (branch()?.landline || branch()?.mobile || branch()?.phone) { Tel. {{ branch()?.landline || branch()?.mobile || branch()?.phone }} } @if (branch()?.email) { · {{ branch()?.email }} }
+                {{ hotel().legalName }}@if (hotel().ruc) { · RUC {{ hotel().ruc }} }<br />
+                {{ hotel().direccion }}<br />
+                @if (hotel().telefono) { Tel. {{ hotel().telefono }} } @if (hotel().email) { · {{ hotel().email }} }
               </p>
             </div>
           </div>

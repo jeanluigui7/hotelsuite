@@ -23,6 +23,12 @@
   border-radius: 6px;
   padding: 0.2rem 0.5rem;
 }
+/* Documento definitivo (emitido al confirmar). */
+.design-badge.def {
+  color: var(--p-green-500, #22c55e);
+  border-color: color-mix(in srgb, var(--p-green-500, #22c55e) 45%, transparent);
+  font-weight: 700;
+}
 :host ::ng-deep .fmt {
   width: 140px;
 }

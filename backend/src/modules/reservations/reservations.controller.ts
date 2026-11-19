@@ -23,6 +23,10 @@ export const reservationsController = {
     if (!req.scope) throw new UnauthorizedError();
     res.status(200).json(ok(await reservationsService.getById(req.scope, req.params.id)));
   },
+  async getDocument(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    res.status(200).json(ok(await reservationsService.getDocumentSnapshot(req.scope, req.params.id, req.params.docId)));
+  },
   async create(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();
     const dto = createReservationSchema.parse(req.body);

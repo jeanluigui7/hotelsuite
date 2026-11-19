@@ -26,7 +26,7 @@ import type {
   RoomStatus,
   Stay,
 } from './operations.models';
-import type { Anticipo, AvailabilityResult, Proforma, Reserva as ReservaLike, ReservaApiInput, ReservasConfigData } from '../reservas/reservas.model';
+import type { Anticipo, AvailabilityResult, Proforma, Reserva as ReservaLike, ReservaApiInput, ReservaDocSnapshot, ReservasConfigData } from '../reservas/reservas.model';
 
 @Injectable({ providedIn: 'root' })
 export class OperationsApiService {
@@ -75,6 +75,9 @@ export class OperationsApiService {
   }
   reservationsConfig(): Observable<ApiResponse<ReservasConfigData>> {
     return this.http.get<ApiResponse<ReservasConfigData>>(`${this.api}/reservations-config`);
+  }
+  reservationDocument(id: string, docId: string): Observable<ApiResponse<ReservaDocSnapshot>> {
+    return this.http.get<ApiResponse<ReservaDocSnapshot>>(`${this.api}/reservations/${id}/documents/${docId}`);
   }
   reservationAddPayment(id: string, dto: { importe: number; medio: string; destino?: string; operacion?: string; observacion?: string; fecha?: string }): Observable<ApiResponse<ReservaLike>> {
     return this.http.post<ApiResponse<ReservaLike>>(`${this.api}/reservations/${id}/payments`, dto);
