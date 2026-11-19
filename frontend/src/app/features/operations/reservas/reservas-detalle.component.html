@@ -204,7 +204,7 @@
   <!-- Preparar check-in -->
   <p-dialog [(visible)]="prepDialog" [modal]="true" [style]="{ width: '1100px' }" header="Preparar check-in">
     <p class="muted small">Selecciona las habitaciones que realmente ingresarán. Las demás mantienen su reserva.</p>
-    @if (reserva()?.pagado) { <p class="muted small">Pagado en la reserva: <b>S/ {{ reserva()!.pagado | number: '1.2-2' }}</b> · se acreditará a la estancia al conectar la caja (3B).</p> }
+    @if (reserva()?.pagado) { <p class="muted small">Pagado en la reserva: <b>S/ {{ reserva()!.pagado | number: '1.2-2' }}</b> · se acredita automáticamente a la estancia al hacer el check-in (sin reingreso de caja).</p> }
     <table class="prep">
       <thead><tr><th></th><th>Tipo / requisitos</th><th>Número</th><th>Huéspedes</th><th class="center">Precio</th><th>Estado</th></tr></thead>
       <tbody>

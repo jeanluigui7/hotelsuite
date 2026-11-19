@@ -417,6 +417,37 @@ export const staysService = {
     await wifiService.assignAvailableToStay(branchId, created.id, wifiCat, room.number, gName || null);
     // ETAPA 3 · el check-in consume la reserva: marca la unidad EN_ESTADIA y avanza el estado.
     if (dto.reservationId) await reservationsRepository.markRoomInStay(dto.reservationId, room.id);
+    // ETAPA 3 (3B-2): acredita el prepago de la reserva a la estancia SIN reingreso de caja.
+    // El dinero YA entró a caja como movimiento de reserva/anticipo (posiblemente en otro turno), por
+    // eso el pago del folio usa el método "RESERVA" con cashSessionId null: queda FUERA del cuadre de
+    // caja (todas las agregaciones del turno filtran por cashSessionId), pero el folio lo cuenta como
+    // "ya pagado" de la habitación. La venta nace sin turno; si el prepago no cubre todo, el saldo se
+    // cobra luego por el flujo normal y se atribuye al turno donde se recaude.
+    if (dto.reservationId) {
+      const resv = await prisma.reservation.findUnique({ where: { id: dto.reservationId }, select: { paid: true, code: true } });
+      const prepaid = round2(Number(resv?.paid ?? 0));
+      if (prepaid > 0) {
+        const existingSale = await prisma.sale.findFirst({ where: { stayId: created.id, status: { not: 'CANCELLED' } } });
+        const price = round2(Number(created.priceAgreed));
+        const applied = round2(Math.min(prepaid, price));
+        if (!existingSale && applied > 0) {
+          await prisma.sale.create({
+            data: {
+              branchId, stayId: created.id, cashSessionId: null, total: price,
+              status: applied >= price - 0.001 ? 'PAID' : 'OPEN', createdByUserId: scope.userId,
+              items: { create: [{ description: `Tarifa: ${rate?.label ?? 'Hospedaje'}`, quantity: 1, unitPrice: price, subtotal: price }] },
+              payments: { create: [{ branchId, method: 'RESERVA', amount: applied, reference: `Prepago reserva ${resv?.code ?? dto.reservationId.slice(0, 6)}`, cashSessionId: null, createdByUserId: scope.userId }] },
+            },
+          });
+          void recordActivity(scope, {
+            activity: 'DEBT_PAYMENT', area: 'HOSPEDAJE', roomId: room.id, entityId: created.id,
+            reference: `Hab. ${room.number}`,
+            detail: `Prepago de reserva acreditado · S/ ${applied.toFixed(2)}${applied < price ? ` de S/ ${price.toFixed(2)} (saldo por cobrar)` : ' (habitación cubierta)'} · sin reingreso de caja`,
+            meta: { stayId: created.id, reservationId: dto.reservationId, prepaidApplied: applied, roomPrice: price, method: 'RESERVA' },
+          });
+        }
+      }
+    }
     void recordActivity(scope, {
       activity: 'CHECK_IN', area: 'HOSPEDAJE', roomId: room.id, entityId: created.id,
       reference: `Hab. ${room.number}`,
@@ -676,7 +707,7 @@ export const staysService = {
     const uname = (uid?: string | null): string => (uid ? users.find((u) => u.id === uid)?.name ?? '—' : '—');
 
     const isRoomLine = (desc: string): boolean => /^tarifa[:\s]/i.test(desc) || /pernocta|renovaci|tiempo extra|extensi/i.test(desc);
-    const METHOD: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera' };
+    const METHOD: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera', RESERVA: 'Prepago de reserva' };
 
     // Movimientos (ledger), productos y servicios/penalidades.
     // TIPO del folio: SERVICIO/PENALIDAD por la clasificación persistida (conceptKind), nunca PRODUCTO
