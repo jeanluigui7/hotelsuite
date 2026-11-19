@@ -79,6 +79,9 @@ export class OperationsApiService {
   reservationDocument(id: string, docId: string): Observable<ApiResponse<ReservaDocSnapshot>> {
     return this.http.get<ApiResponse<ReservaDocSnapshot>>(`${this.api}/reservations/${id}/documents/${docId}`);
   }
+  reservationShare(id: string, body: { canal: 'WHATSAPP' | 'CORREO'; to: string; docTipo: string }): Observable<ApiResponse<{ ok: boolean }>> {
+    return this.http.post<ApiResponse<{ ok: boolean }>>(`${this.api}/reservations/${id}/share`, body);
+  }
   reservationAddPayment(id: string, dto: { importe: number; medio: string; destino?: string; operacion?: string; observacion?: string; fecha?: string }): Observable<ApiResponse<ReservaLike>> {
     return this.http.post<ApiResponse<ReservaLike>>(`${this.api}/reservations/${id}/payments`, dto);
   }

@@ -5,6 +5,7 @@ import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
+import { MessageService } from 'primeng/api';
 import { OperationsApiService } from '../../services/operations-api.service';
 import { ReservasStore } from '../reservas-store.service';
 import type { Proforma } from '../reservas.model';
@@ -20,6 +21,7 @@ export class ReservasProformasComponent implements OnInit {
   readonly store = inject(ReservasStore);
   private readonly ops = inject(OperationsApiService);
   private readonly router = inject(Router);
+  private readonly messages = inject(MessageService);
 
   private readonly realProformas = signal<Proforma[]>([]);
   readonly rows = computed<Proforma[]>(() => (this.store.isDemo() ? this.store.proformas() : this.realProformas()));
@@ -55,5 +57,19 @@ export class ReservasProformasComponent implements OnInit {
   }
   crearReserva(p: Proforma): void {
     this.router.navigate(['/operations/reservas/nueva'], { queryParams: { desdeProforma: p.id, cliente: p.cliente, rooms: p.habitaciones } });
+  }
+
+  /** ETAPA 5 · abre WhatsApp con el resumen de la proforma listo (el usuario elige el contacto y adjunta el PDF). */
+  enviarWhatsApp(p: Proforma): void {
+    const fmt = (iso?: string | null): string => (iso ? new Date(iso).toLocaleDateString('es-PE') : '');
+    const lines = [
+      `Hola ${p.cliente},`,
+      `Le compartimos su proforma ${p.codigo}.`,
+      `Habitaciones: ${p.habitaciones}${p.total != null ? ` · Total estimado: S/ ${p.total.toFixed(2)}` : ''}`,
+      p.validezAt ? `Válida hasta ${fmt(p.validezAt)}.` : '',
+      'Adjuntamos el documento en PDF.',
+    ].filter(Boolean);
+    window.open(`https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`, '_blank');
+    this.messages.add({ severity: 'success', summary: 'Abriendo WhatsApp', detail: 'Elige el contacto, adjunta el PDF y envía.' });
   }
 }

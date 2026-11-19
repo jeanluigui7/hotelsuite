@@ -122,11 +122,11 @@
       <div class="fld"><label>Destinatario</label><input pInputText [value]="destinatario()" readonly /></div>
     </div>
     <div class="fld"><label>Documento</label><input pInputText [value]="titulo() + ' · ' + r.codigo" readonly /></div>
-    <div class="fld"><label>Mensaje</label><textarea rows="3" [(ngModel)]="mensaje" class="ta"></textarea></div>
-    <p class="warn-line"><i class="pi pi-link"></i> Canal no conectado. El envío por {{ canal === 'CORREO' ? 'correo' : 'WhatsApp' }} se habilita en la etapa de integraciones. Puedes imprimir/descargar para compartir manualmente.</p>
+    <div class="fld"><label>Mensaje</label><textarea rows="6" [(ngModel)]="mensaje" class="ta"></textarea></div>
+    <p class="warn-line"><i class="pi pi-info-circle"></i> Se abrirá {{ canal === 'CORREO' ? 'tu correo' : 'WhatsApp' }} con el mensaje listo. <b>Primero descarga el PDF</b> y adjúntalo antes de enviar. El intento queda registrado en la bitácora (no es un envío automático).</p>
   }
   <ng-template pTemplate="footer">
     <p-button label="Cancelar" severity="secondary" [text]="true" (onClick)="enviarDialog = false" />
-    <p-button label="Enviar" icon="pi pi-send" [disabled]="true" />
+    <p-button [label]="canal === 'CORREO' ? 'Abrir correo' : 'Abrir WhatsApp'" [icon]="canal === 'CORREO' ? 'pi pi-envelope' : 'pi pi-whatsapp'" (onClick)="enviarAhora()" />
   </ng-template>
 </p-dialog>

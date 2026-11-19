@@ -7,7 +7,16 @@ import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
+import { OperationsApiService } from '../services/operations-api.service';
 import { habitacionesResumen, type Reserva } from './reservas.model';
+
+/** Normaliza un teléfono a formato internacional para wa.me (solo dígitos; Perú +51 por defecto). */
+function normalizeWaPhone(raw: string): string {
+  let d = (raw || '').replace(/\D/g, '');
+  if (d.startsWith('00')) d = d.slice(2);
+  if (d.length === 9 && d.startsWith('9')) d = '51' + d; // móvil peruano local → +51
+  return d;
+}
 
 /** Identidad del hotel para el membrete (del snapshot de un documento definitivo, o de la sucursal). */
 export interface DocHotel {
@@ -57,6 +66,7 @@ const DOC_PRINT_STYLES = `
 export class ReservasDocumentoComponent {
   private readonly auth = inject(AuthService);
   private readonly messages = inject(MessageService);
+  private readonly ops = inject(OperationsApiService);
 
   @Input() visible = false;
   @Output() visibleChange = new EventEmitter<boolean>();
@@ -147,14 +157,56 @@ export class ReservasDocumentoComponent {
   }
 
   openEnviar(): void {
-    const r = this.reserva;
-    this.mensaje = r ? `Hola ${r.contacto.nombre}, adjuntamos su ${this.titulo().toLowerCase()} (${r.codigo}).` : '';
+    this.mensaje = this.mensajeDefault();
     this.enviarDialog = true;
   }
+
+  /** Mensaje pre-armado con el resumen de la reserva (editable antes de enviar). */
+  private mensajeDefault(): string {
+    const r = this.reserva;
+    if (!r) return '';
+    const fmt = (iso?: string | null): string => (iso ? new Date(iso).toLocaleString('es-PE', { dateStyle: 'short', timeStyle: 'short' }) : '');
+    const m = this.moneda();
+    const lines = [
+      `Hola ${r.contacto.nombre},`,
+      `Le compartimos su ${this.titulo().toLowerCase()} (${r.codigo})${this.hotel().nombre ? ` de ${this.hotel().nombre}` : ''}.`,
+      `Ingreso: ${fmt(r.entradaAt)} · Salida: ${fmt(r.salidaAt)}`,
+      `Total: ${m} ${(r.total ?? 0).toFixed(2)} · Pagado: ${m} ${(r.pagado ?? 0).toFixed(2)} · Saldo: ${m} ${(r.saldo ?? 0).toFixed(2)}`,
+      r.condiciones?.venceTentativaAt ? `Cupo mantenido hasta ${fmt(r.condiciones.venceTentativaAt)}.` : '',
+      'Adjuntamos el documento en PDF.',
+    ].filter(Boolean);
+    return lines.join('\n');
+  }
+
   destinatario(): string {
     const r = this.reserva;
     if (!r) return '';
     return this.canal === 'CORREO' ? r.contacto.email ?? '' : r.contacto.telefono ?? '';
   }
-  // El envío real no está integrado: canal no conectado (no cambia estado ni simula envío).
+
+  /**
+   * ETAPA 5 · envío por enlace (click-to-send): abre el WhatsApp/correo del usuario con el destinatario
+   * y el mensaje listos. No es un envío automático: el usuario adjunta el PDF y envía desde su app.
+   * Registra la intención en la bitácora (honesto: "enlace abierto", no entrega confirmada).
+   */
+  enviarAhora(): void {
+    const r = this.reserva;
+    if (!r) return;
+    const to = this.destinatario().trim();
+    if (!to) {
+      this.messages.add({ severity: 'warn', summary: 'Sin destinatario', detail: this.canal === 'CORREO' ? 'El contacto no tiene correo registrado.' : 'El contacto no tiene teléfono registrado.' });
+      return;
+    }
+    // Bitácora (best-effort; no bloquea el envío si falla).
+    this.ops.reservationShare(r.id, { canal: this.canal, to, docTipo: this.tipo }).subscribe({ next: () => undefined, error: () => undefined });
+    if (this.canal === 'WHATSAPP') {
+      const phone = normalizeWaPhone(to);
+      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(this.mensaje)}`, '_blank');
+    } else {
+      const subject = `${this.titulo()} · ${r.codigo}`;
+      window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(this.mensaje)}`;
+    }
+    this.enviarDialog = false;
+    this.messages.add({ severity: 'success', summary: `Abriendo ${this.canal === 'CORREO' ? 'correo' : 'WhatsApp'}`, detail: 'Adjunta el PDF descargado y envía desde la app. El intento quedó registrado en la bitácora.' });
+  }
 }

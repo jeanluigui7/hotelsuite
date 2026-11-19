@@ -26,7 +26,7 @@
         <td><p-tag [value]="estadoLabel(p.estado)" [severity]="estadoSeverity(p.estado)" /></td>
         <td class="cat-actions">
           <p-button label="Ver" size="small" [text]="true" (onClick)="ver(p)" />
-          <p-button label="Documento" size="small" [text]="true" (onClick)="ver(p)" />
+          <p-button label="WhatsApp" icon="pi pi-whatsapp" size="small" [text]="true" (onClick)="enviarWhatsApp(p)" />
           @if (p.estado !== 'CONVERTIDA') { <p-button label="Crear reserva" size="small" (onClick)="crearReserva(p)" /> }
         </td>
       </tr>
@@ -50,6 +50,7 @@
   }
   <ng-template pTemplate="footer">
     <p-button label="Cerrar" severity="secondary" [text]="true" (onClick)="verDialog = false" />
+    @if (sel) { <p-button label="Enviar por WhatsApp" icon="pi pi-whatsapp" severity="secondary" [text]="true" (onClick)="enviarWhatsApp(sel)" /> }
     @if (sel && sel.estado !== 'CONVERTIDA') { <p-button label="Crear reserva" icon="pi pi-arrow-right" (onClick)="verDialog = false; crearReserva(sel)" /> }
   </ng-template>
 </p-dialog>

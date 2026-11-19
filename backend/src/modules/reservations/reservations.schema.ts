@@ -129,3 +129,11 @@ export const cancelReservationSchema = z.object({
 
 export type ChangeStatusDto = z.infer<typeof changeStatusSchema>;
 export type CancelReservationDto = z.infer<typeof cancelReservationSchema>;
+
+// ETAPA 5 · registro (bitácora) de compartir un documento por WhatsApp/correo (click-to-send).
+export const shareReservationSchema = z.object({
+  canal: z.enum(['WHATSAPP', 'CORREO']),
+  to: z.string().min(1).max(160),
+  docTipo: z.string().max(40).default('TENTATIVA'),
+});
+export type ShareReservationDto = z.infer<typeof shareReservationSchema>;

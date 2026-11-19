@@ -9,7 +9,7 @@ import { cashRepository } from '../cash/cash.repository';
 import { reservationsRepository, type ReservationFull, type ReservationListRow, type RichReservationInput } from './reservations.repository';
 import { availabilityService } from './availability.service';
 import { reservationsConfigService } from '../reservations-config/reservations-config.service';
-import type { AddPaymentDto, ChangeStatusDto, CreateReservationDto, UpdateReservationDto } from './reservations.schema';
+import type { AddPaymentDto, ChangeStatusDto, CreateReservationDto, ShareReservationDto, UpdateReservationDto } from './reservations.schema';
 
 const SORTABLE = ['expectedCheckInAt', 'createdAt', 'status'] as const;
 
@@ -449,6 +449,22 @@ export const reservationsService = {
       meta: { reservationId: id, estado: dto.estado },
     });
     return serialize(r);
+  },
+
+  /**
+   * ETAPA 5 · registra en la bitácora que se compartió un documento por WhatsApp/correo (enlace
+   * click-to-send). Es honesto: registra la INTENCIÓN de envío (enlace abierto), no una entrega
+   * confirmada por un proveedor. El envío físico lo completa el usuario desde su app.
+   */
+  async share(scope: RequestScope, id: string, dto: ShareReservationDto) {
+    const r = await this.getEntity(scope, id);
+    const canalLabel = dto.canal === 'CORREO' ? 'correo' : 'WhatsApp';
+    void recordActivity(scope, {
+      activity: 'RESERVATION_SHARE', area: 'RESERVAS', entityId: id, reference: `Reserva ${r.code ?? id.slice(0, 6)}`,
+      detail: `Documento ${dto.docTipo} compartido por ${canalLabel} a ${dto.to} (enlace abierto)`,
+      meta: { reservationId: id, canal: dto.canal, to: dto.to, docTipo: dto.docTipo },
+    });
+    return { ok: true };
   },
 
   async remove(scope: RequestScope, id: string) {
