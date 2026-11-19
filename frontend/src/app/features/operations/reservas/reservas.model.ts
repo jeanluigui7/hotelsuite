@@ -288,6 +288,16 @@ export interface AvailabilityRoom {
   /** Si está en limpieza y el ingreso es inminente: hora estimada en que quedaría habilitada. */
   availableFrom?: string;
 }
+/** Config de reservas de la sucursal (defaults que el asistente pre-carga — ETAPA 4B). */
+export interface ReservasConfigData {
+  horarios: { checkinHora: string; checkoutHora: string; preparacionMin: number; margenMin: number };
+  tentativas: { vigenciaHoras: number; recordarHoras: number; autoVencer: boolean };
+  pagos: { adelantoPct: number; plazoPagoHoras: number; permitirParcial: boolean; mediosPermitidos: string[] };
+  cancelacion: { textoCancelacion: string; penalidadPct: number; ventanaSinPenalidadHoras: number; noShowPenalidadPct: number; textoNoShow: string };
+  documentos: { mostrarLogo: boolean; formatoDefecto: 'A4' | 'TICKET'; textoLegal: string; pie: string };
+  promociones: unknown[];
+  politicas: { id: string; nombre: string; version: string; ambito: 'RESERVA' | 'ESTADIA'; vigenciaDesde: string; vigenciaHasta: string; textoCliente: string; reglas: string }[];
+}
 export interface AvailabilityResult {
   from: string;
   to: string;

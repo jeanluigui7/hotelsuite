@@ -8,6 +8,7 @@ import { recordActivity } from '../activity-log/activity.emitter';
 import { cashRepository } from '../cash/cash.repository';
 import { reservationsRepository, type ReservationFull, type ReservationListRow, type RichReservationInput } from './reservations.repository';
 import { availabilityService } from './availability.service';
+import { reservationsConfigService } from '../reservations-config/reservations-config.service';
 import type { AddPaymentDto, ChangeStatusDto, CreateReservationDto, UpdateReservationDto } from './reservations.schema';
 
 const SORTABLE = ['expectedCheckInAt', 'createdAt', 'status'] as const;
@@ -157,6 +158,25 @@ async function buildInput(branchId: string, scope: RequestScope, dto: CreateRese
   const durationMinutes = Math.max(1, Math.round((dto.salidaAt.getTime() - dto.entradaAt.getTime()) / 60000));
   const primary = dto.habitaciones[0];
 
+  // ETAPA 4B · defaults de política desde la config de la sucursal. El DTO manda; donde el asistente
+  // no fija condiciones, se siembran (y se congelan en la reserva) desde /settings/reservas.
+  const now = new Date();
+  const statusComputed = STATUS_FROM_ESTADO[dto.estado] ?? 'PENDING';
+  const cfg = await reservationsConfigService.getForBranch(branchId);
+  const r2 = (n: number): number => Math.round(n * 100) / 100;
+  const inRange = (desde: string, hasta: string): boolean => {
+    const t = now.getTime();
+    const from = desde ? new Date(desde).getTime() : NaN;
+    const to = hasta ? new Date(hasta).getTime() : NaN;
+    if (!Number.isNaN(from) && t < from) return false;
+    if (!Number.isNaN(to) && t > to) return false;
+    return true;
+  };
+  const activePolicy =
+    cfg.politicas.find((p) => p.ambito === 'RESERVA' && inRange(p.vigenciaDesde, p.vigenciaHasta)) ??
+    cfg.politicas.find((p) => p.ambito === 'RESERVA') ??
+    null;
+
   const reservation: Prisma.ReservationUncheckedCreateInput = {
     branchId,
     code,
@@ -171,7 +191,7 @@ async function buildInput(branchId: string, scope: RequestScope, dto: CreateRese
     durationMinutes,
     adults: dto.habitaciones.reduce((s, h) => s + h.adults, 0),
     children: dto.habitaciones.reduce((s, h) => s + h.children, 0),
-    status: STATUS_FROM_ESTADO[dto.estado] ?? 'PENDING',
+    status: statusComputed,
     paymentStatus: paymentStatusOf(total, paid),
     origin: dto.origen,
     contactType: dto.contacto.tipo,
@@ -184,12 +204,12 @@ async function buildInput(branchId: string, scope: RequestScope, dto: CreateRese
     total,
     paid,
     balance,
-    policyName: dto.condiciones?.politicaNombre ?? null,
-    policyVersion: dto.condiciones?.politicaVersion ?? null,
-    advanceRequired: dto.condiciones?.adelantoRequerido ?? null,
-    tentativeDueAt: dto.condiciones?.venceTentativaAt ?? null,
-    cancellationTerms: dto.condiciones?.cancelacion ?? null,
-    noShowTerms: dto.condiciones?.noShow ?? null,
+    policyName: dto.condiciones?.politicaNombre ?? activePolicy?.nombre ?? null,
+    policyVersion: dto.condiciones?.politicaVersion ?? activePolicy?.version ?? null,
+    advanceRequired: dto.condiciones?.adelantoRequerido ?? (cfg.pagos.adelantoPct > 0 ? r2(total * cfg.pagos.adelantoPct / 100) : null),
+    tentativeDueAt: dto.condiciones?.venceTentativaAt ?? (statusComputed === 'PENDING' && cfg.tentativas.vigenciaHoras > 0 ? new Date(now.getTime() + cfg.tentativas.vigenciaHoras * 3_600_000) : null),
+    cancellationTerms: dto.condiciones?.cancelacion ?? (cfg.cancelacion.textoCancelacion || null),
+    noShowTerms: dto.condiciones?.noShow ?? (cfg.cancelacion.textoNoShow || null),
     acceptance: dto.condiciones?.aceptacion ?? 'PENDIENTE',
     parkingRequired: dto.cochera?.requiere ?? false,
     parkingVehicles: dto.cochera?.vehiculos ?? 0,

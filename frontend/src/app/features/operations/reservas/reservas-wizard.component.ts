@@ -188,6 +188,26 @@ export class ReservasWizardComponent implements OnInit {
     { label: 'Saldo', value: 'SALDO' },
   ];
 
+  /** ETAPA 4B · pre-carga las condiciones (política/cancelación/no-show/vencimiento) desde la config
+   *  de la sucursal para una reserva NUEVA, solo donde el usuario aún no escribió. El backend aplica
+   *  los mismos defaults al guardar, así que esto es para que recepción los vea y pueda ajustarlos. */
+  private prefillFromConfig(): void {
+    this.ops.reservationsConfig().subscribe({
+      next: (res) => {
+        const cfg = res.data;
+        if (!cfg) return;
+        const active = cfg.politicas.find((p) => p.ambito === 'RESERVA') ?? null;
+        if (!this.condiciones.politica && active) this.condiciones.politica = active.nombre;
+        if (!this.condiciones.cancelacion && cfg.cancelacion.textoCancelacion) this.condiciones.cancelacion = cfg.cancelacion.textoCancelacion;
+        if (!this.condiciones.noShow && cfg.cancelacion.textoNoShow) this.condiciones.noShow = cfg.cancelacion.textoNoShow;
+        if (!this.condiciones.venceTentativa && cfg.tentativas.vigenciaHoras > 0) {
+          this.condiciones.venceTentativa = this.toLocal(new Date(Date.now() + cfg.tentativas.vigenciaHoras * 3_600_000));
+        }
+      },
+      error: () => { /* sin config legible: el backend siembra los defaults igual al guardar */ },
+    });
+  }
+
   ngOnInit(): void {
     this.catalog.roomTypes.list({ pageSize: 100, sortBy: 'name' }).subscribe((r) => this.roomTypes.set(r.data ?? []));
     this.catalog.roomAttributes.list({ pageSize: 100, sortBy: 'name' }).subscribe((r) => this.attributes.set(r.data ?? []));
@@ -223,6 +243,7 @@ export class ReservasWizardComponent implements OnInit {
       const out = new Date(now.getTime() + 22 * 3600000);
       this.entradaAt = this.toLocal(now);
       this.salidaAt = this.toLocal(out);
+      this.prefillFromConfig();
 
       if (q.get('modo') === 'proforma') {
         this.isProforma = true;
