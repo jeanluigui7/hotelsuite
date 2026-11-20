@@ -16,6 +16,8 @@ linenAdminRouter.post('/admin/linen/requests/:id/fulfill', requirePermission('in
 linenAdminRouter.post('/admin/linen/requests/:id/reject', requireAnyPermission(['operations', 'edit'], ['inventory', 'edit']), asyncHandler(linenAdminController.reject));
 linenAdminRouter.post('/admin/linen/transfer', requirePermission('inventory', 'edit'), asyncHandler(linenAdminController.transfer));
 linenAdminRouter.post('/admin/linen/transfer-bulk', requireAnyPermission(['inventory', 'edit'], ['operations', 'edit']), asyncHandler(linenAdminController.transferBulk));
+// Transferencia entre pisos: la ejecuta limpieza (operations:edit) sin aprobación del admin.
+linenAdminRouter.post('/admin/linen/transfer-floors', requireAnyPermission(['operations', 'edit'], ['inventory', 'edit']), asyncHandler(linenAdminController.transferBetweenFloors));
 linenAdminRouter.post('/admin/linen/replenish', requirePermission('inventory', 'edit'), asyncHandler(linenAdminController.replenish));
 linenAdminRouter.post('/admin/linen/close-shift', requireAnyPermission(['operations', 'edit'], ['inventory', 'edit']), asyncHandler(linenAdminController.closeShift));
 linenAdminRouter.post('/admin/linen/writeoff', requireAnyPermission(['operations', 'edit'], ['inventory', 'edit']), asyncHandler(linenAdminController.writeoff));

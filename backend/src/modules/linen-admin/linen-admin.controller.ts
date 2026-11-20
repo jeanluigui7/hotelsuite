@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { ok } from '../../shared/response';
 import { UnauthorizedError } from '../../shared/errors';
-import { linenAdminService, transferSchema, transferBulkSchema, replenishSchema, writeoffSchema, createItemSchema, updateItemSchema } from './linen-admin.service';
+import { linenAdminService, transferSchema, transferBulkSchema, transferBetweenFloorsSchema, replenishSchema, writeoffSchema, createItemSchema, updateItemSchema } from './linen-admin.service';
 
 export const linenAdminController = {
   async requests(req: Request, res: Response): Promise<void> {
@@ -25,6 +25,11 @@ export const linenAdminController = {
     if (!req.scope) throw new UnauthorizedError();
     const dto = transferBulkSchema.parse(req.body);
     res.status(201).json(ok(await linenAdminService.transferBulk(req.scope, dto)));
+  },
+  async transferBetweenFloors(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = transferBetweenFloorsSchema.parse(req.body);
+    res.status(201).json(ok(await linenAdminService.transferBetweenFloors(req.scope, dto)));
   },
   async central(req: Request, res: Response): Promise<void> {
     if (!req.scope) throw new UnauthorizedError();

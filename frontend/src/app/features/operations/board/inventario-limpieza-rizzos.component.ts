@@ -48,6 +48,7 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
             <button [class.on]="mode() === 'real'" (click)="mode.set('real')">Tiempo Real</button>
             <button [class.on]="mode() === 'turno'" (click)="mode.set('turno')">Por Turnos</button>
           </div>
+          <button class="transfer" (click)="openTransfer()" [disabled]="busy()" title="Mover ropa de un piso a otro (sin esperar al administrador)"><i class="pi pi-arrow-right-arrow-left"></i> Transferir</button>
           <button class="cerrar" (click)="closeShift()" [disabled]="busy()" title="Pasa lo suministrado (SUM) al remanente (REM) y reinicia SUM a 0"><i class="pi pi-flag"></i> Cerrar Turno</button>
           <button class="icon" (click)="openHistory()" title="Historial de bajas"><i class="pi pi-history"></i></button>
           <button class="icon" (click)="print()" title="Imprimir"><i class="pi pi-print"></i></button>
@@ -295,6 +296,26 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
         </table>
       </div>
     </p-dialog>
+
+    <!-- Transferencia de ropa entre pisos (limpieza, sin aprobación del administrador) -->
+    <p-dialog [(visible)]="transferVisible" [modal]="true" header="Transferir ropa entre pisos" [style]="{ width: '34rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      <div class="form">
+        <div class="tf-floors">
+          <div class="tf-col"><label>Desde piso</label><p-select [options]="floorOpts()" optionLabel="label" optionValue="value" [(ngModel)]="transferFrom" (onChange)="onTransferFromChange()" appendTo="body" styleClass="w" /></div>
+          <i class="pi pi-arrow-right tf-arrow"></i>
+          <div class="tf-col"><label>Hacia piso</label><p-select [options]="transferToOpts()" optionLabel="label" optionValue="value" [(ngModel)]="transferTo" appendTo="body" styleClass="w" /></div>
+        </div>
+        <h4 class="tf-h">Artículos disponibles en {{ transferFrom || '—' }}</h4>
+        @for (r of transferItems(); track r.linenItemId) {
+          <div class="qrow"><span>{{ r.name }} <small class="muted">(disp. {{ r.avail }})</small></span><p-inputNumber [(ngModel)]="transferQty[r.linenItemId]" [min]="0" [max]="r.avail" [showButtons]="true" buttonLayout="horizontal" /></div>
+        } @empty { <p class="muted">Este piso no tiene ropa disponible para transferir.</p> }
+        <p class="hint"><i class="pi pi-info-circle"></i> La ropa se descuenta del piso de origen y se acredita al de destino. Queda registrada en el kardex de ropa.</p>
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" [text]="true" (onClick)="transferVisible = false" />
+        <p-button label="Transferir" icon="pi pi-arrow-right-arrow-left" [loading]="busy()" (onClick)="sendTransfer()" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -308,6 +329,11 @@ const TYPE_PALETTE = ['#f97316', '#d946ef', '#eab308', '#22d3ee', '#a78bfa', '#3
       .seg button.on { background: #7c3aed; color: #fff; }
       .icon { background: #0e241c; border: 1px solid #1f3a2c; color: #b9f0d6; border-radius: 8px; padding: 0.45rem 0.6rem; cursor: pointer; }
       .cerrar { background: #047857; border: 0; color: #fff; border-radius: 8px; padding: 0.45rem 0.85rem; cursor: pointer; font-weight: 700; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.4rem; } .cerrar:hover { background: #059669; } .cerrar:disabled { opacity: 0.5; cursor: not-allowed; }
+      .transfer { background: #1d4ed8; border: 0; color: #fff; border-radius: 8px; padding: 0.45rem 0.85rem; cursor: pointer; font-weight: 700; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 0.4rem; } .transfer:hover { background: #2563eb; } .transfer:disabled { opacity: 0.5; cursor: not-allowed; }
+      .tf-floors { display: flex; align-items: flex-end; gap: 0.7rem; }
+      .tf-col { flex: 1; display: flex; flex-direction: column; gap: 0.3rem; } .tf-col label { font-size: 0.78rem; color: #9fb0c3; }
+      .tf-arrow { color: #5fd0a3; padding-bottom: 0.6rem; }
+      .tf-h { margin: 0.9rem 0 0.2rem; color: #cdd8e6; font-size: 0.88rem; }
       .muted { color: #8aa499; }
 
       .floors { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px,1fr)); gap: 1.1rem; }
@@ -466,6 +492,57 @@ export class InventarioLimpiezaRizzosComponent implements OnInit {
   // Historial de bajas
   histVisible = false;
   readonly history = signal<WriteoffRow[]>([]);
+
+  // ── Transferencia de ropa entre pisos (limpieza, sin aprobación admin) ──
+  transferVisible = false;
+  transferFrom = '';
+  transferTo = '';
+  transferQty: Record<string, number> = {};
+  /** Pisos reales (excluye el almacén central, que no participa en transferencias entre pisos). */
+  floorOpts(): { label: string; value: string }[] {
+    return this.floors().filter((f) => f.floor !== 'ALMACEN').map((f) => ({ label: f.floor, value: f.floor }));
+  }
+  transferToOpts(): { label: string; value: string }[] {
+    return this.floorOpts().filter((o) => o.value !== this.transferFrom);
+  }
+  /** Ítems del piso origen con disponible (REM + SUM) > 0, deduplicados por artículo. */
+  transferItems(): (Row & { avail: number })[] {
+    const f = this.floors().find((x) => x.floor === this.transferFrom);
+    if (!f) return [];
+    const map = new Map<string, Row & { avail: number }>();
+    for (const r of f.rows) {
+      const a = (r.rem || 0) + (r.sum || 0);
+      if (a <= 0) continue;
+      const ex = map.get(r.linenItemId);
+      if (ex) ex.avail += a;
+      else map.set(r.linenItemId, { ...r, avail: a });
+    }
+    return [...map.values()].sort((x, y) => (x.type || '').localeCompare(y.type || '', 'es') || x.name.localeCompare(y.name, 'es'));
+  }
+  openTransfer(): void {
+    const opts = this.floorOpts();
+    this.transferFrom = opts[0]?.value ?? '';
+    this.transferTo = opts.find((o) => o.value !== this.transferFrom)?.value ?? '';
+    this.transferQty = {};
+    this.transferVisible = true;
+  }
+  onTransferFromChange(): void {
+    this.transferQty = {};
+    if (this.transferTo === this.transferFrom) this.transferTo = this.transferToOpts()[0]?.value ?? '';
+  }
+  sendTransfer(): void {
+    if (!this.transferFrom || !this.transferTo) { this.toast.add({ severity: 'warn', summary: 'Faltan pisos', detail: 'Elige el piso de origen y el de destino.' }); return; }
+    if (this.transferFrom === this.transferTo) { this.toast.add({ severity: 'warn', summary: 'Pisos iguales', detail: 'El origen y el destino no pueden ser el mismo piso.' }); return; }
+    const rows = this.transferItems()
+      .map((r) => ({ linenItemId: r.linenItemId, quantity: Math.min(Number(this.transferQty[r.linenItemId]) || 0, r.avail) }))
+      .filter((r) => r.quantity > 0);
+    if (!rows.length) { this.toast.add({ severity: 'warn', summary: 'Nada que transferir', detail: 'Indica al menos un artículo con cantidad.' }); return; }
+    this.busy.set(true);
+    this.http.post<ApiResponse<{ moved: number; rows: number }>>(`${this.api}/admin/linen/transfer-floors`, { fromFloor: this.transferFrom, toFloor: this.transferTo, rows }).subscribe({
+      next: (r) => { this.busy.set(false); this.transferVisible = false; this.toast.add({ severity: 'success', summary: 'Transferencia realizada', detail: `${r.data?.moved ?? 0} prenda(s) movida(s) de ${this.transferFrom} a ${this.transferTo}.` }); this.reload(); },
+      error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo transferir.' }); },
+    });
+  }
 
   // ── Regularización de stock REM ──
   readonly blockedFloors = signal<string[]>([]); // pisos que ya regularizaron este turno

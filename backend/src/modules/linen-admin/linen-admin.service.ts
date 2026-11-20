@@ -120,6 +120,24 @@ export const transferBulkSchema = z.object({
 });
 export type TransferBulkDto = z.infer<typeof transferBulkSchema>;
 
+/**
+ * Transferencia de ropa ENTRE PISOS (piso origen → piso destino), varias filas en una
+ * operación atómica. La ejecuta el propio personal de limpieza (operations:edit) sin
+ * aprobación del administrador: de madrugada, cuando se agota la ropa de un piso, pueden
+ * mover la de otro para seguir limpiando/liberando. Queda en el kardex de ropa.
+ */
+export const transferBetweenFloorsSchema = z
+  .object({
+    fromFloor: z.string().min(1),
+    toFloor: z.string().min(1),
+    rows: z
+      .array(z.object({ linenItemId: z.string().min(1), quantity: z.coerce.number().int().min(1) }))
+      .min(1)
+      .max(500),
+  })
+  .refine((v) => v.fromFloor !== v.toFloor, { message: 'El piso de origen y el de destino no pueden ser el mismo.', path: ['toFloor'] });
+export type TransferBetweenFloorsDto = z.infer<typeof transferBetweenFloorsSchema>;
+
 /** Repone el almacén central de ropa (compra/ingreso del administrador). */
 export const replenishSchema = z.object({
   linenItemId: z.string().min(1),
@@ -235,6 +253,41 @@ export const linenAdminService = {
       }
     });
     return { ok: true, rows: dto.rows.length, sent };
+  },
+
+  /**
+   * Transfiere ropa entre dos pisos (origen → destino). Descuenta del disponible del piso
+   * de origen (REM antes que SUM, vía consumeFloorTx) y lo acredita al SUM del piso destino
+   * (como un suministro del turno). El total de la sucursal no cambia; solo se mueve de piso.
+   * Pensada para que limpieza resuelva faltantes sin esperar al administrador.
+   */
+  async transferBetweenFloors(scope: RequestScope, dto: TransferBetweenFloorsDto) {
+    const branchId = requireActiveBranch(scope);
+    if (dto.fromFloor === LINEN_CENTRAL || dto.toFloor === LINEN_CENTRAL) {
+      throw new ValidationError('El almacén central no participa en una transferencia entre pisos. Usa Suministrar / Dar de Baja (Retorno).');
+    }
+    const itemIds = [...new Set(dto.rows.map((r) => r.linenItemId))];
+    const items = await prisma.linenItem.findMany({ where: { id: { in: itemIds }, branchId }, select: { id: true } });
+    if (items.length !== itemIds.length) throw new ValidationError('Ropa no encontrada');
+    const ref = `Transferencia ${dto.fromFloor} → ${dto.toFloor}`;
+    let moved = 0;
+    await prisma.$transaction(async (tx) => {
+      for (const r of dto.rows) {
+        // Origen: valida y descuenta del disponible del piso (REM primero, luego SUM).
+        await consumeFloorTx(tx, r.linenItemId, dto.fromFloor, r.quantity);
+        // Destino: acredita al SUM del piso (como un suministro del turno). Total disponible = REM + SUM.
+        await tx.linenStock.upsert({
+          where: { linenItemId_floor: { linenItemId: r.linenItemId, floor: dto.toFloor } },
+          update: { sum: { increment: r.quantity } },
+          create: { branchId, linenItemId: r.linenItemId, floor: dto.toFloor, rem: 0, sum: r.quantity },
+        });
+        // Kardex: salida del piso origen + entrada al piso destino.
+        await tx.linenMovement.create({ data: { branchId, linenItemId: r.linenItemId, type: 'TRANSFER', quantity: -r.quantity, floor: dto.fromFloor, areaFrom: dto.fromFloor, areaTo: dto.toFloor, reference: ref, createdByUserId: scope.userId } });
+        await tx.linenMovement.create({ data: { branchId, linenItemId: r.linenItemId, type: 'TRANSFER', quantity: r.quantity, floor: dto.toFloor, areaFrom: dto.fromFloor, areaTo: dto.toFloor, reference: ref, createdByUserId: scope.userId } });
+        moved += r.quantity;
+      }
+    });
+    return { ok: true, rows: dto.rows.length, moved };
   },
 
   /**
