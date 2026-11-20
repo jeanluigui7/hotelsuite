@@ -301,13 +301,25 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
     <app-frigobar-reposition [(visible)]="repoVisible" [reviewId]="repoReviewId" [roomNumber]="data()?.room?.number || ''" contextLabel="Folio" (confirmed)="onRepoDone()" />
 
     <!-- Cobrar frigobar (reusa el cobro de la estancia) -->
-    <p-dialog [(visible)]="cobroVisible" [modal]="true" header="Cobrar Frigobar" [style]="{ width: '24rem', maxWidth: '95vw' }" styleClass="fl-dialog2">
+    <p-dialog [(visible)]="cobroVisible" [modal]="true" header="Cobrar Frigobar" [style]="{ width: '30rem', maxWidth: '95vw' }" styleClass="fl-dialog2">
       <div class="cb-amt">Total a cobrar<strong>S/ {{ cobroAmount | number: '1.2-2' }}</strong></div>
-      <label class="cb-lbl">Método de pago</label>
-      <p-select [options]="payMethods" optionLabel="label" optionValue="value" [(ngModel)]="cobroMethod" appendTo="body" styleClass="w" />
+      <div class="cb-methods">
+        @for (m of cobroLines; track $index) {
+          <div class="cb-m">
+            <div class="cb-m-top"><span>Método {{ $index + 1 }}</span>@if (cobroLines.length > 1) { <button class="cb-x" (click)="removeCobro($index)"><i class="pi pi-times"></i></button> }</div>
+            <div class="cb-m-row">
+              <p-select [options]="payMethods" optionLabel="label" optionValue="value" [(ngModel)]="m.method" appendTo="body" styleClass="w" />
+              <input type="number" class="cb-in" [(ngModel)]="m.amount" min="0" step="0.01" placeholder="Monto" />
+            </div>
+            @if (m.method !== 'CASH') { <input type="text" class="cb-ref" [(ngModel)]="m.reference" placeholder="Código de operación (obligatorio)" /> }
+          </div>
+        }
+        <button class="cb-add" (click)="addCobro()"><i class="pi pi-plus"></i> Agregar método de pago</button>
+        <div class="cb-sum">Cobrado ahora: <b>S/ {{ cobroPaidNow() | number: '1.2-2' }}</b></div>
+      </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="cobroVisible = false" />
-        <p-button label="Confirmar cobro" icon="pi pi-check" severity="success" [loading]="busy()" (onClick)="confirmCobro()" />
+        <p-button label="Confirmar cobro" icon="pi pi-check" severity="success" [loading]="busy()" [disabled]="cobroPaidNow() <= 0" (onClick)="confirmCobro()" />
       </ng-template>
     </p-dialog>
   `,
@@ -427,6 +439,15 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
       .rv-tot { text-align: right; margin-top: 0.5rem; color: #cbd5e1; } .rv-tot b { color: #fbbf24; }
       .cb-amt { display: flex; flex-direction: column; align-items: center; gap: 0.2rem; color: #8aa0bd; font-size: 0.8rem; margin-bottom: 0.8rem; } .cb-amt strong { font-size: 1.8rem; color: #6ee7b7; }
       .cb-lbl { display: block; font-size: 0.8rem; color: #8aa0bd; margin-bottom: 0.3rem; } :host ::ng-deep .fl-dialog2 .w { width: 100%; }
+      .cb-methods { display: flex; flex-direction: column; gap: 0.6rem; }
+      .cb-m { border: 1px solid #1c2c44; border-radius: 10px; padding: 0.6rem 0.7rem; background: #0e1626; }
+      .cb-m-top { display: flex; align-items: center; justify-content: space-between; font-size: 0.74rem; color: #8aa0bd; margin-bottom: 0.4rem; font-weight: 600; }
+      .cb-x { background: transparent; border: 0; color: #f87171; cursor: pointer; font-size: 0.8rem; }
+      .cb-m-row { display: grid; grid-template-columns: 1fr 9rem; gap: 0.5rem; align-items: center; }
+      .cb-in, .cb-ref { width: 100%; background: #0a0e1a; border: 1px solid #26364f; border-radius: 8px; color: #e6edf5; padding: 0.5rem 0.6rem; font-size: 0.86rem; }
+      .cb-ref { margin-top: 0.5rem; }
+      .cb-add { margin-top: 0.1rem; background: transparent; border: 1px dashed #2b4b7a; color: #60a5fa; border-radius: 8px; padding: 0.5rem; cursor: pointer; font-weight: 600; font-size: 0.82rem; }
+      .cb-sum { text-align: right; font-size: 0.86rem; color: #cbd5e1; } .cb-sum b { color: #6ee7b7; }
       /* Inspección de frigobar (2 columnas) */
       .insp { display: grid; grid-template-columns: 1fr 15rem; gap: 0.9rem; align-items: start; }
       .insp-l { max-height: 64vh; overflow-y: auto; padding-right: 0.3rem; }
@@ -523,19 +544,28 @@ export class FolioEstanciaComponent implements OnDestroy {
   repoReviewId: string | null = null;
   cobroVisible = false;
   cobroAmount = 0;
-  cobroMethod = 'CASH';
+  // Cobro MIXTO: una o varias líneas de pago.
+  cobroLines: { method: string; amount: number | null; reference: string }[] = [];
   readonly payMethods = [
     { label: 'Efectivo', value: 'CASH' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Transferencia', value: 'TRANSFER' },
     { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' }, { label: 'Billetera', value: 'WALLET' },
   ];
+  cobroPaidNow(): number { return Math.round(this.cobroLines.reduce((a, p) => a + (p.amount || 0), 0) * 100) / 100; }
+  addCobro(): void { this.cobroLines.push({ method: 'CASH', amount: null, reference: '' }); }
+  removeCobro(i: number): void { this.cobroLines.splice(i, 1); }
   openReview(): void { this.reviewVisible = true; }
   onReviewDone(): void { this.load(); this.changed.emit(); }
-  openCobro(amount: number): void { this.cobroAmount = amount; this.cobroMethod = 'CASH'; this.cobroVisible = true; }
+  openCobro(amount: number): void { this.cobroAmount = amount; this.cobroLines = [{ method: 'CASH', amount, reference: '' }]; this.cobroVisible = true; }
   confirmCobro(): void {
-    if (!this.stayId || this.cobroAmount <= 0) return;
+    if (!this.stayId) return;
+    const payments = this.cobroLines.filter((p) => (p.amount || 0) > 0).map((p) => ({ method: p.method, amount: p.amount as number, reference: p.reference?.trim() || undefined }));
+    if (!payments.length) { this.toast.add({ severity: 'warn', summary: 'Falta el pago', detail: 'Ingresa al menos un método con monto.' }); return; }
+    // Pago virtual (no efectivo): el código de verificación es OBLIGATORIO.
+    if (payments.some((p) => p.method !== 'CASH' && !p.reference)) { this.toast.add({ severity: 'warn', summary: 'Falta código de verificación', detail: 'Los pagos con Yape, Plin, Transferencia, Tarjeta o Billetera requieren el código de operación.' }); return; }
+    const amount = this.cobroPaidNow();
     this.busy.set(true);
-    this.http.post<ApiResponse<unknown>>(`${this.api}/stays/${this.stayId}/pay`, { amount: this.cobroAmount, method: this.cobroMethod }).subscribe({
-      next: () => { this.busy.set(false); this.cobroVisible = false; this.toast.add({ severity: 'success', summary: 'Cobro registrado', detail: `S/ ${this.cobroAmount.toFixed(2)} cobrados.` }); this.load(); this.changed.emit(); },
+    this.http.post<ApiResponse<unknown>>(`${this.api}/stays/${this.stayId}/pay`, { payments }).subscribe({
+      next: () => { this.busy.set(false); this.cobroVisible = false; this.toast.add({ severity: 'success', summary: 'Cobro registrado', detail: `S/ ${amount.toFixed(2)} cobrados.` }); this.load(); this.changed.emit(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo cobrar.' }); },
     });
   }

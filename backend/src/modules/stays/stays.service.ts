@@ -1010,7 +1010,16 @@ export const staysService = {
     const branchId = requireActiveBranch(scope);
     const stay = await staysRepository.findById(id);
     if (!stay || stay.branchId !== branchId) throw new ConflictError('Estancia no encontrada');
-    const amount = round2(dto.amount);
+
+    // Normaliza a una lista de pagos (mixto). La forma legada {method, amount} se convierte en 1 entrada.
+    const entries = (dto.payments && dto.payments.length
+      ? dto.payments
+      : [{ method: dto.method as string, amount: dto.amount as number, reference: dto.reference }]
+    )
+      .filter((p) => p.amount > 0)
+      .map((p) => ({ method: p.method, amount: round2(p.amount), reference: p.reference || null }));
+    if (!entries.length) throw new ValidationError('El monto debe ser mayor a 0.');
+    const amount = round2(entries.reduce((a, e) => a + e.amount, 0));
     if (amount <= 0) throw new ValidationError('El monto debe ser mayor a 0.');
     const session = await cashRepository.findOpen(branchId);
     if (!session) throw new ConflictError('Debe abrir un turno de caja antes de registrar el cobro.');
@@ -1025,36 +1034,47 @@ export const staysService = {
     // La comisión POS NO es ingreso del negocio: se registra el pago NETO, congelando el snapshot de
     // comisión vigente al cobrar en cada pago (auditoría histórica independiente de la tasa futura).
     const settleCfg = await operationsConfigService.get(scope);
-    let remaining = amount;
+    // "Baldes" de dinero por método: se van vaciando al abonar las ventas (más antiguas primero),
+    // creando un Payment por porción (venta × método) para conservar el desglose del pago mixto.
+    const buckets = entries.map((e) => ({ ...e, left: e.amount }));
+    let bi = 0;
     await prisma.$transaction(async (tx) => {
       for (const s of openSales) {
-        if (remaining <= 0.001) break;
-        const paid = s.payments.reduce((x, p) => x + Number(p.amount), 0);
-        const saldo = round2(Number(s.total) - paid);
+        const paidBefore = s.payments.reduce((x, p) => x + Number(p.amount), 0);
+        let saldo = round2(Number(s.total) - paidBefore);
         if (saldo <= 0) continue;
-        const pay = round2(Math.min(saldo, remaining));
-        const snap = commissionSnapshot(settleCfg, dto.method, pay);
-        await tx.payment.create({ data: { branchId, saleId: s.id, method: dto.method, amount: pay, reference: dto.reference || null, cashSessionId: session.id, createdByUserId: scope.userId, commissionPct: snap.commissionPct, commissionAmount: snap.commissionAmount, grossCharged: snap.grossCharged } });
+        let allocated = 0;
+        while (saldo > 0.001 && bi < buckets.length) {
+          const b = buckets[bi];
+          if (b.left <= 0.001) { bi++; continue; }
+          const pay = round2(Math.min(saldo, b.left));
+          const snap = commissionSnapshot(settleCfg, b.method, pay);
+          await tx.payment.create({ data: { branchId, saleId: s.id, method: b.method, amount: pay, reference: b.reference, cashSessionId: session.id, createdByUserId: scope.userId, commissionPct: snap.commissionPct, commissionAmount: snap.commissionAmount, grossCharged: snap.grossCharged } });
+          b.left = round2(b.left - pay);
+          saldo = round2(saldo - pay);
+          allocated = round2(allocated + pay);
+        }
         // La venta de deuda de estancia (frigobar/consumo/renovación) nace SIN turno; al cobrarla se
         // atribuye al turno donde se recauda para que figure con su concepto en Movimientos/Conciliación.
         const saleUpd: { status?: string; cashSessionId?: string } = {};
-        if (paid + pay >= Number(s.total) - 0.001) saleUpd.status = 'PAID';
-        if (!s.cashSessionId) saleUpd.cashSessionId = session.id;
+        if (paidBefore + allocated >= Number(s.total) - 0.001) saleUpd.status = 'PAID';
+        if (!s.cashSessionId && allocated > 0) saleUpd.cashSessionId = session.id;
         if (Object.keys(saleUpd).length) await tx.sale.update({ where: { id: s.id }, data: saleUpd });
-        remaining = round2(remaining - pay);
       }
       // Sobrante: cubre el adeudo legacy (early/late) guardado en balanceDue.
-      if (remaining > 0.001 && bd > 0) {
-        await tx.stay.update({ where: { id }, data: { balanceDue: round2(Math.max(0, bd - remaining)) } });
+      const leftover = round2(buckets.reduce((a, b) => a + b.left, 0));
+      if (leftover > 0.001 && bd > 0) {
+        await tx.stay.update({ where: { id }, data: { balanceDue: round2(Math.max(0, bd - leftover)) } });
       }
     });
     const updated = await staysRepository.findById(id);
     const payGuest = `${stay.guest?.firstName ?? ''} ${stay.guest?.lastName ?? ''}`.trim();
+    const methodsLabel = entries.map((e) => e.method).join(' + ');
     void recordActivity(scope, {
       activity: 'DEBT_PAYMENT', area: 'HOSPEDAJE', roomId: stay.roomId, entityId: id,
       reference: `Hab. ${(updated as StayWithRelations)?.room?.number ?? '?'}`,
-      detail: `${payGuest || 'Huésped'} · S/ ${Number(dto.amount).toFixed(2)} cobrados · ${dto.method}`,
-      meta: { amount: Number(dto.amount), method: dto.method, reference: dto.reference ?? null, stayId: id },
+      detail: `${payGuest || 'Huésped'} · S/ ${amount.toFixed(2)} cobrados · ${methodsLabel}`,
+      meta: { amount, method: entries[0].method, methods: methodsLabel, reference: entries.find((e) => e.reference)?.reference ?? null, payments: entries, stayId: id },
     });
     return serialize(updated as StayWithRelations);
   },

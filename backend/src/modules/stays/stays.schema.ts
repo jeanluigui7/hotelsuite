@@ -107,15 +107,35 @@ export const renewSchema = z.object({
   requestCleaning: z.coerce.boolean().default(false),
 });
 
-/** Cobro del pendiente de una estancia (abona a sus ventas OPEN / adeudo).
- *  Código de operación OBLIGATORIO para pagos virtuales (red de seguridad; el front lo exige). */
-export const payStaySchema = z
+/** Un pago individual del cobro (método + monto + código de operación si aplica). */
+const payEntrySchema = z
   .object({
     method: z.enum(PAYMENT_METHODS),
     amount: z.coerce.number().positive(),
     reference: z.string().max(120).optional().or(z.literal('')),
   })
   .refine(hasRequiredReference, { message: PAYMENT_REFERENCE_REQUIRED, path: ['reference'] });
+
+/** Cobro del pendiente de una estancia (abona a sus ventas OPEN / adeudo).
+ *  Acepta pago MIXTO: `payments[]` con varios métodos. Se conserva la forma legada de un solo
+ *  método (`method` + `amount`) por compatibilidad con clientes antiguos.
+ *  Código de operación OBLIGATORIO para pagos virtuales (red de seguridad; el front lo exige). */
+export const payStaySchema = z
+  .object({
+    payments: z.array(payEntrySchema).optional(),
+    method: z.enum(PAYMENT_METHODS).optional(),
+    amount: z.coerce.number().positive().optional(),
+    reference: z.string().max(120).optional().or(z.literal('')),
+  })
+  .refine((v) => (v.payments && v.payments.length > 0) || (!!v.method && v.amount != null), {
+    message: 'Indica al menos un pago (payments[] o method + amount).',
+    path: ['payments'],
+  })
+  // La forma legada (un método) conserva su validación de código de operación.
+  .refine((v) => !!v.payments?.length || hasRequiredReference({ method: v.method ?? 'CASH', reference: v.reference }), {
+    message: PAYMENT_REFERENCE_REQUIRED,
+    path: ['reference'],
+  });
 
 /** Edición rápida de la estancia (recepción): teléfono, placa y acompañantes. */
 export const updateStayDetailsSchema = z.object({

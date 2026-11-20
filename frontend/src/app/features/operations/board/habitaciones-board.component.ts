@@ -478,18 +478,28 @@ interface FaultLineUI {
     <app-frigobar-inspection [(visible)]="coInspVisible" [stayId]="coInspStayId" [roomNumber]="checkoutRoom?.number || ''" origin="RECEPCION" (confirmed)="onCheckoutInspDone()" />
 
     <!-- Cobro del pendiente de la estancia (deuda de renovación, consumos, recargos) -->
-    <p-dialog [(visible)]="payVisible" [modal]="true" [header]="'Cobrar Pendiente · Hab. ' + (checkoutRoom?.number || '')" [style]="{ width: '26rem' }" styleClass="dk-dialog">
+    <p-dialog [(visible)]="payVisible" [modal]="true" [header]="'Cobrar Pendiente · Hab. ' + (checkoutRoom?.number || '')" [style]="{ width: '31rem', maxWidth: '96vw' }" styleClass="dk-dialog">
       <div class="pay-form">
         <div class="pay-total">Pendiente <strong>S/ {{ (checkoutData()?.totalWithLate || 0) | number: '1.2-2' }}</strong></div>
-        <label>Método de pago</label>
-        <p-select [options]="payMethods" optionLabel="label" optionValue="value" [(ngModel)]="payMethod" styleClass="w" appendTo="body" />
-        <label>Monto a cobrar</label>
-        <p-inputNumber [(ngModel)]="payAmount" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w" />
-        @if (payMethod !== 'CASH') { <label>Código de verificación *</label><input pInputText [(ngModel)]="payReference" placeholder="N° de operación (obligatorio)" /> }
+        <div class="methods">
+          @for (m of payLines; track $index) {
+            <div class="method">
+              <div class="m-top"><span>Método {{ $index + 1 }}</span>@if (payLines.length > 1) { <button class="x" (click)="removePayLine($index)"><i class="pi pi-times"></i></button> }</div>
+              <div class="m-grid">
+                <div class="fld"><label>Tipo</label><p-select [options]="payMethods" optionLabel="label" optionValue="value" [(ngModel)]="m.method" styleClass="w" appendTo="body" /></div>
+                <div class="fld"><label>Monto (S/)</label><p-inputNumber [(ngModel)]="m.amount" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w" /></div>
+                @if (m.method === 'CASH') { <div class="fld"><label>Con cuánto paga</label><p-inputNumber [(ngModel)]="m.received" mode="decimal" [minFractionDigits]="2" [min]="0" styleClass="w" /></div> }
+                @else { <div class="fld"><label>Código de verificación *</label><input pInputText [(ngModel)]="m.reference" placeholder="N° de operación (obligatorio)" /></div> }
+              </div>
+            </div>
+          }
+          <button class="add-pay" (click)="addPayLine()"><i class="pi pi-plus"></i> Agregar método de pago</button>
+          <div class="pay-sum"><span>Cobrado ahora: <b>S/ {{ payPaidNow() | number: '1.2-2' }}</b></span>@if (payVuelto() > 0) { <span class="vuelto-r">Vuelto: S/ {{ payVuelto() | number: '1.2-2' }}</span> }</div>
+        </div>
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Cancelar" [text]="true" (onClick)="payVisible = false" />
-        <p-button label="Registrar Cobro" icon="pi pi-check" [loading]="paying()" [disabled]="!payAmount || payAmount <= 0" (onClick)="confirmPay()" />
+        <p-button label="Registrar Cobro" icon="pi pi-check" [loading]="paying()" [disabled]="payPaidNow() <= 0" (onClick)="confirmPay()" />
       </ng-template>
     </p-dialog>
 
@@ -2237,26 +2247,33 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   // Cobro del pendiente de la estancia.
   payVisible = false;
   readonly paying = signal(false);
-  payMethod = 'CASH';
-  payAmount: number | null = null;
-  payReference = '';
+  // Cobro MIXTO: una o varias líneas de pago (mismo patrón que la renovación).
+  payLines: { method: string; amount: number | null; received: number | null; reference: string }[] = [];
   readonly payMethods = [
     { label: 'Efectivo', value: 'CASH' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' },
   ];
+  payPaidNow(): number { return Math.round(this.payLines.reduce((a, p) => a + (p.amount || 0), 0) * 100) / 100; }
+  /** Vuelto a entregar en efectivo (con cuánto paga − monto) sobre los pagos en efectivo. */
+  payVuelto(): number {
+    return Math.round(this.payLines.reduce((a, p) => a + (p.method === 'CASH' ? Math.max(0, (p.received || 0) - (p.amount || 0)) : 0), 0) * 100) / 100;
+  }
+  addPayLine(): void { this.payLines.push({ method: 'CASH', amount: null, received: null, reference: '' }); }
+  removePayLine(i: number): void { this.payLines.splice(i, 1); }
   goProcesarPago(): void {
-    this.payAmount = this.checkoutData()?.totalWithLate || null;
-    this.payMethod = 'CASH';
-    this.payReference = '';
+    // Primera línea precargada con el total pendiente (el usuario puede dividirlo en varios métodos).
+    this.payLines = [{ method: 'CASH', amount: this.checkoutData()?.totalWithLate || null, received: null, reference: '' }];
     this.payVisible = true;
   }
   confirmPay(): void {
     const stayId = this.checkoutRoom?.activeStay?.id;
-    if (!stayId || !this.payAmount || this.payAmount <= 0) return;
+    if (!stayId) return;
+    const payments = this.payLines.filter((p) => (p.amount || 0) > 0).map((p) => ({ method: p.method, amount: p.amount as number, reference: p.reference?.trim() || undefined }));
+    if (!payments.length) { this.toast.add({ severity: 'warn', summary: 'Falta el pago', detail: 'Ingresa al menos un método con monto.' }); return; }
     // Pago virtual (no efectivo): el código de verificación es OBLIGATORIO.
-    if (this.payMethod !== 'CASH' && !this.payReference.trim()) { this.toast.add({ severity: 'warn', summary: 'Falta código de verificación', detail: 'Los pagos con Yape, Plin, Transferencia o Tarjeta requieren el código de operación.' }); return; }
-    const amount = this.payAmount;
+    if (payments.some((p) => p.method !== 'CASH' && !p.reference)) { this.toast.add({ severity: 'warn', summary: 'Falta código de verificación', detail: 'Los pagos con Yape, Plin, Transferencia o Tarjeta requieren el código de operación.' }); return; }
+    const amount = this.payPaidNow();
     this.paying.set(true);
-    this.ops.payStay(stayId, { method: this.payMethod, amount, reference: this.payReference?.trim() || undefined }).subscribe({
+    this.ops.payStay(stayId, { payments }).subscribe({
       next: () => {
         this.paying.set(false);
         this.payVisible = false;
