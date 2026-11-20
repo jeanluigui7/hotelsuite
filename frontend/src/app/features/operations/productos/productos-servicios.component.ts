@@ -37,7 +37,7 @@ interface MovResp {
 }
 
 const CONCEPT_LABEL: Record<string, string> = { HOSPEDAJE: 'Hospedaje', PRODUCTOS: 'Productos', SERVPEN: 'Servicios/Penalidades', SERVICIOS: 'Servicios/Penalidades', PENALIDADES: 'Servicios/Penalidades' };
-const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera', PENDIENTE: 'Pendiente', MIXTO: 'Mixto' };
+const METHOD_LABEL: Record<string, string> = { CASH: 'Efectivo', CARD: 'Tarjeta', TRANSFER: 'Transferencia', YAPE: 'Yape', PLIN: 'Plin', WALLET: 'Billetera', PENDIENTE: 'Pendiente', MIXTO: 'Mixto', NO_APLICA: 'No aplica' };
 const SHIFT_LABEL: Record<string, string> = { MANANA: 'Turno Mañana', TARDE: 'Turno Tarde', NOCHE: 'Turno Noche' };
 const CONCEPT_COLOR: Record<string, string> = { HOSPEDAJE: '#3b82f6', PRODUCTOS: '#22c55e', SERVPEN: '#f59e0b', SERVICIOS: '#f59e0b', PENALIDADES: '#f59e0b' };
 const SHIFTS = ['MANANA', 'TARDE', 'NOCHE'];
@@ -183,19 +183,34 @@ export class ProductosServiciosComponent implements OnInit {
   readonly serverCollabs = signal<{ id: string; name: string }[]>([]);
   readonly serverRooms = signal<{ id: string; number: string }[]>([]);
 
-  fConcept = 'ALL';
-  fMethod = 'ALL';
-  fRoom: string | null = null;
-  fCollab: string | null = null;
-  fSearch = '';
-  fDay = ymd(new Date());
+  // Filtros respaldados por signals: el computed `turnRows` los lee a través de estos getters,
+  // por lo que ahora SÍ reacciona cuando cambian desde el template (antes eran props planas y el
+  // computed memoizaba sin recalcular → el filtro "no hacía nada").
+  private readonly _fConcept = signal('ALL');
+  private readonly _fMethod = signal('ALL');
+  private readonly _fRoom = signal<string | null>(null);
+  private readonly _fCollab = signal<string | null>(null);
+  private readonly _fSearch = signal('');
+  private readonly _fDay = signal(ymd(new Date()));
+  get fConcept(): string { return this._fConcept(); }
+  set fConcept(v: string) { this._fConcept.set(v); }
+  get fMethod(): string { return this._fMethod(); }
+  set fMethod(v: string) { this._fMethod.set(v); }
+  get fRoom(): string | null { return this._fRoom(); }
+  set fRoom(v: string | null) { this._fRoom.set(v); }
+  get fCollab(): string | null { return this._fCollab(); }
+  set fCollab(v: string | null) { this._fCollab.set(v); }
+  get fSearch(): string { return this._fSearch(); }
+  set fSearch(v: string) { this._fSearch.set(v); }
+  get fDay(): string { return this._fDay(); }
+  set fDay(v: string) { this._fDay.set(v); }
   curShift = signal(currentShiftIdx());
 
   readonly conceptOpts = [
     { label: 'Todos', value: 'ALL' }, { label: 'Productos', value: 'PRODUCTOS' }, { label: 'Servicios/Penalidades', value: 'SERVPEN' },
   ];
   readonly methodOpts = [
-    { label: 'Todos', value: 'ALL' }, { label: 'Efectivo', value: 'CASH' }, { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Pendiente', value: 'PENDIENTE' },
+    { label: 'Todos', value: 'ALL' }, { label: 'Efectivo', value: 'CASH' }, { label: 'Transferencia', value: 'TRANSFER' }, { label: 'Yape', value: 'YAPE' }, { label: 'Plin', value: 'PLIN' }, { label: 'Tarjeta', value: 'CARD' }, { label: 'Billetera', value: 'WALLET' }, { label: 'Mixto', value: 'MIXTO' }, { label: 'No aplica', value: 'NO_APLICA' }, { label: 'Pendiente', value: 'PENDIENTE' },
   ];
   readonly roomOpts = computed(() => [{ label: 'Todas', value: null as string | null }, ...this.serverRooms().map((r) => ({ label: r.number, value: r.id }))]);
   readonly collabOpts = computed(() => [{ label: 'Todos', value: null as string | null }, ...this.serverCollabs().map((c) => ({ label: c.name, value: c.id }))]);
