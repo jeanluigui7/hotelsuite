@@ -18,6 +18,8 @@ staysRouter.get('/stays/:id', requirePermission('operations', 'view'), asyncHand
 staysRouter.get('/stays/:id/checkout-summary', requirePermission('operations', 'view'), asyncHandler(staysController.checkoutSummary));
 staysRouter.post('/stays/check-in', requirePermission('operations', 'create'), asyncHandler(staysController.checkIn));
 staysRouter.post('/stays/:id/check-out', requirePermission('operations', 'edit'), asyncHandler(staysController.checkOut));
+// Revertir un check-out accidental (reversal): mismo permiso que las demás anulaciones.
+staysRouter.post('/stays/:id/revert-checkout', requirePermission('finance', 'edit'), asyncHandler(staysController.revertCheckOut));
 staysRouter.post('/stays/:id/change-room', requirePermission('operations', 'edit'), asyncHandler(staysController.changeRoom));
 staysRouter.post('/stays/:id/renew', requirePermission('operations', 'edit'), asyncHandler(staysController.renew));
 // Anular check-in / renovación: requiere permiso de anulación (finance:edit), igual que anular una venta.

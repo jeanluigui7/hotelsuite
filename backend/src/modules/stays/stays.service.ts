@@ -21,7 +21,7 @@ import { recordActivity } from '../activity-log/activity.emitter';
 import { frigobarReviewService } from '../frigobar-review/frigobar-review.service';
 import { customRateBlockService } from '../custom-rate-block/custom-rate-block.service';
 import { staysRepository, type StayWithRelations } from './stays.repository';
-import type { CancelCheckInDto, CancelRenewalDto, ChangeRoomDto, CheckInDto, CheckOutDto, PayStayDto, RenewDto, UpdateStayDetailsDto } from './stays.schema';
+import type { CancelCheckInDto, CancelRenewalDto, ChangeRoomDto, CheckInDto, CheckOutDto, RevertCheckOutDto, PayStayDto, RenewDto, UpdateStayDetailsDto } from './stays.schema';
 
 const SORTABLE = ['checkInAt', 'plannedCheckoutAt', 'status'] as const;
 
@@ -559,6 +559,49 @@ export const staysService = {
       meta: { room: stay.room?.number ?? null, guest: coGuest || null, lateCharge: lateCharge || 0, roomStatus: dto.roomStatus, stayId: id },
     });
     return serialize(result as StayWithRelations);
+  },
+
+  /**
+   * Revierte un CHECK-OUT hecho por accidente: reabre la estadía (OPEN) y devuelve la habitación
+   * a OCUPADA. SOLO se permite si la limpieza de la habitación aún no inició y la habitación no fue
+   * re-ocupada por otra estancia. NO toca nada contable (ventas/pagos/caja/vueltos intactos); el
+   * check-out en sí no genera asientos, por lo que revertirlo es seguro. Reactiva los beneficios y el
+   * WiFi que el check-out había cerrado.
+   */
+  async revertCheckOut(scope: RequestScope, id: string, dto: RevertCheckOutDto) {
+    const branchId = requireActiveBranch(scope);
+    const stay = await staysRepository.findById(id);
+    if (!stay || stay.branchId !== branchId) throw new NotFoundError('Estancia no encontrada');
+    if (stay.status !== 'CLOSED') throw new ConflictError('Solo se puede revertir una estancia cerrada por check-out.');
+    const coAt = stay.checkOutAt;
+    if (!coAt) throw new ConflictError('La estancia no tiene fecha de check-out registrada.');
+
+    // GUARD 1: la limpieza no debe haber iniciado. Cualquier tarea de limpieza de la habitación
+    // creada a partir del check-out indica que ya se intervino → no se puede revertir.
+    const cleaning = await prisma.housekeepingTask.findFirst({ where: { branchId, roomId: stay.roomId, createdAt: { gte: coAt } }, select: { id: true } });
+    if (cleaning) throw new ConflictError('No se puede revertir: la limpieza de la habitación ya se inició. Usa el flujo normal de check-in.');
+    // GUARD 2: la habitación no debe haber sido re-ocupada por otra estancia activa.
+    const reoccupied = await prisma.stay.findFirst({ where: { branchId, roomId: stay.roomId, status: 'OPEN', id: { not: id } }, select: { id: true } });
+    if (reoccupied) throw new ConflictError('No se puede revertir: la habitación ya fue ocupada por otra estancia.');
+
+    await prisma.$transaction(async (tx) => {
+      // Reclamo atómico (anti doble-clic / carrera con un re-check-in): solo una petición revierte.
+      const claim = await tx.stay.updateMany({ where: { id, status: 'CLOSED' }, data: { status: 'OPEN', checkOutAt: null, closedByUserId: null, lateCharge: null } });
+      if (claim.count === 0) throw new ConflictError('La estancia ya no está cerrada; no se puede revertir.');
+      await tx.room.update({ where: { id: stay.roomId }, data: { status: 'OCCUPIED' } });
+      // Reactiva los beneficios que el check-out había dado por NO UTILIZADOS (EXPIRED en ese momento).
+      await tx.stayBenefit.updateMany({ where: { stayId: id, status: 'EXPIRED', expiredAt: { gte: coAt } }, data: { status: 'ACTIVE', unusedQty: 0, expiredAt: null } });
+    });
+    // Reasigna WiFi (el check-out lo había marcado "Usada"). Best-effort: si el pool está vacío, se deja.
+    const rvGuest = `${stay.guest?.firstName ?? ''} ${stay.guest?.lastName ?? ''}`.trim();
+    await wifiService.reassignOnRenewal(branchId, id, stay.room?.number ?? null, rvGuest || null).catch(() => undefined);
+    void recordActivity(scope, {
+      activity: 'CHECKOUT_REVERT', area: 'HOSPEDAJE', roomId: stay.roomId, entityId: id,
+      reference: `Hab. ${stay.room?.number ?? '?'}`,
+      detail: `Check-out revertido · ${rvGuest || 'Huésped'} · Habitación → Ocupada${dto.reason?.trim() ? ` · Motivo: ${dto.reason.trim()}` : ''}`,
+      meta: { stayId: id, room: stay.room?.number ?? null, revertedCheckoutAt: coAt, reason: dto.reason?.trim() || null },
+    });
+    return serialize((await staysRepository.findById(id)) as StayWithRelations);
   },
 
   /**
@@ -1505,7 +1548,16 @@ export const staysService = {
 
     const { skip, take } = toPrismaPaging(params);
     const items = filtered.slice(skip, skip + take);
-    return { items, meta: pageMeta(params, filtered.length), indicators, collaborators, rooms };
+    // Marca si la limpieza de la habitación ya inició tras el check-out (habilita "Revertir check-out").
+    const pageRoomIds = [...new Set(items.map((i) => i.roomId).filter((x): x is string => !!x))];
+    const tasks = pageRoomIds.length
+      ? await prisma.housekeepingTask.findMany({ where: { branchId, roomId: { in: pageRoomIds } }, select: { roomId: true, createdAt: true } })
+      : [];
+    const withFlags = items.map((i) => ({
+      ...i,
+      cleaningStarted: tasks.some((t) => t.roomId === i.roomId && t.createdAt.getTime() >= (i.checkOutAt as Date).getTime()),
+    }));
+    return { items: withFlags, meta: pageMeta(params, filtered.length), indicators, collaborators, rooms };
   },
 
   /**

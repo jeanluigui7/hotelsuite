@@ -3,7 +3,7 @@ import { ok } from '../../shared/response';
 import { paginationSchema } from '../../shared/pagination';
 import { UnauthorizedError } from '../../shared/errors';
 import { staysService } from './stays.service';
-import { cancelCheckInSchema, cancelRenewalSchema, changeRoomSchema, checkInSchema, checkOutSchema, payStaySchema, renewSchema, updateStayDetailsSchema } from './stays.schema';
+import { cancelCheckInSchema, cancelRenewalSchema, changeRoomSchema, checkInSchema, checkOutSchema, revertCheckOutSchema, payStaySchema, renewSchema, updateStayDetailsSchema } from './stays.schema';
 
 export const staysController = {
   async checkIn(req: Request, res: Response): Promise<void> {
@@ -16,6 +16,12 @@ export const staysController = {
     if (!req.scope) throw new UnauthorizedError();
     const dto = checkOutSchema.parse(req.body);
     res.status(200).json(ok(await staysService.checkOut(req.scope, req.params.id, dto)));
+  },
+
+  async revertCheckOut(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = revertCheckOutSchema.parse(req.body);
+    res.status(200).json(ok(await staysService.revertCheckOut(req.scope, req.params.id, dto)));
   },
 
   async folio(req: Request, res: Response): Promise<void> {

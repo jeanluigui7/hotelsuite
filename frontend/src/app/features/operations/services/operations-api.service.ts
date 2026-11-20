@@ -122,6 +122,11 @@ export class OperationsApiService {
     return this.http.post<ApiResponse<Stay>>(`${this.api}/stays/${stayId}/check-out`, { roomStatus });
   }
 
+  /** Revierte un check-out accidental: reabre la estadía y devuelve la habitación a ocupada. */
+  revertCheckOut(stayId: string, reason?: string): Observable<ApiResponse<Stay>> {
+    return this.http.post<ApiResponse<Stay>>(`${this.api}/stays/${stayId}/revert-checkout`, { reason: reason?.trim() || undefined });
+  }
+
   changeRoom(stayId: string, destRoomId: string, originStatus: 'CLEANING' | 'FREE'): Observable<ApiResponse<Stay>> {
     return this.http.post<ApiResponse<Stay>>(`${this.api}/stays/${stayId}/change-room`, { destRoomId, originStatus });
   }

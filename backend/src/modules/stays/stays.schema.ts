@@ -52,6 +52,11 @@ export const checkOutSchema = z.object({
   roomStatus: z.enum(['CLEANING', 'FREE']).default('CLEANING'),
 });
 
+/** Revertir un check-out hecho por accidente (reabre la estadía). Motivo opcional para la bitácora. */
+export const revertCheckOutSchema = z.object({
+  reason: z.string().max(500).optional().or(z.literal('')),
+});
+
 export const changeRoomSchema = z.object({
   destRoomId: z.string().min(1),
   // Cómo debe quedar la habitación de origen: sucia para limpieza o disponible.
@@ -157,6 +162,7 @@ export const updateStayDetailsSchema = z.object({
 
 export type CheckInDto = z.infer<typeof checkInSchema>;
 export type CheckOutDto = z.infer<typeof checkOutSchema>;
+export type RevertCheckOutDto = z.infer<typeof revertCheckOutSchema>;
 export type ChangeRoomDto = z.infer<typeof changeRoomSchema>;
 export type RenewDto = z.infer<typeof renewSchema>;
 export type PayStayDto = z.infer<typeof payStaySchema>;

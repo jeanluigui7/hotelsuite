@@ -14,7 +14,7 @@ import { AuthService } from '../../../core/auth/auth.service';
 interface DoneRow {
   id: string; folioCode: string | null; room: string | null; guest: string; documentNumber: string;
   plannedCheckoutAt: string; checkOutAt: string; late: boolean; lateMinutes: number; lateCharge: number;
-  hasCharge: boolean; chargePaid: boolean | null; closedBy: string; shift: string;
+  hasCharge: boolean; chargePaid: boolean | null; closedBy: string; shift: string; cleaningStarted: boolean;
 }
 interface Indicators { total: number; onTime: number; late: number; charged: number; notCharged: number }
 interface HistoryData { items: DoneRow[]; indicators: Indicators; collaborators: { id: string; name: string }[]; rooms: { id: string; number: string }[] }
@@ -124,7 +124,18 @@ function ymd(d: Date): string { return `${d.getFullYear()}-${String(d.getMonth()
                         @else { <span class="chip" [class.green]="r.chargePaid" [class.red]="!r.chargePaid">{{ r.chargePaid ? 'Sí' : 'No' }}</span> }
                       </td>
                       <td>{{ r.closedBy }}</td>
-                      <td class="c"><button class="eye" (click)="openDetail(r.id)" title="Ver detalle"><i class="pi pi-eye"></i></button></td>
+                      <td class="c">
+                        <div class="acts">
+                          <button class="eye" (click)="openDetail(r.id)" title="Ver detalle"><i class="pi pi-eye"></i></button>
+                          @if (canRevert()) {
+                            @if (r.cleaningStarted) {
+                              <button class="revert" disabled title="La limpieza ya inició; no se puede revertir"><i class="pi pi-undo"></i></button>
+                            } @else {
+                              <button class="revert on" (click)="askRevert(r)" title="Revertir check-out (accidental)"><i class="pi pi-undo"></i></button>
+                            }
+                          }
+                        </div>
+                      </td>
                     </tr>
                   } @empty { <tr><td colspan="10" class="empty">Sin check-outs para los criterios indicados.</td></tr> }
                 </tbody>
@@ -152,6 +163,18 @@ function ymd(d: Date): string { return `${d.getFullYear()}-${String(d.getMonth()
       <ng-template pTemplate="footer">
         <button class="btn s" (click)="confirmVisible = false">Cancelar</button>
         <button class="btn p" (click)="doCheckout()">Check-out</button>
+      </ng-template>
+    </p-dialog>
+
+    <!-- Confirmación de revertir check-out -->
+    <p-dialog [(visible)]="revertVisible" [modal]="true" header="Revertir check-out" [style]="{ width: '28rem' }" styleClass="co-dialog">
+      <p class="cf">Se reabrirá la estancia de la habitación <strong>{{ revertRow?.room }}</strong> ({{ revertRow?.guest }}) y volverá a <strong>Ocupada</strong>. No se modifica ningún cobro, pago ni caja.</p>
+      <p class="cf hint-rev"><i class="pi pi-info-circle"></i> Úsalo solo si el check-out fue por accidente. Si la limpieza ya empezó, el sistema lo impedirá.</p>
+      <label class="rev-lbl">Motivo (opcional)</label>
+      <input class="rev-in" [(ngModel)]="revertReason" placeholder="Ej. Check-out por error" />
+      <ng-template pTemplate="footer">
+        <button class="btn s" (click)="revertVisible = false">Cancelar</button>
+        <button class="btn p" [disabled]="reverting()" (click)="doRevert()">Revertir check-out</button>
       </ng-template>
     </p-dialog>
 
@@ -209,6 +232,12 @@ function ymd(d: Date): string { return `${d.getFullYear()}-${String(d.getMonth()
       .chip { display: inline-block; border-radius: 999px; padding: 0.15rem 0.7rem; font-size: 0.72rem; font-weight: 800; }
       .chip.ok { background: rgba(59,130,246,0.2); color: #60a5fa; } .chip.green { background: rgba(16,185,129,0.2); color: #34d399; } .chip.warn { background: rgba(245,158,11,0.2); color: #fbbf24; } .chip.red { background: rgba(239,68,68,0.2); color: #f87171; }
       .eye { background: #16233a; border: 1px solid #274468; color: #93c5fd; border-radius: 8px; width: 2.1rem; height: 2.1rem; cursor: pointer; } .eye:hover { background: #1c2c48; }
+      .acts { display: inline-flex; gap: 0.35rem; align-items: center; justify-content: center; }
+      .revert { background: #16233a; border: 1px solid #274468; border-radius: 8px; width: 2.1rem; height: 2.1rem; cursor: pointer; color: #64748b; } .revert:disabled { opacity: 0.45; cursor: not-allowed; }
+      .revert.on { color: #fbbf24; border-color: #78521a; } .revert.on:hover { background: #2a2310; }
+      .hint-rev { display: flex; align-items: flex-start; gap: 0.4rem; color: #9fb0c3; font-size: 0.8rem; margin-top: 0.4rem; } .hint-rev .pi { margin-top: 0.1rem; color: #fbbf24; }
+      .rev-lbl { display: block; font-size: 0.78rem; color: #8aa0bd; margin: 0.6rem 0 0.25rem; }
+      .rev-in { width: 100%; background: #0e1626; border: 1px solid #26364f; border-radius: 8px; color: #e2e8f0; padding: 0.5rem 0.6rem; }
       .sub { font-size: 0.74rem; color: #8aa0bd; margin-top: 0.2rem; } .sub.lt { color: #fb923c; font-weight: 700; }
       .co-btn { background: #22c55e; color: #04130d; border: 0; border-radius: 9px; padding: 0.55rem 0.9rem; font-weight: 800; font-size: 0.82rem; cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem; }
       .mini { background: #16233a; border: 1px solid #274468; color: #cbd5e1; border-radius: 7px; padding: 0.35rem 0.7rem; font-size: 0.76rem; font-weight: 600; cursor: pointer; }
@@ -289,6 +318,13 @@ export class CheckoutsComponent implements OnInit {
   readonly detailLoading = signal(false);
   readonly detail = signal<FolioDetail | null>(null);
 
+  // Revertir check-out (reversal de un check-out accidental). Mismo permiso que las anulaciones.
+  readonly canRevert = computed(() => this.auth.can('finance', 'edit'));
+  revertVisible = false;
+  revertRow: DoneRow | null = null;
+  revertReason = '';
+  readonly reverting = signal(false);
+
   ngOnInit(): void { this.load(); }
 
   setDone(): void { this.tab.set('DONE'); if (!this.doneLoaded) { this.doneLoaded = true; this.loadDone(1); } }
@@ -357,6 +393,20 @@ export class CheckoutsComponent implements OnInit {
     this.ops.checkOut(s.id, 'CLEANING').subscribe({
       next: () => { this.toast.add({ severity: 'success', summary: 'Check-out realizado', detail: `Habitación ${s.room.number}` }); this.load(); if (this.doneLoaded) this.loadDone(this.donePage()); },
       error: (err) => this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.error?.message ?? 'No se pudo cerrar la estancia' }),
+    });
+  }
+
+  askRevert(r: DoneRow): void { this.revertRow = r; this.revertReason = ''; this.revertVisible = true; }
+  doRevert(): void {
+    const r = this.revertRow; if (!r) return;
+    this.reverting.set(true);
+    this.ops.revertCheckOut(r.id, this.revertReason).subscribe({
+      next: () => {
+        this.reverting.set(false); this.revertVisible = false;
+        this.toast.add({ severity: 'success', summary: 'Check-out revertido', detail: `Habitación ${r.room ?? ''} vuelve a estar ocupada.` });
+        this.load(); this.loadDone(this.donePage());
+      },
+      error: (err) => { this.reverting.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo revertir', detail: err?.error?.error?.message ?? 'Error al revertir el check-out.' }); },
     });
   }
 
