@@ -133,22 +133,47 @@ export const frigobarReviewService = {
   },
 
   /**
-   * Datos para el modal de reposición: líneas pendientes (consumido − repuesto) + disponibilidad
-   * de cada producto en AMBOS almacenes (Recepción/Limpieza) para pintar los badges de stock.
+   * Faltantes de reposición ACUMULADOS por habitación (persisten entre inspecciones/alquileres):
+   * todas las revisiones con reposición pendiente (más antigua primero) + el pendiente agregado por
+   * producto. Base de la trazabilidad: nada se reinicia, cada faltante vive en su línea original.
+   */
+  async roomPendingReviews(branchId: string, roomId: string) {
+    const reviews = await prisma.frigobarReview.findMany({
+      where: { branchId, roomId, repositionPending: true },
+      include: { lines: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const agg = new Map<string, { productId: string | null; name: string; pendingQty: number }>();
+    for (const rv of reviews) {
+      for (const l of rv.lines) {
+        const pend = Math.max(0, l.consumedQty - l.repositionedQty);
+        if (pend <= 0) continue;
+        const key = l.productId ?? `name:${l.name}`;
+        const cur = agg.get(key);
+        if (cur) cur.pendingQty += pend;
+        else agg.set(key, { productId: l.productId, name: l.name, pendingQty: pend });
+      }
+    }
+    return { reviews, pending: [...agg.values()].filter((p) => p.pendingQty > 0) };
+  },
+
+  /**
+   * Datos para el modal de reposición: líneas pendientes ACUMULADAS de toda la habitación
+   * (consumido − repuesto, sumado entre revisiones) + disponibilidad de cada producto en AMBOS
+   * almacenes (Recepción/Limpieza) para pintar los badges de stock.
    */
   async repositionStart(scope: RequestScope, reviewId: string) {
     const branchId = requireActiveBranch(scope);
-    const review = await prisma.frigobarReview.findUnique({ where: { id: reviewId }, include: { lines: true } });
+    const review = await prisma.frigobarReview.findUnique({ where: { id: reviewId }, select: { id: true, branchId: true, roomId: true } });
     if (!review || review.branchId !== branchId) throw new NotFoundError('Revisión no encontrada');
     const room = await prisma.room.findUnique({ where: { id: review.roomId }, select: { id: true, number: true } });
     const [recepcion, { limpieza }] = await Promise.all([
       prisma.warehouse.findFirst({ where: { branchId, type: 'RECEPTION' }, select: { id: true, name: true } }),
       productWarehouses(branchId),
     ]);
-    const pending = review.lines
-      .map((l) => ({ productId: l.productId, name: l.name, pendingQty: Math.max(0, l.consumedQty - l.repositionedQty) }))
-      .filter((l) => l.pendingQty > 0);
-    const pids = pending.map((l) => l.productId);
+    // Pendiente agregado de TODA la habitación (no solo de esta revisión): acumula faltantes.
+    const { pending } = await this.roomPendingReviews(branchId, review.roomId);
+    const pids = pending.map((l) => l.productId).filter((x): x is string => !!x);
     const [prods, stocks] = await Promise.all([
       pids.length ? prisma.product.findMany({ where: { id: { in: pids }, branchId }, select: { id: true, imageUrl: true } }) : Promise.resolve([]),
       pids.length
@@ -157,14 +182,16 @@ export const frigobarReviewService = {
     ]);
     const img = new Map(prods.map((p) => [p.id, p.imageUrl]));
     const availOf = (pid: string, whId?: string | null) => (whId ? stocks.find((s) => s.productId === pid && s.warehouseId === whId)?.quantity ?? 0 : 0);
-    const lines = pending.map((l) => ({
-      productId: l.productId,
-      name: l.name,
-      imageUrl: img.get(l.productId) ?? null,
-      pendingQty: l.pendingQty,
-      availRecepcion: availOf(l.productId, recepcion?.id),
-      availLimpieza: availOf(l.productId, limpieza?.id),
-    }));
+    const lines = pending
+      .filter((l): l is { productId: string; name: string; pendingQty: number } => !!l.productId)
+      .map((l) => ({
+        productId: l.productId,
+        name: l.name,
+        imageUrl: img.get(l.productId) ?? null,
+        pendingQty: l.pendingQty,
+        availRecepcion: availOf(l.productId, recepcion?.id),
+        availLimpieza: availOf(l.productId, limpieza?.id),
+      }));
     return {
       reviewId: review.id,
       room: { id: room?.id, number: room?.number ?? '' },
@@ -177,94 +204,141 @@ export const frigobarReviewService = {
    * Reposición PARCIAL desde un almacén (Recepción o Limpieza). Repone hasta lo disponible por
    * producto; lo que falte queda pendiente por línea (NO bloquea la habitación). El descuento del
    * almacén origen se registra como AJUSTE «Transferencia interna» (no es venta, no toca caja).
+   *
+   * Opera sobre el pendiente ACUMULADO de toda la habitación: por cada producto, drena las líneas
+   * pendientes de la más antigua a la más nueva (oldest-first). Así una reposición parcial NO borra
+   * faltantes anteriores — solo descuenta lo efectivamente repuesto — y la trazabilidad se conserva
+   * (cada línea original guarda cuánto se repuso de ella).
    */
   async reposition(scope: RequestScope, reviewId: string, dto: RepositionDto) {
     await requireCleaningShiftIfCleaner(scope);
     const branchId = requireActiveBranch(scope);
-    const review = await prisma.frigobarReview.findUnique({ where: { id: reviewId }, include: { lines: true } });
-    if (!review || review.branchId !== branchId) throw new NotFoundError('Revisión no encontrada');
-    if (!review.repositionPending) throw new ValidationError('Esta revisión no tiene reposición pendiente.');
+    const entry = await prisma.frigobarReview.findUnique({ where: { id: reviewId }, select: { id: true, branchId: true, roomId: true } });
+    if (!entry || entry.branchId !== branchId) throw new NotFoundError('Revisión no encontrada');
+    const { reviews } = await this.roomPendingReviews(branchId, entry.roomId);
+    if (!reviews.length) throw new ValidationError('Esta habitación no tiene reposición pendiente.');
     const wh = await this.originWarehouse(branchId, dto.origin);
     if (!wh) throw new ValidationError(`No existe el almacén ${dto.origin === 'LIMPIEZA' ? 'Productos Limpieza' : 'Productos Recepción'} para reponer.`);
-    const room = await prisma.room.findUnique({ where: { id: review.roomId }, select: { number: true } });
+    const room = await prisma.room.findUnique({ where: { id: entry.roomId }, select: { number: true } });
     const originLabel = dto.origin === 'LIMPIEZA' ? 'Productos Limpieza' : 'Productos Recepción';
-    const lineByProd = new Map(review.lines.map((l) => [l.productId, l]));
     const now = new Date();
+
+    // productId → líneas pendientes de TODAS las revisiones de la habitación (oldest-first: `reviews`
+    // viene ordenado asc). Se referencian los objetos reales de `rv.lines` para recomputar el pendiente.
+    const linesByProd = new Map<string, (typeof reviews)[number]['lines']>();
+    for (const rv of reviews) {
+      for (const l of rv.lines) {
+        if (!l.productId || l.consumedQty - l.repositionedQty <= 0) continue;
+        const arr = linesByProd.get(l.productId) ?? [];
+        arr.push(l);
+        linesByProd.set(l.productId, arr);
+      }
+    }
 
     const done: { name: string; qty: number }[] = [];
     await prisma.$transaction(async (tx) => {
       for (const req of dto.lines) {
-        const l = lineByProd.get(req.productId);
-        if (!l) continue;
-        const pending = Math.max(0, l.consumedQty - l.repositionedQty);
-        if (pending <= 0) continue;
-        const st = await tx.stock.findFirst({ where: { productId: l.productId, warehouseId: wh.id } });
-        const avail = st?.quantity ?? 0;
-        // Reposición parcial: se repone lo posible (pedido acotado a pendiente y a disponible). Sin stock → se omite.
-        const qty = Math.min(req.quantity, pending, avail);
-        if (qty <= 0) continue;
-        await tx.stock.update({ where: { id: st!.id }, data: { quantity: { decrement: qty } } });
-        const key = { roomId_articleKind_name: { roomId: review.roomId, articleKind: 'FRIGOBAR', name: l.name } };
+        const arr = linesByProd.get(req.productId);
+        if (!arr || !arr.length) continue;
+        const st = await tx.stock.findFirst({ where: { productId: req.productId, warehouseId: wh.id } });
+        let avail = st?.quantity ?? 0;
+        if (avail <= 0) continue;
+        let want = Math.max(0, Math.floor(req.quantity));
+        const name = arr[0].name;
+        let movedForProduct = 0;
+        // Drena oldest-first: cada unidad repuesta descuenta la línea pendiente más antigua primero.
+        for (const l of arr) {
+          if (want <= 0 || avail <= 0) break;
+          const linePending = l.consumedQty - l.repositionedQty;
+          if (linePending <= 0) continue;
+          const qty = Math.min(want, linePending, avail);
+          if (qty <= 0) continue;
+          await tx.frigobarReviewLine.update({ where: { id: l.id }, data: { repositionedQty: l.repositionedQty + qty } });
+          l.repositionedQty += qty; // muta el objeto real → el recómputo de repositionPending lo ve
+          want -= qty; avail -= qty; movedForProduct += qty;
+        }
+        if (movedForProduct <= 0) continue;
+        // Descuenta el almacén origen una sola vez por producto (total efectivamente repuesto).
+        await tx.stock.update({ where: { id: st!.id }, data: { quantity: { decrement: movedForProduct } } });
+        const key = { roomId_articleKind_name: { roomId: entry.roomId, articleKind: 'FRIGOBAR', name } };
         const ex = await tx.roomInventory.findUnique({ where: key });
-        await tx.roomInventory.upsert({ where: key, update: { quantity: (ex?.quantity ?? 0) + qty, productId: l.productId }, create: { branchId, roomId: review.roomId, articleKind: 'FRIGOBAR', name: l.name, productId: l.productId, quantity: qty } });
-        await tx.roomInventoryMovement.create({ data: { branchId, roomId: review.roomId, type: 'REPOSICION', articleKind: 'FRIGOBAR', name: l.name, quantity: qty, fromLocation: originLabel, toLocation: `Habitación ${room?.number ?? ''}`, reference: 'Reposición de frigobar', createdByUserId: scope.userId } });
+        await tx.roomInventory.upsert({ where: key, update: { quantity: (ex?.quantity ?? 0) + movedForProduct, productId: req.productId }, create: { branchId, roomId: entry.roomId, articleKind: 'FRIGOBAR', name, productId: req.productId, quantity: movedForProduct } });
+        await tx.roomInventoryMovement.create({ data: { branchId, roomId: entry.roomId, type: 'REPOSICION', articleKind: 'FRIGOBAR', name, quantity: movedForProduct, fromLocation: originLabel, toLocation: `Habitación ${room?.number ?? ''}`, reference: 'Reposición de frigobar', createdByUserId: scope.userId } });
         // AJUSTE «Transferencia interna»: baja el stock del almacén origen sin cruzarse con ventas ni caja.
-        await tx.inventoryMovement.create({ data: { branchId, productId: l.productId, warehouseId: wh.id, type: 'TRANSFER', adjustType: 'TRANSFER', quantity: -qty, reference: `Reposición frigobar Hab. ${room?.number ?? ''}`, roomId: review.roomId, createdByUserId: scope.userId } });
-        await tx.frigobarReviewLine.update({ where: { id: l.id }, data: { repositionedQty: l.repositionedQty + qty } });
-        l.repositionedQty += qty; // refleja en memoria para recomputar el pendiente
-        done.push({ name: l.name, qty });
+        await tx.inventoryMovement.create({ data: { branchId, productId: req.productId, warehouseId: wh.id, type: 'TRANSFER', adjustType: 'TRANSFER', quantity: -movedForProduct, reference: `Reposición frigobar Hab. ${room?.number ?? ''}`, roomId: entry.roomId, createdByUserId: scope.userId } });
+        done.push({ name, qty: movedForProduct });
       }
-      const stillPending = review.lines.some((l) => l.consumedQty - l.repositionedQty > 0);
-      await tx.frigobarReview.update({ where: { id: reviewId }, data: { repositionPending: stillPending, repositionDoneAt: stillPending ? null : now } });
+      // Recalcula el flag de cada revisión tocada (sin reiniciar nada: solo refleja lo que quedó).
+      for (const rv of reviews) {
+        const stillPending = rv.lines.some((l) => l.consumedQty - l.repositionedQty > 0);
+        await tx.frigobarReview.update({ where: { id: rv.id }, data: { repositionPending: stillPending, repositionDoneAt: stillPending ? null : (rv.repositionDoneAt ?? now) } });
+      }
     });
 
-    const pendingLeft = review.lines
-      .map((l) => ({ name: l.name, qty: Math.max(0, l.consumedQty - l.repositionedQty) }))
-      .filter((l) => l.qty > 0);
+    // Pendiente restante ACUMULADO de la habitación (todos los productos, todas las revisiones).
+    const pendingLeftMap = new Map<string, number>();
+    for (const rv of reviews) for (const l of rv.lines) {
+      const q = Math.max(0, l.consumedQty - l.repositionedQty);
+      if (q > 0) pendingLeftMap.set(l.name, (pendingLeftMap.get(l.name) ?? 0) + q);
+    }
+    const pendingLeft = [...pendingLeftMap.entries()].map(([name, qty]) => ({ name, qty }));
     if (done.length) {
       // Ticket de reposición para la cola de impresión (QZ / navegador).
       await prisma.printJob.create({
         data: { branchId, type: 'REPOSICION', title: `Reposición frigobar Hab. ${room?.number ?? ''} (${done.length} ítems)`, payload: JSON.stringify({ room: room?.number ?? '', origin: originLabel, items: done }), status: 'PENDING' },
       });
       void recordActivity(scope, {
-        activity: 'FRIGOBAR', area: 'INVENTARIO', roomId: review.roomId, entityId: review.stayId, reference: `Hab. ${room?.number ?? ''}`,
+        activity: 'FRIGOBAR', area: 'INVENTARIO', roomId: entry.roomId, entityId: reviews[0]?.stayId ?? '', reference: `Hab. ${room?.number ?? ''}`,
         detail: `Frigobar repuesto desde ${originLabel} · ${done.length} ítem(s)${pendingLeft.length ? ` · ${pendingLeft.length} pendiente(s)` : ''}`,
-        meta: { stayId: review.stayId, reposition: true, origin: dto.origin, done, pendingLeft },
+        meta: { reposition: true, origin: dto.origin, done, pendingLeft },
       });
     }
     return { ok: true, repuesto: done, pendiente: pendingLeft, repositionPending: pendingLeft.length > 0 };
   },
 
-  /** Reposiciones de frigobar pendientes por habitación (para el rack: card «FRIGOBAR INCOMPLETO»). */
+  /** Reposiciones de frigobar pendientes por habitación (para el rack: card «FRIGOBAR INCOMPLETO»).
+   *  Acumula el pendiente de TODAS las revisiones de cada habitación (no solo la última), agrupado
+   *  por producto. `reviewId` apunta a la revisión pendiente más antigua (punto de entrada del modal). */
   async pendingRepositionByRoom(branchId: string, roomIds: string[]) {
     const map = new Map<string, { reviewId: string; stayId: string; pending: { name: string; qty: number }[] }>();
     if (!roomIds.length) return map;
     const reviews = await prisma.frigobarReview.findMany({
       where: { branchId, roomId: { in: roomIds }, repositionPending: true },
       include: { lines: true },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'asc' }, // más antigua primero: fija el reviewId de entrada y el orden de drenado
     });
     for (const rv of reviews) {
-      if (map.has(rv.roomId)) continue; // la revisión más reciente por habitación manda
-      const pending = rv.lines
-        .map((l) => ({ name: l.name, qty: Math.max(0, l.consumedQty - l.repositionedQty) }))
-        .filter((l) => l.qty > 0);
-      if (pending.length) map.set(rv.roomId, { reviewId: rv.id, stayId: rv.stayId, pending });
+      let entry = map.get(rv.roomId);
+      if (!entry) { entry = { reviewId: rv.id, stayId: rv.stayId, pending: [] }; map.set(rv.roomId, entry); }
+      for (const l of rv.lines) {
+        const qty = Math.max(0, l.consumedQty - l.repositionedQty);
+        if (qty <= 0) continue;
+        const ex = entry.pending.find((p) => p.name === l.name);
+        if (ex) ex.qty += qty;
+        else entry.pending.push({ name: l.name, qty });
+      }
     }
+    // Descarta habitaciones cuyo pendiente agregado quedó en cero (revisiones marcadas pero ya saldadas).
+    for (const [roomId, entry] of map) if (!entry.pending.length) map.delete(roomId);
     return map;
   },
 
   /** Estado del frigobar para el folio (SIN_REVISAR / REVISADO / CONSUMO_REGISTRADO / PAGADO). */
   async stateForStay(branchId: string, stayId: string, roomFrigobarEnabled: boolean) {
     if (!roomFrigobarEnabled) return { enabled: false, status: 'NO_APLICA' as const };
+    const stay = await prisma.stay.findUnique({ where: { id: stayId }, select: { roomId: true } });
+    // Faltantes de reposición ACUMULADOS por HABITACIÓN (no por estancia): persisten entre inspecciones
+    // y sobreviven a nuevos alquileres/check-outs. `repositionReviewId` = revisión pendiente más antigua.
+    const roomPending = stay?.roomId ? await this.roomPendingReviews(branchId, stay.roomId) : { reviews: [], pending: [] };
+    const repositionPendingLines = roomPending.pending.map((p) => ({ name: p.name, qty: p.pendingQty }));
+    const repositionPending = repositionPendingLines.length > 0;
+    const repositionReviewId = roomPending.reviews[0]?.id ?? null;
+    const repoBase = { repositionPending, repositionPendingLines, repositionReviewId };
+
     const review = await prisma.frigobarReview.findFirst({ where: { branchId, stayId }, include: { lines: true }, orderBy: { createdAt: 'desc' } });
-    if (!review) return { enabled: true, status: 'SIN_REVISAR' as const };
+    if (!review) return { enabled: true, status: 'SIN_REVISAR' as const, ...repoBase };
     const reviewer = review.reviewedByUserId ? (await prisma.user.findUnique({ where: { id: review.reviewedByUserId }, select: { name: true } }))?.name ?? null : null;
-    // Faltantes de reposición por línea (consumido − repuesto): alimenta el badge/lista «FRIGOBAR INCOMPLETO».
-    const repositionPendingLines = review.lines
-      .map((l) => ({ name: l.name, qty: Math.max(0, l.consumedQty - l.repositionedQty) }))
-      .filter((l) => l.qty > 0);
-    const base = { enabled: true, reviewId: review.id, reviewedBy: reviewer, reviewedAt: review.reviewedAt, repositionPending: review.repositionPending, repositionPendingLines };
+    const base = { enabled: true, reviewId: review.id, reviewedBy: reviewer, reviewedAt: review.reviewedAt, ...repoBase };
     if (review.status !== 'CHARGED') return { ...base, status: 'REVISADO' as const };
     const consumido = Number(review.consumedTotal);
     let pagado = 0;

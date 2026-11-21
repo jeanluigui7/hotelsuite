@@ -33,6 +33,7 @@ interface Folio {
     enabled: boolean;
     status: 'NO_APLICA' | 'SIN_REVISAR' | 'REVISADO' | 'CONSUMO_REGISTRADO' | 'PAGADO';
     reviewId?: string; reviewedBy?: string | null; reviewedAt?: string; repositionPending?: boolean;
+    repositionReviewId?: string | null; repositionPendingLines?: { name: string; qty: number }[];
     lines?: { name: string; quantity: number; amount: number }[]; consumido?: number; pagado?: number; pendiente?: number;
   };
 }
@@ -171,14 +172,22 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
                     }
                     @if (f.frigobar!.repositionPending) { <span class="fb-repo"><i class="pi pi-exclamation-triangle"></i> Reposición pendiente</span> }
                   </div>
+                  @if (f.frigobar!.repositionPending && f.frigobar!.repositionPendingLines?.length) {
+                    <div class="fb-pendlist"><i class="pi pi-exclamation-triangle"></i> <b>Pendiente de reposición:</b>
+                      @for (p of f.frigobar!.repositionPendingLines!; track p.name) { <span class="fb-pchip">{{ p.name }} ×{{ p.qty }}</span> }
+                    </div>
+                  }
                   @switch (f.frigobar!.status) {
                     @case ('SIN_REVISAR') {
                       <div class="fb-body"><span class="fb-st">Estado: <b>SIN REVISAR</b></span>
-                        <button class="fb-btn blue" [disabled]="busy()" (click)="openReview()"><i class="pi pi-search"></i> Revisar frigobar</button></div>
+                        <div class="fb-acts">
+                          <button class="fb-btn blue" [disabled]="busy()" (click)="openReview()"><i class="pi pi-search"></i> Revisar frigobar</button>
+                          @if (f.frigobar!.repositionPending) { <button class="fb-btn ghost" [disabled]="busy()" (click)="reponer(f.frigobar!.repositionReviewId || f.frigobar!.reviewId)"><i class="pi pi-refresh"></i> Reponer</button> }
+                        </div></div>
                     }
                     @case ('REVISADO') {
                       <div class="fb-body"><div><span class="fb-st">Estado: <b>REVISADO</b> · Sin productos consumidos</span><small>Revisado por: {{ f.frigobar!.reviewedBy || '—' }} · {{ f.frigobar!.reviewedAt | date: 'dd/MM/yyyy hh:mm a' }}</small></div>
-                        @if (f.frigobar!.repositionPending) { <button class="fb-btn ghost" [disabled]="busy()" (click)="reponer(f.frigobar!.reviewId)"><i class="pi pi-refresh"></i> Reponer</button> }</div>
+                        @if (f.frigobar!.repositionPending) { <button class="fb-btn ghost" [disabled]="busy()" (click)="reponer(f.frigobar!.repositionReviewId || f.frigobar!.reviewId)"><i class="pi pi-refresh"></i> Reponer</button> }</div>
                     }
                     @case ('CONSUMO_REGISTRADO') {
                       <div class="fb-cons">
@@ -186,11 +195,11 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
                         <div class="fb-r"><div class="fb-pend"><span>TOTAL PENDIENTE</span><strong>S/ {{ f.frigobar!.pendiente | number: '1.2-2' }}</strong></div>
                           <button class="fb-btn green" [disabled]="busy()" (click)="openCobro(f.frigobar!.pendiente || 0)"><i class="pi pi-credit-card"></i> Cobrar S/ {{ f.frigobar!.pendiente | number: '1.2-2' }}</button></div>
                       </div>
-                      @if (f.frigobar!.repositionPending) { <button class="fb-btn ghost sm" [disabled]="busy()" (click)="reponer(f.frigobar!.reviewId)"><i class="pi pi-refresh"></i> Reponer frigobar</button> }
+                      @if (f.frigobar!.repositionPending) { <button class="fb-btn ghost sm" [disabled]="busy()" (click)="reponer(f.frigobar!.repositionReviewId || f.frigobar!.reviewId)"><i class="pi pi-refresh"></i> Reponer frigobar</button> }
                     }
                     @case ('PAGADO') {
                       <div class="fb-body"><div><span class="fb-st">Estado: <b>PAGADO</b></span><small>Consumo: S/ {{ f.frigobar!.consumido | number: '1.2-2' }} · Saldo: S/ 0.00</small></div>
-                        @if (f.frigobar!.repositionPending) { <button class="fb-btn ghost" [disabled]="busy()" (click)="reponer(f.frigobar!.reviewId)"><i class="pi pi-refresh"></i> Reponer</button> }</div>
+                        @if (f.frigobar!.repositionPending) { <button class="fb-btn ghost" [disabled]="busy()" (click)="reponer(f.frigobar!.repositionReviewId || f.frigobar!.reviewId)"><i class="pi pi-refresh"></i> Reponer</button> }</div>
                     }
                   }
                 </div>
@@ -424,6 +433,9 @@ interface HistDay { key: string; label: string; renovaciones: { charge: number }
       .fb-badge.cons { background: rgba(59,130,246,0.2); color: #93c5fd; } .fb-badge.pay { background: rgba(16,185,129,0.2); color: #6ee7b7; }
       .fb-badge.rev { background: rgba(148,163,184,0.2); color: #cbd5e1; } .fb-badge.sr { background: rgba(245,158,11,0.2); color: #fbbf24; }
       .fb-repo { margin-left: auto; font-size: 0.72rem; color: #fbbf24; display: inline-flex; align-items: center; gap: 0.25rem; background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.35); border-radius: 999px; padding: 0.1rem 0.55rem; }
+      .fb-pendlist { display: flex; align-items: center; flex-wrap: wrap; gap: 0.35rem; margin: 0.5rem 0 0.2rem; font-size: 0.78rem; color: #fcd34d; } .fb-pendlist > .pi { color: #fbbf24; } .fb-pendlist b { color: #fcd34d; font-weight: 700; margin-right: 0.2rem; }
+      .fb-pchip { background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.35); border-radius: 999px; padding: 0.1rem 0.55rem; color: #fde68a; font-weight: 700; }
+      .fb-acts { display: inline-flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
       .fb-body { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; flex-wrap: wrap; } .fb-st small, .fb-body small { display: block; color: #8aa0bd; font-size: 0.78rem; }
       .fb-cons { display: flex; align-items: stretch; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
       .fb-lines { flex: 1; min-width: 200px; } .fb-l { display: flex; justify-content: space-between; padding: 0.3rem 0; border-bottom: 1px solid #1c2c44; font-size: 0.86rem; } .fb-la { color: #fbbf24; font-weight: 700; }
