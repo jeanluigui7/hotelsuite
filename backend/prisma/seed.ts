@@ -24,6 +24,14 @@ const BASE_ROLES: { name: string; description: string; modules: AppModule[] }[] 
     modules: ['dashboard', 'operations', 'finance', 'inventory', 'logistics', 'hr', 'reports', 'settings', 'rooms', 'maintenance'],
   },
   {
+    name: 'Encargado de Operaciones',
+    description: 'Supervisa operación, limpieza, almacenes y mantenimiento (Gerente recortado, sin tarifas ni caja auditada)',
+    // FASE 1: base operativa. NO incluye 'finance' (caja llega en Fase 3 con gating por auditoría),
+    // NO incluye 'hr' (usuarios llega en Fase 2 con jerarquía de roles) ni 'settings' (nunca toca tarifas).
+    // 'maintenance' le da RESOLVER fallas (approve); 'rooms' crear/editar habitaciones.
+    modules: ['dashboard', 'operations', 'inventory', 'logistics', 'reports', 'maintenance', 'rooms'],
+  },
+  {
     name: 'Recepcionista',
     description: 'Operación de recepción: check-in/out, ventas, caja de su turno',
     modules: ['dashboard', 'operations', 'finance'],
