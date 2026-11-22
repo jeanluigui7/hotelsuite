@@ -1,5 +1,6 @@
 import type { RequestScope } from '../../shared/context';
-import { ConflictError, NotFoundError, ValidationError } from '../../shared/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/errors';
+import { isAuditRestrictedRole } from '../../shared/rbac';
 import { pageMeta, toPrismaPaging, type PaginationParams } from '../../shared/pagination';
 import { requireActiveBranch } from '../../shared/scope';
 import { prisma } from '../../config/prisma';
@@ -17,6 +18,17 @@ interface RegularizeDebtDto {
 }
 
 const FREQUENT_CONCEPTS_KEY = 'cashFrequentConcepts';
+
+/**
+ * GATING DE AUDITORÍA: los roles con caja restringida (p. ej. Encargado de Operaciones) solo pueden
+ * acceder a cajas PENDIENTES de auditoría. En cuanto la caja queda AUDITADA, pierden el acceso.
+ * Super Admin, Gerente y Recepción/Caja no se ven afectados. Se llama en cada lectura de una caja concreta.
+ */
+function assertCashVisibleToRole(scope: RequestScope, auditStatus: string | null | undefined): void {
+  if (isAuditRestrictedRole(scope.roleName) && auditStatus === 'AUDITADA') {
+    throw new ForbiddenError('La caja ya fue auditada: tu rol solo puede acceder a cajas pendientes de auditoría.');
+  }
+}
 
 /** Snapshot serializable de un movimiento para la huella de auditoría (valor anterior/nuevo). */
 function snapshotMovement(m: {
@@ -177,9 +189,11 @@ export const cashService = {
   async listSessions(scope: RequestScope, params: PaginationParams, status?: string) {
     const branchId = requireActiveBranch(scope);
     const { skip, take } = toPrismaPaging(params);
+    // GATING: el Encargado (rol con caja restringida) no ve las cajas ya AUDITADA en el listado.
+    const excludeAuditStatus = isAuditRestrictedRole(scope.roleName) ? 'AUDITADA' : undefined;
     const [rows, total] = await Promise.all([
-      cashRepository.listSessions({ branchId, status, skip, take }),
-      cashRepository.countSessions(branchId, status),
+      cashRepository.listSessions({ branchId, status, skip, take, excludeAuditStatus }),
+      cashRepository.countSessions(branchId, status, excludeAuditStatus),
     ]);
     const names = await cashRepository.userNames([
       ...new Set(rows.flatMap((s) => [s.openedByUserId, s.closedByUserId].filter((x): x is string => !!x))),
@@ -228,6 +242,7 @@ export const cashService = {
     const branchId = requireActiveBranch(scope);
     const session = await cashRepository.findById(id);
     if (!session || session.branchId !== branchId) throw new NotFoundError('Turno no encontrado');
+    assertCashVisibleToRole(scope, session.auditStatus);
 
     const summary = await sessionSummary(id, Number(session.openingAmount));
     const movements = await cashRepository.listMovements(id);
@@ -268,6 +283,7 @@ export const cashService = {
       const info = sale.stayId ? stayMap.get(sale.stayId) : undefined;
       const names = await cashRepository.userNames([sale.createdByUserId].filter((x): x is string => !!x));
       const session = sale.cashSessionId ? await cashRepository.findById(sale.cashSessionId) : null;
+      assertCashVisibleToRole(scope, session?.auditStatus);
       const history = await this.buildHistory(sale.id);
       // Comisión POS: se muestra el SNAPSHOT congelado al cobrar (neto + comisión = total cobrado en
       // POS). NO se recalcula con la tasa vigente: los pagos históricos sin snapshot muestran solo el
@@ -307,6 +323,7 @@ export const cashService = {
       if (!m || m.branchId !== branchId) throw new NotFoundError('Movimiento no encontrado');
       const names = await cashRepository.userNames([m.createdByUserId, m.voidedByUserId].filter((x): x is string => !!x));
       const session = await cashRepository.findById(m.cashSessionId);
+      assertCashVisibleToRole(scope, session?.auditStatus);
       const history = await this.buildHistory(m.id);
       return {
         kind: 'MOVEMENT' as const,
@@ -557,6 +574,7 @@ export const cashService = {
     const branchId = requireActiveBranch(scope);
     const session = await cashRepository.findById(id);
     if (!session || session.branchId !== branchId) throw new NotFoundError('Turno no encontrado');
+    assertCashVisibleToRole(scope, session.auditStatus);
 
     const [sales, movements] = await Promise.all([
       cashRepository.sessionSales(id),

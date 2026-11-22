@@ -318,8 +318,9 @@ export class CheckoutsComponent implements OnInit {
   readonly detailLoading = signal(false);
   readonly detail = signal<FolioDetail | null>(null);
 
-  // Revertir check-out (reversal de un check-out accidental). Mismo permiso que las anulaciones.
-  readonly canRevert = computed(() => this.auth.can('finance', 'edit'));
+  // Revertir check-out (reversal de un check-out accidental). Mismo permiso que las anulaciones:
+  // finance:edit O operations:approve (Encargado de Operaciones). Coincide con stays.routes.
+  readonly canRevert = computed(() => this.auth.can('finance', 'edit') || this.auth.can('operations', 'approve'));
   revertVisible = false;
   revertRow: DoneRow | null = null;
   revertReason = '';

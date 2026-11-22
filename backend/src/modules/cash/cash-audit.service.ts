@@ -1,6 +1,7 @@
 import type { RequestScope } from '../../shared/context';
 import { requireActiveBranch } from '../../shared/scope';
-import { NotFoundError, ValidationError } from '../../shared/errors';
+import { ForbiddenError, NotFoundError, ValidationError } from '../../shared/errors';
+import { isAuditRestrictedRole } from '../../shared/rbac';
 import { prisma } from '../../config/prisma';
 
 /**
@@ -97,6 +98,10 @@ export const cashAuditService = {
     const branchId = requireActiveBranch(scope);
     const session = await prisma.cashSession.findUnique({ where: { id: sessionId } });
     if (!session || session.branchId !== branchId) throw new NotFoundError('Turno no encontrado');
+    // GATING: un rol con caja restringida (Encargado) no accede a cajas ya AUDITADA.
+    if (isAuditRestrictedRole(scope.roleName) && session.auditStatus === 'AUDITADA') {
+      throw new ForbiddenError('La caja ya fue auditada: tu rol solo puede acceder a cajas pendientes de auditoría.');
+    }
     const pays = await loadVirtualPayments(branchId, sessionId);
     const movs = await loadVirtualMovements(sessionId);
     const { stayMap, guestMap } = await loadContext(pays);

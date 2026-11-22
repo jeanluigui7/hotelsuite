@@ -224,17 +224,27 @@ export const cashRepository = {
     });
   },
 
-  listSessions(args: { branchId: string; status?: string; skip: number; take: number }) {
+  listSessions(args: { branchId: string; status?: string; skip: number; take: number; excludeAuditStatus?: string }) {
     return prisma.cashSession.findMany({
-      where: { branchId: args.branchId, ...(args.status ? { status: args.status } : {}) },
+      where: {
+        branchId: args.branchId,
+        ...(args.status ? { status: args.status } : {}),
+        ...(args.excludeAuditStatus ? { NOT: { auditStatus: args.excludeAuditStatus } } : {}),
+      },
       skip: args.skip,
       take: args.take,
       orderBy: { openedAt: 'desc' },
     });
   },
 
-  countSessions(branchId: string, status?: string) {
-    return prisma.cashSession.count({ where: { branchId, ...(status ? { status } : {}) } });
+  countSessions(branchId: string, status?: string, excludeAuditStatus?: string) {
+    return prisma.cashSession.count({
+      where: {
+        branchId,
+        ...(status ? { status } : {}),
+        ...(excludeAuditStatus ? { NOT: { auditStatus: excludeAuditStatus } } : {}),
+      },
+    });
   },
 
   /**

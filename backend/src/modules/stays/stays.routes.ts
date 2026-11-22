@@ -18,13 +18,15 @@ staysRouter.get('/stays/:id', requirePermission('operations', 'view'), asyncHand
 staysRouter.get('/stays/:id/checkout-summary', requirePermission('operations', 'view'), asyncHandler(staysController.checkoutSummary));
 staysRouter.post('/stays/check-in', requirePermission('operations', 'create'), asyncHandler(staysController.checkIn));
 staysRouter.post('/stays/:id/check-out', requirePermission('operations', 'edit'), asyncHandler(staysController.checkOut));
-// Revertir un check-out accidental (reversal): mismo permiso que las demás anulaciones.
-staysRouter.post('/stays/:id/revert-checkout', requirePermission('finance', 'edit'), asyncHandler(staysController.revertCheckOut));
+// Anular / revertir (check-out accidental, check-in, renovación): permiso de anulación.
+// finance:edit (Recepción/Caja/Gerente) O operations:approve (Encargado de Operaciones), SIN abrirlo
+// a Limpieza/Mantenimiento (que tienen operations:edit pero no :approve).
+const canCancel = requireAnyPermission(['finance', 'edit'], ['operations', 'approve']);
+staysRouter.post('/stays/:id/revert-checkout', canCancel, asyncHandler(staysController.revertCheckOut));
 staysRouter.post('/stays/:id/change-room', requirePermission('operations', 'edit'), asyncHandler(staysController.changeRoom));
 staysRouter.post('/stays/:id/renew', requirePermission('operations', 'edit'), asyncHandler(staysController.renew));
-// Anular check-in / renovación: requiere permiso de anulación (finance:edit), igual que anular una venta.
-staysRouter.post('/stays/:id/cancel-checkin', requirePermission('finance', 'edit'), asyncHandler(staysController.cancelCheckIn));
-staysRouter.post('/stays/:id/cancel-renewal', requirePermission('finance', 'edit'), asyncHandler(staysController.cancelRenewal));
+staysRouter.post('/stays/:id/cancel-checkin', canCancel, asyncHandler(staysController.cancelCheckIn));
+staysRouter.post('/stays/:id/cancel-renewal', canCancel, asyncHandler(staysController.cancelRenewal));
 staysRouter.post('/stays/:id/pay', requireAnyPermission(['finance', 'create'], ['operations', 'edit']), asyncHandler(staysController.pay));
 staysRouter.post('/stays/:id/renewal-cleaning/:action', requirePermission('operations', 'edit'), asyncHandler(staysController.renewalCleaning));
 staysRouter.post('/stays/:id/request-renewal-cleaning', requirePermission('operations', 'edit'), asyncHandler(staysController.requestRenewalCleaning));

@@ -15,6 +15,12 @@ export interface UserRow {
   createdAt: string;
 }
 
+export interface AssignableRole {
+  id: string;
+  name: string;
+  description?: string | null;
+}
+
 export interface UserUpsert {
   name: string;
   email: string;
@@ -43,6 +49,11 @@ export class UsersApiService {
     return this.http.get<ApiResponse<UserRow[]>>(`${this.api}/users`, {
       params: this.toParams(params),
     });
+  }
+
+  /** Roles que el usuario actual puede asignar (jerarquía: rango <= al suyo). */
+  assignableRoles(): Observable<ApiResponse<AssignableRole[]>> {
+    return this.http.get<ApiResponse<AssignableRole[]>>(`${this.api}/users/assignable-roles`);
   }
 
   create(dto: UserUpsert): Observable<ApiResponse<UserRow>> {

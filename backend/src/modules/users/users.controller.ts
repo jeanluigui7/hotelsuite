@@ -14,8 +14,15 @@ export const usersController = {
   },
 
   async getById(req: Request, res: Response): Promise<void> {
-    const user = await usersService.getById(req.params.id);
+    if (!req.scope) throw new UnauthorizedError();
+    const user = await usersService.getById(req.scope, req.params.id);
     res.status(200).json(ok(user));
+  },
+
+  async assignableRoles(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const roles = await usersService.assignableRoles(req.scope);
+    res.status(200).json(ok(roles));
   },
 
   async create(req: Request, res: Response): Promise<void> {

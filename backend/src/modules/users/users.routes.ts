@@ -10,6 +10,9 @@ export const usersRouter = Router();
 usersRouter.use(authenticate(), tenant());
 
 // Users are managed under the HR module.
+// Roles asignables por el actor (rango <= al suyo) — alimenta el selector del formulario de usuario
+// sin exigir el permiso 'settings' que gobierna la matriz de roles.
+usersRouter.get('/users/assignable-roles', requirePermission('hr', 'view'), asyncHandler(usersController.assignableRoles));
 usersRouter.get('/users', requirePermission('hr', 'view'), asyncHandler(usersController.list));
 usersRouter.get('/users/:id', requirePermission('hr', 'view'), asyncHandler(usersController.getById));
 usersRouter.post('/users', requirePermission('hr', 'create'), asyncHandler(usersController.create));

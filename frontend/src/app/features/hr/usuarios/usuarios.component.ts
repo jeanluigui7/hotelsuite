@@ -13,8 +13,7 @@ import { TagModule } from 'primeng/tag';
 import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
-import { UsersApiService, type UserRow, type UserUpsert } from '../services/users-api.service';
-import { RolesApiService, type RoleListItem } from '../../settings/services/roles-api.service';
+import { UsersApiService, type UserRow, type UserUpsert, type AssignableRole } from '../services/users-api.service';
 
 interface UserForm extends UserUpsert {
   id?: string;
@@ -320,7 +319,6 @@ const EMPTY_FORM: UserForm = {
 })
 export class UsuariosComponent implements OnInit {
   private readonly usersApi = inject(UsersApiService);
-  private readonly rolesApi = inject(RolesApiService);
   private readonly auth = inject(AuthService);
   private readonly messages = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
@@ -329,7 +327,7 @@ export class UsuariosComponent implements OnInit {
   readonly total = signal(0);
   readonly loading = signal(false);
   readonly saving = signal(false);
-  readonly roles = signal<RoleListItem[]>([]);
+  readonly roles = signal<AssignableRole[]>([]);
   readonly branchOptions = this.auth.branches;
 
   readonly pageSize = 20;
@@ -366,7 +364,7 @@ export class UsuariosComponent implements OnInit {
   readonly isSuperAdmin = this.auth.user()?.isSuperAdmin ?? false;
 
   ngOnInit(): void {
-    this.rolesApi.options().subscribe((res) => this.roles.set(res.data ?? []));
+    this.usersApi.assignableRoles().subscribe((res) => this.roles.set(res.data ?? []));
   }
 
   load(event: TableLazyLoadEvent): void {

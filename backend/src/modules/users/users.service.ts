@@ -4,7 +4,7 @@ import type { RequestScope } from '../../shared/context';
 import { ConflictError, ForbiddenError, NotFoundError } from '../../shared/errors';
 import { hashPassword, generateTempPassword } from '../../shared/password';
 import { sealSecret, openSecret } from '../../shared/secret-box';
-import { SUPER_ADMIN_ROLE } from '../../shared/rbac';
+import { SUPER_ADMIN_ROLE, roleRank, roleNamesAboveRank } from '../../shared/rbac';
 import {
   buildOrderBy,
   pageMeta,
@@ -40,11 +40,38 @@ function assertBranchesInScope(scope: RequestScope, branchIds: string[]): void {
   }
 }
 
+/**
+ * JERARQUÍA: un actor (no Super Admin) solo puede gestionar usuarios cuyo rol sea de rango
+ * <= al suyo. Bloquea tocar al Super Admin, al Gerente y a cualquier rol superior.
+ * (El Super Admin siempre pasa; además su blindaje específico sigue en cada método.)
+ */
+function assertCanManageTarget(scope: RequestScope, targetRoleName: string | null | undefined): void {
+  if (scope.isSuperAdmin) return;
+  if (roleRank(targetRoleName) > roleRank(scope.roleName)) {
+    throw new ForbiddenError('No puede gestionar usuarios de un rol superior al suyo');
+  }
+}
+
+/**
+ * JERARQUÍA: un actor (no Super Admin) solo puede asignar un rol de rango <= al suyo.
+ * Impide asignar roles superiores y elevar la propia jerarquía (p. ej. auto-ascenderse a Gerente).
+ */
+async function assertCanAssignRole(scope: RequestScope, roleId: string | undefined): Promise<void> {
+  if (scope.isSuperAdmin || !roleId) return;
+  const role = await prisma.role.findUnique({ where: { id: roleId }, select: { name: true } });
+  if (role && roleRank(role.name) > roleRank(scope.roleName)) {
+    throw new ForbiddenError('No puede asignar un rol de jerarquía superior a la suya');
+  }
+}
+
 export const usersService = {
   async list(scope: RequestScope, params: PaginationParams) {
     const where: Prisma.UserWhereInput = {};
     if (!scope.isSuperAdmin) {
       where.branches = { some: { branchId: { in: scope.branchIds } } };
+      // JERARQUÍA: oculta del listado a los usuarios de rol superior (Super Admin, Gerente, …).
+      const hidden = roleNamesAboveRank(roleRank(scope.roleName));
+      if (hidden.length) where.role = { name: { notIn: hidden } };
     }
     if (params.search) {
       where.OR = [
@@ -61,14 +88,24 @@ export const usersService = {
     return { items: rows.map(serialize), meta: pageMeta(params, total) };
   },
 
-  async getById(id: string) {
+  async getById(scope: RequestScope, id: string) {
     const user = await usersRepository.findById(id);
     if (!user) throw new NotFoundError('Usuario no encontrado');
+    assertCanManageTarget(scope, user.role?.name); // JERARQUÍA: no ver usuarios de rol superior
     return serialize(user);
+  },
+
+  /** Roles que el actor puede ASIGNAR (rango <= al suyo). Alimenta el selector del formulario de usuario. */
+  async assignableRoles(scope: RequestScope) {
+    const roles = await prisma.role.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true, description: true } });
+    if (scope.isSuperAdmin) return roles;
+    const max = roleRank(scope.roleName);
+    return roles.filter((r) => roleRank(r.name) <= max);
   },
 
   async create(scope: RequestScope, dto: CreateUserDto) {
     assertBranchesInScope(scope, dto.branchIds);
+    await assertCanAssignRole(scope, dto.roleId); // JERARQUÍA: no asignar roles superiores
     if (await usersRepository.findByEmail(dto.email)) {
       throw new ConflictError('Ya existe un usuario con ese email');
     }
@@ -93,6 +130,8 @@ export const usersService = {
   async update(scope: RequestScope, id: string, dto: UpdateUserDto) {
     const existing = await usersRepository.findById(id);
     if (!existing) throw new NotFoundError('Usuario no encontrado');
+    assertCanManageTarget(scope, existing.role?.name); // JERARQUÍA: no editar usuarios de rol superior
+    await assertCanAssignRole(scope, dto.roleId);       // JERARQUÍA: no ascender a un rol superior
     if (dto.branchIds) assertBranchesInScope(scope, dto.branchIds);
     if (dto.email && dto.email !== existing.email) {
       const dup = await usersRepository.findByEmail(dto.email);
@@ -135,6 +174,7 @@ export const usersService = {
   async resetPassword(scope: RequestScope, id: string, dto: ResetPasswordDto) {
     const existing = await usersRepository.findById(id);
     if (!existing) throw new NotFoundError('Usuario no encontrado');
+    assertCanManageTarget(scope, existing.role?.name); // JERARQUÍA: no restablecer claves de rol superior
     // Alcance: un no-super-admin solo puede restablecer usuarios de sus sucursales.
     if (!scope.isSuperAdmin) {
       const allowed = new Set(scope.branchIds);
@@ -189,6 +229,7 @@ export const usersService = {
     }
     const existing = await usersRepository.findById(id);
     if (!existing) throw new NotFoundError('Usuario no encontrado');
+    assertCanManageTarget(scope, existing.role?.name); // JERARQUÍA: no desactivar usuarios de rol superior
     if (existing.role?.name === SUPER_ADMIN_ROLE) {
       throw new ForbiddenError('No se puede eliminar ni desactivar al Super Admin.');
     }

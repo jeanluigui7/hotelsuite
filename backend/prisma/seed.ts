@@ -6,7 +6,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { ACTIONS, MODULES, allPermissions, type AppModule } from '../src/shared/rbac';
+import { ACTIONS, MODULES, allPermissions, type AppModule, type AppAction } from '../src/shared/rbac';
 
 const prisma = new PrismaClient();
 
@@ -15,7 +15,13 @@ const DEMO_BRANCH_ID = '00000000-0000-0000-0000-000000000001';
 const SUPER_ADMIN = 'Super Admin';
 
 // Base roles and the modules they can, at minimum, view. Super Admin gets everything.
-const BASE_ROLES: { name: string; description: string; modules: AppModule[] }[] = [
+// `grants` sobreescribe, por módulo, el set de acciones por defecto (útil para accesos de solo lectura).
+const BASE_ROLES: {
+  name: string;
+  description: string;
+  modules: AppModule[];
+  grants?: Partial<Record<AppModule, AppAction[]>>;
+}[] = [
   {
     name: 'Gerente',
     description: 'Administrador de sucursal',
@@ -25,11 +31,17 @@ const BASE_ROLES: { name: string; description: string; modules: AppModule[] }[] 
   },
   {
     name: 'Encargado de Operaciones',
-    description: 'Supervisa operación, limpieza, almacenes y mantenimiento (Gerente recortado, sin tarifas ni caja auditada)',
-    // FASE 1: base operativa. NO incluye 'finance' (caja llega en Fase 3 con gating por auditoría),
-    // NO incluye 'hr' (usuarios llega en Fase 2 con jerarquía de roles) ni 'settings' (nunca toca tarifas).
+    description: 'Supervisa operación, limpieza, almacenes, usuarios inferiores, mantenimiento y revisa caja (Gerente recortado, sin tarifas ni caja auditada)',
+    // 'hr' (usuarios) con jerarquía: solo gestiona/asigna roles de rango <= al suyo (ver shared/rbac.ts ROLE_RANK).
+    // 'finance' SOLO 'view': revisa cajas (pendientes de auditoría) pero NO abre/cierra/cobra/reabre ni finaliza
+    //   auditorías (eso es finance:create/edit). Encima, el servicio oculta las cajas AUDITADA a este rol.
+    // NO incluye 'settings' (nunca toca tarifas ni configuración).
     // 'maintenance' le da RESOLVER fallas (approve); 'rooms' crear/editar habitaciones.
-    modules: ['dashboard', 'operations', 'inventory', 'logistics', 'reports', 'maintenance', 'rooms'],
+    modules: ['dashboard', 'operations', 'inventory', 'logistics', 'hr', 'finance', 'reports', 'maintenance', 'rooms'],
+    // operations:approve = inspeccionar/aprobar limpiezas (housekeeping) Y anular check-in/renovación
+    //   (ver stays.routes: requireAnyPermission finance:edit | operations:approve). Da la anulación al
+    //   Encargado sin otorgarle 'finance:edit' (POS/caja) ni abrir la anulación a Limpieza/Mantenimiento.
+    grants: { finance: ['view'], operations: ['view', 'create', 'edit', 'approve'] },
   },
   {
     name: 'Recepcionista',
@@ -114,11 +126,13 @@ async function main(): Promise<void> {
     for (const module of def.modules) {
       // 'view' siempre; settings (config de sucursal: tarifas, tipos, etc.) gestión completa;
       // reports/dashboard solo lectura; el resto operativo (view/create/edit).
-      const grant =
-        module === 'settings' ? ['view', 'create', 'edit', 'delete']
+      // `def.grants[module]` tiene prioridad (p. ej. finance de solo lectura para el Encargado).
+      const grant: readonly string[] =
+        def.grants?.[module] ??
+        (module === 'settings' ? ['view', 'create', 'edit', 'delete']
           : module === 'maintenance' ? ['view', 'create', 'edit', 'approve'] // approve = RESOLVER falla
             : module === 'reports' || module === 'dashboard' ? ['view']
-              : ['view', 'create', 'edit'];
+              : ['view', 'create', 'edit']);
       for (const action of ACTIONS) {
         if (!grant.includes(action)) continue;
         const permId = permByKey.get(`${module}:${action}`);
