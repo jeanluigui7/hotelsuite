@@ -1,0 +1,15 @@
+{
+  "name": "hotelsuite-biometric-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Agente local que lee el huellero ZKTeco de la LAN y envía las marcas al backend de HotelSuite (nube).",
+  "type": "commonjs",
+  "main": "agent.js",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node agent.js"
+  },
+  "dependencies": {
+    "zkteco-js": "^1.7.1"
+  }
+}

@@ -15,6 +15,28 @@ export const enrollSchema = z.object({
   name: z.string().max(120).optional().or(z.literal('')),
 });
 
+// ── Agente local (ingesta de marcas desde la LAN del hotel) ──
+export const ingestSchema = z.object({
+  deviceId: z.string().min(1),
+  marks: z
+    .array(
+      z.object({
+        deviceUserId: z.string().min(1).max(40),
+        at: z.string().datetime({ offset: true }).optional(),
+      }),
+    )
+    .min(1)
+    .max(500),
+});
+export const heartbeatSchema = z.object({
+  deviceId: z.string().min(1),
+  info: z.object({ serial: z.string().max(120).optional(), name: z.string().max(120).optional(), connected: z.boolean().optional() }).optional(),
+});
+// Vincular número de serie (ADMS/nube) a un dispositivo.
+export const bindSerialSchema = z.object({ serial: z.string().min(1).max(64) });
+
 export type CreateDeviceDto = z.infer<typeof createDeviceSchema>;
 export type UpdateDeviceDto = z.infer<typeof updateDeviceSchema>;
 export type EnrollDto = z.infer<typeof enrollSchema>;
+export type IngestDto = z.infer<typeof ingestSchema>;
+export type IngestMark = IngestDto['marks'][number];

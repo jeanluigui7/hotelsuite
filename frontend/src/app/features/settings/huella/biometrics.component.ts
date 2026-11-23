@@ -1,4 +1,5 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
+import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
@@ -11,7 +12,7 @@ import { TagModule } from 'primeng/tag';
 import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
-import { BiometricsApiService, type BiometricDevice, type DeviceEnrollment } from '../services/biometrics-api.service';
+import { BiometricsApiService, type AdmsStatus, type BiometricDevice, type DeviceEnrollment } from '../services/biometrics-api.service';
 import { UsersApiService, type UserRow } from '../../hr/services/users-api.service';
 
 interface DeviceForm {
@@ -31,13 +32,13 @@ const STATUS_META: Record<string, { label: string; severity: 'success' | 'second
 @Component({
   selector: 'app-biometrics',
   standalone: true,
-  imports: [FormsModule, ButtonModule, DialogModule, InputTextModule, InputNumberModule, SelectModule, TableModule, TagModule, TooltipModule],
+  imports: [DatePipe, FormsModule, ButtonModule, DialogModule, InputTextModule, InputNumberModule, SelectModule, TableModule, TagModule, TooltipModule],
   template: `
     <section>
       <header class="cat-head">
         <div>
           <h1>Huella Digital</h1>
-          <p class="muted">Lectores ZKTeco (TCP 4370). La lectura real requiere el equipo en la red.</p>
+          <p class="muted">Lectores ZKTeco (TCP 4370). El sistema está en la nube y no alcanza el huellero de la red local: usa el <b>Agente local</b> (botón <i class="pi pi-server"></i>) para enlazarlo.</p>
         </div>
         @if (canCreate) { <p-button label="Nuevo dispositivo" icon="pi pi-plus" (onClick)="openNew()" /> }
       </header>
@@ -58,6 +59,8 @@ const STATUS_META: Record<string, { label: string; severity: 'success' | 'second
               @if (canEdit) { <p-button label="Probar" icon="pi pi-wifi" size="small" severity="secondary" (onClick)="test(row)" [loading]="busyId() === row.id" /> }
               @if (canEdit && !row.realtimeActive) { <p-button label="Conectar" icon="pi pi-play" size="small" (onClick)="connect(row)" /> }
               @if (canEdit && row.realtimeActive) { <p-button label="Detener" icon="pi pi-stop" size="small" severity="warn" (onClick)="disconnect(row)" /> }
+              @if (canEdit) { <p-button icon="pi pi-cloud" [text]="true" (onClick)="openAdms(row)" pTooltip="Conexión a la nube (ADMS)" /> }
+              @if (canEdit) { <p-button icon="pi pi-server" [text]="true" (onClick)="openAgent(row)" pTooltip="Agente local (alternativa)" /> }
               @if (canEdit) { <p-button icon="pi pi-users" [text]="true" (onClick)="openEnroll(row)" pTooltip="Enrolamiento" /> }
               @if (canEdit) { <p-button icon="pi pi-pencil" [text]="true" (onClick)="openEdit(row)" /> }
               @if (canDelete) { <p-button icon="pi pi-trash" severity="danger" [text]="true" (onClick)="confirmDelete(row)" /> }
@@ -113,6 +116,94 @@ const STATUS_META: Record<string, { label: string; severity: 'success' | 'second
         <p-button label="Cerrar" severity="secondary" [text]="true" (onClick)="enrollVisible = false" />
       </ng-template>
     </p-dialog>
+
+    <!-- Conexión a la nube (ADMS) -->
+    <p-dialog [(visible)]="admsVisible" [modal]="true" [style]="{ width: '640px' }" header="Conexión a la nube (ADMS)">
+      <div class="cat-form agent">
+        <p class="muted">El huellero <b>empuja</b> las marcas directo a este servidor por HTTPS. Funciona detrás de NAT/DHCP en <b>cualquier red</b> (tu red o la del hotel) sin agente ni PC encendida. Configúralo una sola vez en el equipo.</p>
+
+        <div class="steps">
+          <b>En el huellero → Red → Conf. Srvr de Nube:</b>
+          <ol>
+            <li>Modo de Servidor: <b>ADMS</b></li>
+            <li>Habilitar Nombre de Dominio: <b>ON</b></li>
+            <li>Dirección del Servidor: <b>{{ adms()?.serverAddress || 'rizzoshospedaje.com/api' }}</b></li>
+            <li>HTTPS: <b>ON</b></li>
+            <li>Red → Ethernet → DHCP: <b>ON</b> (toma IP sola en cualquier red)</li>
+          </ol>
+        </div>
+
+        <label>Dirección del Servidor (cópiala al equipo)</label>
+        <div class="copyrow"><input pInputText [value]="adms()?.serverAddress || 'rizzoshospedaje.com/api'" readonly /><p-button icon="pi pi-copy" [text]="true" (onClick)="copy(adms()?.serverAddress || 'rizzoshospedaje.com/api')" pTooltip="Copiar" /></div>
+
+        <div class="kv"><span>Estado</span>
+          <b>
+            @if (adms()?.serial) {
+              @if (admsOnline()) { <p-tag value="En línea" severity="success" /> } @else { <p-tag value="Vinculado · sin señal reciente" severity="secondary" /> }
+            } @else { <p-tag value="Sin vincular" severity="warn" /> }
+          </b>
+        </div>
+        @if (adms()?.serial) { <div class="kv"><span>Serie vinculada</span><b>{{ adms()!.serial }}</b></div> }
+        @if (adms()?.lastSeen) { <div class="kv"><span>Última señal</span><b>{{ adms()!.lastSeen | date: 'dd/MM/yyyy HH:mm:ss' }}</b></div> }
+
+        <!-- Vinculación del número de serie -->
+        @if (adms()?.detected && adms()!.detected!.serial !== adms()?.serial) {
+          <div class="token-box">
+            <div class="token-head"><i class="pi pi-bolt"></i> Equipo detectado conectándose</div>
+            <p class="sm">Número de serie <b>{{ adms()!.detected!.serial }}</b> ({{ adms()!.detected!.at | date: 'HH:mm:ss' }}). Vincúlalo a este dispositivo para empezar a registrar sus marcas.</p>
+            <p-button label="Vincular este equipo" icon="pi pi-link" size="small" [loading]="admsBusy()" (onClick)="bindDetected()" />
+          </div>
+        }
+        <label>Vincular por número de serie (manual)</label>
+        <div class="copyrow">
+          <input pInputText [(ngModel)]="admsSerialInput" placeholder="N° de serie del huellero" />
+          <p-button icon="pi pi-link" label="Vincular" [loading]="admsBusy()" (onClick)="bindManual()" />
+        </div>
+        <p class="muted sm">Si no aparece el equipo detectado, carga primero la Dirección del Servidor en el huellero y vuelve a abrir esta ventana (el equipo se anuncia en segundos). El número de serie está en Red → Conexión a PC, o en la etiqueta del equipo.</p>
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Refrescar" icon="pi pi-refresh" [text]="true" (onClick)="reloadAdms()" />
+        <p-button label="Cerrar" severity="secondary" [text]="true" (onClick)="admsVisible = false" />
+      </ng-template>
+    </p-dialog>
+
+    <!-- Agente local -->
+    <p-dialog [(visible)]="agentVisible" [modal]="true" [style]="{ width: '600px' }" header="Agente local del huellero">
+      <div class="cat-form agent">
+        <p class="muted">El backend vive en la nube y no alcanza el huellero de la red local. Instala el <b>agente</b> en una PC del hotel (misma red del equipo): lee las marcas y las envía al sistema. Carpeta <code>biometric-agent/</code> del proyecto.</p>
+
+        <div class="kv"><span>Estado del agente</span>
+          <b>
+            @if (agentStatus()?.configured) {
+              @if (agentOnline()) { <p-tag value="En línea" severity="success" /> }
+              @else { <p-tag value="Token generado · sin señal" severity="secondary" /> }
+            } @else { <p-tag value="Sin configurar" severity="danger" /> }
+          </b>
+        </div>
+        @if (agentStatus()?.lastSeen) { <div class="kv"><span>Última señal</span><b>{{ agentStatus()!.lastSeen | date: 'dd/MM/yyyy HH:mm:ss' }}</b></div> }
+
+        <label>ID del dispositivo (deviceId)</label>
+        <div class="copyrow"><input pInputText [value]="agentDevice?.id ?? ''" readonly /><p-button icon="pi pi-copy" [text]="true" (onClick)="copy(agentDevice?.id)" pTooltip="Copiar" /></div>
+
+        <label>URL de ingesta (apiUrl)</label>
+        <div class="copyrow"><input pInputText value="https://rizzoshospedaje.com/api" readonly /><p-button icon="pi pi-copy" [text]="true" (onClick)="copy('https://rizzoshospedaje.com/api')" pTooltip="Copiar" /></div>
+
+        <label>IP del huellero</label>
+        <div class="copyrow"><input pInputText [value]="agentDevice?.ip ?? ''" readonly /><p-button icon="pi pi-copy" [text]="true" (onClick)="copy(agentDevice?.ip)" pTooltip="Copiar" /></div>
+
+        @if (agentToken()) {
+          <div class="token-box">
+            <div class="token-head"><i class="pi pi-key"></i> Token del agente (se muestra una sola vez)</div>
+            <div class="copyrow"><input pInputText [value]="agentToken()!" readonly /><p-button icon="pi pi-copy" [text]="true" (onClick)="copy(agentToken())" pTooltip="Copiar" /></div>
+            <p class="muted sm">Pégalo en <code>config.json</code> del agente (campo <code>agentToken</code>). Guárdalo: no se vuelve a mostrar.</p>
+          </div>
+        }
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cerrar" severity="secondary" [text]="true" (onClick)="agentVisible = false" />
+        <p-button [label]="agentStatus()?.configured ? 'Rotar token' : 'Generar token'" icon="pi pi-key" [loading]="agentBusy()" (onClick)="genToken()" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
@@ -121,6 +212,13 @@ const STATUS_META: Record<string, { label: string; severity: 'success' | 'second
       .duid { width: 140px; }
       table.lines { width: 100%; border-collapse: collapse; }
       table.lines th, table.lines td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--p-content-border-color, #2b2b30); text-align: left; font-size: 0.85rem; }
+      .agent .kv { display: flex; justify-content: space-between; align-items: center; padding: 0.3rem 0; }
+      .agent code { background: var(--p-content-hover-background, #f1f3f5); padding: 0.05rem 0.3rem; border-radius: 4px; font-size: 0.85em; }
+      .copyrow { display: flex; gap: 0.4rem; align-items: center; }
+      .copyrow input { flex: 1; font-family: monospace; }
+      .token-box { margin-top: 0.8rem; border: 1px solid var(--p-primary-color, #3b82f6); border-radius: 8px; padding: 0.7rem; background: var(--p-highlight-background, rgba(59,130,246,0.08)); }
+      .token-head { font-weight: 700; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.4rem; }
+      .sm { font-size: 0.78rem; }
     `,
   ],
   styleUrls: ['../catalogs/catalog.styles.scss'],
@@ -145,6 +243,20 @@ export class BiometricsComponent implements OnInit {
   enrollVisible = false;
   enrollDeviceId: string | null = null;
   enrollForm = { userId: null as string | null, deviceUserId: '' };
+
+  // Agente local
+  agentVisible = false;
+  agentDevice: BiometricDevice | null = null;
+  readonly agentStatus = signal<{ configured: boolean; lastSeen: string | null } | null>(null);
+  readonly agentToken = signal<string | null>(null);
+  readonly agentBusy = signal(false);
+
+  // ADMS / nube
+  admsVisible = false;
+  admsDevice: BiometricDevice | null = null;
+  readonly adms = signal<AdmsStatus | null>(null);
+  readonly admsBusy = signal(false);
+  admsSerialInput = '';
 
   readonly canCreate = this.auth.can('settings', 'create');
   readonly canEdit = this.auth.can('settings', 'edit');
@@ -227,6 +339,95 @@ export class BiometricsComponent implements OnInit {
       next: () => { this.messages.add({ severity: 'success', summary: 'Detenido', detail: 'Escucha detenida.' }); this.reload(); },
       error: (err: HttpErrorResponse) => this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo detener.' }),
     });
+  }
+
+  // ── ADMS / nube ──
+  openAdms(row: BiometricDevice): void {
+    this.admsDevice = row;
+    this.adms.set(null);
+    this.admsSerialInput = '';
+    this.admsVisible = true;
+    this.reloadAdms();
+  }
+  reloadAdms(): void {
+    if (!this.admsDevice) return;
+    this.api.admsStatus(this.admsDevice.id).subscribe({
+      next: (res) => this.adms.set(res.data ?? null),
+      error: () => this.adms.set(null),
+    });
+  }
+  admsOnline(): boolean {
+    const seen = this.adms()?.lastSeen;
+    return !!seen && Date.now() - new Date(seen).getTime() < 180_000;
+  }
+  bindDetected(): void {
+    const sn = this.adms()?.detected?.serial;
+    if (sn) this.doBind(sn);
+  }
+  bindManual(): void {
+    const sn = this.admsSerialInput.trim();
+    if (!sn) { this.messages.add({ severity: 'warn', summary: 'Falta la serie', detail: 'Ingresa el número de serie.' }); return; }
+    this.doBind(sn);
+  }
+  private doBind(serial: string): void {
+    if (!this.admsDevice) return;
+    this.admsBusy.set(true);
+    this.api.bindSerial(this.admsDevice.id, serial).subscribe({
+      next: () => {
+        this.admsBusy.set(false);
+        this.admsSerialInput = '';
+        this.messages.add({ severity: 'success', summary: 'Vinculado', detail: `Serie ${serial} vinculada. Las marcas del equipo ya se registrarán.` });
+        this.reloadAdms();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.admsBusy.set(false);
+        this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo vincular.' });
+      },
+    });
+  }
+
+  // ── Agente local ──
+  openAgent(row: BiometricDevice): void {
+    this.agentDevice = row;
+    this.agentToken.set(null);
+    this.agentStatus.set(null);
+    this.agentVisible = true;
+    this.api.agentStatus(row.id).subscribe({
+      next: (res) => this.agentStatus.set(res.data ?? { configured: false, lastSeen: null }),
+      error: () => this.agentStatus.set({ configured: false, lastSeen: null }),
+    });
+  }
+
+  /** "En línea" = última señal del agente dentro de los últimos ~2 minutos. */
+  agentOnline(): boolean {
+    const seen = this.agentStatus()?.lastSeen;
+    if (!seen) return false;
+    return Date.now() - new Date(seen).getTime() < 120_000;
+  }
+
+  genToken(): void {
+    if (!this.agentDevice) return;
+    this.agentBusy.set(true);
+    this.api.generateAgentToken(this.agentDevice.id).subscribe({
+      next: (res) => {
+        this.agentBusy.set(false);
+        this.agentToken.set(res.data?.token ?? null);
+        this.agentStatus.update((s) => ({ configured: true, lastSeen: s?.lastSeen ?? null }));
+        this.messages.add({ severity: 'success', summary: 'Token generado', detail: 'Cópialo al config.json del agente. No se vuelve a mostrar.' });
+      },
+      error: (err: HttpErrorResponse) => {
+        this.agentBusy.set(false);
+        this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo generar el token.' });
+      },
+    });
+  }
+
+  copy(text?: string | null): void {
+    if (!text) return;
+    navigator.clipboard?.writeText(text).then(
+      () => this.messages.add({ severity: 'success', summary: 'Copiado', detail: '', life: 1200 }),
+      () => { /* clipboard no disponible */ },
+    );
   }
 
   openEnroll(row: BiometricDevice): void {

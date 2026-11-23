@@ -1,0 +1,10 @@
+{
+  "deviceIp": "192.168.0.201",
+  "devicePort": 4370,
+  "inport": 5200,
+  "apiUrl": "https://rizzoshospedaje.com/api",
+  "deviceId": "PEGAR-AQUI-EL-ID-DEL-DISPOSITIVO",
+  "agentToken": "PEGAR-AQUI-EL-TOKEN-DEL-PANEL",
+  "syncIntervalSec": 60,
+  "heartbeatSec": 30
+}

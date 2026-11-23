@@ -68,6 +68,8 @@ import { attendanceRouter } from './modules/attendance/attendance.routes';
 import { activityLogRouter } from './modules/activity-log/activity-log.routes';
 import { performanceRouter } from './modules/performance/performance.routes';
 import { biometricsRouter } from './modules/biometrics/biometrics.routes';
+import { biometricsAgentRouter } from './modules/biometrics/biometrics-agent.routes';
+import { biometricsAdmsRouter } from './modules/biometrics/biometrics-adms.routes';
 import { reportsRouter } from './modules/reports/reports.routes';
 import { whatsappRouter } from './modules/whatsapp/whatsapp.routes';
 import { whatsappConfigRouter } from './modules/whatsapp-config/whatsapp-config.routes';
@@ -112,6 +114,9 @@ export function createApp(): Application {
 
   // Rate limiting: global + stricter on login only (por correo, no por IP).
   // /auth/refresh queda solo bajo el límite global: es automático y el hotel comparte una IP.
+  // El huellero (ADMS/iclock) consulta con alta frecuencia y sale por el mismo NAT que el personal:
+  // se monta ANTES del limitador global y queda exento para no agotar el cupo de la IP del hotel.
+  app.use('/api', biometricsAdmsRouter);
   app.use('/api', globalLimiter);
   app.use('/api/auth/login', authLimiter);
 
@@ -181,6 +186,7 @@ export function createApp(): Application {
   app.use('/api', activityLogRouter);
   app.use('/api', performanceRouter);
   app.use('/api', biometricsRouter);
+  app.use('/api', biometricsAgentRouter); // agente local del huellero (auth por token, sin JWT)
   app.use('/api', reportsRouter);
   app.use('/api', dashboardRouter);
   app.use('/api', whatsappRouter);
