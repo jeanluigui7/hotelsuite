@@ -38,7 +38,7 @@ const STATUS_META: Record<string, { label: string; severity: 'success' | 'second
       <header class="cat-head">
         <div>
           <h1>Huella Digital</h1>
-          <p class="muted">Lectores ZKTeco (TCP 4370). El sistema está en la nube y no alcanza el huellero de la red local: usa el <b>Agente local</b> (botón <i class="pi pi-server"></i>) para enlazarlo.</p>
+          <p class="muted">Lectores ZKTeco. El sistema está en la nube: enlaza el huellero por <b>Conexión a la nube (ADMS)</b> (botón <i class="pi pi-cloud"></i>). En equipos por nube, "Probar/Conectar" no aplican (ese método es local).</p>
         </div>
         @if (canCreate) { <p-button label="Nuevo dispositivo" icon="pi pi-plus" (onClick)="openNew()" /> }
       </header>
@@ -51,14 +51,22 @@ const STATUS_META: Record<string, { label: string; severity: 'success' | 'second
           <tr>
             <td>{{ row.name }}</td>
             <td class="muted">{{ row.ip }}:{{ row.port }}</td>
-            <td><p-tag [value]="meta(row.status).label" [severity]="meta(row.status).severity" /></td>
             <td>
-              <p-tag [value]="row.realtimeActive ? 'Escuchando' : 'Inactivo'" [severity]="row.realtimeActive ? 'success' : 'secondary'" />
+              @if (row.adms?.bound) {
+                <p-tag [value]="row.adms!.online ? 'En línea · nube' : 'Nube · sin señal'" [severity]="row.adms!.online ? 'success' : 'secondary'" />
+              } @else {
+                <p-tag [value]="meta(row.status).label" [severity]="meta(row.status).severity" />
+              }
+            </td>
+            <td>
+              @if (row.adms?.bound) { <span class="muted">ADMS (nube)</span> }
+              @else { <p-tag [value]="row.realtimeActive ? 'Escuchando' : 'Inactivo'" [severity]="row.realtimeActive ? 'success' : 'secondary'" /> }
             </td>
             <td class="cat-actions">
-              @if (canEdit) { <p-button label="Probar" icon="pi pi-wifi" size="small" severity="secondary" (onClick)="test(row)" [loading]="busyId() === row.id" /> }
-              @if (canEdit && !row.realtimeActive) { <p-button label="Conectar" icon="pi pi-play" size="small" (onClick)="connect(row)" /> }
-              @if (canEdit && row.realtimeActive) { <p-button label="Detener" icon="pi pi-stop" size="small" severity="warn" (onClick)="disconnect(row)" /> }
+              <!-- "Probar/Conectar" = método local (servidor→equipo): no aplica a equipos por nube (ADMS). -->
+              @if (canEdit && !row.adms?.bound) { <p-button label="Probar" icon="pi pi-wifi" size="small" severity="secondary" (onClick)="test(row)" [loading]="busyId() === row.id" /> }
+              @if (canEdit && !row.adms?.bound && !row.realtimeActive) { <p-button label="Conectar" icon="pi pi-play" size="small" (onClick)="connect(row)" /> }
+              @if (canEdit && !row.adms?.bound && row.realtimeActive) { <p-button label="Detener" icon="pi pi-stop" size="small" severity="warn" (onClick)="disconnect(row)" /> }
               @if (canEdit) { <p-button icon="pi pi-cloud" [text]="true" (onClick)="openAdms(row)" pTooltip="Conexión a la nube (ADMS)" /> }
               @if (canEdit) { <p-button icon="pi pi-server" [text]="true" (onClick)="openAgent(row)" pTooltip="Agente local (alternativa)" /> }
               @if (canEdit) { <p-button icon="pi pi-users" [text]="true" (onClick)="openEnroll(row)" pTooltip="Enrolamiento" /> }

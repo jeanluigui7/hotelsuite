@@ -55,7 +55,20 @@ export const biometricsService = {
       biometricsRepository.listDevices({ where, skip, take, orderBy: buildOrderBy(params, SORTABLE, 'name') }),
       biometricsRepository.countDevices(where),
     ]);
-    return { items: rows.map(serializeDevice), meta: pageMeta(params, total) };
+    // Enriquecer con el estado ADMS/nube (serie vinculada + última señal) para que el listado NO
+    // muestre "Error" por el método local (servidor→equipo, imposible desde la nube) cuando el equipo
+    // está integrado por nube y empujando sus marcas.
+    const ids = rows.map((r) => r.id);
+    const keys = ids.flatMap((id) => [`biometrics.adms.serial.${id}`, `biometrics.adms.seen.${id}`]);
+    const settings = keys.length ? await prisma.setting.findMany({ where: { branchId, key: { in: keys } } }) : [];
+    const sval = (id: string, suffix: string): string | null => settings.find((s) => s.key === `biometrics.adms.${suffix}.${id}`)?.value ?? null;
+    const items = rows.map((d) => {
+      const serial = sval(d.id, 'serial');
+      const lastSeen = sval(d.id, 'seen');
+      const online = !!lastSeen && Date.now() - new Date(lastSeen).getTime() < 180_000;
+      return { ...serializeDevice(d), adms: { bound: !!serial, serial, lastSeen, online } };
+    });
+    return { items, meta: pageMeta(params, total) };
   },
 
   async getEntity(scope: RequestScope, id: string) {

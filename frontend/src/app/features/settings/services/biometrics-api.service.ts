@@ -14,6 +14,7 @@ export interface BiometricDevice {
   lastSyncAt?: string | null;
   notes?: string | null;
   realtimeActive?: boolean;
+  adms?: { bound: boolean; serial: string | null; lastSeen: string | null; online: boolean };
 }
 
 export interface DeviceEnrollment {
