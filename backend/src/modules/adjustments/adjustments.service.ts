@@ -134,17 +134,28 @@ export const adjustmentsService = {
     const rMap = new Map(rooms.map((r) => [r.id, r.number]));
     const wMap = new Map(whs.map((w) => [w.id, w.name]));
     const pMap = new Map(products.map((p) => [p.id, p.name]));
-    return movs.map((m) => ({
-      id: m.id,
-      at: m.createdAt,
-      kind: m.adjustType ?? 'ADJUST',
-      productName: pMap.get(m.productId) ?? '—',
-      quantity: m.quantity,
-      counterpart: m.relatedWarehouseId ? (wMap.get(m.relatedWarehouseId) ?? null) : null,
-      room: m.roomId ? (rMap.get(m.roomId) ?? null) : null,
-      reason: m.reference ?? null,
-      user: m.createdByUserId ? (uMap.get(m.createdByUserId) ?? null) : null,
-      approvedBy: m.approvedByUserId ? (uMap.get(m.approvedByUserId) ?? null) : null,
-    }));
+    // Nombre del almacén que se está viendo (origen de las salidas de reposición de frigobar).
+    const originWhName = (await prisma.warehouse.findUnique({ where: { id: params.warehouseId }, select: { name: true } }))?.name ?? 'Almacén';
+    return movs.map((m) => {
+      const roomNum = m.roomId ? (rMap.get(m.roomId) ?? null) : null;
+      // Reposición de frigobar: TRANSFER con habitación destino (el minibar) y SIN almacén contraparte
+      // (el destino es una habitación, no otro almacén). Se rotula aparte para que no se confunda con
+      // una transferencia interna entre almacenes y se aprecie el descuento origen → habitación.
+      const isFrigobarRepo = m.adjustType === 'TRANSFER' && !!m.roomId && !m.relatedWarehouseId;
+      return {
+        id: m.id,
+        at: m.createdAt,
+        kind: isFrigobarRepo ? 'FRIGOBAR_REPO' : (m.adjustType ?? 'ADJUST'),
+        productName: pMap.get(m.productId) ?? '—',
+        quantity: m.quantity,
+        counterpart: isFrigobarRepo
+          ? `${originWhName} → Hab. ${roomNum ?? '—'} (minibar)`
+          : m.relatedWarehouseId ? (wMap.get(m.relatedWarehouseId) ?? null) : null,
+        room: roomNum,
+        reason: m.reference ?? null,
+        user: m.createdByUserId ? (uMap.get(m.createdByUserId) ?? null) : null,
+        approvedBy: m.approvedByUserId ? (uMap.get(m.approvedByUserId) ?? null) : null,
+      };
+    });
   },
 };

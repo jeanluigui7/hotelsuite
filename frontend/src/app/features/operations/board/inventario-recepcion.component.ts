@@ -540,7 +540,7 @@ export class InventarioRecepcionComponent implements OnInit {
   adjDetailVisible = false;
   adjDetailItem: InvItem | null = null;
   readonly adjDetail = signal<AdjDetail[]>([]);
-  readonly ADJ_LABEL: Record<string, string> = { TRANSFER: 'Transferencia interna', SOBRANTE: 'Sobrante', VENCIDO: 'Vencido', MERMA: 'Perdido/Merma', FALTANTE: 'Faltante', VENTA_NO_REGISTRADA: 'Venta no registrada', PERDIDA_COLABORADOR: 'Pérdida atribuida', ADJUST: 'Ajuste' };
+  readonly ADJ_LABEL: Record<string, string> = { TRANSFER: 'Transferencia interna', FRIGOBAR_REPO: 'Reposición frigobar', SOBRANTE: 'Sobrante', VENCIDO: 'Vencido', MERMA: 'Perdido/Merma', FALTANTE: 'Faltante', VENTA_NO_REGISTRADA: 'Venta no registrada', PERDIDA_COLABORADOR: 'Pérdida atribuida', ADJUST: 'Ajuste' };
   private fDay: string | null = null;
   private curShift: string | null = null;
   private readonly SHIFTS = ['MANANA', 'TARDE', 'NOCHE'];

@@ -7,6 +7,7 @@ import { MessageService } from 'primeng/api';
 import { environment } from '../../../../environments/environment';
 import type { ApiResponse } from '../../../core/models/api-response.model';
 import { AuthService } from '../../../core/auth/auth.service';
+import { PrintingService } from '../../../core/printing/printing.service';
 
 interface RepoLine { productId: string; name: string; imageUrl?: string | null; pendingQty: number; availRecepcion: number; availLimpieza: number; qty: number; }
 interface RepoStart { reviewId: string; room: { number: string }; warehouses: { recepcion: { id: string; name: string } | null; limpieza: { id: string; name: string } | null }; lines: RepoLine[]; }
@@ -126,6 +127,7 @@ export class FrigobarRepositionComponent {
   private readonly api = environment.apiUrl;
   private readonly toast = inject(MessageService);
   private readonly auth = inject(AuthService);
+  private readonly printing = inject(PrintingService);
 
   @Input() reviewId: string | null = null;
   @Input() roomNumber = '';
@@ -175,14 +177,15 @@ export class FrigobarRepositionComponent {
 
   printTicket(): void {
     const rows = this.toRepo().map((l) => `<div style="display:flex"><span style="width:26px">${l.qty}</span><span>${this.esc(l.name)}</span></div>`).join('');
-    const html = `<html><head><title>Reposición frigobar</title></head><body style="font-family:'Courier New',monospace;font-size:12px;width:280px;margin:0 auto;padding:8px">`
+    // Fragmento (no documento completo) para que PrintingService le aplique el tamaño de papel 80 mm.
+    const html = `<div style="font-family:'Courier New',monospace;font-size:12px;width:280px;margin:0 auto;padding:8px">`
       + `<div style="text-align:center;font-weight:800;font-size:14px">REPOSICIÓN FRIGOBAR</div><hr>`
-      + `<div>ORIGEN: <b>${this.originLabel()}</b></div><div>DESTINO: <b>HAB. ${this.esc(this.roomNumber || this.data()?.room?.number || '')}</b></div><hr>`
+      + `<div>ORIGEN: <b>${this.esc(this.originLabel())}</b></div><div>DESTINO: <b>HAB. ${this.esc(this.roomNumber || this.data()?.room?.number || '')}</b></div><hr>`
       + `<div style="font-weight:800">PRODUCTOS</div>${rows}<hr>`
       + `<div>REPUESTO POR: <b>${this.esc(this.userName())}</b></div><div>${new Date().toLocaleString('es-PE')}</div>`
-      + `</body></html>`;
-    const w = window.open('', '_blank', 'width=360,height=600');
-    if (w) { w.document.write(html); w.document.close(); w.focus(); try { w.print(); } catch { /* el usuario puede imprimir manualmente */ } }
+      + `</div>`;
+    // Imprime por iframe oculto (no un pop-up): el navegador no lo bloquea y abre el diálogo de impresión.
+    this.printing.printViaBrowser(html);
     this.printed.set(true);
     this.view.set('form');
   }
