@@ -10,6 +10,30 @@ export interface AuthUser {
   branchIds: string[];
   /** Si está activo, el usuario debe cambiar su contraseña antes de operar. */
   mustChangePassword?: boolean;
+  /** Modo huellero obligatorio por rol: ingresa y finaliza turno con huella (no contraseña). */
+  requiresFingerprint?: boolean;
+}
+
+/** Modo de ingreso resuelto para un correo (pre-sesión). */
+export interface LoginMode {
+  mode: 'password' | 'fingerprint';
+  name?: string;
+}
+
+/** Solicitud de autenticación por huella (login o logout). */
+export interface FingerprintRequest {
+  requestId: string;
+  name: string;
+  expiresInMs: number;
+}
+
+/** Resultado del sondeo del modal de huella. */
+export interface FingerprintPoll {
+  status: 'pending' | 'authenticated' | 'expired' | 'cancelled';
+  remainingMs?: number;
+  user?: AuthUser;
+  accessToken?: string;
+  shiftStarted?: boolean;
 }
 
 export interface Branch {

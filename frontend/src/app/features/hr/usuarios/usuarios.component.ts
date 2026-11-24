@@ -14,6 +14,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
 import { UsersApiService, type UserRow, type UserUpsert, type AssignableRole } from '../services/users-api.service';
+import { BiometricsApiService } from '../../settings/services/biometrics-api.service';
 
 interface UserForm extends UserUpsert {
   id?: string;
@@ -185,6 +186,16 @@ const EMPTY_FORM: UserForm = {
           [(ngModel)]="form.status"
           styleClass="w-full"
         />
+
+        @if (form.id) {
+          <label><i class="pi pi-id-card"></i> ID biométrico (huellero)</label>
+          <input pInputText [(ngModel)]="bioPin" placeholder="PIN del usuario en el huellero (p. ej. 1)" />
+          <small class="hint">
+            @if (bioDeviceName()) { Huellero: <strong>{{ bioDeviceName() }}</strong>. }
+            @else { No hay huellero configurado en la sucursal del usuario. }
+            Es el ID con el que la persona está registrada en el equipo; habilita su ingreso y asistencia por huella. Vacío = sin huella.
+          </small>
+        }
       </div>
 
       <ng-template pTemplate="footer">
@@ -311,6 +322,13 @@ const EMPTY_FORM: UserForm = {
       .form input[pInputText] {
         width: 100%;
       }
+      .hint {
+        display: block;
+        margin-top: 0.35rem;
+        font-size: 0.76rem;
+        line-height: 1.3;
+        color: var(--p-text-muted-color, #a1a1aa);
+      }
       :host ::ng-deep .w-full {
         width: 100%;
       }
@@ -319,9 +337,15 @@ const EMPTY_FORM: UserForm = {
 })
 export class UsuariosComponent implements OnInit {
   private readonly usersApi = inject(UsersApiService);
+  private readonly bio = inject(BiometricsApiService);
   private readonly auth = inject(AuthService);
   private readonly messages = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
+
+  // ID biométrico del usuario (enrolamiento en el huellero de su sucursal).
+  bioPin = '';
+  private bioPinOriginal = '';
+  readonly bioDeviceName = signal<string | null>(null);
 
   readonly items = signal<UserRow[]>([]);
   readonly total = signal(0);
@@ -397,6 +421,9 @@ export class UsuariosComponent implements OnInit {
 
   openNew(): void {
     this.form = { ...EMPTY_FORM, branchIds: [] };
+    this.bioPin = '';
+    this.bioPinOriginal = '';
+    this.bioDeviceName.set(null);
     this.dialogVisible = true;
   }
 
@@ -410,6 +437,17 @@ export class UsuariosComponent implements OnInit {
       status: row.status as 'active' | 'inactive',
       branchIds: [...row.branchIds],
     };
+    this.bioPin = '';
+    this.bioPinOriginal = '';
+    this.bioDeviceName.set(null);
+    this.bio.getUserPin(row.id).subscribe({
+      next: (res) => {
+        this.bioPin = res.data?.pin ?? '';
+        this.bioPinOriginal = this.bioPin;
+        this.bioDeviceName.set(res.data?.deviceName ?? null);
+      },
+      error: () => undefined,
+    });
     this.dialogVisible = true;
   }
 
@@ -422,14 +460,25 @@ export class UsuariosComponent implements OnInit {
     const req$ = id ? this.usersApi.update(id, payload) : this.usersApi.create(payload);
     req$.subscribe({
       next: () => {
-        this.saving.set(false);
-        this.dialogVisible = false;
-        this.messages.add({
-          severity: 'success',
-          summary: 'Guardado',
-          detail: id ? 'Usuario actualizado.' : 'Usuario creado.',
-        });
-        this.reload();
+        const done = (extra?: { warn?: string }) => {
+          this.saving.set(false);
+          this.dialogVisible = false;
+          if (extra?.warn) {
+            this.messages.add({ severity: 'warn', summary: 'Usuario guardado', detail: extra.warn });
+          } else {
+            this.messages.add({ severity: 'success', summary: 'Guardado', detail: id ? 'Usuario actualizado.' : 'Usuario creado.' });
+          }
+          this.reload();
+        };
+        // Al editar, si cambió el ID biométrico, actualiza/crea/borra el enrolamiento.
+        if (id && this.bioPin.trim() !== this.bioPinOriginal.trim()) {
+          this.bio.setUserPin(id, this.bioPin.trim()).subscribe({
+            next: () => done(),
+            error: (err: HttpErrorResponse) => done({ warn: err.error?.error?.message ?? 'No se pudo guardar el ID biométrico.' }),
+          });
+        } else {
+          done();
+        }
       },
       error: (err: HttpErrorResponse) => {
         this.saving.set(false);

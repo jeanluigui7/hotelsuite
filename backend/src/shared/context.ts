@@ -13,6 +13,8 @@ export interface AuthUser {
   branchIds: string[];
   /** Si está activo, el usuario debe cambiar su contraseña en el próximo ingreso. */
   mustChangePassword: boolean;
+  /** Modo huellero obligatorio por rol: el usuario ingresa y finaliza turno con huella (no contraseña). */
+  requiresFingerprint?: boolean;
 }
 
 /**

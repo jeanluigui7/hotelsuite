@@ -55,6 +55,26 @@ export const workShiftsService = {
     return null;
   },
 
+  /**
+   * Igual que `logoutBlockReason` PERO para el logout por HUELLA: NO bloquea por "turno de recepción
+   * activo con caja cerrada" (finalizar ese turno es justo lo que hará la huella). Solo bloquea lo que
+   * el usuario debe resolver a mano antes: caja ABIERTA y ropa pendiente de lavandería (limpieza).
+   */
+  async logoutBlockReasonForFingerprint(userId: string): Promise<string | null> {
+    const shift = await this.hasActiveByUser(userId);
+    if (shift) {
+      const openCaja = await cashRepository.findOpen(shift.branchId);
+      if (openCaja) return 'Debes cerrar tu caja antes de finalizar el turno.';
+    }
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: { select: { name: true } } } });
+    const isCleaning = (user?.role?.name ?? '').toLowerCase().includes('limpieza');
+    if (isCleaning) {
+      const cleaning = await prisma.cleaningShift.findFirst({ where: { userId, status: 'OPEN' }, orderBy: { openedAt: 'desc' } });
+      if (cleaning) return 'Envía la ropa a lavandería y finaliza tu turno de limpieza antes de cerrar sesión.';
+    }
+    return null;
+  },
+
   /** Estado de la Gestión de Turno del usuario: turno activo (si hay) + estado de la caja. */
   async current(scope: RequestScope) {
     const branchId = requireActiveBranch(scope);

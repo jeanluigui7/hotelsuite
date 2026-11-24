@@ -12,7 +12,7 @@ import { TagModule } from 'primeng/tag';
 import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmationService, MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
-import { BiometricsApiService, type AdmsStatus, type BiometricDevice, type DeviceEnrollment } from '../services/biometrics-api.service';
+import { BiometricsApiService, type AdmsStatus, type BiometricDevice, type DeviceEnrollment, type LoginConfig } from '../services/biometrics-api.service';
 import { UsersApiService, type UserRow } from '../../hr/services/users-api.service';
 
 interface DeviceForm {
@@ -77,6 +77,27 @@ const STATUS_META: Record<string, { label: string; severity: 'success' | 'second
         </ng-template>
         <ng-template pTemplate="emptymessage"><tr><td colspan="5" class="muted center">Sin dispositivos.</td></tr></ng-template>
       </p-table>
+    </section>
+
+    <!-- Login por huella (modo obligatorio por rol) -->
+    <section class="login-cfg">
+      <header class="cat-head">
+        <div>
+          <h2>Ingreso por huella (modo obligatorio)</h2>
+          <p class="muted">Los roles marcados <b>ingresan y finalizan turno con huella</b> en lugar de contraseña. El Super Admin nunca se exige por huella.</p>
+        </div>
+      </header>
+      <div class="roles-grid">
+        @for (r of loginRoles(); track r.id) {
+          <label class="role-chip" [class.on]="r.required" [class.disabled]="r.isSuperAdmin || !canEdit">
+            <input type="checkbox" [checked]="r.required" [disabled]="r.isSuperAdmin || !canEdit" (change)="toggleRole(r, $any($event.target).checked)" />
+            <span>{{ r.name }}</span>
+            @if (r.isSuperAdmin) { <small>(no aplica)</small> }
+          </label>
+        }
+        @if (loginRoles().length === 0) { <span class="muted">Sin roles.</span> }
+      </div>
+      @if (canEdit) { <p-button label="Guardar roles" icon="pi pi-check" [loading]="savingLogin()" (onClick)="saveLoginConfig()" styleClass="save-roles" /> }
     </section>
 
     <!-- Dispositivo -->
@@ -168,6 +189,13 @@ const STATUS_META: Record<string, { label: string; severity: 'success' | 'second
           <p-button icon="pi pi-link" label="Vincular" [loading]="admsBusy()" (onClick)="bindManual()" />
         </div>
         <p class="muted sm">Si no aparece el equipo detectado, carga primero la Dirección del Servidor en el huellero y vuelve a abrir esta ventana (el equipo se anuncia en segundos). El número de serie está en Red → Conexión a PC, o en la etiqueta del equipo.</p>
+
+        <label>Marcas de asistencia</label>
+        <label class="chk">
+          <input type="checkbox" [checked]="adms()?.useState" [disabled]="admsBusy()" (change)="toggleState($any($event.target).checked)" />
+          Usar la tecla <b>ENTRADA/SALIDA</b> del equipo (en vez de alternar automáticamente)
+        </label>
+        <p class="muted sm">Actívalo solo si verificaste (en los registros) que el equipo envía el estado al marcar. Si no, déjalo desactivado: el sistema alterna Entrada/Salida respecto a la última marca.</p>
       </div>
       <ng-template pTemplate="footer">
         <p-button label="Refrescar" icon="pi pi-refresh" [text]="true" (onClick)="reloadAdms()" />
@@ -227,6 +255,18 @@ const STATUS_META: Record<string, { label: string; severity: 'success' | 'second
       .token-box { margin-top: 0.8rem; border: 1px solid var(--p-primary-color, #3b82f6); border-radius: 8px; padding: 0.7rem; background: var(--p-highlight-background, rgba(59,130,246,0.08)); }
       .token-head { font-weight: 700; display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.4rem; }
       .sm { font-size: 0.78rem; }
+      label.chk { display: flex; align-items: center; gap: 0.5rem; font-weight: 500; cursor: pointer; }
+      label.chk input { width: 18px; height: 18px; }
+      .login-cfg { margin-top: 1.75rem; padding-top: 1.25rem; border-top: 1px solid var(--p-content-border-color, #e5e7eb); }
+      .login-cfg h2 { margin: 0 0 0.2rem; font-size: 1.1rem; }
+      .roles-grid { display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 0.9rem 0 1rem; }
+      .role-chip { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.9rem; cursor: pointer;
+        border: 1px solid var(--p-content-border-color, #d1d5db); border-radius: 999px; font-size: 0.9rem; user-select: none; }
+      .role-chip.on { border-color: var(--rz-accent, #10b981); background: color-mix(in srgb, var(--rz-accent, #10b981) 12%, transparent); font-weight: 700; }
+      .role-chip.disabled { opacity: 0.55; cursor: not-allowed; }
+      .role-chip input { width: 17px; height: 17px; }
+      .role-chip small { color: var(--p-text-muted-color, #8aa0bd); }
+      :host ::ng-deep .save-roles { display: inline-block; }
     `,
   ],
   styleUrls: ['../catalogs/catalog.styles.scss'],
@@ -266,6 +306,10 @@ export class BiometricsComponent implements OnInit {
   readonly admsBusy = signal(false);
   admsSerialInput = '';
 
+  // Login por huella (roles)
+  readonly loginRoles = signal<LoginConfig['roles']>([]);
+  readonly savingLogin = signal(false);
+
   readonly canCreate = this.auth.can('settings', 'create');
   readonly canEdit = this.auth.can('settings', 'edit');
   readonly canDelete = this.auth.can('settings', 'delete');
@@ -273,6 +317,10 @@ export class BiometricsComponent implements OnInit {
   ngOnInit(): void {
     this.usersApi.list({ pageSize: 100, sortBy: 'name' }).subscribe((res) => this.users.set(res.data ?? []));
     this.reload();
+    this.api.loginConfig().subscribe({
+      next: (res) => this.loginRoles.set(res.data?.roles ?? []),
+      error: () => this.loginRoles.set([]),
+    });
   }
 
   meta(s: string) {
@@ -390,6 +438,43 @@ export class BiometricsComponent implements OnInit {
       error: (err: HttpErrorResponse) => {
         this.admsBusy.set(false);
         this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo vincular.' });
+      },
+    });
+  }
+
+  /** Activa/desactiva el uso de la tecla ENTRADA/SALIDA del equipo. */
+  toggleState(on: boolean): void {
+    if (!this.admsDevice) return;
+    this.admsBusy.set(true);
+    this.api.setAdmsState(this.admsDevice.id, on).subscribe({
+      next: () => {
+        this.admsBusy.set(false);
+        this.messages.add({ severity: 'success', summary: 'Guardado', detail: on ? 'Se usará la tecla ENTRADA/SALIDA del equipo.' : 'Se alternará Entrada/Salida automáticamente.' });
+        this.reloadAdms();
+      },
+      error: (err: HttpErrorResponse) => {
+        this.admsBusy.set(false);
+        this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo guardar.' });
+      },
+    });
+  }
+
+  // ── Login por huella (roles) ──
+  toggleRole(role: LoginConfig['roles'][number], on: boolean): void {
+    this.loginRoles.update((list) => list.map((r) => (r.id === role.id ? { ...r, required: on } : r)));
+  }
+  saveLoginConfig(): void {
+    const ids = this.loginRoles().filter((r) => r.required && !r.isSuperAdmin).map((r) => r.id);
+    this.savingLogin.set(true);
+    this.api.saveLoginConfig(ids).subscribe({
+      next: (res) => {
+        this.savingLogin.set(false);
+        this.loginRoles.set(res.data?.roles ?? this.loginRoles());
+        this.messages.add({ severity: 'success', summary: 'Guardado', detail: 'Roles de ingreso por huella actualizados.' });
+      },
+      error: (err: HttpErrorResponse) => {
+        this.savingLogin.set(false);
+        this.messages.add({ severity: 'error', summary: 'Error', detail: err.error?.error?.message ?? 'No se pudo guardar.' });
       },
     });
   }

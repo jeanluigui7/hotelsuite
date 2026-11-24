@@ -5,7 +5,7 @@ import { UnauthorizedError } from '../../shared/errors';
 import { biometricsService } from './biometrics.service';
 import { biometricsAgentService } from './biometrics-agent.service';
 import { biometricsAdmsService } from './biometrics-adms.service';
-import { bindSerialSchema, createDeviceSchema, enrollSchema, updateDeviceSchema } from './biometrics.schema';
+import { admsStateSchema, bindSerialSchema, createDeviceSchema, enrollSchema, updateDeviceSchema } from './biometrics.schema';
 
 export const biometricsController = {
   async list(req: Request, res: Response): Promise<void> {
@@ -75,5 +75,11 @@ export const biometricsController = {
     if (!req.scope) throw new UnauthorizedError();
     const dto = bindSerialSchema.parse(req.body);
     res.status(200).json(ok(await biometricsAdmsService.bindSerial(req.scope, req.params.id, dto.serial)));
+  },
+  /** Activa/desactiva la lectura de la tecla ENTRADA/SALIDA del equipo. */
+  async setAdmsState(req: Request, res: Response): Promise<void> {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = admsStateSchema.parse(req.body);
+    res.status(200).json(ok(await biometricsAdmsService.setStateMode(req.scope, req.params.id, dto.useState)));
   },
 };

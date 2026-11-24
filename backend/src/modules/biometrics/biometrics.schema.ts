@@ -34,6 +34,8 @@ export const heartbeatSchema = z.object({
 });
 // Vincular número de serie (ADMS/nube) a un dispositivo.
 export const bindSerialSchema = z.object({ serial: z.string().min(1).max(64) });
+// Usar la tecla ENTRADA/SALIDA del equipo (col 3 del ATTLOG) en vez de alternar.
+export const admsStateSchema = z.object({ useState: z.boolean() });
 
 export type CreateDeviceDto = z.infer<typeof createDeviceSchema>;
 export type UpdateDeviceDto = z.infer<typeof updateDeviceSchema>;

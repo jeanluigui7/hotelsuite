@@ -9,11 +9,13 @@ import { PasswordModule } from 'primeng/password';
 import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/auth/auth.service';
+import type { FingerprintPoll } from '../../../core/auth/auth.models';
+import { FingerprintAuthModalComponent } from '../../../shared/fingerprint-auth/fingerprint-auth-modal.component';
 
 @Component({
   selector: 'app-login',
   standalone: true,
-  imports: [FormsModule, ButtonModule, InputTextModule, PasswordModule, SelectModule],
+  imports: [FormsModule, ButtonModule, InputTextModule, PasswordModule, SelectModule, FingerprintAuthModalComponent],
   template: `
     <div class="login-bg">
       <!-- destellos decorativos -->
@@ -28,9 +30,9 @@ import { AuthService } from '../../../core/auth/auth.service';
         </div>
 
         @if (step() === 'credentials') {
-          <!-- Huella digital (pendiente) -->
-          <button type="button" class="fingerprint" (click)="fingerprintPending()">
-            <i class="pi pi-cloud"></i> Usar huella digital
+          <!-- Acceso por huella digital -->
+          <button type="button" class="fingerprint" (click)="useFingerprint()">
+            <i class="pi pi-id-card"></i> Acceder con huella
           </button>
 
           <form (ngSubmit)="submit()">
@@ -42,31 +44,43 @@ import { AuthService } from '../../../core/auth/auth.service';
               type="email"
               placeholder="tucorreo@hotel.com"
               [(ngModel)]="email"
+              (blur)="detectMode()"
               autocomplete="username"
               required
             />
 
-            <div class="label-row">
-              <label for="password"><i class="pi pi-lock"></i> Contraseña</label>
-              <a class="forgot" (click)="forgotPending()">¿Olvidó su contraseña?</a>
-            </div>
-            <p-password
-              inputId="password"
-              name="password"
-              [(ngModel)]="password"
-              [feedback]="false"
-              [toggleMask]="true"
-              placeholder="••••••••"
-              styleClass="w-full"
-              [inputStyle]="{ width: '100%' }"
-              autocomplete="current-password"
-            />
+            @if (fpMode()) {
+              <div class="fp-note">
+                <i class="pi pi-id-card"></i>
+                Este usuario ingresa con <strong>huella digital</strong>. Pulsa «Acceder con huella».
+              </div>
+              @if (error()) {
+                <div class="error"><i class="pi pi-exclamation-circle"></i> {{ error() }}</div>
+              }
+              <p-button type="button" label="Acceder con huella" icon="pi pi-id-card" [loading]="checkingMode()" (onClick)="useFingerprint()" styleClass="submit" />
+            } @else {
+              <div class="label-row">
+                <label for="password"><i class="pi pi-lock"></i> Contraseña</label>
+                <a class="forgot" (click)="forgotPending()">¿Olvidó su contraseña?</a>
+              </div>
+              <p-password
+                inputId="password"
+                name="password"
+                [(ngModel)]="password"
+                [feedback]="false"
+                [toggleMask]="true"
+                placeholder="••••••••"
+                styleClass="w-full"
+                [inputStyle]="{ width: '100%' }"
+                autocomplete="current-password"
+              />
 
-            @if (error()) {
-              <div class="error"><i class="pi pi-exclamation-circle"></i> {{ error() }}</div>
+              @if (error()) {
+                <div class="error"><i class="pi pi-exclamation-circle"></i> {{ error() }}</div>
+              }
+
+              <p-button type="submit" label="Iniciar sesión" [loading]="loading()" styleClass="submit" />
             }
-
-            <p-button type="submit" label="Iniciar sesión" [loading]="loading()" styleClass="submit" />
           </form>
         } @else {
           <h2 class="branch-title">Selecciona la sucursal</h2>
@@ -91,6 +105,16 @@ import { AuthService } from '../../../core/auth/auth.service';
           />
         }
       </div>
+
+      @if (fpOpen()) {
+        <app-fingerprint-auth-modal
+          mode="login"
+          [email]="email"
+          [name]="fpName()"
+          (success)="onFpSuccess($event)"
+          (cancelled)="onFpCancel()"
+        />
+      }
     </div>
   `,
   styles: [
@@ -177,6 +201,13 @@ import { AuthService } from '../../../core/auth/auth.service';
       :host ::ng-deep .p-password .p-icon,
       :host ::ng-deep .p-password .p-password-toggle-mask-icon { color: #be185d; right: 1rem; }
 
+      .fp-note {
+        margin-top: 1rem; padding: 0.7rem 0.85rem; border-radius: 10px;
+        background: rgba(236, 72, 153, 0.12); border: 1px solid rgba(236, 72, 153, 0.35);
+        color: #f9c6df; font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; line-height: 1.3;
+      }
+      .fp-note strong { color: #fff; }
+
       .error {
         margin-top: 1rem; padding: 0.65rem 0.85rem; border-radius: 8px;
         background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4);
@@ -217,12 +248,71 @@ export class LoginComponent {
   readonly error = signal<string | null>(null);
   readonly step = signal<'credentials' | 'branch'>('credentials');
 
-  fingerprintPending(): void {
-    this.toast.add({
-      severity: 'info',
-      summary: 'Huella digital',
-      detail: 'El acceso por huella digital estará disponible próximamente.',
+  // Huella
+  readonly fpMode = signal(false);
+  readonly fpName = signal('');
+  readonly fpOpen = signal(false);
+  readonly checkingMode = signal(false);
+
+  /** Al salir del campo correo: detecta si el usuario ingresa con huella (oculta la contraseña). */
+  detectMode(): void {
+    const email = this.email.trim();
+    if (!email) { this.fpMode.set(false); return; }
+    this.checkingMode.set(true);
+    this.auth.fpLoginMode(email).subscribe({
+      next: (res) => {
+        this.checkingMode.set(false);
+        this.fpMode.set(res.data.mode === 'fingerprint');
+        this.fpName.set(res.data.name ?? '');
+      },
+      error: () => { this.checkingMode.set(false); this.fpMode.set(false); },
     });
+  }
+
+  /** Botón «Acceder con huella»: verifica el modo y abre el modal biométrico. */
+  useFingerprint(): void {
+    const email = this.email.trim();
+    if (!email) { this.error.set('Ingresa tu correo para usar la huella.'); return; }
+    this.error.set(null);
+    this.checkingMode.set(true);
+    this.auth.fpLoginMode(email).subscribe({
+      next: (res) => {
+        this.checkingMode.set(false);
+        if (res.data.mode === 'fingerprint') {
+          this.fpMode.set(true);
+          this.fpName.set(res.data.name ?? '');
+          this.fpOpen.set(true);
+        } else {
+          this.fpMode.set(false);
+          this.toast.add({ severity: 'info', summary: 'Huella', detail: 'Este usuario ingresa con contraseña.' });
+        }
+      },
+      error: () => {
+        this.checkingMode.set(false);
+        this.toast.add({ severity: 'warn', summary: 'Huella', detail: 'No se pudo verificar el modo de ingreso.' });
+      },
+    });
+  }
+
+  onFpSuccess(_poll: FingerprintPoll): void {
+    this.fpOpen.set(false);
+    // La sesión ya quedó aplicada por el modal; cargar sucursales y continuar.
+    this.auth.loadBranches().subscribe({
+      next: () => {
+        const branches = this.auth.branches();
+        if (branches.length > 1) {
+          this.selectedBranchId = this.auth.activeBranchId();
+          this.step.set('branch');
+        } else {
+          this.router.navigateByUrl(this.auth.user()?.mustChangePassword ? '/perfil' : '/dashboard');
+        }
+      },
+      error: () => this.router.navigateByUrl('/dashboard'),
+    });
+  }
+
+  onFpCancel(): void {
+    this.fpOpen.set(false);
   }
 
   forgotPending(): void {

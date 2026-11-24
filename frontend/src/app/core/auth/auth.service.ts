@@ -3,7 +3,15 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import type { ApiResponse } from '../models/api-response.model';
-import type { AuthSession, AuthUser, Branch, LoginRequest } from './auth.models';
+import type {
+  AuthSession,
+  AuthUser,
+  Branch,
+  FingerprintPoll,
+  FingerprintRequest,
+  LoginMode,
+  LoginRequest,
+} from './auth.models';
 
 const ACTIVE_BRANCH_KEY = 'hs_active_branch';
 
@@ -54,6 +62,47 @@ export class AuthService {
     return this.http
       .post(`${this.api}/auth/logout`, {}, { withCredentials: true })
       .pipe(tap(() => this.clearSession()));
+  }
+
+  /** True si el usuario actual debe finalizar turno / cerrar sesión con huella. */
+  requiresFingerprint(): boolean {
+    return !!this.user()?.requiresFingerprint;
+  }
+
+  // ── Ingreso/salida por huella ──
+  /** (Pre-sesión) ¿Este correo ingresa con contraseña o con huella? */
+  fpLoginMode(email: string): Observable<ApiResponse<LoginMode>> {
+    return this.http.post<ApiResponse<LoginMode>>(`${this.api}/auth/fingerprint/login-mode`, { email }, { withCredentials: true });
+  }
+  /** (Pre-sesión) Abre una solicitud de login por huella. */
+  fpLoginRequest(email: string): Observable<ApiResponse<FingerprintRequest>> {
+    return this.http.post<ApiResponse<FingerprintRequest>>(`${this.api}/auth/fingerprint/login-request`, { email }, { withCredentials: true });
+  }
+  /** (Pre-sesión) Sondea el estado del login; al autenticar aplica la sesión. */
+  fpLoginPoll(requestId: string): Observable<ApiResponse<FingerprintPoll>> {
+    return this.http
+      .get<ApiResponse<FingerprintPoll>>(`${this.api}/auth/fingerprint/login/${requestId}`, { withCredentials: true })
+      .pipe(tap((res) => {
+        if (res.data?.status === 'authenticated' && res.data.user && res.data.accessToken) {
+          this.applySession({ user: res.data.user, accessToken: res.data.accessToken });
+        }
+      }));
+  }
+  /** Abre una solicitud de logout/fin de turno por huella (sesión activa). */
+  fpLogoutRequest(): Observable<ApiResponse<FingerprintRequest>> {
+    return this.http.post<ApiResponse<FingerprintRequest>>(`${this.api}/auth/fingerprint/logout-request`, {}, { withCredentials: true });
+  }
+  /** Sondea el estado del logout; al autenticar limpia la sesión. */
+  fpLogoutPoll(requestId: string): Observable<ApiResponse<FingerprintPoll>> {
+    return this.http
+      .get<ApiResponse<FingerprintPoll>>(`${this.api}/auth/fingerprint/logout/${requestId}`, { withCredentials: true })
+      .pipe(tap((res) => {
+        if (res.data?.status === 'authenticated') this.clearSession();
+      }));
+  }
+  /** Cancela una solicitud de huella en curso. */
+  fpCancel(requestId: string): Observable<unknown> {
+    return this.http.post(`${this.api}/auth/fingerprint/cancel/${requestId}`, {}, { withCredentials: true });
   }
 
   /** Actualiza el perfil propio (nombre, correo, teléfono) y refresca la sesión. */

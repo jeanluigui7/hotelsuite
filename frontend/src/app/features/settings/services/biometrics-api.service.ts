@@ -68,6 +68,26 @@ export class BiometricsApiService {
   bindSerial(id: string, serial: string): Observable<ApiResponse<{ serial: string }>> {
     return this.http.post<ApiResponse<{ serial: string }>>(`${this.api}/biometric-devices/${id}/adms-serial`, { serial });
   }
+  /** Activa/desactiva el uso de la tecla ENTRADA/SALIDA del equipo (col 3 del ATTLOG). */
+  setAdmsState(id: string, useState: boolean): Observable<ApiResponse<{ useState: boolean }>> {
+    return this.http.post<ApiResponse<{ useState: boolean }>>(`${this.api}/biometric-devices/${id}/adms-state`, { useState });
+  }
+
+  // ── Login por huella (modo obligatorio por rol) ──
+  loginConfig(): Observable<ApiResponse<LoginConfig>> {
+    return this.http.get<ApiResponse<LoginConfig>>(`${this.api}/biometrics/login-config`);
+  }
+  saveLoginConfig(roleIds: string[]): Observable<ApiResponse<LoginConfig>> {
+    return this.http.put<ApiResponse<LoginConfig>>(`${this.api}/biometrics/login-config`, { roleIds });
+  }
+
+  // ── ID biométrico del usuario (RRHH › Usuarios) ──
+  getUserPin(userId: string): Observable<ApiResponse<UserPin>> {
+    return this.http.get<ApiResponse<UserPin>>(`${this.api}/biometrics/user/${userId}/pin`);
+  }
+  setUserPin(userId: string, pin: string): Observable<ApiResponse<{ deviceId: string | null; pin: string | null }>> {
+    return this.http.put<ApiResponse<{ deviceId: string | null; pin: string | null }>>(`${this.api}/biometrics/user/${userId}/pin`, { pin });
+  }
 }
 
 export interface AdmsStatus {
@@ -75,4 +95,15 @@ export interface AdmsStatus {
   lastSeen: string | null;
   serverAddress: string;
   detected: { serial: string; at: string } | null;
+  useState: boolean;
+}
+
+export interface LoginConfig {
+  roles: { id: string; name: string; isSuperAdmin: boolean; required: boolean }[];
+}
+
+export interface UserPin {
+  deviceId: string | null;
+  pin: string | null;
+  deviceName: string | null;
 }

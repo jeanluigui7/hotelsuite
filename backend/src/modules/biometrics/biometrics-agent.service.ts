@@ -6,6 +6,7 @@ import { NotFoundError, UnauthorizedError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import type { RequestScope } from '../../shared/context';
 import { recordAttendance } from '../attendance/attendance.repository';
+import { fpAuthStore } from '../fingerprint-login/fp-auth.store';
 import { biometricsRepository } from './biometrics.repository';
 import type { IngestMark } from './biometrics.schema';
 
@@ -84,6 +85,8 @@ export const biometricsAgentService = {
         skipped++;
         continue;
       }
+      // Marca que responde a una autenticación por huella (login/logout) → no genera asistencia.
+      if (fpAuthStore.consumeForMark(enrollment.userId, device.id)) { skipped++; continue; }
       const at = m.at ? new Date(m.at) : new Date();
       const dup = await prisma.attendance.findFirst({ where: { branchId: device.branchId, userId: enrollment.userId, deviceId: device.id, at } });
       if (dup) { skipped++; continue; }

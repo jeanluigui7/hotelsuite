@@ -26,6 +26,7 @@ biometricsRouter.post('/biometric-devices/:id/agent-token', requirePermission('s
 // ADMS / nube: estado y vinculación del número de serie del huellero.
 biometricsRouter.get('/biometric-devices/:id/adms-status', requirePermission('settings', 'view'), asyncHandler(biometricsController.admsStatus));
 biometricsRouter.post('/biometric-devices/:id/adms-serial', requirePermission('settings', 'edit'), asyncHandler(biometricsController.bindSerial));
+biometricsRouter.post('/biometric-devices/:id/adms-state', requirePermission('settings', 'edit'), asyncHandler(biometricsController.setAdmsState));
 
 biometricsRouter.get('/biometric-devices/:id/enrollments', requirePermission('settings', 'view'), asyncHandler(biometricsController.enrollments));
 biometricsRouter.post('/biometric-devices/:id/enrollments', requirePermission('settings', 'create'), asyncHandler(biometricsController.enroll));

@@ -70,6 +70,7 @@ import { performanceRouter } from './modules/performance/performance.routes';
 import { biometricsRouter } from './modules/biometrics/biometrics.routes';
 import { biometricsAgentRouter } from './modules/biometrics/biometrics-agent.routes';
 import { biometricsAdmsRouter } from './modules/biometrics/biometrics-adms.routes';
+import { fpLoginRouter } from './modules/fingerprint-login/fp-login.routes';
 import { reportsRouter } from './modules/reports/reports.routes';
 import { whatsappRouter } from './modules/whatsapp/whatsapp.routes';
 import { whatsappConfigRouter } from './modules/whatsapp-config/whatsapp-config.routes';
@@ -123,6 +124,8 @@ export function createApp(): Application {
   // Routes (mounted under /api). New module routers are added here per phase.
   app.use('/api', healthRouter);
   app.use('/api', authRouter);
+  // Login/logout por huella: endpoints públicos (pre-sesión) y autenticados. Va junto a auth.
+  app.use('/api', fpLoginRouter);
   // Público (sin auth) ANTES de los routers protegidos: como todos se montan en
   // /api y los protegidos aplican authenticate() a nivel de router, si el público
   // fuera después, /api/public/* chocaría con un authenticate() y devolvería 401.

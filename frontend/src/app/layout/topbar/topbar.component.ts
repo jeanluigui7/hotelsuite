@@ -9,6 +9,7 @@ import { MessageService } from 'primeng/api';
 import { AuthService } from '../../core/auth/auth.service';
 import { LayoutService } from '../layout.service';
 import { ThemeService } from '../../core/theme/theme.service';
+import { FingerprintAuthModalComponent } from '../../shared/fingerprint-auth/fingerprint-auth-modal.component';
 
 /** Etiquetas legibles para construir el breadcrumb a partir de la URL. */
 const SEGMENT_LABELS: Record<string, string> = {
@@ -31,7 +32,7 @@ const SEGMENT_LABELS: Record<string, string> = {
 @Component({
   selector: 'app-topbar',
   standalone: true,
-  imports: [FormsModule, ButtonModule, TooltipModule],
+  imports: [FormsModule, ButtonModule, TooltipModule, FingerprintAuthModalComponent],
   template: `
     <header class="topbar">
       <div class="left">
@@ -94,6 +95,15 @@ const SEGMENT_LABELS: Record<string, string> = {
 
       @if (themeOpen()) { <div class="theme-backdrop" (click)="themeOpen.set(false)"></div> }
     </header>
+
+    @if (fpOpen()) {
+      <app-fingerprint-auth-modal
+        mode="logout"
+        [name]="auth.user()?.name ?? displayName()"
+        (success)="onFpLogoutSuccess()"
+        (cancelled)="fpOpen.set(false)"
+      />
+    }
   `,
   styles: [
     `
@@ -178,6 +188,7 @@ export class TopbarComponent {
   private readonly messages = inject(MessageService);
 
   readonly themeOpen = signal(false);
+  readonly fpOpen = signal(false);
 
   private readonly navUrl = toSignal(
     this.router.events.pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd)),
@@ -209,6 +220,11 @@ export class TopbarComponent {
   goHome(): void { this.router.navigateByUrl('/dashboard'); }
 
   logout(): void {
+    // Roles en "modo huellero obligatorio": finalizan turno y cierran sesión con huella.
+    if (this.auth.requiresFingerprint()) {
+      this.fpOpen.set(true);
+      return;
+    }
     this.auth.logout().subscribe({
       next: () => this.router.navigateByUrl('/login'),
       error: (e: import('@angular/common/http').HttpErrorResponse) => {
@@ -216,5 +232,10 @@ export class TopbarComponent {
         else this.router.navigateByUrl('/login');
       },
     });
+  }
+
+  onFpLogoutSuccess(): void {
+    this.fpOpen.set(false);
+    this.router.navigateByUrl('/login');
   }
 }

@@ -5,6 +5,7 @@ import { NotFoundError } from '../../shared/errors';
 import { requireActiveBranch } from '../../shared/scope';
 import type { RequestScope } from '../../shared/context';
 import { recordAttendance } from '../attendance/attendance.repository';
+import { fpAuthStore } from '../fingerprint-login/fp-auth.store';
 import { biometricsRepository } from './biometrics.repository';
 
 /**
@@ -23,6 +24,9 @@ import { biometricsRepository } from './biometrics.repository';
 const SERIAL_PREFIX = 'biometrics.adms.serial.';
 const SERIAL_KEY = (deviceId: string): string => `${SERIAL_PREFIX}${deviceId}`;
 const SEEN_KEY = (deviceId: string): string => `biometrics.adms.seen.${deviceId}`;
+// Interpretar la tecla ENTRADA/SALIDA (col 3 del ATTLOG) en vez de alternar. Off por defecto: se activa
+// desde el panel SOLO tras verificar que el equipo realmente envía el estado (si no, todo saldría IN).
+const STATE_KEY = (deviceId: string): string => `biometrics.adms.state.${deviceId}`;
 
 // Dirección del servidor que el administrador debe cargar en el huellero (ADMS). El equipo le añade
 // /iclock/... — como va bajo /api, Caddy lo proxya al backend sin cambios de infraestructura.
@@ -98,23 +102,44 @@ export const biometricsAdmsService = {
     if ((table || '').toUpperCase() !== 'ATTLOG') return 'OK';
 
     const lines = (body || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const useState = (await getSetting(device.branchId, STATE_KEY(device.id))) === 'on';
     let recorded = 0;
+    let authConsumed = 0;
     for (const line of lines) {
       const cols = line.split('\t');
       const pin = (cols[0] ?? '').trim();
       const when = (cols[1] ?? '').trim();
       if (!pin || !when) continue;
+      const stateRaw = (cols[2] ?? '').trim();
       const at = parseDeviceTime(when);
       const enrollment = await biometricsRepository.findEnrollment(device.id, pin);
       if (!enrollment) { logger.warn(`ADMS: PIN ${pin} sin enrolar en device ${device.id}`); continue; }
+
+      // ¿Esta marca responde a una solicitud de AUTENTICACIÓN por huella (login/logout)? Si es así, NO
+      // genera asistencia: la huella se usó para autenticar la operación del PMS (flujo de 4 huellas).
+      const consumed = fpAuthStore.consumeForMark(enrollment.userId, device.id);
+      if (consumed) {
+        authConsumed++;
+        logger.info(`ADMS: marca de usuario ${enrollment.userId} usada como AUTENTICACIÓN (${consumed}); sin asistencia.`);
+        continue;
+      }
+
       const dup = await prisma.attendance.findFirst({ where: { branchId: device.branchId, userId: enrollment.userId, deviceId: device.id, at } });
       if (dup) continue;
-      const last = await prisma.attendance.findFirst({ where: { branchId: device.branchId, userId: enrollment.userId }, orderBy: { at: 'desc' } });
-      const type = last?.type === 'IN' ? 'OUT' : 'IN';
+      // Tipo: si el equipo envía la tecla ENTRADA/SALIDA (col 3) y está habilitado, se respeta; si no, se
+      // alterna respecto a la última marca. El estado crudo se registra siempre para poder verificarlo.
+      let type: 'IN' | 'OUT';
+      if (useState && (stateRaw === '0' || stateRaw === '1')) {
+        type = stateRaw === '0' ? 'IN' : 'OUT';
+      } else {
+        const last = await prisma.attendance.findFirst({ where: { branchId: device.branchId, userId: enrollment.userId }, orderBy: { at: 'desc' } });
+        type = last?.type === 'IN' ? 'OUT' : 'IN';
+      }
+      logger.info(`ADMS: asistencia pin=${pin} estado="${stateRaw}" → ${type}${useState ? ' (por tecla)' : ' (alternado)'}`);
       await recordAttendance({ branchId: device.branchId, userId: enrollment.userId, type, source: 'BIOMETRIC', deviceId: device.id, at });
       recorded++;
     }
-    logger.info(`ADMS: ${device.id} subió ${lines.length} línea(s) ATTLOG, ${recorded} registrada(s).`);
+    logger.info(`ADMS: ${device.id} subió ${lines.length} línea(s) ATTLOG, ${recorded} asistencia(s), ${authConsumed} autenticación(es).`);
     return `OK: ${recorded}`;
   },
 
@@ -127,12 +152,25 @@ export const biometricsAdmsService = {
 
   // ── Panel (administración) ──
   /** Estado ADMS de un dispositivo: SN vinculado, última señal, dirección a cargar y SN detectado. */
-  async status(scope: RequestScope, deviceId: string): Promise<{ serial: string | null; lastSeen: string | null; serverAddress: string; detected: { serial: string; at: string } | null }> {
+  async status(scope: RequestScope, deviceId: string): Promise<{ serial: string | null; lastSeen: string | null; serverAddress: string; detected: { serial: string; at: string } | null; useState: boolean }> {
     const branchId = requireActiveBranch(scope);
     const device = await biometricsRepository.findDevice(deviceId);
     if (!device || device.branchId !== branchId) throw new NotFoundError('Dispositivo no encontrado');
-    const [serial, seen] = await Promise.all([getSetting(branchId, SERIAL_KEY(deviceId)), getSetting(branchId, SEEN_KEY(deviceId))]);
-    return { serial, lastSeen: seen, serverAddress: ADMS_SERVER_ADDRESS, detected: lastUnclaimed };
+    const [serial, seen, state] = await Promise.all([
+      getSetting(branchId, SERIAL_KEY(deviceId)),
+      getSetting(branchId, SEEN_KEY(deviceId)),
+      getSetting(branchId, STATE_KEY(deviceId)),
+    ]);
+    return { serial, lastSeen: seen, serverAddress: ADMS_SERVER_ADDRESS, detected: lastUnclaimed, useState: state === 'on' };
+  },
+
+  /** Activa/desactiva la lectura de la tecla ENTRADA/SALIDA (col 3 del ATTLOG) para ese equipo. */
+  async setStateMode(scope: RequestScope, deviceId: string, on: boolean): Promise<{ useState: boolean }> {
+    const branchId = requireActiveBranch(scope);
+    const device = await biometricsRepository.findDevice(deviceId);
+    if (!device || device.branchId !== branchId) throw new NotFoundError('Dispositivo no encontrado');
+    await setSetting(branchId, STATE_KEY(deviceId), on ? 'on' : 'off');
+    return { useState: on };
   },
 
   /** Vincula un número de serie a un dispositivo (el admin lo reclama). */

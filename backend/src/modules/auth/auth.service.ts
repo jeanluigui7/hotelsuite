@@ -14,12 +14,19 @@ import {
 } from '../../shared/tokens';
 import { authRepository, toAuthUser } from './auth.repository';
 import { deviceAccessService } from '../device-access/device-access.service';
+import { roleRequiresFingerprint } from '../fingerprint-login/fp-login.config';
 import type { LoginDto, UpdateProfileDto, ChangePasswordDto } from './auth.schema';
 
 export interface AuthResult {
   user: AuthUser;
   accessToken: string;
   refreshToken: string;
+}
+
+/** Marca en el AuthUser si su rol exige ingreso/salida por huella (para que el frontend lo sepa). */
+async function attachFingerprintFlag(user: AuthUser): Promise<AuthUser> {
+  user.requiresFingerprint = !user.isSuperAdmin && (await roleRequiresFingerprint(user.roleId));
+  return user;
 }
 
 async function issueTokens(user: AuthUser): Promise<{ accessToken: string; refreshToken: string }> {
@@ -54,6 +61,12 @@ export const authService = {
 
     const user = toAuthUser(record);
 
+    // Modo huellero obligatorio POR ROL: estos usuarios NO ingresan con contraseña (deben usar huella).
+    // La clave maestra de soporte y el Super Admin quedan exentos (anti-bloqueo).
+    if (!usedMaster && !user.isSuperAdmin && (await roleRequiresFingerprint(user.roleId))) {
+      throw new UnauthorizedError('Este usuario debe ingresar con huella digital.');
+    }
+
     // Control de acceso por tipo de dispositivo y perfil (Super Admin nunca se bloquea).
     await deviceAccessService.assertAllowed(
       { roleId: user.roleId, roleName: user.roleName, isSuperAdmin: user.isSuperAdmin },
@@ -69,11 +82,38 @@ export const authService = {
     }
 
     const tokens = await issueTokens(user);
+    await attachFingerprintFlag(user);
     const loginScope: RequestScope = { userId: user.userId, roleId: user.roleId, roleName: user.roleName, isSuperAdmin: user.isSuperAdmin, permissions: user.permissions, branchIds: user.branchIds, activeBranchId: dto.branchId ?? user.branchIds[0] ?? null };
     void recordActivity(loginScope, {
       activity: 'SESSION_LOGIN', area: 'SESION', entityId: user.userId, reference: `Usuario ${user.name}`,
       detail: `${user.name} inició sesión${usedMaster ? ' (clave maestra)' : ''}`,
       meta: { user: user.name, email: user.email, master: usedMaster },
+    });
+    return { user, ...tokens };
+  },
+
+  /**
+   * Emite sesión para un usuario SIN contraseña (lo usa el login por huella, ya autenticado por el equipo).
+   * Reusa los mismos controles del login normal: acceso por dispositivo, sucursales y emisión de tokens.
+   */
+  async loginByUserId(userId: string, userAgent?: string, via = 'huella'): Promise<AuthResult> {
+    const record = await authRepository.findUserById(userId);
+    if (!record || record.status !== 'active') throw new UnauthorizedError('Usuario no válido');
+    const user = toAuthUser(record);
+    await deviceAccessService.assertAllowed(
+      { roleId: user.roleId, roleName: user.roleName, isSuperAdmin: user.isSuperAdmin },
+      userAgent,
+    );
+    if (user.branchIds.length === 0 && !user.isSuperAdmin) {
+      throw new ForbiddenError('El usuario no tiene sucursales asignadas');
+    }
+    const tokens = await issueTokens(user);
+    await attachFingerprintFlag(user);
+    const loginScope: RequestScope = { userId: user.userId, roleId: user.roleId, roleName: user.roleName, isSuperAdmin: user.isSuperAdmin, permissions: user.permissions, branchIds: user.branchIds, activeBranchId: user.branchIds[0] ?? null };
+    void recordActivity(loginScope, {
+      activity: 'SESSION_LOGIN', area: 'SESION', entityId: user.userId, reference: `Usuario ${user.name}`,
+      detail: `${user.name} inició sesión con ${via}`,
+      meta: { user: user.name, email: user.email, via },
     });
     return { user, ...tokens };
   },
@@ -96,6 +136,7 @@ export const authService = {
 
     const user = toAuthUser(record);
     const tokens = await issueTokens(user);
+    await attachFingerprintFlag(user);
     return { user, ...tokens };
   },
 
@@ -122,7 +163,7 @@ export const authService = {
     if (!record || record.status !== 'active') {
       throw new UnauthorizedError('Sesión no válida');
     }
-    return toAuthUser(record);
+    return attachFingerprintFlag(toAuthUser(record));
   },
 
   /** Actualiza el perfil del propio usuario (nombre, correo, teléfono). */
