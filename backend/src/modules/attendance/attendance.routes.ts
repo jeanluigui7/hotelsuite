@@ -9,5 +9,9 @@ export const attendanceRouter = Router();
 
 attendanceRouter.use(authenticate(), tenant());
 
+// Reportes administrativos (deben ir ANTES de la lista genérica).
+attendanceRouter.get('/attendances/daily', requirePermission('hr', 'view'), asyncHandler(attendanceController.daily));
+attendanceRouter.get('/attendances/monthly', requirePermission('hr', 'view'), asyncHandler(attendanceController.monthly));
+
 attendanceRouter.get('/attendances', requirePermission('hr', 'view'), asyncHandler(attendanceController.list));
 attendanceRouter.post('/attendances', requirePermission('hr', 'create'), asyncHandler(attendanceController.create));

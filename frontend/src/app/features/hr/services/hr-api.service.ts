@@ -33,6 +33,58 @@ export interface ActivityLog {
   meta?: Record<string, unknown> | null;
 }
 
+// ── Reporte administrativo de Asistencias ──
+export interface AttendanceReference {
+  role: string;
+  shift: string;
+  start: string;
+  end: string;
+  toleranceMinutes: number;
+}
+export type Situacion = 'PRESENTE' | 'FINALIZADO' | 'FALTA_SALIDA' | 'SIN_ENTRADA' | 'SIN_HORARIO';
+export type PuntualidadKind = 'PUNTUAL' | 'TARDE' | 'SIN_CALCULAR' | 'PENDIENTE';
+
+export interface DailyRow {
+  key: string;
+  userId: string;
+  userName: string;
+  roleName: string;
+  businessDate: string;
+  reference: AttendanceReference | null;
+  entradaAt: string | null;
+  salidaAt: string | null;
+  salidaNextDay: boolean;
+  situacion: Situacion;
+  puntualidad: { kind: PuntualidadKind; lateMinutes: number | null };
+  source: 'BIOMETRIC' | 'MANUAL' | 'MIXED' | null;
+  isRegularization: boolean;
+  note: string | null;
+}
+export interface DailyResponse {
+  rows: DailyRow[];
+  indicators: { presentesAhora: number | null; sinEntrada: number; tardanzasRef: number };
+}
+export interface MonthlyPerson {
+  userId: string;
+  userName: string;
+  roleName: string;
+  days: Record<number, string>;
+  totals: {
+    jornadas: number;
+    asistencias: number;
+    tardanzasRef: number;
+    minutosTardeRef: number;
+    marcasPendientes: number;
+    descansos: number | null;
+    faltasConfirmadas: number | null;
+  };
+}
+export interface MonthlyResponse {
+  month: string;
+  daysInMonth: number;
+  people: MonthlyPerson[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class HrApiService {
   private readonly http = inject(HttpClient);
@@ -43,6 +95,12 @@ export class HrApiService {
   }
   createAttendance(dto: { userId: string; type: 'IN' | 'OUT'; note?: string }): Observable<ApiResponse<Attendance>> {
     return this.http.post<ApiResponse<Attendance>>(`${this.api}/attendances`, dto);
+  }
+  dailyReport(params: { from: string; to?: string; role?: string; shift?: string; userId?: string; search?: string }): Observable<ApiResponse<DailyResponse>> {
+    return this.http.get<ApiResponse<DailyResponse>>(`${this.api}/attendances/daily`, { params: toHttpParams(params) });
+  }
+  monthlyReport(params: { month: string; role?: string; userId?: string; search?: string }): Observable<ApiResponse<MonthlyResponse>> {
+    return this.http.get<ApiResponse<MonthlyResponse>>(`${this.api}/attendances/monthly`, { params: toHttpParams(params) });
   }
   listActivity(params: ListParams = {}): Observable<ApiResponse<ActivityLog[]>> {
     return this.http.get<ApiResponse<ActivityLog[]>>(`${this.api}/activity-logs`, { params: toHttpParams(params) });

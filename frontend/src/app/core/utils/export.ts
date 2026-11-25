@@ -66,6 +66,48 @@ export async function downloadXlsxTable(
   URL.revokeObjectURL(url);
 }
 
+/** Una hoja para un libro de varias hojas. */
+export interface XlsxSheet {
+  sheetName: string;
+  columns: XlsxColumn[];
+  rows: (string | number | null | undefined)[][];
+  tableName?: string;
+}
+
+/** Igual que downloadXlsxTable pero con VARIAS hojas (p. ej. resumen + detalle diario). */
+export async function downloadXlsxMultiSheet(filename: string, sheets: XlsxSheet[]): Promise<void> {
+  const mod = (await import('exceljs')) as unknown as { Workbook?: new () => ExcelWorkbook; default?: { Workbook: new () => ExcelWorkbook } };
+  const WorkbookCtor = mod.Workbook ?? mod.default?.Workbook;
+  if (!WorkbookCtor) throw new Error('ExcelJS no disponible');
+  const wb = new WorkbookCtor();
+  sheets.forEach((sheet, idx) => {
+    const ws = wb.addWorksheet(sheet.sheetName.slice(0, 31) || `Hoja${idx + 1}`);
+    const safeName = ((sheet.tableName ?? sheet.sheetName).replace(/[^A-Za-z0-9_]/g, '_') || `Datos${idx + 1}`).replace(/^(\d)/, '_$1') + `_${idx + 1}`;
+    ws.addTable({
+      name: safeName,
+      ref: 'A1',
+      headerRow: true,
+      style: { theme: 'TableStyleMedium9', showRowStripes: true },
+      columns: sheet.columns.map((c) => ({ name: c.header, filterButton: true })),
+      rows: sheet.rows.map((r) => r.map((v) => (v == null ? '' : v))),
+    });
+    sheet.columns.forEach((c, i) => {
+      const col = ws.getColumn(i + 1);
+      if (c.width) col.width = c.width;
+      if (c.numFmt) col.numFmt = c.numFmt;
+      if (c.align) col.alignment = { horizontal: c.align };
+    });
+  });
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // Tipos mínimos de ExcelJS que usamos (evita depender del tipado completo en tiempo de compilación).
 interface ExcelWorkbook {
   addWorksheet(name: string): ExcelWorksheet;
