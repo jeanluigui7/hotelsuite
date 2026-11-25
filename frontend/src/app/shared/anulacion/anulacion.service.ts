@@ -35,9 +35,9 @@ export class AnulacionService {
   /** Se incrementa al completar una anulación: los hosts (card/folio/caja) recargan su data. */
   readonly completed = signal(0);
 
-  // Permiso de anulación = finance:edit (Recepción/Caja/Gerente) O operations:approve (Encargado de
-  // Operaciones). Debe coincidir con stays.routes (requireAnyPermission finance:edit | operations:approve).
-  canAnular(): boolean { return this.auth.can('finance', 'edit') || this.auth.can('operations', 'approve'); }
+  // Permiso de anulación = SOLO operations:approve (Encargado de Operaciones, Gerente, Super Admin).
+  // Recepción/Caja ya NO anulan estadías. Debe coincidir con stays.routes (requirePermission operations:approve).
+  canAnular(): boolean { return this.auth.can('operations', 'approve'); }
 
   start(ctx: AnulacionCtx): void {
     if (!this.canAnular()) {

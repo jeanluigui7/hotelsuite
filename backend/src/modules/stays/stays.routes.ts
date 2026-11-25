@@ -18,10 +18,10 @@ staysRouter.get('/stays/:id', requirePermission('operations', 'view'), asyncHand
 staysRouter.get('/stays/:id/checkout-summary', requirePermission('operations', 'view'), asyncHandler(staysController.checkoutSummary));
 staysRouter.post('/stays/check-in', requirePermission('operations', 'create'), asyncHandler(staysController.checkIn));
 staysRouter.post('/stays/:id/check-out', requirePermission('operations', 'edit'), asyncHandler(staysController.checkOut));
-// Anular / revertir (check-out accidental, check-in, renovación): permiso de anulación.
-// finance:edit (Recepción/Caja/Gerente) O operations:approve (Encargado de Operaciones), SIN abrirlo
-// a Limpieza/Mantenimiento (que tienen operations:edit pero no :approve).
-const canCancel = requireAnyPermission(['finance', 'edit'], ['operations', 'approve']);
+// Anular / revertir (check-out accidental, check-in, renovación): SOLO 'operations:approve'
+// (Encargado de Operaciones, Gerente y Super Admin). Se le quita a Recepción/Caja: aunque tienen
+// finance:edit (POS/caja), NO deben anular estadías (traza en movimientos pero presta a suspicacia).
+const canCancel = requirePermission('operations', 'approve');
 staysRouter.post('/stays/:id/revert-checkout', canCancel, asyncHandler(staysController.revertCheckOut));
 staysRouter.post('/stays/:id/change-room', requirePermission('operations', 'edit'), asyncHandler(staysController.changeRoom));
 staysRouter.post('/stays/:id/renew', requirePermission('operations', 'edit'), asyncHandler(staysController.renew));

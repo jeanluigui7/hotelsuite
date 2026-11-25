@@ -133,7 +133,7 @@ interface FaultLineUI {
                 <span class="oc-piso"><i class="pi pi-building"></i> {{ r.floor || '-' }}º piso</span>
               </div>
               @if (r.frigobarEnabled) {
-                <div class="frigo-row"><span class="frigo-ind pulse" title="Esta habitación tiene frigobar">❄️ FRIGOBAR</span></div>
+                <div class="frigo-row"><span class="frigo-ind pulse fg-click" title="Ver stock del frigobar" (click)="openFrigoStock(r); $event.stopPropagation()">❄️ FRIGOBAR</span></div>
               }
               @if (isAdminProfile()) {
                 <div class="oc-badges">
@@ -209,7 +209,7 @@ interface FaultLineUI {
               }
               <div class="rc-head">
                 <span class="rc-left"><span class="num"># {{ r.number }}</span><span class="piso"><i class="pi pi-building"></i> {{ r.floor || '-' }}º piso</span></span>
-                <span class="rc-badges"><span class="rc-type">{{ r.roomType.name }}</span>@if (r.frigobarEnabled) { <span class="frigo-ind sm" title="Esta habitación tiene frigobar">❄️ FRIGOBAR</span> }<span class="rc-state">● {{ st(r).badge ?? st(r).label }}</span></span>
+                <span class="rc-badges"><span class="rc-type">{{ r.roomType.name }}</span>@if (r.frigobarEnabled) { <span class="frigo-ind sm fg-click" title="Ver stock del frigobar" (click)="openFrigoStock(r); $event.stopPropagation()">❄️ FRIGOBAR</span> }<span class="rc-state">● {{ st(r).badge ?? st(r).label }}</span></span>
               </div>
               <div class="rc-line"></div>
               <div class="rc-body"><i [class]="st(r).icon"></i><div class="caption">{{ st(r).caption }}</div></div>
@@ -806,10 +806,54 @@ interface FaultLineUI {
     </p-dialog>
 
     <app-folio-estancia [(visible)]="folioVisible" [stayId]="folioStayId" (changed)="reload()" />
+
+    <!-- Stock actual del frigobar (solo lectura; todos los usuarios) -->
+    <p-dialog [(visible)]="frigoStockVisible" [modal]="true" [header]="'❄️ Frigobar · Hab. ' + (frigoStockRoom?.number || '')" [style]="{ width: '30rem', maxWidth: '95vw' }" styleClass="dk-dialog">
+      @if (frigoStockLoading()) {
+        <p class="fg-empty"><i class="pi pi-spin pi-spinner"></i> Cargando stock…</p>
+      } @else if (frigoStock()) {
+        @let fg = frigoStock()!;
+        @if (fg.items.length === 0) {
+          <p class="fg-empty">Sin productos en el frigobar de esta habitación.</p>
+        } @else {
+          <table class="fg-tbl">
+            <thead><tr><th>Producto</th><th class="c">Ubicación</th><th class="c">Cantidad</th></tr></thead>
+            <tbody>
+              @for (it of fg.items; track it.name) {
+                <tr>
+                  <td>{{ it.name }}@if (it.code) { <small class="fg-sku"> · {{ it.code }}</small> }</td>
+                  <td class="c"><span class="fg-loc" [class.bandeja]="it.location === 'BANDEJA'">{{ it.location === 'BANDEJA' ? 'Bandeja' : 'Frigobar' }}</span></td>
+                  <td class="c"><b>{{ it.quantity }}</b></td>
+                </tr>
+              }
+            </tbody>
+            <tfoot><tr><td colspan="2" class="r"><b>Total de unidades</b></td><td class="c"><b>{{ fg.totalUnits }}</b></td></tr></tfoot>
+          </table>
+          <p class="fg-note"><i class="pi pi-info-circle"></i> Stock actual (dotación en la habitación). El consumo se registra en la revisión del frigobar.</p>
+        }
+      } @else {
+        <p class="fg-empty">No se pudo cargar el stock del frigobar.</p>
+      }
+      <ng-template pTemplate="footer">
+        <p-button label="Cerrar" [text]="true" (onClick)="frigoStockVisible = false" />
+      </ng-template>
+    </p-dialog>
   `,
   styles: [
     `
       :host { display: block; }
+      .fg-click { cursor: pointer; }
+      .fg-click:hover { filter: brightness(1.12); text-decoration: underline; }
+      .fg-tbl { width: 100%; border-collapse: collapse; }
+      .fg-tbl th, .fg-tbl td { padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--p-content-border-color, #24324a); font-size: 0.88rem; text-align: left; }
+      .fg-tbl th { color: var(--p-text-muted-color, #8aa0bd); font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.03em; }
+      .fg-tbl .c { text-align: center; } .fg-tbl .r { text-align: right; }
+      .fg-tbl tfoot td { border-top: 2px solid var(--p-content-border-color, #24324a); border-bottom: 0; }
+      .fg-sku { color: var(--p-text-muted-color, #8aa0bd); }
+      .fg-loc { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 99px; font-size: 0.72rem; font-weight: 700; background: rgba(59,130,246,0.16); color: #3b82f6; }
+      .fg-loc.bandeja { background: rgba(236,72,153,0.16); color: #ec4899; }
+      .fg-empty { text-align: center; color: var(--p-text-muted-color, #8aa0bd); padding: 1rem 0; }
+      .fg-note { margin: 0.75rem 0 0; font-size: 0.78rem; color: var(--p-text-muted-color, #8aa0bd); display: flex; gap: 0.4rem; align-items: flex-start; }
       .board { background: #0b1018; min-height: 100%; margin: -1.5rem; padding: 1.5rem; color: #e6e9ef; }
       h1 { margin: 0; font-size: 1.7rem; color: #fff; }
       .top { margin-bottom: 1.25rem; }
@@ -1220,6 +1264,23 @@ export class HabitacionesBoardComponent implements OnInit, OnDestroy {
   });
   private readonly apiUrl = environment.apiUrl;
   readonly nowTick = signal(Date.now());
+
+  // Frigobar: stock actual (solo lectura, desde la card)
+  frigoStockVisible = false;
+  frigoStockRoom: { id: string; number: string } | null = null;
+  readonly frigoStockLoading = signal(false);
+  readonly frigoStock = signal<{ room: { id: string; number: string; frigobarEnabled: boolean }; items: { productId: string | null; name: string; code: string; location: string; quantity: number; unitPrice: number }[]; totalUnits: number } | null>(null);
+
+  openFrigoStock(r: { id: string; number: string }): void {
+    this.frigoStockRoom = { id: r.id, number: r.number };
+    this.frigoStock.set(null);
+    this.frigoStockLoading.set(true);
+    this.frigoStockVisible = true;
+    this.http.get<ApiResponse<{ room: { id: string; number: string; frigobarEnabled: boolean }; items: { productId: string | null; name: string; code: string; location: string; quantity: number; unitPrice: number }[]; totalUnits: number }>>(`${this.apiUrl}/frigobar/room/${r.id}/stock`).subscribe({
+      next: (res) => { this.frigoStock.set(res.data ?? null); this.frigoStockLoading.set(false); },
+      error: () => { this.frigoStock.set(null); this.frigoStockLoading.set(false); },
+    });
+  }
 
   // Nueva habitación (admin)
   readonly roomTypes = signal<RoomType[]>([]);

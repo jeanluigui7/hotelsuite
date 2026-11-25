@@ -73,6 +73,18 @@ function tipoOf(m: { tipo?: string; type: string }): string { return m.tipo || m
       @if (loading()) { <p class="muted">Cargando…</p> }
       @else if (detail()) {
         @let d = detail()!;
+        @if (auditGateBlocked()) {
+          <div class="audit-gate">
+            <div class="ag-card">
+              <div class="ag-ico"><i class="pi pi-shield"></i></div>
+              <h3>Auditoría requerida</h3>
+              <p>Para ver y auditar los movimientos de la <b>Caja #{{ d.session.number ?? '—' }}</b> debes iniciar la auditoría.</p>
+              <p class="ag-note">Solo puedes tener <b>una auditoría en proceso a la vez</b>. Puedes salir y retomarla luego sin perder el avance.</p>
+              <button class="ag-btn" [disabled]="busy()" (click)="doAudit('START')"><i class="pi pi-play"></i> Iniciar auditoría</button>
+              <button class="ag-link" (click)="goBack()">Volver sin auditar</button>
+            </div>
+          </div>
+        }
         <header class="head">
           <div>
             <h1>Movimientos — Caja #{{ d.session.number ?? '—' }} <span class="audit-badge"><i class="pi pi-shield"></i> Vista de auditoría</span></h1>
@@ -564,6 +576,20 @@ function tipoOf(m: { tipo?: string; type: string }): string { return m.tipo || m
     `
       .wrap { padding: 1.25rem; }
       .muted { color: #8aa0bd; } .empty { text-align: center; padding: 1.5rem; color: #8aa0bd; }
+      .audit-gate { position: fixed; inset: 0; z-index: 2500; display: flex; align-items: center; justify-content: center; padding: 1.5rem;
+        background: var(--p-content-background, #0b1220); }
+      .audit-gate .ag-card { max-width: 420px; text-align: center; padding: 2rem 1.75rem; border-radius: 16px;
+        background: var(--p-content-hover-background, #0f1a2b); border: 1px solid var(--p-content-border-color, #24324a); }
+      .audit-gate .ag-ico { width: 64px; height: 64px; margin: 0 auto 1rem; border-radius: 50%; display: grid; place-items: center;
+        font-size: 1.7rem; background: rgba(59,130,246,0.16); color: #3b82f6; }
+      .audit-gate h3 { margin: 0 0 0.5rem; font-size: 1.2rem; color: var(--p-text-color, #e6edf5); }
+      .audit-gate p { margin: 0 0 0.6rem; color: var(--p-text-muted-color, #8aa0bd); font-size: 0.9rem; }
+      .audit-gate .ag-note { font-size: 0.82rem; }
+      .audit-gate .ag-btn { margin-top: 0.5rem; width: 100%; padding: 0.8rem; border: 0; border-radius: 11px; cursor: pointer;
+        background: #3b82f6; color: #fff; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; }
+      .audit-gate .ag-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+      .audit-gate .ag-link { margin-top: 0.75rem; background: transparent; border: 0; color: var(--p-text-muted-color, #8aa0bd); cursor: pointer; font-size: 0.85rem; }
+      .audit-gate .ag-link:hover { text-decoration: underline; }
       .head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
       h1 { margin: 0; font-size: 1.35rem; } .turno { margin: 0.2rem 0 0; color: #8aa0bd; font-size: 0.85rem; }
       .dactions { display: flex; gap: 0.5rem; }
@@ -697,6 +723,16 @@ export class CashMovementsPageComponent implements OnInit {
   private readonly _anulWatch = effect(() => { const n = this.anulacion.completed(); if (n !== this.anulBump) { this.anulBump = n; this.reload(); } });
 
   readonly canEdit = this.auth.can('finance', 'edit');
+  /** Rol con caja restringida (Encargado de Operaciones): auditoría obligatoria al entrar a Movimientos. */
+  readonly auditRestricted = computed(() => {
+    const u = this.auth.user();
+    if (u?.isSuperAdmin) return false;
+    const r = (u?.roleName ?? '').toLowerCase();
+    return r.includes('encargado') && !r.includes('gerente') && !r.includes('admin');
+  });
+  /** Gate: el Encargado no ve los movimientos de una caja PENDIENTE hasta iniciar su auditoría. */
+  readonly auditGateBlocked = computed(() => this.auditRestricted() && this.detail()?.session?.auditStatus === 'PENDIENTE');
+  goBack(): void { history.back(); }
   readonly canReopen = this.auth.can('settings', 'edit'); // reabrir es solo Admin/Superadmin
   readonly loading = signal(true);
   readonly busy = signal(false);

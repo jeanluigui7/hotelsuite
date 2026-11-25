@@ -10,6 +10,7 @@ import { consumeFloorTx, closeLinenShiftForBranch } from '../linen-admin/linen-a
 import { resolveRoomFloor } from '../room-inventory/room-inventory.service';
 import { frigobarReviewService } from '../frigobar-review/frigobar-review.service';
 import { recomputeRoomBlock, resolveFaultSnapshot } from '../maintenance/fault-block';
+import { recordActivity } from '../activity-log/activity.emitter';
 
 /** Flujo de limpieza RIZZOS: iniciar limpieza (recoger ropa con estado OK/ROBADA/DETERIORADA)
  *  → habitación EN CURSO → finalizar limpieza → Disponible. */
@@ -204,6 +205,12 @@ export const cleaningService = {
     await prisma.room.update({ where: { id: roomId }, data: { status: 'LIMPIEZA_EN_CURSO' } });
     // Renovación: refleja "en curso" en la estancia (para el folio).
     if (renewalStay) await prisma.stay.update({ where: { id: renewalStay.id }, data: { renewalCleaningStatus: 'EN_CURSO' } });
+    void recordActivity(scope, {
+      activity: 'CLEANING_START', area: 'LIMPIEZA', roomId, entityId: task.id,
+      reference: `Hab. ${room.number}`,
+      detail: `Inicio de limpieza (${type === 'RENOVACION' ? 'renovación' : 'check-out'}) · Hab. ${room.number}`,
+      meta: { room: room.number, type },
+    });
     return { taskId: task.id };
   },
 
@@ -221,6 +228,12 @@ export const cleaningService = {
     if (task) {
       const claim = await prisma.housekeepingTask.updateMany({ where: { id: task.id, status: 'IN_PROGRESS' }, data: { status: 'DONE', result: 'APPROVED', completedAt: new Date() } });
       if (claim.count === 0) return { ok: true, alreadyDone: true };
+      void recordActivity(scope, {
+        activity: 'CLEANING_FINISH', area: 'LIMPIEZA', roomId, entityId: task.id,
+        reference: `Hab. ${room.number}`,
+        detail: `Fin de limpieza (${task.type === 'RENOVACION' ? 'renovación' : 'check-out'}) · Hab. ${room.number}`,
+        meta: { room: room.number, type: task.type },
+      });
     }
 
     // ── Ropa: RETIRA del inventario actual TODAS las unidades marcadas para recoger (BASE retiradas

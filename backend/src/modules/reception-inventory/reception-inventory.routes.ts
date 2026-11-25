@@ -3,6 +3,9 @@ import { asyncHandler } from '../../shared/async-handler';
 import { authenticate } from '../../middlewares/auth.middleware';
 import { tenant } from '../../middlewares/tenant.middleware';
 import { requirePermission } from '../../middlewares/rbac.middleware';
+import { ok } from '../../shared/response';
+import { UnauthorizedError } from '../../shared/errors';
+import { adjustmentsService, adjustmentSchema } from '../adjustments/adjustments.service';
 import { receptionInventoryController } from './reception-inventory.controller';
 
 export const receptionInventoryRouter = Router();
@@ -10,6 +13,19 @@ export const receptionInventoryRouter = Router();
 receptionInventoryRouter.use(authenticate(), tenant());
 
 const base = '/reception-inventory';
+
+// Registrar ajuste de stock desde el inventario de recepción: requiere 'logistics:edit'.
+// Recepción (que tiene inventory:edit para sus solicitudes/conteo) NO debe ajustar stock; sí pueden
+// Encargado de Operaciones, Gerente, Logística y Super Admin, que tienen logistics:edit.
+receptionInventoryRouter.post(
+  `${base}/adjust`,
+  requirePermission('logistics', 'edit'),
+  asyncHandler(async (req, res) => {
+    if (!req.scope) throw new UnauthorizedError();
+    const dto = adjustmentSchema.parse(req.body);
+    res.status(201).json(ok(await adjustmentsService.create(req.scope, dto)));
+  }),
+);
 receptionInventoryRouter.get(base, requirePermission('inventory', 'view'), asyncHandler(receptionInventoryController.list));
 receptionInventoryRouter.get(`${base}/requests`, requirePermission('inventory', 'view'), asyncHandler(receptionInventoryController.listRequests));
 receptionInventoryRouter.post(`${base}/requests`, requirePermission('inventory', 'create'), asyncHandler(receptionInventoryController.createRequest));

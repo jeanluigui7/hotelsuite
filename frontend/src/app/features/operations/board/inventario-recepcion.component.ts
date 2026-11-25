@@ -106,7 +106,7 @@ interface PrintJob { id: string; type: string; title: string; status: string; cr
                 <td class="n adj" [class.clk]="it.ajustes !== 0" (click)="it.ajustes !== 0 && openAjustes(it)"><span [class.pos]="it.ajustes > 0" [class.neg]="it.ajustes < 0">{{ it.ajustes > 0 ? '+' : '' }}{{ it.ajustes }}</span>@if (it.ajustes !== 0) { <i class="pi pi-search-plus av"></i> }</td>
                 <td class="n">@if (it.belowMin) { <span class="warn"><i class="pi pi-exclamation-triangle"></i> {{ it.stock }} u.</span> } @else { <span>{{ it.stock }} u.</span> }</td>
               }
-              <td class="g"><button class="gear" (click)="openAdjust(it)" title="Registrar ajuste"><i class="pi pi-sliders-h"></i></button></td>
+              <td class="g">@if (canAdjustStock()) { <button class="gear" (click)="openAdjust(it)" title="Registrar ajuste"><i class="pi pi-sliders-h"></i></button> }</td>
             </tr>
           } @empty { <tr><td colspan="8" class="muted center">Sin productos.</td></tr> }
         </tbody>
@@ -460,6 +460,8 @@ export class InventarioRecepcionComponent implements OnInit {
   private readonly inventory = inject(InventoryApiService);
   /** Solo gerente/admin (permiso inventory:delete) pueden dar de baja productos. */
   canWriteOff(): boolean { return this.auth.can('inventory', 'delete'); }
+  /** Registrar ajuste de stock en recepción = logistics:edit (Recepción NO ajusta; sí Encargado/Gerente/Logística). */
+  canAdjustStock(): boolean { return this.auth.can('logistics', 'edit'); }
   canAudit(): boolean { return this.auth.can('settings', 'edit'); }
   readonly auditAvailable = signal(false);
   private checkAuditAvailable(): void {
@@ -719,7 +721,7 @@ export class InventarioRecepcionComponent implements OnInit {
     this.busy.set(true);
     const body: Record<string, unknown> = { kind: this.adjForm.kind, productId: it.productId, warehouseId: this.whId(), quantity: this.adjForm.quantity, reference: this.adjForm.reference || undefined };
     if (this.adjForm.kind === 'TRANSFER') body['toWarehouseId'] = this.adjForm.toWarehouseId;
-    this.http.post<ApiResponse<unknown>>(`${this.api}/adjustments`, body).subscribe({
+    this.http.post<ApiResponse<unknown>>(`${this.api}/reception-inventory/adjust`, body).subscribe({
       next: () => { this.busy.set(false); this.adjVisible = false; this.toast.add({ severity: 'success', summary: 'Ajuste registrado', detail: `${this.adjKindLabel(this.adjForm.kind)} · ${it.name}` }); this.reload(); },
       error: (e: HttpErrorResponse) => { this.busy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e.error?.error?.message ?? 'No se pudo registrar el ajuste.' }); },
     });

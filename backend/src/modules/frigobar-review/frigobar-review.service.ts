@@ -61,6 +61,33 @@ export const frigobarReviewService = {
     return { room: { id: room.id, number: room.number }, lines };
   },
 
+  /** Stock ACTUAL del frigobar de una habitación (solo lectura; para la card de la habitación, todos los usuarios). */
+  async roomStock(scope: RequestScope, roomId: string) {
+    const branchId = requireActiveBranch(scope);
+    const room = await prisma.room.findFirst({ where: { id: roomId, branchId }, select: { id: true, number: true, roomTypeId: true, frigobarEnabled: true } });
+    if (!room) throw new ValidationError('Habitación no encontrada');
+    const inv = await prisma.roomInventory.findMany({ where: { roomId: room.id, articleKind: 'FRIGOBAR' }, select: { productId: true, name: true, quantity: true } });
+    const pids = inv.map((i) => i.productId).filter((x): x is string => !!x);
+    const [prods, dot] = await Promise.all([
+      pids.length ? prisma.product.findMany({ where: { id: { in: pids }, branchId }, select: { id: true, name: true, salePrice: true, imageUrl: true, sku: true } }) : Promise.resolve([]),
+      prisma.roomTypeDotacion.findMany({ where: { branchId, roomTypeId: room.roomTypeId, articleKind: 'FRIGOBAR', status: 'active', productId: { not: null } }, select: { productId: true, size: true } }),
+    ]);
+    const pmap = new Map(prods.map((p) => [p.id, p]));
+    const locByProd = new Map(dot.map((d) => [d.productId as string, (d.size || 'FRIGOBAR').toUpperCase() === 'BANDEJA' ? 'BANDEJA' : 'FRIGOBAR']));
+    const items = inv.map((i) => ({
+      productId: i.productId,
+      name: pmap.get(i.productId as string)?.name ?? i.name,
+      code: pmap.get(i.productId as string)?.sku ?? '',
+      imageUrl: pmap.get(i.productId as string)?.imageUrl ?? null,
+      location: (i.productId ? locByProd.get(i.productId) : null) ?? 'FRIGOBAR',
+      quantity: i.quantity,
+      unitPrice: Number(pmap.get(i.productId as string)?.salePrice ?? 0),
+    }));
+    items.sort((a, b) => (a.location === b.location ? a.code.localeCompare(b.code, undefined, { numeric: true, sensitivity: 'base' }) : a.location === 'BANDEJA' ? -1 : 1));
+    const totalUnits = items.reduce((s, i) => s + i.quantity, 0);
+    return { room: { id: room.id, number: room.number, frigobarEnabled: room.frigobarEnabled }, items, totalUnits };
+  },
+
   /** Registra la revisión: lo faltante (dotación − contado) = consumido → descuenta el frigobar de la
    *  habitación y crea el cargo (venta OPEN ligada a la estancia). Deja reposición pendiente. */
   async submit(scope: RequestScope, stayId: string, dto: SubmitReviewDto) {

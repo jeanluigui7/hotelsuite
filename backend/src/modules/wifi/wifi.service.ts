@@ -299,6 +299,13 @@ export const wifiService = {
       });
       if (s) stay = { room: s.room?.number ?? cred.assignedRoom, rateLabel: s.rate?.label ?? 'Tarifa personalizada', adults: s.adults, checkOutAt: s.plannedCheckoutAt };
     }
+    // Bitácora: deja rastro de QUIÉN imprime/genera el ticket WiFi (esta ruta la usa el botón Imprimir del pool).
+    void recordActivity(scope, {
+      activity: 'WIFI_TICKET_PRINT', area: 'WIFI', entityId: id,
+      reference: cred.assignedRoom ? `Hab. ${cred.assignedRoom}` : `WiFi ${cred.ssid}`,
+      detail: `Impresión de ticket WiFi · ${cred.ssid}${cred.assignedRoom ? ` · Hab. ${cred.assignedRoom}` : ''}`,
+      meta: { ssid: cred.ssid, category: cred.category, room: cred.assignedRoom ?? null },
+    });
     return {
       branch: {
         name: branch?.name ?? '', address: branch?.address ?? '',

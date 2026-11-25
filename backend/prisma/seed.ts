@@ -28,6 +28,8 @@ const BASE_ROLES: {
     // 'rooms' le da crear/editar habitaciones (no delete). NO incluye 'roomtypes' (no crea/elimina tipos).
     // 'maintenance' le da RESOLVER fallas (approve).
     modules: ['dashboard', 'operations', 'finance', 'inventory', 'logistics', 'hr', 'reports', 'settings', 'rooms', 'maintenance'],
+    // operations:approve = anular estadías/check-in/renovación + revertir check-out (alto rango conserva la anulación).
+    grants: { operations: ['view', 'create', 'edit', 'approve'] },
   },
   {
     name: 'Encargado de Operaciones',

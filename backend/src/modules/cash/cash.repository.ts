@@ -212,6 +212,14 @@ export const cashRepository = {
     return prisma.cashSession.update({ where: { id: cashSessionId }, data });
   },
 
+  /** Otra caja con una auditoría EN PROCESO/OBSERVADA iniciada por ese usuario (límite de una a la vez). */
+  findInProgressAuditByUser(branchId: string, userId: string, excludeId: string) {
+    return prisma.cashSession.findFirst({
+      where: { branchId, auditedByUserId: userId, auditStatus: { in: ['EN_PROCESO', 'OBSERVADA'] }, id: { not: excludeId } },
+      select: { id: true, number: true },
+    });
+  },
+
   async getSetting(branchId: string, key: string) {
     const s = await prisma.setting.findUnique({ where: { branchId_key: { branchId, key } } });
     return s?.value ?? null;

@@ -40,12 +40,12 @@ interface Pill { label: string; icon: string; route: string; color: string; quer
 })
 export class QuickPillsComponent {
   private readonly auth = inject(AuthService);
-  /** Los pills (atajos a almacenes) SOLO son visibles para Administrador y Gerente. */
+  /** Los pills (atajos a almacenes) son visibles para Administrador, Gerente y Encargado de Operaciones. */
   canSeePills(): boolean {
     const u = this.auth.user();
     if (u?.isSuperAdmin) return true;
     const r = (u?.roleName ?? '').toLowerCase();
-    return r.includes('admin') || r.includes('gerente');
+    return r.includes('admin') || r.includes('gerente') || r.includes('encargado');
   }
   readonly pills: Pill[] = [
     { label: 'Productos', icon: 'pi pi-box', route: '/operations/almacen-productos', color: '#8b5cf6' },

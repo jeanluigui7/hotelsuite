@@ -486,6 +486,12 @@ export const cashService = {
     if (session.status === 'OPEN') throw new ConflictError('No se puede auditar una caja abierta. Ciérrela primero.');
     const stamp = { auditedByUserId: scope.userId, auditedAt: new Date() };
     if (dto.action === 'START') {
+      // Límite de UNA auditoría a la vez para roles con caja restringida (Encargado de Operaciones):
+      // si ya tiene otra EN_PROCESO/OBSERVADA, no puede iniciar otra hasta finalizarla.
+      if (isAuditRestrictedRole(scope.roleName) && session.auditStatus !== 'EN_PROCESO' && session.auditStatus !== 'OBSERVADA') {
+        const other = await cashRepository.findInProgressAuditByUser(branchId, scope.userId, id);
+        if (other) throw new ConflictError(`Ya tienes una auditoría en proceso (Caja #${other.number ?? '—'}). Finalízala antes de iniciar otra.`);
+      }
       await cashRepository.setAuditStatus(id, { auditStatus: 'EN_PROCESO', ...stamp });
     } else if (dto.action === 'OBSERVE') {
       const obs = dto.observation?.trim();
